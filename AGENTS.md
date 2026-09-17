@@ -14,11 +14,13 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   types.ts       ProductRow / IfcGraph / IfcSummary / CheckResult / Finding
   fundamentals.ts  the nine structure-and-usability checks
   worker.ts      one Web Worker per file
-src/ids/         ruleset model, IDS emitter, XSD validator   (in progress)
-src/builder/     rule builder UI                              (in progress)
+src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
+src/builder/     rule builder UI (a strict subset of the JSON format)
 scripts/
   check-cli.ts   run the fundamentals headlessly
+  ids-cli.ts     author, lint, emit and run rulesets headlessly
   build-wasm.sh  rebuild the vendored ifcfast wasm module
+  gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
 ```
 
@@ -146,3 +148,121 @@ them out, so those facets cannot run in the browser until it lands.
 **#180 matters to any geometry check you write.** Storey elevation is in file
 units; mesh vertices are metres. Multiply by `summary.unit_scale` before
 comparing, or every millimetre model is wrong by 1000× and silently.
+
+
+## Rulesets
+
+The ruleset JSON is the interface. The builder UI is a view onto it and holds
+no capability the format lacks, so an agent never needs the UI.
+
+JSON Schema: `src/ids/ruleset.schema.json` (draft 2020-12). Validate your
+authored ruleset against it before running. The selftest asserts the shipped
+copy has not drifted from `src/ids/schema.ts`.
+
+### Two kinds of rule
+
+**`kind: "ids"`** becomes one IDS `<specification>`. All six facets are
+covered in both positions: Entity, Attribute, Classification, Property,
+Material, PartOf.
+
+**`kind: "extended"`** carries a check IDS has no facet for. Each exists
+because of a specific verified limit, not a preference:
+
+| `check.type` | blocked in IDS by |
+|---|---|
+| `element-typed` | no `IFCRELDEFINESBYTYPE` in the relations enumeration |
+| `unique-attribute` | no uniqueness or cross-instance operator |
+| `type-usage-count` | no cross-instance counting — applicability `minOccurs` counts the whole selection, not per type |
+| `model-metadata` | header, `IfcUnitAssignment` and parse stats are unreachable by any facet |
+
+Only checks that can actually be evaluated are offered. **Geometry and
+georeferencing rule kinds do not exist**, because the data source does not — an
+authorable but inert rule is exactly the green-looking non-result this tool is
+built to avoid.
+
+### Things the format prevents
+
+- `minOccurs` / `maxOccurs` live on `applicability`, never on the rule.
+- `cardinality` is accepted only in `requirements`; the JSON Schema uses
+  separate facet definitions per position, so putting it in applicability is a
+  schema violation rather than a lint warning.
+- Naming an abstract IFC class is a lint **error**. Use `"group"` and the
+  emitter expands it to the concrete class enumeration — the abstract-class
+  trap cannot be authored. Groups: `product`, `element`, `physicalElement`,
+  `builtElement`, `distributionElement`, `spatialElement`, `featureElement`,
+  `elementType`, `typeProduct`, `group`.
+- `partOf` requirements take `required` or `prohibited` only, per the XSD's
+  `simpleCardinality`.
+
+### Export is honest about what it dropped
+
+`emit` produces the `.ids` and the ruleset JSON, and lists every excluded rule
+with a code (`disabled` or `not-expressible:<checkType>`). The `.ids` is
+**null** rather than empty when nothing was expressible, because an IDS with
+zero specifications is invalid. No custom namespace is ever injected to smuggle
+an extended rule into the standard file.
+
+### CLI
+
+```bash
+node scripts/ids-cli.ts schema                        # the ruleset JSON Schema
+node scripts/ids-cli.ts sample                        # a worked ruleset to start from
+node scripts/ids-cli.ts lint   my.ruleset.json
+node scripts/ids-cli.ts emit   my.ruleset.json [--out DIR]
+node scripts/ids-cli.ts run    my.ruleset.json a.ifc [b.ifc ...]
+node scripts/ids-cli.ts selftest
+```
+
+One JSON document to stdout per invocation; progress and errors to stderr.
+
+Exit codes: **0** clean · **1** the thing checked failed · **2** usage or
+internal error · **3** nothing failed but at least one rule was
+`not_evaluable`. Treat 3 as "the answer is unknown", not as a pass.
+
+### The evaluator's boundary
+
+`state` is never `pass` by default. Zero matches gives `not_applicable`;
+anything the parser cannot answer gives `not_evaluable` with the reason
+attached.
+
+**Evaluable:** entity and predefinedType · attributes GlobalId, Name,
+ObjectType, Tag, PredefinedType · materials · the relations
+`IFCRELCONTAINEDINSPATIALSTRUCTURE`, `IFCRELAGGREGATES`,
+`IFCRELVOIDSELEMENT IFCRELFILLSELEMENT` · type linkage · applicability
+occurrence bounds · the three flattened common properties IsExternal,
+FireRating, LoadBearing.
+
+**Not evaluable, and reported as such:** classifications and any other property
+(both wait on [ifcfast#183](https://github.com/EdvardGK/ifcfast/issues/183)) ·
+attributes outside those five · `IFCRELNESTS` · `IFCRELASSIGNSTOGROUP` · a
+facet whose name is itself a restriction.
+
+Two caveats the output states for itself: a property rule matches on base name
+only, because the parser flattens those three and does not carry the property
+set name; and spatial structure elements are synthesized into the selection
+universe carrying GlobalId and Name only.
+
+XSD regex is a different dialect from JavaScript's. Patterns are anchored as
+XSD anchors them, but an exotic pattern can behave differently here than in a
+conforming IDS auditor.
+
+### Validation is real
+
+`xmllint-wasm` against buildingSMART's own XSD, vendored in
+`vendor/ids-schema/` with the W3C imports alongside it. The absolute
+`schemaLocation` URLs are rewritten to local filenames in code so the vendored
+files stay byte-identical to what was published, and a guard throws if any
+absolute import survives — validation cannot silently degrade into a
+network-dependent no-op.
+
+Cross-checked against an independent implementation: the emitted sample
+validates clean under Python `xmlschema`, and `minOccurs` on a specification, a
+bogus `ifcVersion` and `cardinality` on an applicability facet are each
+rejected.
+
+### Regenerating generated files
+
+```bash
+python scripts/gen-ifc-classes.py                              # needs ifcopenshell
+node scripts/ids-cli.ts schema > src/ids/ruleset.schema.json   # selftest asserts this is current
+```
