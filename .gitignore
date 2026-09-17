@@ -24,7 +24,6 @@ dist-ssr
 *.sw?
 
 # Vendored wasm build (wasm-bindgen --target web output)
-vendor/
 
 # Vendored wasm source/build tree (dropped in out-of-band, not part of the app)
 _wasmbuild/
