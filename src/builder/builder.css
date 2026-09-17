@@ -1,0 +1,491 @@
+/* Rule builder surface. Plain CSS, scoped under .rb, so this folder carries its
+   own palette and never collides with the app's Tailwind theme. */
+
+.rb {
+  --base: #f4eedc;
+  --panel: #eae0c5;
+  --input: #fcf8ec;
+  --ink: #23291e;
+  --muted: #8a8061;
+  --line: #dbd0b2;
+  --green: #2c5e3f;
+  --pale-green: #e6efdd;
+  --gold: #a8821e;
+  --bad: #a8473a;
+
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--base);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+.rb *,
+.rb *::before,
+.rb *::after {
+  box-sizing: border-box;
+}
+
+.rb code,
+.rb .mono {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 12px;
+  /* Identifiers are never truncated. */
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ chrome */
+
+.rb-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.rb-bar-spacer {
+  flex: 1 1 auto;
+}
+
+.rb-label {
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ inputs */
+
+.rb input[type="text"],
+.rb input[type="number"],
+.rb textarea,
+.rb select {
+  background: var(--input);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 3px 5px;
+  font: inherit;
+  min-width: 0;
+}
+
+.rb input[type="text"]:focus,
+.rb input[type="number"]:focus,
+.rb textarea:focus,
+.rb select:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
+}
+
+.rb textarea {
+  resize: vertical;
+  width: 100%;
+}
+
+.rb input.rb-mono {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 12px;
+}
+
+.rb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rb-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+.rb-btn {
+  background: var(--input);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 3px 9px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rb-btn:hover {
+  background: var(--panel);
+}
+
+.rb-btn-primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--base);
+}
+
+.rb-btn-primary:hover {
+  background: #23492f;
+}
+
+.rb-btn-bad {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--base);
+}
+
+.rb-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Segmented toggles: the whole segment carries the state, not a hairline. */
+.rb-seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.rb-seg > button {
+  background: var(--input);
+  color: var(--ink);
+  border: 0;
+  border-right: 1px solid var(--line);
+  padding: 3px 9px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rb-seg > button:last-child {
+  border-right: 0;
+}
+
+.rb-seg > button[aria-pressed="true"] {
+  background: var(--green);
+  color: var(--base);
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.rb-main {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+
+.rb-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.rb-col:last-child {
+  border-right: 0;
+}
+
+.rb-col-list {
+  flex: 0 0 300px;
+}
+
+.rb-col-editor {
+  flex: 1 1 auto;
+}
+
+.rb-col-side {
+  flex: 0 0 380px;
+}
+
+.rb-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.rb-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+}
+
+.rb-pad {
+  padding: 8px;
+}
+
+/* ---------------------------------------------------------------- rule list */
+
+.rb-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 5px 8px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rb-item:hover {
+  background: var(--panel);
+}
+
+.rb-item[aria-current="true"] {
+  background: var(--green);
+  color: var(--base);
+}
+
+.rb-item[aria-current="true"] .rb-item-id {
+  color: var(--pale-green);
+}
+
+.rb-item-id {
+  color: var(--muted);
+  display: block;
+}
+
+.rb-item-off {
+  opacity: 0.55;
+}
+
+/* Kind badges: the whole badge is coloured, and it carries a word. */
+.rb-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rb-badge-ids {
+  background: var(--green);
+  color: var(--base);
+}
+
+.rb-badge-extended {
+  background: var(--gold);
+  color: var(--base);
+}
+
+.rb-badge-off {
+  background: var(--muted);
+  color: var(--base);
+}
+
+/* ------------------------------------------------------------------ blocks */
+
+.rb-block {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel);
+  margin-bottom: 8px;
+}
+
+.rb-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rb-block-body {
+  padding: 8px;
+  background: var(--base);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rb-facet {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rb-facet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------------- class pick */
+
+.rb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--green);
+  color: var(--base);
+  border: 0;
+  border-radius: 2px;
+  padding: 2px 6px;
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rb-options {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--input);
+}
+
+.rb-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 2px 6px;
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rb-option:hover {
+  background: var(--pale-green);
+}
+
+/* ------------------------------------------------------------- state blocks */
+
+.rb-state {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 2px;
+}
+
+.rb-state-ok {
+  background: var(--green);
+  color: var(--base);
+}
+
+.rb-state-bad {
+  background: var(--bad);
+  color: var(--base);
+}
+
+.rb-state-warn {
+  background: var(--gold);
+  color: var(--base);
+}
+
+.rb-state-idle {
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.rb-issue {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rb-tag {
+  align-self: start;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rb-tag-error {
+  background: var(--bad);
+  color: var(--base);
+}
+
+.rb-tag-warning {
+  background: var(--gold);
+  color: var(--base);
+}
+
+.rb-xml {
+  margin: 0;
+  padding: 8px;
+  white-space: pre;
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  background: var(--input);
+}
+
+/* ---------------------------------------------------------------- popover */
+
+.rb-anchor {
+  position: relative;
+}
+
+.rb-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--base);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  box-shadow: 0 6px 20px rgb(35 41 30 / 0.22);
+}
+
+.rb-muted {
+  color: var(--muted);
+}
+
+.rb-strong {
+  font-weight: 700;
+}
