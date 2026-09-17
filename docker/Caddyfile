@@ -1,0 +1,23 @@
+# Inner Caddy: serves the built bundle. TLS and the public hostname are the
+# host Caddy's job, so this listens plain on 8080.
+:8080 {
+	root * /srv
+	encode gzip zstd
+
+	# Single page, relative base. Any unknown path falls back to index.html.
+	try_files {path} /index.html
+	file_server
+
+	# The wasm module is content-hashed by Vite, so it can be cached hard.
+	@hashed path_regexp ^/assets/
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# index.html must not be, or a deploy never reaches anyone.
+	@root path / /index.html
+	header @root Cache-Control "no-cache"
+
+	log {
+		output stdout
+		format console
+	}
+}
