@@ -82,12 +82,37 @@ export interface IfcSummary {
  */
 export type CheckState = "pass" | "fail" | "review" | "not_applicable";
 
+/** Why one element failed one check.
+ *
+ * A code plus its parameters, not a sentence. Two consumers need this and
+ * prose serves neither: the UI renders it in Norwegian or English, and an
+ * agent reading the JSON output wants to branch on the code rather than match
+ * a string that may be reworded. `reason` carries the English rendering so
+ * the CLI stays readable, but it is derived, never the source of truth.
+ */
+export type ReasonCode =
+  | "no-products"
+  | "unit-unresolved"
+  | "duplicate-step-ids"
+  | "parser-warning"
+  | "not-in-storey"
+  | "storey-not-in-building"
+  | "name-empty"
+  | "no-type"
+  | "placeholder-type-name"
+  | "single-instance-type"
+  | "no-material"
+  | "guid-duplicate";
+
 export interface Finding {
   /** Full GlobalId. Never truncate this for display. */
   guid: string;
   entity: string;
   name: string | null;
-  /** What is wrong with this specific element, in one phrase. */
+  code: ReasonCode;
+  /** Values interpolated into the rendered reason, e.g. { typeName, count }. */
+  params?: Record<string, string | number>;
+  /** English rendering of code + params. Derived — localise from `code`. */
   reason: string;
 }
 

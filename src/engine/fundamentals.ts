@@ -13,7 +13,49 @@
  * cardinality operator, so no version of an .ids file reaches them.
  */
 
-import type { CheckResult, Finding, IfcGraph, IfcSummary, ProductRow } from "./types";
+import type {
+  CheckResult,
+  Finding,
+  IfcGraph,
+  IfcSummary,
+  ProductRow,
+  ReasonCode,
+} from "./types";
+
+/** English rendering of a reason code. The UI localises from the code; this
+ *  keeps the CLI and the raw JSON readable without a lookup. */
+const REASON_EN: Record<ReasonCode, (p: Record<string, string | number>) => string> = {
+  "no-products":
+    () =>
+      "no products parsed — the file is empty, or its classes are not " +
+      "recognised by the parser (see ifcfast#178)",
+  "unit-unresolved": () => "length unit could not be resolved",
+  "duplicate-step-ids": (p) => `${p.count} duplicate STEP ids`,
+  "parser-warning": (p) => String(p.message),
+  "not-in-storey": () => "not contained in a storey",
+  "storey-not-in-building": () => "storey is not aggregated into a building",
+  "name-empty": () => "Name is empty",
+  "no-type": () => "no type object",
+  "placeholder-type-name": (p) => `placeholder type name "${p.typeName}"`,
+  "single-instance-type": (p) => `type "${p.typeName}" is used by one element`,
+  "no-material": () => "no material associated",
+  "guid-duplicate": (p) => `GlobalId shared by ${p.count} elements`,
+};
+
+function finding(
+  el: { guid: string; entity: string; name: string | null },
+  code: ReasonCode,
+  params: Record<string, string | number> = {},
+): Finding {
+  return {
+    guid: el.guid,
+    entity: el.entity,
+    name: el.name,
+    code,
+    ...(Object.keys(params).length ? { params } : {}),
+    reason: REASON_EN[code](params),
+  };
+}
 
 /** Openings are not physical elements; they are subtractions from one. */
 function physicalProducts(graph: IfcGraph): ProductRow[] {
@@ -46,12 +88,7 @@ function checkContained(graph: IfcGraph, products: ProductRow[]): CheckResult {
   const contained = new Set(graph.contained_in.map((c) => c.product_guid));
   const findings = products
     .filter((p) => !contained.has(p.guid))
-    .map((p) => ({
-      guid: p.guid,
-      entity: p.entity,
-      name: p.name,
-      reason: "not contained in a storey",
-    }));
+    .map((p) => finding(p, "not-in-storey"));
   return result(
     "storey-containment",
     products.length,
@@ -64,12 +101,9 @@ function checkStoreyInBuilding(graph: IfcGraph): CheckResult {
   const linked = new Set(graph.storey_building.map((sb) => sb.storey_guid));
   const findings = graph.storeys
     .filter((s) => !linked.has(s.guid))
-    .map((s) => ({
-      guid: s.guid,
-      entity: "IfcBuildingStorey",
-      name: s.name,
-      reason: "storey is not aggregated into a building",
-    }));
+    .map((s) =>
+      finding({ guid: s.guid, entity: "IfcBuildingStorey", name: s.name }, "storey-not-in-building"),
+    );
   return result(
     "storey-in-building",
     graph.storeys.length,
@@ -81,12 +115,7 @@ function checkStoreyInBuilding(graph: IfcGraph): CheckResult {
 function checkNamed(products: ProductRow[]): CheckResult {
   const findings = products
     .filter((p) => !p.name || p.name.trim() === "")
-    .map((p) => ({
-      guid: p.guid,
-      entity: p.entity,
-      name: p.name,
-      reason: "Name is empty",
-    }));
+    .map((p) => finding(p, "name-empty"));
   return result(
     "element-named",
     products.length,
@@ -98,12 +127,7 @@ function checkNamed(products: ProductRow[]): CheckResult {
 function checkTyped(products: ProductRow[]): CheckResult {
   const findings = products
     .filter((p) => !p.typed)
-    .map((p) => ({
-      guid: p.guid,
-      entity: p.entity,
-      name: p.name,
-      reason: "no type object",
-    }));
+    .map((p) => finding(p, "no-type"));
   return result(
     "element-typed",
     products.length,
@@ -118,12 +142,7 @@ function checkTypeNames(products: ProductRow[]): CheckResult {
   const typed = products.filter((p) => p.typed && p.type_name);
   const findings = typed
     .filter((p) => PLACEHOLDER_TYPE_NAMES.has((p.type_name as string).trim().toLowerCase()))
-    .map((p) => ({
-      guid: p.guid,
-      entity: p.entity,
-      name: p.name,
-      reason: `placeholder type name "${p.type_name}"`,
-    }));
+    .map((p) => finding(p, "placeholder-type-name", { typeName: p.type_name as string }));
   return result(
     "type-name-placeholder",
     typed.length,
@@ -151,12 +170,7 @@ function checkSingleInstanceTypes(products: ProductRow[]): CheckResult {
   }
   const findings = [...byType.entries()]
     .filter(([, rows]) => rows.length === 1)
-    .map(([typeName, rows]) => ({
-      guid: rows[0].guid,
-      entity: rows[0].entity,
-      name: rows[0].name,
-      reason: `type "${typeName}" is used by one element`,
-    }));
+    .map(([typeName, rows]) => finding(rows[0], "single-instance-type", { typeName }));
   return result(
     "single-instance-types",
     byType.size,
@@ -169,12 +183,7 @@ function checkSingleInstanceTypes(products: ProductRow[]): CheckResult {
 function checkMaterials(products: ProductRow[]): CheckResult {
   const findings = products
     .filter((p) => !p.materials || p.materials.length === 0)
-    .map((p) => ({
-      guid: p.guid,
-      entity: p.entity,
-      name: p.name,
-      reason: "no material associated",
-    }));
+    .map((p) => finding(p, "no-material"));
   return result(
     "element-material",
     products.length,
@@ -197,15 +206,10 @@ function checkGuidUnique(graph: IfcGraph): CheckResult {
     else seen.set(p.guid, [p]);
   }
   const findings: Finding[] = [];
-  for (const [guid, rows] of seen) {
+  for (const rows of seen.values()) {
     if (rows.length < 2) continue;
     for (const row of rows) {
-      findings.push({
-        guid,
-        entity: row.entity,
-        name: row.name,
-        reason: `GlobalId shared by ${rows.length} elements`,
-      });
+      findings.push(finding(row, "guid-duplicate", { count: rows.length }));
     }
   }
   return result(
@@ -229,33 +233,24 @@ function checkParseIntegrity(summary: IfcSummary): CheckResult {
   // does not whitelist — IfcGeographicElement among them (ifcfast#178) — and
   // the result is a model that reads as empty rather than as unsupported.
   if (summary.products === 0) {
-    findings.push({
-      guid: "-",
-      entity: "IfcProduct",
-      name: null,
-      reason:
-        "no products parsed — the file is empty, or its classes are not " +
-        "recognised by the parser (see ifcfast#178)",
-    });
+    findings.push(finding({ guid: "-", entity: "IfcProduct", name: null }, "no-products"));
   }
   if (!summary.unit_resolved) {
-    findings.push({
-      guid: "-",
-      entity: "IfcUnitAssignment",
-      name: null,
-      reason: "length unit could not be resolved",
-    });
+    findings.push(
+      finding({ guid: "-", entity: "IfcUnitAssignment", name: null }, "unit-unresolved"),
+    );
   }
   if (summary.duplicate_step_ids > 0) {
-    findings.push({
-      guid: "-",
-      entity: "STEP",
-      name: null,
-      reason: `${summary.duplicate_step_ids} duplicate STEP ids`,
-    });
+    findings.push(
+      finding({ guid: "-", entity: "STEP", name: null }, "duplicate-step-ids", {
+        count: summary.duplicate_step_ids,
+      }),
+    );
   }
   for (const w of summary.warnings ?? []) {
-    findings.push({ guid: "-", entity: "parser", name: null, reason: w });
+    findings.push(
+      finding({ guid: "-", entity: "parser", name: null }, "parser-warning", { message: w }),
+    );
   }
   return result(
     "parse-integrity",
