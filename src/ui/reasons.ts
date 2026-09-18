@@ -41,6 +41,14 @@ const REASONS: Record<ReasonCode, Record<Lang, Render>> = {
     nb: () => "etasjen hører ikke til en bygning",
     en: () => "storey is not aggregated into a building",
   },
+  "spatial-level-missing": {
+    nb: (p) => `filen har ingen ${p.level}`,
+    en: (p) => `no ${p.level} in the file`,
+  },
+  "shared-elevation": {
+    nb: (p) => `koten deles med ${p.count} andre etasjer`,
+    en: (p) => `elevation shared with ${p.count} other storeys`,
+  },
   "name-empty": {
     nb: () => "Name er tom",
     en: () => "Name is empty",

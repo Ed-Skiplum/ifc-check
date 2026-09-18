@@ -1,49 +1,57 @@
-/** What the file IS, as a tile grid.
+/** One model's board — an instance of the house bento grid.
  *
- * Facts, not verdicts. `typed 0 / 851` is a number about the model here, and it
- * stays neutral until a loaded ruleset claims it — a work model has no types
- * because it is a work model, not because it failed a requirement nobody
- * stated. The only red on this grid is a parse fault the file carries in
- * itself: an unresolved length unit, duplicate STEP ids.
+ * The lead is a VERIFICATION block, not an info page. edkjo: *"the first page
+ * needs to be a verification page, not an 'info page'. Showing a quantity
+ * takeoff of how many elements there are of different types, great, but gives
+ * no feedback."*
  *
- * Every number with rows behind it opens them in the band below. The tile does
- * not expand.
+ * ── What is judged here, and what is not ─────────────────────────────────
+ * The line is universal vs project, not facts vs verdicts:
+ *
+ *   universal   judged on sight, no ruleset. Three storeys all at kote 0, a
+ *               duplicate GlobalId, an unresolved length unit, elements
+ *               outside the spatial tree, a broken Project→Site→Building→
+ *               Storey chain. Wrong on any project, so the board says so.
+ *   project     MMI, classification codes, naming conventions, required
+ *               property sets. These wait for the ruleset, in the rule strip
+ *               below this canvas, and nothing here pre-empts them.
+ *
+ * A universal verdict is still not a grade: there is no composite number, and
+ * no verdict is rendered at element granularity. "851 elements have no name"
+ * is ONE row reading `0 av 851`; the 851 rows live behind the drill-in.
+ *
+ * ── The grid ─────────────────────────────────────────────────────────────
+ * `BentoGrid` + `bento-spec` + `useBentoCols`, mirrored from sprucelab —
+ * *"every DASHBOARD is an instance of ONE grid"*, *"copy one, never a new
+ * grid"*. Two authored layouts, chosen by the GRID's own inline size, so an
+ * iframe on skiplum.com picks the layout its own box can carry. This module
+ * authors tiles; it does not author tiling.
  */
 
+import { useMemo } from "react";
 import type { CheckResult } from "../engine/types";
 import type { RuleResult } from "../ids/evaluate.ts";
+import type { BentoCols, BentoTileSpec } from "./bento-spec";
 import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
 import type { Census } from "./profile";
 import type { Focus } from "./trace";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
-import { copyOnDoubleClick } from "./copy";
-import { formatBytes, formatCount, formatElevation, formatMs, formatShare } from "./format";
+import { BentoGrid } from "./BentoGrid";
+import { LAYOUT_13, LAYOUT_21 } from "./bento-layouts";
+import { useBentoCols } from "./useBentoCols";
 import { FloorMatrix } from "./FloorMatrix";
-import { KpiTile, Tile, WideTile } from "./Tiles";
-
-/** The grid module, proportioned to the viewport.
- *
- * A tile spans whole modules, so every tile keeps its relation to every other
- * one and the module itself carries the responsiveness. Column tracks viewport
- * WIDTH and row tracks viewport HEIGHT, which means the module's aspect ratio
- * follows the screen's: wide and short on a 32" monitor, squarer on a laptop.
- * A fixed 12rem x 4.5rem module wasted width on a large screen and crowded a
- * small one.
- *
- * Both are clamped. The floors stop a narrow window from shrinking tiles until
- * the numbers stop being readable; the ceilings stop a wide one from inflating
- * a single stat into a mostly-empty panel — size has to be earned by content.
- * This is layout responding to the viewport, not a tile resizing itself around
- * its own contents. */
-const GRID = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, clamp(9.5rem, 13vw, 15rem))",
-  gridAutoRows: "clamp(3.75rem, 6.5vh, 5.5rem)",
-  gap: "clamp(0.5rem, 0.9vw, 1rem)",
-  justifyContent: "start",
-} as const;
+import { Verification } from "./Verification";
+import {
+  ClassDistribution,
+  ReadoutList,
+  ReadoutStrip,
+  SpatialGauge,
+  StoreyRoster,
+  type Readout,
+} from "./forms";
+import { formatBytes, formatCount, formatMs } from "./format";
 
 interface DashboardProps {
   lang: Lang;
@@ -54,250 +62,204 @@ interface DashboardProps {
   onFocus: (focus: Focus) => void;
 }
 
-/** A claimed KPI shows the claiming rule's own arithmetic and verdict, not the
- *  parser's count: the number now belongs to the rule, and drilling it opens
- *  that rule's derivation rather than a bare element list. */
-function verdictValue(result: RuleResult, lang: Lang): { value: string; note: string } {
-  return {
-    value: `${formatCount(Math.max(0, result.applicable - result.failed), lang)} / ${formatCount(result.applicable, lang)}`,
-    note: t(`result.${result.state}`, lang),
-  };
+/** A project rule that speaks for a universal check. The same number reads
+ *  differently once something states what right looks like: `0 / 851 typed` is
+ *  a fact about the file until a rule claims it, and then it is that rule's
+ *  verdict and drills into that rule's derivation. */
+function claimedChecks(
+  claims: KpiClaims,
+  results: RuleResult[] | undefined,
+): Map<string, RuleResult> {
+  const map = new Map<string, RuleResult>();
+  const find = (id: string | undefined) => (id ? results?.find((r) => r.ruleId === id) : undefined);
+  const typed = find(claims.typed);
+  if (typed) map.set("element-typed", typed);
+  const material = find(claims.material);
+  if (material) map.set("element-material", material);
+  return map;
 }
 
-function share(check: CheckResult | undefined, lang: Lang): { value: string; note: string } {
-  if (!check) return { value: "—", note: "" };
-  const good = Math.max(0, check.applicable - check.findings.length);
-  return {
-    value: `${formatCount(good, lang)} / ${formatCount(check.applicable, lang)}`,
-    note: formatShare(good, check.applicable, lang),
-  };
+/** The four levels of the chain, in decomposition order. */
+function chainLevels(profile: NonNullable<ModelEntry["profile"]>) {
+  return [
+    { level: "IfcProject", size: profile.spatial.projects },
+    { level: "IfcSite", size: profile.spatial.sites },
+    { level: "IfcBuilding", size: profile.spatial.buildings },
+    { level: "IfcBuildingStorey", size: profile.spatial.storeys },
+  ];
 }
 
-export function Dashboard({
+function containment(checks: CheckResult[]): { good: number; total: number } {
+  const check = checks.find((c) => c.id === "storey-containment");
+  if (!check) return { good: 0, total: 0 };
+  return { good: Math.max(0, check.applicable - check.findings.length), total: check.applicable };
+}
+
+export function Dashboard({ lang, model, census, claims, selected, onFocus }: DashboardProps) {
+  const { ref, cols } = useBentoCols();
+  const report = model.report;
+  const profile = model.profile;
+  const results = model.evaluation?.results;
+
+  const claimed = useMemo(() => claimedChecks(claims, results), [claims, results]);
+
+  // The grid needs its own box measured before it can choose a layout, so the
+  // measured element renders on the first pass and the canvas on the second.
+  // `useBentoCols` measures in a layout effect, so that happens before paint.
+  const tiles: BentoTileSpec[] | null =
+    report && profile && cols ? buildTiles({ cols, lang, model, census, claimed, selected, onFocus }) : null;
+
+  return (
+    <div ref={ref} className="w-full min-w-0">
+      {tiles && cols ? (
+        <BentoGrid definition={cols === 21 ? LAYOUT_21 : LAYOUT_13} tiles={tiles} />
+      ) : null}
+    </div>
+  );
+}
+
+interface BuildArgs {
+  cols: BentoCols;
+  lang: Lang;
+  model: ModelEntry;
+  census: Census;
+  claimed: Map<string, RuleResult>;
+  selected: string | null;
+  onFocus: (focus: Focus) => void;
+}
+
+/** One builder per tile, as the three sprucelab instances do it: the page owns
+ *  what a click means, the tile only says which door it is. */
+function buildTiles({
+  cols,
   lang,
   model,
   census,
-  claims,
+  claimed,
   selected,
   onFocus,
-}: DashboardProps) {
-  const report = model.report;
-  const profile = model.profile;
-  if (!report || !profile) return null;
+}: BuildArgs): BentoTileSpec[] {
+  const report = model.report!;
+  const profile = model.profile!;
   const summary = report.summary;
+  const wide = cols === 21;
 
-  const results = model.evaluation?.results;
-  const typedRule = claims.typed
-    ? results?.find((r) => r.ruleId === claims.typed)
-    : undefined;
-  const materialRule = claims.material
-    ? results?.find((r) => r.ruleId === claims.material)
-    : undefined;
+  const fileItems: Readout[] = [
+    { label: t("kpi.products", lang), value: formatCount(summary.products, lang) },
+    { label: t("kpi.schema", lang), value: summary.schema },
+    { label: t("kpi.unit", lang), value: summary.length_unit || "—" },
+    { label: t("kpi.size", lang), value: formatBytes(report.sizeBytes, lang) },
+    { label: t("kpi.parseTime", lang), value: formatMs(report.parseMs, lang) },
+  ];
 
-  const typed = typedRule
-    ? verdictValue(typedRule, lang)
-    : share(report.checks.find((c) => c.id === "element-typed"), lang);
-  const material = materialRule
-    ? verdictValue(materialRule, lang)
-    : share(report.checks.find((c) => c.id === "element-material"), lang);
+  const projectItems: Readout[] = [
+    { label: t("kpi.project", lang), value: summary.project_name ?? "—", text: true },
+    { label: t("kpi.application", lang), value: summary.authoring_app ?? "—", text: true },
+  ];
 
-  return (
-    <div style={GRID}>
-      <KpiTile
-        label={t("kpi.products", lang)}
-        value={formatCount(summary.products, lang)}
-        onOpen={() => onFocus({ kind: "kpi", kpi: "products" })}
-        selected={selected === "kpi:products"}
-      />
-      <KpiTile
-        label={t("kpi.storeys", lang)}
-        value={formatCount(census.storeys.length, lang)}
-        onOpen={() => onFocus({ kind: "kpi", kpi: "storeys" })}
-        selected={selected === "kpi:storeys"}
-      />
-      <KpiTile
-        label={t("kpi.classes", lang)}
-        value={formatCount(census.classes.length, lang)}
-      />
-      <KpiTile
-        label={t("kpi.typed", lang)}
-        value={typed.value}
-        note={typed.note}
-        verdict={typedRule?.state}
-        onOpen={() =>
-          onFocus(
-            typedRule
-              ? { kind: "rule", ruleId: typedRule.ruleId }
-              : { kind: "kpi", kpi: "typed" },
-          )
-        }
-        selected={selected === (typedRule ? `rule:${typedRule.ruleId}` : "kpi:typed")}
-      />
-      <KpiTile
-        label={t("kpi.material", lang)}
-        value={material.value}
-        note={material.note}
-        verdict={materialRule?.state}
-        onOpen={() =>
-          onFocus(
-            materialRule
-              ? { kind: "rule", ruleId: materialRule.ruleId }
-              : { kind: "kpi", kpi: "material" },
-          )
-        }
-        selected={selected === (materialRule ? `rule:${materialRule.ruleId}` : "kpi:material")}
-      />
-      <KpiTile label={t("kpi.schema", lang)} value={summary.schema} />
-      <KpiTile
-        label={t("kpi.unit", lang)}
-        value={summary.length_unit}
-        note={summary.unit_resolved ? undefined : t("kpi.unresolved", lang)}
-        alarm={!summary.unit_resolved}
-      />
-      <KpiTile
-        label={t("kpi.duplicateStepIds", lang)}
-        value={formatCount(summary.duplicate_step_ids, lang)}
-        alarm={summary.duplicate_step_ids > 0}
-      />
-      <KpiTile label={t("kpi.size", lang)} value={formatBytes(report.sizeBytes, lang)} />
-      <KpiTile label={t("kpi.parseTime", lang)} value={formatMs(report.parseMs, lang)} />
-      <KpiTile
-        label={t("kpi.application", lang)}
-        value={summary.authoring_app ?? "—"}
-        span={[2, 1]}
-        text
-      />
-      <KpiTile
-        label={t("kpi.project", lang)}
-        value={summary.project_name ?? "—"}
-        span={[2, 1]}
-        text
-      />
-
-      <Tile
-        label={t("tile.classes", lang)}
-        span={[2, 3]}
-        aside={formatCount(census.classes.length, lang)}
-      >
-        <div className="min-h-0 flex-1 overflow-auto bg-input">
-          <table className="w-full border-separate border-spacing-0 text-left">
-            <thead>
-              <tr>
-                <th className="sticky top-0 z-10 border-b border-line bg-panel px-2 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
-                  {t("col.class", lang)}
-                </th>
-                <th className="sticky top-0 z-10 border-b border-line bg-panel px-2 py-1 text-right text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
-                  {t("col.count", lang)}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {census.classes.map((klass) => (
-                <tr key={klass.entity}>
-                  <td colSpan={2} className="p-0">
-                    <button
-                      type="button"
-                      onClick={() => onFocus({ kind: "class", entity: klass.entity })}
-                      className={
-                        "flex h-6 w-full items-center justify-between gap-2 border-b border-line px-2 text-left hover:bg-palegreen " +
-                        (selected === `class:${klass.entity}`
-                          ? "outline-2 -outline-offset-2 outline-ink"
-                          : "")
-                      }
-                    >
-                      <span className="truncate font-mono text-[11px] text-ink">
-                        {klass.entity}
-                      </span>
-                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink">
-                        {formatCount(klass.count, lang)}
-                      </span>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Tile>
-
-      <Tile
-        label={t("tile.storeys", lang)}
-        span={[3, 3]}
-        aside={formatCount(census.storeys.length, lang)}
-      >
-        <div className="min-h-0 flex-1 overflow-auto bg-input">
-          <table className="w-full border-separate border-spacing-0 text-left">
-            <thead>
-              <tr>
-                <th className="sticky top-0 z-10 border-b border-line bg-panel px-2 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
-                  {t("col.name", lang)}
-                </th>
-                <th className="sticky top-0 z-10 border-b border-line bg-panel px-2 py-1 text-right text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
-                  {t("col.elevation", lang)}
-                </th>
-                <th className="sticky top-0 z-10 border-b border-line bg-panel px-2 py-1 text-right text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
-                  {t("col.elements", lang)}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {census.storeys.map((storey) => (
-                <tr key={storey.guid}>
-                  {/* A storey with no name falls back to its GlobalId, which
-                      is never truncated — so it renders mono and full. */}
-                  <td
-                    onDoubleClick={copyOnDoubleClick(storey.name ?? storey.guid)}
-                    title={storey.name ?? undefined}
-                    className={
-                      "h-6 cursor-copy border-b border-line px-2 text-[12px] text-ink " +
-                      (storey.name === null ? "font-mono text-[11px]" : "max-w-0 truncate")
-                    }
-                  >
-                    {storey.name ?? storey.guid}
-                  </td>
-                  <td className="h-6 border-b border-line p-0 text-right">
-                    {storey.sharedWith > 1 ? (
-                      // Several storeys at one elevation: the storeys carry no
-                      // height information. Whole cell, a glyph, and the count.
-                      <span
-                        title={t("storey.shared", lang)}
-                        className="flex h-6 items-center justify-end gap-1.5 bg-gold px-2 font-mono text-[11px] tabular-nums text-ink"
-                      >
-                        <span className="font-bold">!</span>
-                        {formatElevation(
-                          storey.elevation,
-                          summary.unit_scale,
-                          summary.unit_resolved,
-                          lang,
-                        )}
-                        <span className="font-semibold">×{storey.sharedWith}</span>
-                      </span>
-                    ) : (
-                      <span className="block px-2 font-mono text-[11px] tabular-nums text-ink">
-                        {formatElevation(
-                          storey.elevation,
-                          summary.unit_scale,
-                          summary.unit_resolved,
-                          lang,
-                        )}
-                      </span>
-                    )}
-                  </td>
-                  <td className="h-6 border-b border-line px-2 text-right font-mono text-[11px] tabular-nums text-ink">
-                    {formatCount(storey.elements, lang)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Tile>
-
-      <WideTile
-        label={t("tile.floorMatrix", lang)}
-        rows={5}
-        aside={`${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`}
-      >
+  return [
+    {
+      id: "verify",
+      kind: "tellTales",
+      priority: "P0",
+      span: { w: 8, h: 5 },
+      label: t("tile.verify", lang),
+      sub: formatCount(summary.products, lang),
+      body: (
+        <Verification
+          lang={lang}
+          checks={report.checks}
+          claimed={claimed}
+          selected={selected}
+          onFocus={onFocus}
+        />
+      ),
+    },
+    {
+      id: "spatial",
+      kind: "gauge",
+      priority: "P0",
+      span: { w: 5, h: 3 },
+      label: t("tile.spatial", lang),
+      body: (
+        <SpatialGauge
+          lang={lang}
+          levels={chainLevels(profile)}
+          contained={containment(report.checks)}
+          onFocus={onFocus}
+        />
+      ),
+      click: {
+        drill: {
+          label: t("check.spatial-chain", lang),
+          run: () => onFocus({ kind: "check", checkId: "spatial-chain" }),
+        },
+      },
+    },
+    {
+      id: "file",
+      kind: "readout",
+      priority: "P1",
+      span: { w: 5, h: 2 },
+      label: t("tile.file", lang),
+      body: <ReadoutList items={fileItems} />,
+      click: {
+        drill: {
+          label: t("kpi.products", lang),
+          run: () => onFocus({ kind: "kpi", kpi: "products" }),
+        },
+      },
+    },
+    {
+      id: "project",
+      kind: "readout",
+      priority: "P1",
+      // A 1-row strip has no header rule, so on 13 tracks the label rides
+      // inline and the pairs go on one line. Same content, the shape the span
+      // can actually carry.
+      span: wide ? { w: 8, h: 2 } : { w: 5, h: 1 },
+      label: t("kpi.project", lang),
+      body: wide ? <ReadoutList items={projectItems} /> : <ReadoutStrip items={projectItems} />,
+    },
+    {
+      id: "classes",
+      kind: "distribution",
+      priority: "P1",
+      span: { w: 8, h: 3 },
+      label: t("tile.classes", lang),
+      sub: formatCount(census.classes.length, lang),
+      body: (
+        <ClassDistribution
+          lang={lang}
+          classes={census.classes}
+          selected={selected}
+          onFocus={onFocus}
+        />
+      ),
+    },
+    {
+      id: "storeys",
+      kind: "roster",
+      priority: "P1",
+      span: wide ? { w: 8, h: 3 } : { w: 5, h: 2 },
+      label: t("tile.storeys", lang),
+      sub: formatCount(census.storeys.length, lang),
+      body: <StoreyRoster lang={lang} storeys={census.storeys} summary={summary} />,
+      click: {
+        drill: {
+          label: t("kpi.storeys", lang),
+          run: () => onFocus({ kind: "kpi", kpi: "storeys" }),
+        },
+      },
+    },
+    {
+      id: "matrix",
+      kind: "matrix",
+      priority: "P2",
+      span: { w: 13, h: 3 },
+      label: t("tile.floorMatrix", lang),
+      sub: `${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`,
+      body: (
         <FloorMatrix
           lang={lang}
           classes={census.classes}
@@ -307,7 +269,7 @@ export function Dashboard({
           selected={selected}
           onOpen={(storeyGuid, entity) => onFocus({ kind: "cell", storeyGuid, entity })}
         />
-      </WideTile>
-    </div>
-  );
+      ),
+    },
+  ];
 }

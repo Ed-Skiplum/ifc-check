@@ -82,6 +82,60 @@ export interface IfcSummary {
  */
 export type CheckState = "pass" | "fail" | "review" | "not_applicable";
 
+/** How much a finding on this check means, on ANY project.
+ *
+ * Orthogonal to `CheckState`, which only says whether the check found
+ * anything. Both are needed, because "found something" and "that something is
+ * a defect" are different claims: a structural work model with no materials
+ * has findings on `element-material` and is not a broken file — it is a fact
+ * about maturity. A duplicate GlobalId, with exactly the same state, is.
+ *
+ *   deviation  wrong in the file itself. Breaks a consumer of the IFC —
+ *              federation, issue tracking, filtering, every derived number.
+ *   advisory   true of the file, and a legitimate state for a model at some
+ *              stage of its life. Surfaced, never scored.
+ *
+ * The line is deliberately NOT "how annoying is it": it is whether the model
+ * could be correct and still be like this. Nothing here grades whoever
+ * produced the file.
+ */
+export type CheckSeverity = "deviation" | "advisory";
+
+/** What the screen prints for a check — Bestått · Advarsel · Avvik · N/A.
+ *
+ * Derived from state + severity by `verdictOf`, never stored: a verdict that
+ * could drift from the state it came from is a verdict nobody can check.
+ */
+export type Verdict = "pass" | "warn" | "fail" | "na";
+
+/** The shape of the value a check FOUND, as data rather than a sentence.
+ *
+ * Same discipline as `ReasonCode`: the engine emits a code plus parameters,
+ * the UI renders it in Norwegian or English, and an agent reading the JSON
+ * branches on the code. `text` is the English rendering the engine already
+ * did, so the CLI and the raw JSON stay readable without a lookup.
+ *
+ *   literal           a token that is the same in every language: "IFC2X3",
+ *                     "m", "mm". `params.text`.
+ *   share             `params.good` of `params.total` — "0 of 851".
+ *   count             `params.n` of `params.noun` — "3 storeys".
+ *   unique            `params.unique` distinct out of `params.total`.
+ *   shared-elevation  `params.shared` of `params.total` storeys sit at one
+ *                     elevation; `params.elevation` (metres) when they all do,
+ *                     `params.resolved` 0 when the file's unit is unknown.
+ */
+export type DisplayCode = "literal" | "share" | "count" | "unique" | "shared-elevation";
+
+/** The nouns `count` can take. Closed, so every one has both languages. */
+export type DisplayNoun = "products" | "storeys" | "types" | "stepIds" | "levels";
+
+export interface DisplayValue {
+  code: DisplayCode;
+  params: Record<string, string | number>;
+  /** English rendering of code + params. Derived — localise from `code`. */
+  text: string;
+}
+
 /** Why one element failed one check.
  *
  * A code plus its parameters, not a sentence. Two consumers need this and
@@ -97,6 +151,8 @@ export type ReasonCode =
   | "parser-warning"
   | "not-in-storey"
   | "storey-not-in-building"
+  | "spatial-level-missing"
+  | "shared-elevation"
   | "name-empty"
   | "no-type"
   | "placeholder-type-name"
@@ -119,6 +175,10 @@ export interface Finding {
 export interface CheckResult {
   id: string;
   state: CheckState;
+  /** What findings on this check mean. Constant per check, not per model. */
+  severity: CheckSeverity;
+  /** The value the check FOUND. The cell prints this; colour says the verdict. */
+  displayValue: DisplayValue;
   /** Populated when state is not_applicable: why the check could not run. */
   reason?: string;
   /** How many elements the check looked at. Zero means it matched nothing. */

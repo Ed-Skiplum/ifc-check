@@ -12,10 +12,17 @@ says so.
 ```
 src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   types.ts       ProductRow / IfcGraph / IfcSummary / CheckResult / Finding
-  fundamentals.ts  the nine structure-and-usability checks
+                 + CheckSeverity / Verdict / DisplayValue
+  fundamentals.ts  the eleven structure-and-usability checks, their severities
+                   and `verdictOf`
 src/ui/          the screen, and the worker that drives the engine
   model-worker.ts  one Web Worker per file; keeps the parsed graph resident
                    so a ruleset dropped later evaluates without re-parsing
+  bento-spec.ts    the house dashboard grid, mirrored from sprucelab
+  BentoGrid.tsx    + useBentoCols.ts + bento-layouts.ts — the two authored
+                   layouts and the container-query track ladder
+  Verification.tsx the focal tile: one row per universal check
+  forms.tsx        the supporting tiles (gauge, distribution, roster, readouts)
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
 scripts/
@@ -33,6 +40,9 @@ Node 24 strips TypeScript natively, so there is no build step:
 ```bash
 node scripts/check-cli.ts model.ifc [more.ifc ...]
 ```
+
+It prints, per check, the verdict · the check id · the value found ·
+`state/severity` · the finding count and the engine's own detail line.
 
 Measured: a 10.5 MB IFC2X3 model with 851 products parses in ~250 ms.
 
@@ -56,18 +66,93 @@ marks an IDS specification with zero applicable entities as `status=true`, so an
 Any new check must preserve this. If a precondition is not met, return
 `not_applicable` with a `reason` — never a clean pass.
 
-## The nine fundamentals
+### Severity, and the verdict the screen prints
 
-Project-agnostic: no property sets, no classification system, no delivery stage.
+`state` says whether the check FOUND anything. `severity` says what a finding
+MEANS, on any project, and is constant per check:
 
-`parse-integrity` · `storey-containment` · `storey-in-building` ·
-`element-named` · `element-typed` · `type-name-placeholder` ·
-`single-instance-types` (review) · `element-material` · `guid-unique`
+| severity | meaning |
+|---|---|
+| `deviation` | wrong in the file itself — breaks a consumer of the IFC |
+| `advisory` | true of the file, and a legitimate state for a model at some stage |
+
+The screen prints `verdictOf(check)`, which is derived from the two and never
+stored: `not_applicable` → **N/A**, `pass` → **Bestått**, `review` → **Advarsel**,
+`fail` + advisory → **Advarsel**, `fail` + deviation → **Avvik**.
+
+A structural work model with no materials is an Advarsel; a duplicate GlobalId
+is an Avvik. There is deliberately **no composite score and no grade** — one
+number hiding eleven answers is what the eleven answers exist to replace.
+
+### `displayValue` — the value the check found
+
+Every result carries one, as a code plus params plus an English `text`, the
+same shape `Finding.reason` uses so the UI can render it in Norwegian or
+English and an agent can branch on the code. Codes: `literal` · `share` ·
+`count` · `unique` · `shared-elevation`.
+
+The screen prints that value and colours it by the verdict: a red block reading
+`m` or `0 av 851` says what is wrong without a click. Pattern taken from the
+delivered Skiplum reports (`skiplum-reports/projects/kistefos`, the Modell ×
+Krav matrix and `skiplum-automation/scripts/python/acc/requirements.py`).
+
+## The eleven fundamentals
+
+Project-agnostic: no property sets, no classification system, no delivery
+stage. Because they are universal they are judged with no ruleset loaded.
+
+| check | severity |
+|---|---|
+| `parse-integrity` | deviation |
+| `spatial-chain` — Project → Site → Building → Storey all present | deviation |
+| `storey-containment` | deviation |
+| `storey-in-building` | deviation |
+| `storey-elevation` — storeys must sit at distinct elevations | deviation |
+| `guid-unique` | deviation |
+| `element-named` | advisory |
+| `element-typed` | advisory |
+| `type-name-placeholder` | advisory |
+| `single-instance-types` (review) | advisory |
+| `element-material` | advisory |
 
 A file the parser reports zero products for **fails** `parse-integrity`. ifcfast
 drops IFC classes its whitelist does not carry — `IfcGeographicElement` among
 them ([ifcfast#178](https://github.com/EdvardGK/ifcfast/issues/178)) — so an
 empty product list means "empty or unsupported", never "clean".
+
+## The dashboard grid — binding, not advisory
+
+The board is an INSTANCE of the house bento grid, not a layout of its own.
+edkjo, 2026-08-24: *"every DASHBOARD is an instance of ONE grid"*, *"copy one,
+never a new grid"*. The canon is `sprucelab/frontend/DESIGN.md` §2d and
+`sprucelab/docs/plans/2026-08-24-20-29_bento-dashboard-system.md` §1;
+`src/ui/bento-spec.ts` + `BentoGrid.tsx` + `useBentoCols.ts` are a MIRROR of
+the sprucelab implementation, copied because the two projects share no package
+boundary. Do not evolve the grid here — change it upstream and re-mirror.
+
+What that binds:
+
+- **Two AUTHORED layouts, never one reflowed** — 13 tracks (8+5) and 21 tracks
+  (13+8), in `src/ui/bento-layouts.ts`.
+- **The switch reads the GRID's own inline size**, not the viewport
+  (`BENTO_21_MIN_WIDTH` = 1900). Load-bearing here: ifc-check ships as an
+  iframe on skiplum.com, where a `vw` unit measures the host page's box.
+- **The track is CSS-derived** — `track = 100cqw / (cols + (cols−1)/10)`,
+  `colGap = track/10`, `rowGap = φ · colGap` — so the board is correct on the
+  FIRST paint, with no measurement pass. The convergence cap
+  (`BENTO_MAX_WIDTH`) goes on the container-query root or `100cqw` keeps
+  measuring an uncapped box.
+- **Fibonacci spans only**, and bands must close: 13 → 8+5 · 5+3+5 · 3+5+5;
+  21 → 8+5+8 · 13+8 · 5+8+8.
+- **Exactly one focal and one gauge**; P0/P1 never below the fold; air is the
+  gutter and empty structural tracks only.
+- `validateBentoLayout` runs at render — dev throws with every fault at once,
+  prod renders an error tile in the offending slot. Never a silent reflow.
+
+Two deviations from upstream, both in the kind→span registry and both named at
+the entry in `bento-spec.ts`: `tellTales` takes the focal spans (the
+verification block is this board's focal) and `matrix` takes the full-band
+spans (the storey × class census is below-fold context here, not the focal).
 
 ## IDS, and where it stops
 

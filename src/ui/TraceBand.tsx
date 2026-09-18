@@ -18,7 +18,7 @@ import { t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
 import { reasonText } from "./reasons";
-import { RESULT_FILL, RESULT_GLYPH } from "./state-visuals";
+import { RESULT_FILL, RESULT_GLYPH, VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 
 const ROW_HEIGHT = 26;
 const OVERSCAN = 12;
@@ -68,6 +68,18 @@ export function TraceBand({ lang, trace, onClose }: TraceBandProps) {
           >
             <span className="font-mono font-bold">{RESULT_GLYPH[trace.state]}</span>
             {t(`result.${trace.state}`, lang)}
+          </span>
+        ) : null}
+
+        {trace.verdict ? (
+          <span
+            className={
+              "flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium " +
+              VERDICT_FILL[trace.verdict]
+            }
+          >
+            <span className="font-mono font-bold">{VERDICT_GLYPH[trace.verdict]}</span>
+            {t(`verdict.${trace.verdict}`, lang)}
           </span>
         ) : null}
 

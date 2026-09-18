@@ -55,6 +55,12 @@ function profileOf(graph: IfcGraph): ModelProfile {
       name: s.name,
       elevation: s.elevation,
     })),
+    spatial: {
+      projects: graph.projects.length,
+      sites: graph.sites.length,
+      buildings: graph.buildings.length,
+      storeys: graph.storeys.length,
+    },
   };
 }
 

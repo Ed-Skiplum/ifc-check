@@ -10,24 +10,29 @@
  * exists only as JSX.
  */
 
-import type { ReasonCode } from "../engine/types";
+import type { CheckResult, ReasonCode, Verdict } from "../engine/types";
+import { verdictOf } from "../engine/fundamentals";
 import type { ResultState } from "../ids/evaluate.ts";
 import type { StringKey } from "./i18n";
 import type { ModelEntry } from "./useModels";
 import { cellRows } from "./profile";
 
-export type KpiFocus = "products" | "storeys" | "typed" | "material";
+/** The two census numbers that have rows behind them but no check of their
+ *  own. Everything else on the board drills to a check or to a rule. */
+export type KpiFocus = "products" | "storeys";
 
 export type Focus =
   | { kind: "rule"; ruleId: string }
+  | { kind: "check"; checkId: string }
   | { kind: "kpi"; kpi: KpiFocus }
   | { kind: "class"; entity: string }
   | { kind: "cell"; storeyGuid: string | null; entity: string };
 
-const KPIS: KpiFocus[] = ["products", "storeys", "typed", "material"];
+const KPIS: KpiFocus[] = ["products", "storeys"];
 
 export function serialiseFocus(focus: Focus): string {
   if (focus.kind === "rule") return `rule:${focus.ruleId}`;
+  if (focus.kind === "check") return `check:${focus.checkId}`;
   if (focus.kind === "kpi") return `kpi:${focus.kpi}`;
   if (focus.kind === "class") return `class:${focus.entity}`;
   return `cell:${focus.storeyGuid ?? "-"}|${focus.entity}`;
@@ -40,6 +45,7 @@ export function parseFocus(raw: string | null): Focus | null {
   const kind = raw.slice(0, split);
   const rest = raw.slice(split + 1);
   if (kind === "rule") return rest ? { kind: "rule", ruleId: rest } : null;
+  if (kind === "check") return rest ? { kind: "check", checkId: rest } : null;
   if (kind === "kpi") {
     return (KPIS as string[]).includes(rest) ? { kind: "kpi", kpi: rest as KpiFocus } : null;
   }
@@ -82,8 +88,10 @@ export interface Trace {
   /** Rendered as `t(titleKey) · titleText`, either part optional. */
   titleKey?: StringKey;
   titleText?: string;
-  /** Only a rule carries a verdict. A KPI, a class and a cell are facts. */
+  /** A project rule's verdict. A KPI, a class and a cell are facts. */
   state?: ResultState;
+  /** A universal check's verdict — Bestått / Advarsel / Avvik / N/A. */
+  verdict?: Verdict;
   /** Factual line from the engine, already English, never localised here. */
   detail?: string;
   /** Why a verdict could not be reached. The one thing a reader would
@@ -99,6 +107,36 @@ export interface Trace {
 
 function checkOf(model: ModelEntry, id: string) {
   return model.report?.checks.find((c) => c.id === id);
+}
+
+/** A universal check's derivation. The verdict is recomputed here from the
+ *  check rather than carried alongside it, so the band can never disagree with
+ *  the row that opened it. */
+function traceOfCheck(
+  base: { focus: string; modelId: string; fileName: string },
+  check: CheckResult,
+): Trace {
+  return {
+    ...base,
+    titleKey: `check.${check.id}` as Trace["titleKey"],
+    verdict: verdictOf(check),
+    detail: check.detail,
+    reason: check.reason,
+    notes: [],
+    stats: [
+      { label: "trace.applicable", value: check.applicable },
+      { label: "trace.passed", value: Math.max(0, check.applicable - check.findings.length) },
+      { label: "trace.failed", value: check.findings.length },
+    ],
+    rows: check.findings.map((f) => ({
+      guid: f.guid,
+      entity: f.entity,
+      name: f.name,
+      code: f.code,
+      params: f.params,
+    })),
+    rowsComplete: true,
+  };
 }
 
 export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
@@ -131,6 +169,12 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
     };
   }
 
+  if (focus.kind === "check") {
+    const check = checkOf(model, focus.checkId);
+    if (!check) return null;
+    return traceOfCheck(base, check);
+  }
+
   const profile = model.profile;
 
   if (focus.kind === "kpi") {
@@ -160,32 +204,7 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
         rowsComplete: true,
       };
     }
-    const id = focus.kpi === "typed" ? "element-typed" : "element-material";
-    const check = checkOf(model, id);
-    if (!check) return null;
-    return {
-      ...base,
-      titleKey: focus.kpi === "typed" ? "kpi.typed" : "kpi.material",
-      detail: check.detail,
-      reason: check.reason,
-      notes: [],
-      stats: [
-        { label: "trace.applicable", value: check.applicable },
-        {
-          label: "trace.passed",
-          value: Math.max(0, check.applicable - check.findings.length),
-        },
-        { label: "trace.failed", value: check.findings.length },
-      ],
-      rows: check.findings.map((f) => ({
-        guid: f.guid,
-        entity: f.entity,
-        name: f.name,
-        code: f.code,
-        params: f.params,
-      })),
-      rowsComplete: true,
-    };
+    return null;
   }
 
   if (!profile) return null;

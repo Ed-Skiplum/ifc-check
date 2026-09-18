@@ -9,14 +9,15 @@
 
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { runFundamentals } from "../src/engine/fundamentals.ts";
+import { runFundamentals, verdictOf } from "../src/engine/fundamentals.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 const wasmDir = new URL("../vendor/ifcfast-wasm/", import.meta.url);
 const { IfcModel, initSync } = await import(new URL("ifcfast_wasm.js", wasmDir).href);
 initSync({ module: readFileSync(new URL("ifcfast_wasm_bg.wasm", wasmDir)) });
 
-const STATE_WIDTH = 15;
+const VERDICT_WIDTH = 8;
+const STATE_WIDTH = 24;
 
 for (const path of process.argv.slice(2)) {
   const bytes = readFileSync(path);
@@ -35,8 +36,13 @@ for (const path of process.argv.slice(2)) {
       `| ${summary.products} products | parsed in ${parseMs.toFixed(0)} ms ===`,
   );
   for (const c of checks) {
-    const state = c.state.toUpperCase().padEnd(STATE_WIDTH);
-    const head = `  ${state}${c.id.padEnd(24)}`;
+    // Verdict first: it is what the screen leads with, and a gate that prints
+    // only the mechanical state cannot show that `fail` + advisory is an
+    // Advarsel rather than an Avvik.
+    const verdict = verdictOf(c).toUpperCase().padEnd(VERDICT_WIDTH);
+    const state = `${c.state}/${c.severity}`.padEnd(STATE_WIDTH);
+    const value = c.displayValue.text.padEnd(28);
+    const head = `  ${verdict}${c.id.padEnd(24)}${value}${state}`;
     if (c.state === "not_applicable") {
       console.log(`${head}${c.reason}`);
       continue;

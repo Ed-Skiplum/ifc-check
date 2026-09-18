@@ -27,10 +27,25 @@ export interface StoreyRowLite {
   elevation: number | null;
 }
 
+/** How many entities the graph holds at each level of the spatial chain.
+ *
+ * Sent as counts rather than rows: the chain gauge asks whether each level
+ * EXISTS and how many there are, and the graph's site / building / project
+ * tables carry nothing else the board reads. The products list cannot supply
+ * this — it has no spatial parent above the storey.
+ */
+export interface SpatialCounts {
+  projects: number;
+  sites: number;
+  buildings: number;
+  storeys: number;
+}
+
 /** The raw payload the worker sends alongside the check results. */
 export interface ModelProfile {
   rows: ProductRowLite[];
   storeys: StoreyRowLite[];
+  spatial: SpatialCounts;
 }
 
 export interface ClassCount {

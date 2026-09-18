@@ -20,6 +20,7 @@ const STRINGS = {
   "action.openIfc": { nb: "Åpne IFC", en: "Open IFC" },
   "action.openRuleset": { nb: "Åpne regelsett", en: "Open ruleset" },
   "action.remove": { nb: "Fjern", en: "Remove" },
+  "action.derivation": { nb: "Grunnlag", en: "Derivation" },
   "action.clearAll": { nb: "Tøm alle", en: "Clear all" },
   "label.models": { nb: "Modeller", en: "Models" },
   "label.ruleset": { nb: "Regelsett", en: "Ruleset" },
@@ -47,7 +48,32 @@ const STRINGS = {
   "kpi.duplicateStepIds": { nb: "Dupliserte STEP-id", en: "Duplicate STEP ids" },
   "kpi.unresolved": { nb: "Uavklart", en: "Unresolved" },
 
+  /* --------------------------------------------------------- verification */
+  // The verdict vocabulary is the one on delivered Skiplum dashboards
+  // (Bestått / Advarsel / Avvik / N/A), not terms invented here. `warn` is
+  // Advarsel: a finding that is real and is not a defect in the file.
+  "verdict.pass": { nb: "Bestått", en: "Pass" },
+  "verdict.warn": { nb: "Advarsel", en: "Warning" },
+  "verdict.fail": { nb: "Avvik", en: "Deviation" },
+  "verdict.na": { nb: "N/A", en: "N/A" },
+
+  // One per fundamental. A check's NAME, never a restatement of what it does.
+  "check.parse-integrity": { nb: "Innlesing", en: "Parse integrity" },
+  "check.spatial-chain": { nb: "Romlig struktur", en: "Spatial structure" },
+  "check.storey-containment": { nb: "Objekt i etasje", en: "Element in storey" },
+  "check.storey-in-building": { nb: "Etasje i bygning", en: "Storey in building" },
+  "check.storey-elevation": { nb: "Etasjekoter", en: "Storey elevations" },
+  "check.guid-unique": { nb: "Unik GlobalId", en: "Unique GlobalId" },
+  "check.element-named": { nb: "Navn på objekt", en: "Element name" },
+  "check.element-typed": { nb: "Typet objekt", en: "Element typed" },
+  "check.type-name-placeholder": { nb: "Typenavn", en: "Type name" },
+  "check.single-instance-types": { nb: "Type brukt én gang", en: "Single-instance type" },
+  "check.element-material": { nb: "Materiale", en: "Material" },
+
   /* ---------------------------------------------------------------- tiles */
+  "tile.verify": { nb: "Verifikasjon", en: "Verification" },
+  "tile.spatial": { nb: "Romlig struktur", en: "Spatial structure" },
+  "tile.file": { nb: "Fil", en: "File" },
   "tile.classes": { nb: "Klasser", en: "Classes" },
   "tile.storeys": { nb: "Etasjer", en: "Storeys" },
   "tile.floorMatrix": { nb: "Etasjematrise", en: "Floor matrix" },
@@ -60,6 +86,9 @@ const STRINGS = {
   "col.elements": { nb: "Objekter", en: "Elements" },
   "col.guid": { nb: "GlobalId", en: "GlobalId" },
   "col.reason": { nb: "Årsak", en: "Reason" },
+  "col.check": { nb: "Kontroll", en: "Check" },
+  "col.verdict": { nb: "Vurdering", en: "Verdict" },
+  "col.found": { nb: "Funnet verdi", en: "Found value" },
 
   "matrix.noStorey": { nb: "Uten etasje", en: "No storey" },
   "storey.shared": { nb: "Delt kote", en: "Shared elevation" },
