@@ -12,10 +12,10 @@ const LANG_KEY = "ifc-check.lang";
 
 export interface ViewState {
   lang: Lang;
-  /** Id of the selected model column, or null. */
+  /** Id of the model whose value is open, or null. */
   model: string | null;
-  /** Id of the selected check row, or null. */
-  check: string | null;
+  /** Serialised drill target within that model, or null. See ui/trace.ts. */
+  focus: string | null;
 }
 
 function isLang(value: string | null): value is Lang {
@@ -48,7 +48,7 @@ function parse(): ViewState {
   return {
     lang: initialLang(hash),
     model: hash.get("model"),
-    check: hash.get("check"),
+    focus: hash.get("focus"),
   };
 }
 
@@ -56,7 +56,7 @@ function serialise(view: ViewState): string {
   const params = new URLSearchParams();
   params.set("lang", view.lang);
   if (view.model) params.set("model", view.model);
-  if (view.check) params.set("check", view.check);
+  if (view.focus) params.set("focus", view.focus);
   return `#${params.toString()}`;
 }
 
@@ -80,7 +80,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
       setView((current) => ({
         lang: isLang(lang) ? lang : current.lang,
         model: hash.get("model"),
-        check: hash.get("check"),
+        focus: hash.get("focus"),
       }));
     };
     window.addEventListener("hashchange", onHashChange);
@@ -116,7 +116,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
       setView((current) => ({
         lang: isLang(lang) ? lang : current.lang,
         model: hash.get("model"),
-        check: hash.get("check"),
+        focus: hash.get("focus"),
       }));
     };
     window.addEventListener("popstate", onPopState);

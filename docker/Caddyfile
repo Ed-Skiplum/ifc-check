@@ -4,17 +4,23 @@
 	root * /srv
 	encode gzip zstd
 
-	# Single page, relative base. Any unknown path falls back to index.html.
-	try_files {path} /index.html
-	file_server
+	# Assets are handled separately from the SPA fallback on purpose. With a
+	# blanket `try_files {path} /index.html`, a missing or renamed chunk comes
+	# back 200 with an HTML body, and the browser fails on "unexpected token
+	# <" somewhere unrelated. Here a missing asset is a plain 404, which says
+	# what actually went wrong. Vite content-hashes these, so they cache hard.
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
 
-	# The wasm module is content-hashed by Vite, so it can be cached hard.
-	@hashed path_regexp ^/assets/
-	header @hashed Cache-Control "public, max-age=31536000, immutable"
-
-	# index.html must not be, or a deploy never reaches anyone.
-	@root path / /index.html
-	header @root Cache-Control "no-cache"
+	# Everything else is the single page. index.html must not be cached, or a
+	# deploy never reaches anyone still holding the old one.
+	handle {
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
 
 	log {
 		output stdout

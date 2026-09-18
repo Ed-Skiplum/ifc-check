@@ -1,8 +1,8 @@
 /** Every UI string, in one flat map.
  *
  * Labels and names only. The engine's own `detail` and `reason` lines are data
- * and pass through untranslated — they come from `src/engine`, which this
- * module does not own.
+ * and pass through untranslated — they come from `src/engine` and `src/ids`,
+ * which this module does not own.
  */
 
 export type Lang = "nb" | "en";
@@ -10,40 +10,83 @@ export type Lang = "nb" | "en";
 export const LANGS: readonly Lang[] = ["nb", "en"] as const;
 
 const STRINGS = {
-  "toolbar.open": { nb: "Åpne filer", en: "Open files" },
-  "toolbar.accept": { nb: "IFC · IFCZIP", en: "IFC · IFCZIP" },
-  "toolbar.models": { nb: "Modeller", en: "Models" },
+  /* ------------------------------------------------------------- entrance */
+  "drop.ifc": { nb: "Slipp IFC-filer her", en: "Drop IFC files here" },
+  "drop.ruleset": { nb: "Slipp regelsett", en: "Drop ruleset" },
+  "accept.ifc": { nb: "IFC · IFCZIP", en: "IFC · IFCZIP" },
+  "accept.ruleset": { nb: "IDS · RULESET.JSON", en: "IDS · RULESET.JSON" },
 
-  "matrix.check": { nb: "Kontroll", en: "Check" },
+  /* ------------------------------------------------------------- app bar */
+  "action.openIfc": { nb: "Åpne IFC", en: "Open IFC" },
+  "action.openRuleset": { nb: "Åpne regelsett", en: "Open ruleset" },
+  "action.remove": { nb: "Fjern", en: "Remove" },
+  "action.clearAll": { nb: "Tøm alle", en: "Clear all" },
+  "label.models": { nb: "Modeller", en: "Models" },
+  "label.ruleset": { nb: "Regelsett", en: "Ruleset" },
+  "label.rules": { nb: "Regler", en: "Rules" },
 
-  "check.parse-integrity": { nb: "Parseintegritet", en: "Parse integrity" },
-  "check.storey-containment": { nb: "Etasjetilhørighet", en: "Storey containment" },
-  "check.storey-in-building": { nb: "Etasje i bygning", en: "Storey in building" },
-  "check.element-named": { nb: "Objektnavn", en: "Element name" },
-  "check.element-typed": { nb: "Objekttype", en: "Element type" },
-  "check.type-name-placeholder": { nb: "Plassholder-typenavn", en: "Placeholder type name" },
-  "check.single-instance-types": { nb: "Typer med én instans", en: "Single-instance types" },
-  "check.element-material": { nb: "Objektmateriale", en: "Element material" },
-  "check.guid-unique": { nb: "Unik GlobalId", en: "Unique GlobalId" },
-
-  "state.pass": { nb: "Bestått", en: "Pass" },
-  "state.fail": { nb: "Feil", en: "Fail" },
-  "state.review": { nb: "Vurder", en: "Review" },
-  "state.not_applicable": { nb: "Ikke aktuell", en: "Not applicable" },
-
+  /* ------------------------------------------------------------ file state */
   "file.queued": { nb: "I kø", en: "Queued" },
   "file.parsing": { nb: "Leser", en: "Parsing" },
   "file.ready": { nb: "Klar", en: "Ready" },
   "file.failed": { nb: "Feilet", en: "Failed" },
+  "file.rejected": { nb: "Ikke IFC", en: "Not IFC" },
 
-  "findings.guid": { nb: "GlobalId", en: "GlobalId" },
-  "findings.entity": { nb: "IFC-klasse", en: "IFC class" },
-  "findings.name": { nb: "Navn", en: "Name" },
-  "findings.reason": { nb: "Årsak", en: "Reason" },
+  /* ------------------------------------------------------------------ KPI */
+  "kpi.products": { nb: "Produkter", en: "Products" },
+  "kpi.storeys": { nb: "Etasjer", en: "Storeys" },
+  "kpi.schema": { nb: "Skjema", en: "Schema" },
+  "kpi.unit": { nb: "Lengdeenhet", en: "Length unit" },
+  "kpi.classes": { nb: "Antall klasser", en: "Distinct classes" },
+  "kpi.typed": { nb: "Typet", en: "Typed" },
+  "kpi.material": { nb: "Med materiale", en: "With material" },
+  "kpi.parseTime": { nb: "Lesetid", en: "Parse time" },
+  "kpi.size": { nb: "Filstørrelse", en: "File size" },
+  "kpi.application": { nb: "Program", en: "Application" },
+  "kpi.project": { nb: "Prosjekt", en: "Project" },
+  "kpi.duplicateStepIds": { nb: "Dupliserte STEP-id", en: "Duplicate STEP ids" },
+  "kpi.unresolved": { nb: "Uavklart", en: "Unresolved" },
+
+  /* ---------------------------------------------------------------- tiles */
+  "tile.classes": { nb: "Klasser", en: "Classes" },
+  "tile.storeys": { nb: "Etasjer", en: "Storeys" },
+  "tile.floorMatrix": { nb: "Etasjematrise", en: "Floor matrix" },
+
+  /* -------------------------------------------------------------- columns */
+  "col.class": { nb: "IFC-klasse", en: "IFC class" },
+  "col.count": { nb: "Antall", en: "Count" },
+  "col.name": { nb: "Navn", en: "Name" },
+  "col.elevation": { nb: "Kote", en: "Elevation" },
+  "col.elements": { nb: "Objekter", en: "Elements" },
+  "col.guid": { nb: "GlobalId", en: "GlobalId" },
+  "col.reason": { nb: "Årsak", en: "Reason" },
+
+  "matrix.noStorey": { nb: "Uten etasje", en: "No storey" },
+  "storey.shared": { nb: "Delt kote", en: "Shared elevation" },
+
+  /* --------------------------------------------------------- rule results */
+  "result.pass": { nb: "Bestått", en: "Pass" },
+  "result.fail": { nb: "Feil", en: "Fail" },
+  "result.not_applicable": { nb: "Ikke aktuell", en: "Not applicable" },
+  "result.not_evaluable": { nb: "Kan ikke vurderes", en: "Not evaluable" },
+  "result.evaluating": { nb: "Vurderer", en: "Evaluating" },
+
+  /* ------------------------------------------------------------- findings */
   "findings.count": { nb: "Funn", en: "Findings" },
   "findings.close": { nb: "Lukk", en: "Close" },
 
-  "summary.products": { nb: "produkter", en: "products" },
+  /* ---------------------------------------------------------- derivation */
+  "trace.applicable": { nb: "Aktuelle", en: "Applicable" },
+  "trace.failed": { nb: "Avvik", en: "Failed" },
+  "trace.passed": { nb: "Bestått", en: "Passed" },
+  "trace.elements": { nb: "Objekter", en: "Elements" },
+  "trace.shown": { nb: "Vist", en: "Shown" },
+  "trace.notes": { nb: "Forbehold", en: "Caveats" },
+  "trace.reason": { nb: "Begrunnelse", en: "Reason" },
+  "trace.rule": { nb: "Regel", en: "Rule" },
+
+  /* ---------------------------------------------------------------- errors */
+  "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },
 } as const satisfies Record<string, { nb: string; en: string }>;
 
 export type StringKey = keyof typeof STRINGS;
@@ -52,21 +95,7 @@ export function t(key: StringKey, lang: Lang): string {
   return STRINGS[key][lang];
 }
 
-/** Check ids in engine order. Held here so the matrix can show all nine rows
- *  before a single file has been dropped — a row is never hidden. */
-export const CHECK_IDS = [
-  "parse-integrity",
-  "storey-containment",
-  "storey-in-building",
-  "element-named",
-  "element-typed",
-  "type-name-placeholder",
-  "single-instance-types",
-  "element-material",
-  "guid-unique",
-] as const;
-
-export function checkLabel(id: string, lang: Lang): string {
-  const key = `check.${id}` as StringKey;
-  return key in STRINGS ? t(key, lang) : id;
+/** Locale for number formatting. Norwegian uses a comma decimal separator. */
+export function locale(lang: Lang): string {
+  return lang === "nb" ? "nb-NO" : "en-GB";
 }

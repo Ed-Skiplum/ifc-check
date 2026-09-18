@@ -1,17 +1,34 @@
-/** One screen: toolbar, matrix, findings band. */
+/** The flow. Each stage appears when it becomes real.
+ *
+ *   empty      one centered drop target, nothing else
+ *   reading    the files, named, with their progress — and their errors in full
+ *   dashboard  what the file IS: KPI tiles, class census, storeys, floor matrix
+ *   rules      only once a ruleset says what right looks like
+ *   derivation the rows and the arithmetic behind whatever number is open
+ *
+ * A model's numbers are facts until a rule claims them. Nothing on the
+ * dashboard calls a model wrong against a requirement nobody stated.
+ */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { FindingsBand } from "./ui/FindingsBand";
-import { Matrix } from "./ui/Matrix";
-import { Toolbar } from "./ui/Toolbar";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Ruleset } from "./ids/types.ts";
+import { AppBar, LangToggle } from "./ui/AppBar";
+import { kpiClaims } from "./ui/claims";
+import { DropTarget } from "./ui/DropTarget";
+import { ModelPanel } from "./ui/ModelPanel";
+import { TraceBand } from "./ui/TraceBand";
+import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
+import { buildTrace, parseFocus, serialiseFocus, type Focus } from "./ui/trace";
 import { useHashView } from "./ui/useHashView";
-import { useModels } from "./ui/useModels";
+import { isAcceptedFile, useModels } from "./ui/useModels";
 
 export default function App() {
   const [view, setView] = useHashView();
-  const { models, addFiles } = useModels();
-  const [dragging, setDragging] = useState(false);
-  const dragDepth = useRef(0);
+  const { models, addFiles, removeModel, clearModels, applyRuleset } = useModels();
+  const [ruleset, setRuleset] = useState<Ruleset | null>(null);
+  const [rulesetName, setRulesetName] = useState<string | null>(null);
+  const [rulesetError, setRulesetError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(0);
 
   // Keep the document language in step with the toggle, for screen readers and
   // for the browser's own hyphenation.
@@ -19,70 +36,148 @@ export default function App() {
     document.documentElement.lang = view.lang;
   }, [view.lang]);
 
-  const select = useCallback(
-    (model: string, check: string) => {
-      const same = view.model === model && view.check === check;
-      setView(same ? { model: null, check: null } : { model, check });
+  const loadRuleset = useCallback(
+    async (file: File) => {
+      try {
+        const loaded = await readRulesetFile(file);
+        setRulesetError(null);
+        setRulesetName(loaded.fileName);
+        setRuleset(loaded.ruleset);
+        applyRuleset(loaded.ruleset);
+      } catch (error) {
+        // Loudly, in full, named. A ruleset that half-loaded would report a
+        // model clean against rules that were never applied.
+        setRulesetName(null);
+        setRuleset(null);
+        setRulesetError(error instanceof Error ? error.message : String(error));
+        applyRuleset(null);
+      }
     },
-    [setView, view.model, view.check],
+    [applyRuleset],
   );
 
+  const takeFiles = useCallback(
+    (files: File[]) => {
+      const rulesets: File[] = [];
+      const rest: File[] = [];
+      for (const file of files) {
+        if (!isAcceptedFile(file) && isRulesetFile(file)) rulesets.push(file);
+        else rest.push(file);
+      }
+      // Files this app does not take still land in the list, failed and named.
+      if (rest.length > 0) addFiles(rest);
+      if (rulesets.length > 0) void loadRuleset(rulesets[0]);
+    },
+    [addFiles, loadRuleset],
+  );
+
+  const clearRuleset = useCallback(() => {
+    setRulesetName(null);
+    setRuleset(null);
+    setRulesetError(null);
+    applyRuleset(null);
+    if (view.focus?.startsWith("rule:")) setView({ focus: null });
+  }, [applyRuleset, setView, view.focus]);
+
+  const claims = useMemo(() => kpiClaims(ruleset), [ruleset]);
+  const focus = parseFocus(view.focus);
   const selectedModel = models.find((m) => m.id === view.model);
-  const selectedCheck =
-    selectedModel?.state === "ready"
-      ? selectedModel.report?.checks.find((c) => c.id === view.check)
-      : undefined;
+  const trace = selectedModel && focus ? buildTrace(selectedModel, focus) : null;
+
+  const onFocus = useCallback(
+    (modelId: string, next: Focus) => {
+      const key = serialiseFocus(next);
+      const same = view.model === modelId && view.focus === key;
+      setView(same ? { model: null, focus: null } : { model: modelId, focus: key });
+    },
+    [setView, view.focus, view.model],
+  );
+
+  const onRemove = useCallback(
+    (id: string) => {
+      if (view.model === id) setView({ model: null, focus: null });
+      removeModel(id);
+    },
+    [removeModel, setView, view.model],
+  );
+
+  const onClearAll = useCallback(() => {
+    setView({ model: null, focus: null });
+    clearModels();
+  }, [clearModels, setView]);
 
   return (
     <div
       className="flex h-full flex-col overflow-hidden bg-cream text-ink"
       onDragEnter={(event) => {
         event.preventDefault();
-        dragDepth.current += 1;
-        setDragging(true);
+        setDragging((depth) => depth + 1);
       }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => {
         event.preventDefault();
-        dragDepth.current -= 1;
-        if (dragDepth.current <= 0) {
-          dragDepth.current = 0;
-          setDragging(false);
-        }
+        setDragging((depth) => Math.max(0, depth - 1));
       }}
       onDrop={(event) => {
         event.preventDefault();
-        dragDepth.current = 0;
-        setDragging(false);
-        addFiles(Array.from(event.dataTransfer.files));
+        setDragging(0);
+        takeFiles(Array.from(event.dataTransfer.files));
       }}
     >
-      <Toolbar
-        lang={view.lang}
-        onLang={(lang) => setView({ lang })}
-        modelCount={models.length}
-        dragging={dragging}
-        onFiles={addFiles}
-      />
+      {models.length === 0 ? (
+        <>
+          <div className="flex shrink-0 justify-end p-3">
+            <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
+          </div>
+          <DropTarget lang={view.lang} dragging={dragging > 0} onFiles={takeFiles} />
+        </>
+      ) : (
+        <>
+          <AppBar
+            lang={view.lang}
+            onLang={(lang) => setView({ lang })}
+            modelCount={models.length}
+            onFiles={takeFiles}
+            onClearAll={onClearAll}
+            rulesetName={rulesetName}
+            onRulesetFile={(file) => void loadRuleset(file)}
+            onClearRuleset={clearRuleset}
+            draggingRuleset={dragging > 0}
+          />
 
-      <Matrix
-        lang={view.lang}
-        models={models}
-        selectedModel={view.model}
-        selectedCheck={view.check}
-        onSelect={select}
-      />
+          {rulesetError ? (
+            <pre className="m-0 shrink-0 bg-bad px-4 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+              {rulesetError}
+            </pre>
+          ) : null}
 
-      {selectedModel && selectedCheck ? (
-        <FindingsBand
-          // A different cell is a different list: remount so it starts at the top.
-          key={`${selectedModel.id}:${selectedCheck.id}`}
-          lang={view.lang}
-          fileName={selectedModel.fileName}
-          check={selectedCheck}
-          onClose={() => setView({ model: null, check: null })}
-        />
-      ) : null}
+          <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto px-4 py-3">
+            {models.map((model) => (
+              <ModelPanel
+                key={model.id}
+                lang={view.lang}
+                model={model}
+                hasRuleset={rulesetName !== null}
+                claims={claims}
+                selected={view.model === model.id ? view.focus : null}
+                onFocus={(next) => onFocus(model.id, next)}
+                onRemove={() => onRemove(model.id)}
+              />
+            ))}
+          </main>
+
+          {trace ? (
+            <TraceBand
+              // A different target is a different list: remount so it starts
+              // at the top.
+              key={`${trace.modelId}:${trace.focus}`}
+              lang={view.lang}
+              trace={trace}
+              onClose={() => setView({ model: null, focus: null })}
+            />
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

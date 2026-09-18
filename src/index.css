@@ -35,3 +35,18 @@ body {
   scrollbar-color: var(--color-muted) var(--color-panel);
   scrollbar-width: thin;
 }
+
+/* Indeterminate read/parse progress. The parser reports no percentage, so this
+   says "working" rather than inventing one. */
+@keyframes ifc-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+.ifc-sweep {
+  animation: ifc-sweep 1.1s linear infinite;
+}

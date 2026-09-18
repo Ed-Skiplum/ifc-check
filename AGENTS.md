@@ -13,7 +13,9 @@ says so.
 src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   types.ts       ProductRow / IfcGraph / IfcSummary / CheckResult / Finding
   fundamentals.ts  the nine structure-and-usability checks
-  worker.ts      one Web Worker per file
+src/ui/          the screen, and the worker that drives the engine
+  model-worker.ts  one Web Worker per file; keeps the parsed graph resident
+                   so a ruleset dropped later evaluates without re-parsing
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
 scripts/
