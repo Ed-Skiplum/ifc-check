@@ -23,13 +23,25 @@ import { formatBytes, formatCount, formatElevation, formatMs, formatShare } from
 import { FloorMatrix } from "./FloorMatrix";
 import { KpiTile, Tile, WideTile } from "./Tiles";
 
-/** The grid module. Column and row are fixed; a tile spans whole modules, so
- *  tile sizes stand in golden-section-ish relation instead of halves. */
+/** The grid module, proportioned to the viewport.
+ *
+ * A tile spans whole modules, so every tile keeps its relation to every other
+ * one and the module itself carries the responsiveness. Column tracks viewport
+ * WIDTH and row tracks viewport HEIGHT, which means the module's aspect ratio
+ * follows the screen's: wide and short on a 32" monitor, squarer on a laptop.
+ * A fixed 12rem x 4.5rem module wasted width on a large screen and crowded a
+ * small one.
+ *
+ * Both are clamped. The floors stop a narrow window from shrinking tiles until
+ * the numbers stop being readable; the ceilings stop a wide one from inflating
+ * a single stat into a mostly-empty panel — size has to be earned by content.
+ * This is layout responding to the viewport, not a tile resizing itself around
+ * its own contents. */
 const GRID = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, 12rem)",
-  gridAutoRows: "4.5rem",
-  gap: "0.75rem",
+  gridTemplateColumns: "repeat(auto-fill, clamp(9.5rem, 13vw, 15rem))",
+  gridAutoRows: "clamp(3.75rem, 6.5vh, 5.5rem)",
+  gap: "clamp(0.5rem, 0.9vw, 1rem)",
   justifyContent: "start",
 } as const;
 
