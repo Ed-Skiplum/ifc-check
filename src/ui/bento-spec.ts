@@ -50,6 +50,26 @@ export const BENTO_GAP_DIVISOR = 10;
  *  the 8-row fold budget closes at 800 px. Square is the ideal, not a rule. */
 export const BENTO_ROW_FACTOR: Record<BentoCols, number> = { 13: 0.95, 21: 1 };
 
+/** Tile aspect bounds, width : height of the rendered tile.
+ *
+ * The span ladder alone does not guarantee a pleasant tile: with a square cell
+ * a 13x1 strip renders at 13:1 and a 2x5 readout at roughly 1:2.4, and the
+ * owner's objection is exactly those — "very tall and narrow or very wide and
+ * short tiles are not nice".
+ *
+ * So the CELL is not fixed square. Its aspect flexes within these bounds to
+ * suit the viewport, and a tile whose rendered aspect still falls outside them
+ * is a layout defect that `validateBentoLayout` reports rather than silently
+ * rendering. Strips are the deliberate exception — a strip IS a wide thin band
+ * — so they are checked against their own looser ceiling.
+ */
+export const BENTO_TILE_ASPECT = { min: 0.45, max: 4.2 } as const;
+export const BENTO_STRIP_ASPECT_MAX = 24;
+
+/** How far the CELL itself may depart from square to suit the viewport.
+ *  Below 1 the cell is taller than wide, above 1 wider than tall. */
+export const BENTO_CELL_ASPECT = { min: 0.82, max: 1.3 } as const;
+
 /** Rows visible without scrolling. P0/P1 never live below this line. */
 export const BENTO_FOLD_ROWS: Record<BentoCols, number> = { 13: 8, 21: 10 };
 
@@ -173,6 +193,16 @@ export type BentoKind =
 export interface BentoKindEntry {
   /** The question the tile answers — the reason the kind exists. */
   question: string;
+  /** Usable width : height range for THIS kind's content.
+   *
+   *  A span that is legal on the ladder can still be a bad home for a given
+   *  content: a viewer stops being navigable outside a fairly narrow range, a
+   *  treemap needs a squarish field or its cells degenerate into slivers, and a
+   *  ladder is a band by design. So the bound belongs to the kind, not to the
+   *  grid — the owner: "a viewer works best within a certain aspect ratio
+   *  range, then it becomes unuseable or awkward. A treemap works best in the
+   *  square or viewer like rectangles, not in strips." */
+  aspect: { min: number; max: number };
   /** Every span this form may occupy. Anything else fails validation. */
   spans: readonly BentoSpan[];
 }
@@ -180,6 +210,8 @@ export interface BentoKindEntry {
 export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   matrix: {
     question: "where does a condition hold (axis × axis)",
+    // a heat grid tolerates a wide band — rows are the long axis
+    aspect: { min: 0.5, max: 4.0 },
     // DEVIATION FROM UPSTREAM (1 of 2). Upstream gives `matrix` the focal
     // spans only, because on every sprucelab board the matrix IS the focal.
     // Here the focal is the verification block, and the storey × class census
@@ -191,14 +223,20 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   },
   gauge: {
     question: "how far vs a declared target",
+    // a dial or bar pair wants room either side of the number
+    aspect: { min: 0.9, max: 2.6 },
     spans: [{ w: 5, h: 3 }, { w: 3, h: 2 }, { w: 5, h: 2 }],
   },
   distribution: {
     question: "how is X spread",
+    // horizontal bars read along the long axis
+    aspect: { min: 1.0, max: 4.5 },
     spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }, { w: 3, h: 3 }],
   },
   ladder: {
     question: "how far along an ordered state set",
+    // a band by design; it fails when it becomes squarish
+    aspect: { min: 2.0, max: 24 },
     spans: [
       { w: 13, h: 1 },
       { w: 21, h: 1 },
@@ -210,6 +248,8 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   },
   tellTales: {
     question: "is anything wrong (silence = fine)",
+    // a column of rows, each carrying evidence — not a strip
+    aspect: { min: 0.7, max: 2.2 },
     // DEVIATION FROM UPSTREAM (2 of 2). Upstream gives `tellTales` strip spans
     // only — a row of lamps. Here it is the focal: eleven universal checks,
     // each carrying the VALUE it found beside its verdict, which is a column
@@ -227,10 +267,14 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   },
   roster: {
     question: "which ones, by identity",
+    // a list with a sticky header
+    aspect: { min: 0.6, max: 2.4 },
     spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }],
   },
   pulse: {
     question: "what changed, at what rhythm",
+    // a band
+    aspect: { min: 2.0, max: 24 },
     spans: [
       { w: 5, h: 2 },
       { w: 8, h: 2 },
@@ -243,6 +287,8 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   },
   readout: {
     question: "a count with a status",
+    // one value and its label
+    aspect: { min: 0.8, max: 3.0 },
     spans: [
       { w: 3, h: 2 },
       { w: 2, h: 2 },
@@ -254,10 +300,14 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   },
   treemap: {
     question: "whole-vs-parts with magnitude",
+    // squarish or it degenerates into slivers
+    aspect: { min: 0.75, max: 1.8 },
     spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }, { w: 3, h: 3 }],
   },
   viewer: {
     question: "what does the model look like, from here",
+    // a 3D scene stops being navigable outside this
+    aspect: { min: 0.9, max: 2.2 },
     spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }, { w: 3, h: 3 }],
   },
 };

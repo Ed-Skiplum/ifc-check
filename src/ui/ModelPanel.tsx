@@ -42,7 +42,7 @@ export function ModelPanel({
   const reading = model.state === "queued" || model.state === "parsing";
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex h-full min-h-0 shrink-0 flex-col gap-2">
       <div className="flex items-center gap-3">
         <span
           onDoubleClick={copyOnDoubleClick(model.fileName)}

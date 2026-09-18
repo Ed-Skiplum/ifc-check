@@ -110,7 +110,10 @@ export function Dashboard({ lang, model, census, claims, selected, onFocus }: Da
     report && profile && cols ? buildTiles({ cols, lang, model, census, claimed, selected, onFocus }) : null;
 
   return (
-    <div ref={ref} className="w-full min-w-0">
+    // The bento canvas carries `container-type: size`, so it takes its height
+    // from here and never from its content. This chain is what makes the grid
+    // fit the box instead of running off the bottom of it.
+    <div ref={ref} className="min-h-0 w-full min-w-0 flex-1">
       {tiles && cols ? (
         <BentoGrid definition={cols === 21 ? LAYOUT_21 : LAYOUT_13} tiles={tiles} />
       ) : null}
