@@ -25,7 +25,7 @@ import { isAcceptedFile, useModels } from "./ui/useModels";
 
 export default function App() {
   const [view, setView] = useHashView();
-  const { models, addFiles, removeModel, clearModels, applyRuleset } = useModels();
+  const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset } = useModels();
   const [ruleset, setRuleset] = useState<Ruleset | null>(null);
   const [rulesetName, setRulesetName] = useState<string | null>(null);
   const [rulesetError, setRulesetError] = useState<string | null>(null);
@@ -145,6 +145,7 @@ export default function App() {
             modelCount={models.length}
             onFiles={takeFiles}
             onClearAll={onClearAll}
+            onClearCache={clearCache}
             rulesetName={rulesetName}
             onRulesetFile={(file) => void loadRuleset(file)}
             onClearRuleset={clearRuleset}

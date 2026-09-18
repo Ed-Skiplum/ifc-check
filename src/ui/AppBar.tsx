@@ -31,6 +31,7 @@ interface AppBarProps {
   modelCount: number;
   onFiles: (files: File[]) => void;
   onClearAll: () => void;
+  onClearCache: () => void;
   rulesetName: string | null;
   onRulesetFile: (file: File) => void;
   onClearRuleset: () => void;
@@ -43,6 +44,7 @@ export function AppBar({
   modelCount,
   onFiles,
   onClearAll,
+  onClearCache,
   rulesetName,
   onRulesetFile,
   onClearRuleset,
@@ -88,6 +90,18 @@ export function AppBar({
         className="border border-line bg-input px-2 py-1 text-[12px] text-ink hover:border-green hover:text-green"
       >
         {t("action.clearAll", lang)}
+      </button>
+
+      {/* Clears the STORE, not the board. "Tøm alle" empties the screen and
+          keeps the cache so re-dropping is instant; this one throws the cache
+          away and leaves the screen alone. Two different things, so two
+          buttons rather than one that does both. */}
+      <button
+        type="button"
+        onClick={onClearCache}
+        className="border border-line bg-input px-2 py-1 text-[12px] text-ink hover:border-green hover:text-green"
+      >
+        {t("action.clearCache", lang)}
       </button>
 
       {rulesetName === null ? (

@@ -22,6 +22,7 @@ const STRINGS = {
   "action.remove": { nb: "Fjern", en: "Remove" },
   "action.derivation": { nb: "Grunnlag", en: "Derivation" },
   "action.clearAll": { nb: "Tøm alle", en: "Clear all" },
+  "action.clearCache": { nb: "Tøm buffer", en: "Clear cache" },
   "label.models": { nb: "Modeller", en: "Models" },
   "label.ruleset": { nb: "Regelsett", en: "Ruleset" },
   "label.rules": { nb: "Regler", en: "Rules" },

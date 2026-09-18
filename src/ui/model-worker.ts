@@ -26,6 +26,10 @@ import { evaluateRuleset } from "../ids/evaluate.ts";
 import type { ModelResult } from "../ids/evaluate.ts";
 import type { ModelGraph, ModelSummary } from "../ids/model.ts";
 import type { Ruleset } from "../ids/types.ts";
+// The graph -> profile reduction is shared with the restore worker, which must
+// not import this module: it would pull the wasm parser into a worker whose
+// whole point is that it never parses anything.
+import { profileOf } from "../storage/rehydrate.ts";
 import type { ModelProfile } from "./profile";
 
 export type ModelWorkerRequest =
@@ -33,7 +37,11 @@ export type ModelWorkerRequest =
   | { kind: "evaluate"; ruleset: Ruleset };
 
 export type ModelWorkerResponse =
-  | { kind: "parsed"; report: ModelReport; profile: ModelProfile }
+  /** `graph` is the parse path handing the raw graph out ONCE, so the main
+   *  thread can cache it (`src/storage/model-cache.ts`) and a later session can
+   *  restore this model without the file. Absent on the restore path, whose
+   *  graph came out of that cache in the first place. */
+  | { kind: "parsed"; report: ModelReport; profile: ModelProfile; graph?: IfcGraph }
   | { kind: "parse-error"; fileName: string; message: string }
   | { kind: "mesh-batch"; batch: MeshBatch }
   | { kind: "mesh-done"; shift: [number, number, number]; budget: MeshBudget }
@@ -51,28 +59,6 @@ function ensureWasm() {
 let heldGraph: IfcGraph | null = null;
 let heldSummary: IfcSummary | null = null;
 let heldName = "";
-
-function profileOf(graph: IfcGraph): ModelProfile {
-  return {
-    rows: graph.products.map((p) => ({
-      guid: p.guid,
-      entity: p.entity,
-      name: p.name,
-      storeyGuid: p.storey_guid,
-    })),
-    storeys: graph.storeys.map((s) => ({
-      guid: s.guid,
-      name: s.name,
-      elevation: s.elevation,
-    })),
-    spatial: {
-      projects: graph.projects.length,
-      sites: graph.sites.length,
-      buildings: graph.buildings.length,
-      storeys: graph.storeys.length,
-    },
-  };
-}
 
 /** `self` inside a module worker is a `DedicatedWorkerGlobalScope`, whose
  *  `postMessage` takes a transfer list. The project compiles against the DOM
@@ -181,7 +167,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
       summary,
       checks: runFundamentals(graph, summary),
     };
-    send({ kind: "parsed", report, profile: profileOf(graph) });
+    send({ kind: "parsed", report, profile: profileOf(graph), graph });
   } catch (err) {
     // A file that cannot be parsed is reported as itself, never folded into
     // the others as a pass or dropped from the run.
