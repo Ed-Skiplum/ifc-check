@@ -81,10 +81,16 @@ export function ModelPanel({
       onFocus(next);
       const chip = chipOf(next, model, lang);
       if (!chip) return;
-      if (selected === chip.key) onRemoveChip(chip.key);
+      // Decide from the CHIPS, not from the open derivation. `selected` is the
+      // band's focus, restored from the URL hash, and three paths move the
+      // chips without touching it: the chip's own x, Tom filter, and a reload
+      // against a stale hash. Once they were out of step, the next click on
+      // that row was read as "remove a chip that is not there" and silently
+      // did nothing — which is what the owner saw.
+      if (view.chips.some((c) => c.key === chip.key)) onRemoveChip(chip.key);
       else onAddChip(chip);
     },
-    [lang, model, onAddChip, onFocus, onRemoveChip, selected],
+    [lang, model, onAddChip, onFocus, onRemoveChip, view.chips],
   );
 
   return (
