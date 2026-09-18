@@ -105,15 +105,30 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
   // the grid to scale to the viewport, and a board that runs off the bottom is
   // the thing he was pointing at. So the track is the SMALLER of what the width
   // affords and what the height affords, which keeps the cell square and the
-  // span ladder intact while making the fold budget a real promise instead of a
-  // comment.
+  // span ladder intact.
+  //
+  // It divides by the layout's ACTUAL row count, not by `fold`. Dividing by
+  // `fold` sizes the track so that the first `fold` rows fill the box, which
+  // means every row past the fold is outside it — on the 13-track board that
+  // was rows 9..13, and the storey x class matrix lives in 11..13, so the
+  // densest tile on the canvas could not be seen at all. The alternative was
+  // to author both boards within the fold, and on 13 tracks that is
+  // arithmetically impossible: 8 rows is 104 cells, and the smallest legal
+  // set of these seven tiles is 126 (focal 8x5 = 40, one gauge 5x3 = 15,
+  // viewer 3x3 = 9, distribution 3x3 = 9, roster 5x2 = 10, readout 2x2 = 4,
+  // matrix 13x3 = 39). A board that cannot be authored is not a board.
+  //
+  // `fold` keeps the job the spec gives it — "P0/P1 never live below this
+  // line" — and `validateBentoLayout` still enforces exactly that. It is a
+  // reading-order rule; it is no longer the number the fit divides by.
   //
   // Heights are all multiples of the track — row = track x rowFactor and
-  // rowGap = track x PHI/10 — so `fold` rows occupy
-  //   track x (fold x rowFactor + (fold - 1) x PHI/10)
+  // rowGap = track x PHI/10 — so `rows` rows occupy
+  //   track x (rows x rowFactor + (rows - 1) x PHI/10)
   // and inverting that gives the height-afforded track below.
   const rowFactor = BENTO_ROW_FACTOR[definition.cols];
-  const heightDivisor = fold * rowFactor + ((fold - 1) * PHI) / 10;
+  const heightDivisor =
+    definition.rows * rowFactor + ((definition.rows - 1) * PHI) / 10;
 
   // A span that is legal on the ladder can still render as an unpleasant tile:
   // with a near-square cell a 13x1 is about 13:1. Report those in dev rather

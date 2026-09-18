@@ -190,15 +190,19 @@ function buildTiles({
   const summary = report.summary;
   const wide = cols === 21;
 
+  // ONE tile answers "what is this file". It was two — `file` and `project`,
+  // each an 8×2 readout carrying between two and five short values, and
+  // `project` repeated its own header, `kpi.project`, as its first row. A tile
+  // header is a NAME, so the row went and the two strings the file names
+  // itself by moved in here beside the file's own facts. Seven short values
+  // earn ONE compact tile; harmonic size is earned by content, and 8×2 for
+  // this is 4:1 against `readout`'s own 3.0 ceiling twice over.
   const fileItems: Readout[] = [
     { label: t("kpi.products", lang), value: formatCount(summary.products, lang) },
     { label: t("kpi.schema", lang), value: summary.schema },
     { label: t("kpi.unit", lang), value: summary.length_unit || "—" },
     { label: t("kpi.size", lang), value: formatBytes(report.sizeBytes, lang) },
     { label: t("kpi.parseTime", lang), value: formatMs(report.parseMs, lang) },
-  ];
-
-  const projectItems: Readout[] = [
     { label: t("kpi.project", lang), value: summary.project_name ?? "—", text: true },
     { label: t("kpi.application", lang), value: summary.authoring_app ?? "—", text: true },
   ];
@@ -277,8 +281,14 @@ function buildTiles({
       // Below the fold on 13 tracks: the fold there is 8 rows, and the focal,
       // the model and the gauge fill it. The file's own facts are context, and
       // context is what goes under the line.
+      //
+      // COMPACT on both canvases. `ReadoutList` flows its pairs into
+      // `auto-fit` columns of 9ch, so seven values fill a 3×2 in three columns
+      // on 21 tracks and a 5×2 in four on 13 — both inside `readout`'s 0.8..3.0
+      // (1.5:1 and 2.63:1). The 8×2 these two tiles used to take rendered 4:1
+      // around a tenth of a tile of content.
       priority: "P2",
-      span: wide ? { w: 8, h: 2 } : { w: 5, h: 2 },
+      span: wide ? { w: 3, h: 2 } : { w: 5, h: 2 },
       label: t("tile.file", lang),
       body: <ReadoutList items={fileItems} />,
       click: {
@@ -289,21 +299,15 @@ function buildTiles({
       },
     },
     {
-      id: "project",
-      kind: "readout",
-      priority: "P2",
-      // Both spans carry a header rule now, so the strip variant is gone: the
-      // 3×2 is the narrowest column of the 5+3+5 band on 13 tracks, which is
-      // what a two-pair readout actually needs.
-      span: wide ? { w: 8, h: 2 } : { w: 3, h: 2 },
-      label: t("kpi.project", lang),
-      body: <ReadoutList items={projectItems} />,
-    },
-    {
       id: "classes",
       kind: "distribution",
       priority: "P1",
-      span: { w: 8, h: 3 },
+      // 8×3 on 13 tracks, where it is the whole left column of the second
+      // band; 8×2 on 21, where it shares the right column with the roster and
+      // the roster is the one that needs the third row — a bar list degrades
+      // into a shorter scroll, a table with a sticky header degrades into two
+      // visible rows.
+      span: wide ? { w: 8, h: 2 } : { w: 8, h: 3 },
       label: t("tile.classes", lang),
       sub: formatCount(census.classes.length, lang),
       body: (
@@ -334,6 +338,11 @@ function buildTiles({
       id: "matrix",
       kind: "matrix",
       priority: "P2",
+      // 13 tracks wide on both canvases — the full width of the narrow board,
+      // and the 13+8 cut of the wide one, where it now runs cols 9..21 with
+      // the gauge and the file readout beside it instead of eight tracks of
+      // nothing. It renders 4.56:1 / 4.33:1 against `matrix`'s bound, which is
+      // why that bound moved to 4.6; see the note at the kind's entry.
       span: { w: 13, h: 3 },
       label: t("tile.floorMatrix", lang),
       sub: `${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`,

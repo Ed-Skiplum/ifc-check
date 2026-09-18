@@ -18,31 +18,40 @@
  * the camera.
  *
  * The gauge is the spatial chain, the one target on the screen that no project
- * has to declare. Below the fold sit the census tiles and the storey × class
- * matrix, which are context rather than verdicts.
+ * has to declare. Then the census tiles, and last the storey × class matrix,
+ * which is context rather than a verdict.
  *
- *   13 tracks, 13 rows (fold 8)          21 tracks, 11 rows (fold 10)
- *   ┌───────────────┬─────────┐          ┌───────────────┬─────────┬───────────────┐
- *   │ verify   8×5  │ viewer  │          │ verify   8×5  │ viewer  │ classes  8×3  │
- *   │               │  5×5    │          │               │  5×5    │               │
- *   │               │         │          │               │         ├───────────────┤
- *   ├───────────────┤         │          │               │         │ project  8×2  │
- *   │ classes  8×3  │         │          ├───────────────┼─────────┼───────────────┤
- *   │               ├─────────┤          │ storeys  8×3  │ spatial │ file     8×2  │
- *   │               │ spatial │          │               │  5×3    ├───────────────┤
- *   ├──────┬────────┼─────────┤          │               │         │      .        │
- *   │ file │ project│ storeys │          ├───────────────┴─────────┼───────────────┤
- *   │ 5×2  │  3×2   │  5×2    │          │ matrix          13×3    │      .        │
- *   ├──────┴────────┴─────────┤          └─────────────────────────┴───────────────┘
- *   │ matrix           13×3   │
- *   └─────────────────────────┘
+ *   13 tracks × 13 rows          21 tracks × 8 rows
+ *   1 . . . . . . . . . . 13     1 . . . . . . . . . . . . . . . . . . . 21
+ *   V V V V V V V V M M M M M    V V V V V V V V M M M M M C C C C C C C C   1
+ *   V V V V V V V V M M M M M    V V V V V V V V M M M M M C C C C C C C C   2
+ *   V V V V V V V V M M M M M    V V V V V V V V M M M M M S S S S S S S S   3
+ *   V V V V V V V V M M M M M    V V V V V V V V M M M M M S S S S S S S S   4
+ *   V V V V V V V V M M M M M    V V V V V V V V M M M M M S S S S S S S S   5
+ *   C C C C C C C C G G G G G    G G G G G F F F X X X X X X X X X X X X X   6
+ *   C C C C C C C C G G G G G    G G G G G F F F X X X X X X X X X X X X X   7
+ *   C C C C C C C C G G G G G    G G G G G . . . X X X X X X X X X X X X X   8
+ *   . . . S S S S S F F F F F
+ *   . . . S S S S S F F F F F      V verify  8×5   M viewer  5×5
+ *   X X X X X X X X X X X X X      C classes       G spatial 5×3
+ *   X X X X X X X X X X X X X      S storeys       F file
+ *   X X X X X X X X X X X X X      X matrix 13×3   . structural air
  *
- * Every band closes on a sanctioned decomposition: 13 → 8+5, 5+3+5 and 13;
- * 21 → 8+5+8 and 13+8. The 21-track board carries an 8×4 block of structural
- * air bottom-right: with eight tiles and a 13-wide matrix there is no tiling of
- * 21×11 that closes without it, and the alternative — a 21×3 matrix — renders
- * at 7:1 against that kind's 4.0 ceiling. Air below the fold is cheaper than a
- * tile that cannot be read.
+ * Every band closes on a sanctioned decomposition: 13 → 8+5, 3+5+5 and 13;
+ * 21 → 8+5+8 and 5+3+13 (the 5|6, 8|9 and 13|14 cuts of 5+8+8, 8+5+8 and 13+8).
+ *
+ * ── Why the 21-track board is SHORTER than the 13-track one ─────────────
+ * Because a wider canvas carries more per row. The same seven tiles close in 8
+ * rows on 21 tracks and need 13 on 13 tracks, and the grid fits the box by
+ * ROW COUNT (see `BentoGrid`), so the wide board's track comes out far larger
+ * — which is right for the screen it is chosen on.
+ *
+ * ── The air, and where it is ─────────────────────────────────────────────
+ * 13 tracks: a 3×2 notch at the left edge of the storeys band (6 of 169 cells,
+ * 3.6 %). 21 tracks: a 3×1 notch on the bottom edge under the file readout
+ * (3 of 168 cells, 1.8 %). Both are gutter-scale steps in an edge. The 8×4
+ * block this replaces on the 21-track board was 13.9 % of the canvas and read
+ * as a void, which is the thing air is not allowed to do.
  *
  * The layouts are checked against all of that at render by
  * `validateBentoLayout`, so a typo here is a loud failure rather than a quietly
@@ -69,19 +78,18 @@ export const LAYOUT_13: BentoLayoutDefinition = {
   layout: [
     ...rows(5, [["verify", 8], ["viewer", 5]]),
     ...rows(3, [["classes", 8], ["spatial", 5]]),
-    ...rows(2, [["file", 5], ["project", 3], ["storeys", 5]]),
+    ...rows(2, [[BENTO_EMPTY, 3], ["storeys", 5], ["file", 5]]),
     ...rows(3, [["matrix", 13]]),
   ],
 };
 
 export const LAYOUT_21: BentoLayoutDefinition = {
   cols: 21,
-  rows: 11,
+  rows: 8,
   layout: [
-    ...rows(3, [["verify", 8], ["viewer", 5], ["classes", 8]]),
-    ...rows(2, [["verify", 8], ["viewer", 5], ["project", 8]]),
-    ...rows(2, [["storeys", 8], ["spatial", 5], ["file", 8]]),
-    ...rows(1, [["storeys", 8], ["spatial", 5], [BENTO_EMPTY, 8]]),
-    ...rows(3, [["matrix", 13], [BENTO_EMPTY, 8]]),
+    ...rows(2, [["verify", 8], ["viewer", 5], ["classes", 8]]),
+    ...rows(3, [["verify", 8], ["viewer", 5], ["storeys", 8]]),
+    ...rows(2, [["spatial", 5], ["file", 3], ["matrix", 13]]),
+    ...rows(1, [["spatial", 5], [BENTO_EMPTY, 3], ["matrix", 13]]),
   ],
 };

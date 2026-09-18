@@ -8,7 +8,7 @@
  * The spans are DERIVED from the layout rectangles rather than declared here,
  * so `span-mismatch` cannot pass by coincidence and nothing needs to be kept in
  * step with `Dashboard.tsx` except each tile's kind and priority — the two
- * facts a grid cannot infer. Those are the eight lines below.
+ * facts a grid cannot infer. Those are the seven lines below.
  *
  * Run:  node scripts/board-gate.mjs
  * Exit: 0 both layouts valid, 1 a layout is invalid, 2 internal.
@@ -31,7 +31,6 @@ const TILES = {
   spatial: ["gauge", "P0"],
   classes: ["distribution", "P1"],
   file: ["readout", "P2"],
-  project: ["readout", "P2"],
   storeys: ["roster", "P2"],
   matrix: ["matrix", "P2"],
 };
@@ -79,10 +78,15 @@ for (const definition of [LAYOUT_13, LAYOUT_21]) {
     failed = true;
     console.log(formatBentoErrors(errors).split("\n").map((line) => `     ${line}`).join("\n"));
   }
+  // Every tile, pass or fail. A section that prints only on failure cannot be
+  // told apart from a section that never ran, and "zero aspect warnings" is a
+  // claim someone has to be able to check.
+  const warns = aspects.filter((aspect) => !aspect.ok).length;
+  console.log(`   aspect: ${warns === 0 ? "clean" : `${warns} WARN`}`);
   for (const aspect of aspects) {
-    if (aspect.ok) continue;
     console.log(
-      `   aspect WARN  ${aspect.id} (${aspect.kind}) ${aspect.span} renders ${aspect.ratio}:1, bound ${aspect.bound}`,
+      `     ${aspect.ok ? "ok  " : "WARN"} ${aspect.id.padEnd(8)} ${aspect.kind.padEnd(12)} ` +
+        `${aspect.span.padEnd(5)} ${String(aspect.ratio).padEnd(6)}:1  bound ${aspect.bound}`,
     );
   }
 }

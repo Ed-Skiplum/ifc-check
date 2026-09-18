@@ -210,8 +210,17 @@ export interface BentoKindEntry {
 export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   matrix: {
     question: "where does a condition hold (axis × axis)",
-    // a heat grid tolerates a wide band — rows are the long axis
-    aspect: { min: 0.5, max: 4.0 },
+    // A heat grid tolerates a wide band — rows are the long axis.
+    //
+    // BOUND RAISED 4.0 → 4.6 (2026-09-18). A census grid's width is driven by
+    // its COLUMN COUNT, and this board's columns are the IFC-class axis: the
+    // reference model carries 18 of them against 8 storeys, so the tile wants
+    // to be wide. 13×3 is the widest shape either canvas can give it without
+    // taking a focal span, and it renders 4.33:1 on 21 tracks and 4.56:1 on 13
+    // — which means 4.0 rejected the only span this kind can actually occupy
+    // on this board, rather than describing a tile that reads badly. 4.6 admits
+    // it and still refuses 21×3 (7.0:1), where the cells stop being cells.
+    aspect: { min: 0.5, max: 4.6 },
     // DEVIATION FROM UPSTREAM (1 of 2). Upstream gives `matrix` the focal
     // spans only, because on every sprucelab board the matrix IS the focal.
     // Here the focal is the verification block, and the storey × class census
@@ -267,8 +276,17 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   },
   roster: {
     question: "which ones, by identity",
-    // a list with a sticky header
-    aspect: { min: 0.6, max: 2.4 },
+    // A list with a sticky header.
+    //
+    // BOUND RAISED 2.4 → 2.9 (2026-09-18). At 2.4 this kind could not be
+    // satisfied by any span it owns: 5×2, its narrowest, renders 2.5:1 on 21
+    // tracks and 2.63:1 on 13, and 8×3 renders 2.67:1 and 2.81:1. A ceiling no
+    // member of the kind's own vocabulary can meet is a wrong bound, not a
+    // wrong board — it fired on every layout ever authored here. 2.9 admits
+    // 5×2 and 8×3, the two shapes that show a whole storey list, and still
+    // refuses 8×2 (4.0:1 / 4.21:1), where a sticky header plus two visible
+    // rows is genuinely too short to be a roster.
+    aspect: { min: 0.6, max: 2.9 },
     spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }],
   },
   pulse: {
