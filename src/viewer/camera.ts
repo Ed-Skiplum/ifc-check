@@ -29,6 +29,15 @@
  * pivot is lerped toward the point under the cursor by the same fraction the
  * radius shrank. Distance-to-surface, not distance-to-an-abstract-point, is
  * what sets the speed, and the approach stays smooth all the way in.
+ *
+ * -- Re-targeting without a camera move ----------------------------------
+ * `setPivot` moves the orbit CENTRE and leaves the eye exactly where it is.
+ * That is the whole trick behind "orbit around what I am looking at": the pose
+ * is stored as (target, phi, theta, radius), so a new target with the old three
+ * angles WOULD fly the eye. Instead the eye is held fixed and the other three
+ * are re-derived from it, which is an identity on the camera and a change of
+ * pivot only. Camera moves stay an explicit opt-in — `fit` and
+ * `zoomToSelection` — and selecting a row never flies anything.
  */
 
 import type { PerspectiveCamera } from "three";
@@ -206,6 +215,63 @@ export class Turntable {
     const denominator = direction.dot(forward);
     if (Math.abs(denominator) < 1e-6) return this.target.clone();
     return camera.position.clone().addScaledVector(direction, view.length() / denominator);
+  }
+
+  /** Where the eye sits for the current pose. Derived from the pose rather than
+   *  read off the camera, so it is correct even on a frame where `apply` has
+   *  not run yet — the render loop only applies when the scene is dirty. */
+  eye(out: Vector3 = new Vector3()): Vector3 {
+    return out.copy(this.target).addScaledVector(eyeDirection(this.phi, this.theta), this.radius);
+  }
+
+  /**
+   * Move the orbit centre to `pivot` WITHOUT moving the eye.
+   *
+   * The eye is held, the vector from the new pivot to it is decomposed back
+   * into (radius, phi, theta), and the target is then rebuilt FROM the eye:
+   * `target = eye - direction * radius`. When nothing is clamped that is the
+   * requested pivot exactly, and `apply` then writes back the position the
+   * camera already had — a true no-op on the camera.
+   *
+   * When a limit does bind — the pivot almost directly above or below the eye
+   * (polar), or so far off that the eye would sit outside the radius stops —
+   * the pose is projected onto the nearest legal one AT THE SAME EYE rather
+   * than the pivot being taken literally and the camera jumping to obey it.
+   * The two hard rules (the eye does not move, the polar limits hold) survive;
+   * the pivot is the thing that gives, and it gives by the smallest amount.
+   *
+   * Returns false and changes nothing when the request is degenerate — a
+   * non-finite pivot, or one sitting on the eye, which has no orbit direction
+   * at all. A caller with nothing to point at holds the pivot it had.
+   */
+  setPivot(pivot: Vector3): boolean {
+    if (!Number.isFinite(pivot.x) || !Number.isFinite(pivot.y) || !Number.isFinite(pivot.z)) {
+      return false;
+    }
+    const eye = this.eye();
+    const offset = new Vector3().subVectors(eye, pivot);
+    const distance = offset.length();
+    if (!Number.isFinite(distance) || distance < 1e-9) return false;
+
+    const phi = MathUtils.clamp(
+      Math.acos(MathUtils.clamp(offset.y / distance, -1, 1)),
+      POLAR_FLOOR,
+      Math.PI - POLAR_FLOOR,
+    );
+    // `theta` stops being a running total here and restarts from atan2's
+    // (-PI, PI]. That is safe only because nothing in this module interpolates
+    // it — there is no damping and no easing, so a jump in the STORED value
+    // with the position held constant is invisible, and the next drag simply
+    // continues from the new number. Add easing later and this line needs the
+    // nearest-equivalent-angle unwrap that easing would demand.
+    const theta = Math.atan2(offset.x, offset.z);
+    const radius = MathUtils.clamp(distance, this.minRadius, this.maxRadius);
+
+    this.phi = phi;
+    this.theta = theta;
+    this.radius = radius;
+    this.target.copy(eye).addScaledVector(eyeDirection(phi, theta), -radius);
+    return true;
   }
 
   /** Scale the radius limits to the model, so a millimetre-unit model and a

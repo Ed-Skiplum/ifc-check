@@ -179,6 +179,26 @@ export interface FramingBox {
    *  never a visibility one. */
   excluded: number;
   total: number;
+  /** Every element that had geometry, with its own world box and whether the
+   *  framing rule threw it out.
+   *
+   * Kept rather than discarded because the ORBIT PIVOT has to be re-derived
+   * every time the filter or the selection changes, and re-walking every vertex
+   * on each of those is O(vertices) per user action on a model that may carry
+   * four million triangles. From these it is O(elements), and — the point — the
+   * pivot inherits the SAME outlier verdict the entry camera used instead of a
+   * second, subtly different robustness rule. */
+  elements: ElementBoxes;
+}
+
+/** Per-element world boxes, parallel arrays rather than objects: one allocation
+ *  each instead of one per element on a 100k-element model. */
+export interface ElementBoxes {
+  guids: string[];
+  /** Six floats per element: minX, minY, minZ, maxX, maxY, maxZ. */
+  bounds: Float64Array;
+  /** 1 where the element failed the framing cutoff. */
+  outlier: Uint8Array;
 }
 
 /**
@@ -207,8 +227,9 @@ export function framingBox(set: MeshSet): FramingBox | null {
   const centres: [number, number, number][] = [];
   const halves: number[] = [];
   const boxes: { min: [number, number, number]; max: [number, number, number] }[] = [];
+  const guids: string[] = [];
 
-  for (const range of set.index.values()) {
+  for (const [guid, range] of set.index) {
     const positions = set.batches[range.batch].positions;
     let minX = Infinity;
     let minY = Infinity;
@@ -230,6 +251,7 @@ export function framingBox(set: MeshSet): FramingBox | null {
       if (z > maxZ) maxZ = z;
     }
     if (minX > maxX) continue;
+    guids.push(guid);
     boxes.push({ min: [minX, minY, minZ], max: [maxX, maxY, maxZ] });
     centres.push([(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]);
     halves.push(Math.max(maxX - minX, maxY - minY, maxZ - minZ) / 2);
@@ -254,27 +276,147 @@ export function framingBox(set: MeshSet): FramingBox | null {
 
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  const bounds = new Float64Array(boxes.length * 6);
+  const outlier = new Uint8Array(boxes.length);
   let kept = 0;
   for (let i = 0; i < boxes.length; i += 1) {
-    if (spread[i] > cutoff || halves[i] > cutoff) continue;
+    for (let a = 0; a < 3; a += 1) {
+      bounds[i * 6 + a] = boxes[i].min[a];
+      bounds[i * 6 + 3 + a] = boxes[i].max[a];
+    }
+    if (spread[i] > cutoff || halves[i] > cutoff) {
+      outlier[i] = 1;
+      continue;
+    }
     kept += 1;
     for (let a = 0; a < 3; a += 1) {
       if (boxes[i].min[a] < min[a]) min[a] = boxes[i].min[a];
       if (boxes[i].max[a] > max[a]) max[a] = boxes[i].max[a];
     }
   }
+  const elements: ElementBoxes = { guids, bounds, outlier };
   // Everything is an outlier only if the model has no bulk at all; then the
-  // true box IS the answer and there is nothing to report.
+  // true box IS the answer and there is nothing to report. The per-element
+  // flags are cleared with it: a rule that rejected every element has not found
+  // outliers, it has failed to find a bulk, and a pivot must not inherit that
+  // verdict as if five elements were broken.
   if (kept === 0) {
+    outlier.fill(0);
     for (const box of boxes) {
       for (let a = 0; a < 3; a += 1) {
         if (box.min[a] < min[a]) min[a] = box.min[a];
         if (box.max[a] > max[a]) max[a] = box.max[a];
       }
     }
-    return { min, max, excluded: 0, total: boxes.length };
+    return { min, max, excluded: 0, total: boxes.length, elements };
   }
-  return { min, max, excluded: boxes.length - kept, total: boxes.length };
+  return { min, max, excluded: boxes.length - kept, total: boxes.length, elements };
+}
+
+/** A world-space box, the shape every camera routine here takes. */
+export interface Bounds {
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+/** guid -> row in `ElementBoxes`. Built once per model. */
+export function elementRows(elements: ElementBoxes): Map<string, number> {
+  const rows = new Map<string, number>();
+  for (let row = 0; row < elements.guids.length; row += 1) rows.set(elements.guids[row], row);
+  return rows;
+}
+
+/**
+ * The world box of `guids` (or of every element, when null) with the model's
+ * framing outliers left out.
+ *
+ * It inherits the verdict `framingBox` already reached rather than applying a
+ * second, subtly different robustness rule: percentiles over a three-element
+ * selection would mean nothing, and the question "is this element broken" is a
+ * property of the MODEL, not of whatever happens to be filtered.
+ *
+ * When every candidate is an outlier the outliers are used. Then the user has
+ * deliberately picked a broken element and orbiting it is what they asked for —
+ * the same fallback `framingBox` takes when it finds no bulk at all.
+ *
+ * `null` when nothing in the request has geometry. The caller HOLDS its
+ * previous pivot on that: a filter matching nothing must not drop the orbit
+ * centre on the origin, and must never produce a NaN.
+ */
+export function robustBounds(
+  elements: ElementBoxes,
+  rows: Map<string, number>,
+  guids: string[] | null,
+): Bounds | null {
+  const b = elements.bounds;
+  const bulkMin: [number, number, number] = [Infinity, Infinity, Infinity];
+  const bulkMax: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  const anyMin: [number, number, number] = [Infinity, Infinity, Infinity];
+  const anyMax: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  let bulkSeen = false;
+  let anySeen = false;
+
+  const consume = (row: number) => {
+    const at = row * 6;
+    const bulk = elements.outlier[row] === 0;
+    for (let a = 0; a < 3; a += 1) {
+      const lo = b[at + a];
+      const hi = b[at + 3 + a];
+      if (lo < anyMin[a]) anyMin[a] = lo;
+      if (hi > anyMax[a]) anyMax[a] = hi;
+      if (!bulk) continue;
+      if (lo < bulkMin[a]) bulkMin[a] = lo;
+      if (hi > bulkMax[a]) bulkMax[a] = hi;
+    }
+    anySeen = true;
+    if (bulk) bulkSeen = true;
+  };
+
+  if (guids === null) {
+    for (let row = 0; row < elements.guids.length; row += 1) consume(row);
+  } else {
+    for (const guid of guids) {
+      const row = rows.get(guid);
+      if (row !== undefined) consume(row);
+    }
+  }
+
+  if (bulkSeen) return { min: bulkMin, max: bulkMax };
+  if (anySeen) return { min: anyMin, max: anyMax };
+  return null;
+}
+
+/**
+ * The box the ORBIT PIVOT is taken from, by precedence:
+ *
+ *   1  the selection, if there is one
+ *   2  otherwise the matched set — what the cross-filter left on screen
+ *   3  otherwise the model's robust framing box
+ *
+ * `highlight` mode still draws the unmatched elements, ghosted, so "the visible
+ * set" is genuinely ambiguous there. The MATCHED set is taken in both modes:
+ * the ghost is context, not subject, and a user who filtered to six columns is
+ * looking at six columns whether the rest is removed or dimmed. Taking the
+ * drawn set in `highlight` would also make the mode toggle move the orbit
+ * centre, which reads as the toggle having a camera side effect. That is why
+ * this function does not take a mode at all.
+ *
+ * Pure, and exported, so the headless gate asserts against the code the viewer
+ * runs rather than against a second copy of it — the same reason
+ * `partitionFaces` lives out here.
+ */
+export function pivotBounds(
+  framing: FramingBox,
+  rows: Map<string, number>,
+  selection: string[],
+  matched: Set<string> | null,
+): Bounds | null {
+  if (selection.length > 0) {
+    const chosen = robustBounds(framing.elements, rows, selection);
+    if (chosen) return chosen;
+  }
+  if (matched !== null) return robustBounds(framing.elements, rows, [...matched]);
+  return { min: framing.min, max: framing.max };
 }
 
 /** Build the index and the per-face id arrays. One pass over the meta rows;

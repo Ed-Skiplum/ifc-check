@@ -30,6 +30,18 @@
  * also warm and well short of `#fff`, so it does not contradict the later
  * ink-on-paper entry — only the cream-everywhere reading of it. Easy to revisit:
  * change `FIELD` and nothing else moves.
+ *
+ * ── The orbit pivot follows the eye, not the file ────────────────────────
+ * The centre the camera turns about is NOT a property of the model, it is a
+ * property of what is on screen: the selection if there is one, otherwise the
+ * matched set, otherwise the model's robust framing box. A pivot fixed at fit
+ * time is what makes an orbit feel broken — you filter to six columns, drag,
+ * and the whole building swings about a centre two hundred metres behind them.
+ *
+ * Re-targeting is NOT a camera flight. `Turntable.setPivot` holds the eye and
+ * re-derives the pose around the new centre, so the picture is identical the
+ * frame before and after; only the axis the next drag turns about has moved.
+ * `Tilpass` and `Zoom til valg` stay the only two things that move the eye.
  */
 
 import {
@@ -56,7 +68,14 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { NO_INSETS, Turntable, fitRadius, wheelPixels, type FitInsets } from "./camera";
-import { HOVER_FACE_BUDGET, partitionFaces, type FramingBox, type MeshSet } from "./mesh-stream";
+import {
+  HOVER_FACE_BUDGET,
+  elementRows,
+  partitionFaces,
+  pivotBounds,
+  type FramingBox,
+  type MeshSet,
+} from "./mesh-stream";
 
 /** Non-matching elements are REMOVED from view (`filter`) or dimmed but never
  *  removed (`highlight`). The two names and their meanings are the sprucelab
@@ -152,6 +171,14 @@ export class ModelScene {
   private readonly batches: BatchView[] = [];
   private set: MeshSet | null = null;
   private framing: FramingBox | null = null;
+  /** guid -> row in `framing.elements`. The pivot is re-derived on every filter
+   *  and selection change, so it reads cached per-element boxes rather than
+   *  walking vertices on each one. */
+  private boxRow = new Map<string, number>();
+  /** Whether the camera has ever been framed at a real viewport. A tile that
+   *  mounts before its container has a size fits against 1x1 and lands nowhere;
+   *  the first resize that brings a real size re-runs it. */
+  private framed = false;
 
   private readonly viewport = { width: 1, height: 1 };
   private insets: FitInsets = NO_INSETS;
@@ -271,6 +298,8 @@ export class ModelScene {
   load(set: MeshSet, framing: FramingBox | null): void {
     this.set = set;
     this.framing = framing;
+    this.framed = false;
+    this.boxRow = framing ? elementRows(framing.elements) : new Map();
     for (const view of this.batches) {
       this.root.remove(view.mesh);
       view.mesh.geometry.dispose();
@@ -330,6 +359,10 @@ export class ModelScene {
     }
     this.applyFilter();
     this.fit();
+    // The entry FRAME is the model; the entry PIVOT is whatever is already
+    // filtered or selected, because a model can be dropped onto a board that
+    // carries a live cross-filter. The eye does not move either way.
+    this.updatePivot();
   }
 
   /* ---------------------------------------------------------------- state */
@@ -338,15 +371,20 @@ export class ModelScene {
     this.matched = matched;
     this.mode = mode;
     this.applyFilter();
+    this.updatePivot();
     this.invalidate();
   }
 
   setSelection(guids: string[]): void {
     this.selection = guids;
     this.rebuildOverlays();
+    this.updatePivot();
     this.invalidate();
   }
 
+  /** Hover is deliberately NOT a pivot source. It changes on every pointer
+   *  move and on every row the cursor crosses in the table; a pivot that
+   *  followed it would be a different orbit axis every few frames. */
   setHover(guid: string | null): void {
     if (this.hover === guid) return;
     this.hover = guid;
@@ -386,6 +424,16 @@ export class ModelScene {
     this.camera.aspect = this.viewport.width / this.viewport.height;
     this.selectEdge.resolution.set(this.viewport.width, this.viewport.height);
     this.hoverEdge.resolution.set(this.viewport.width, this.viewport.height);
+    // A tile whose container has no size yet at mount fits against a 1x1
+    // viewport, and the solved radius is meaningless — the model lands jammed
+    // against an edge and nothing ever re-runs the fit, because a resize does
+    // not re-frame (that would throw away the camera the user just set). So the
+    // re-frame is conditional on never having framed at a real size. A resize
+    // after a real fit still leaves the camera exactly alone.
+    if (!this.framed && this.set && this.viewport.width > 1 && this.viewport.height > 1) {
+      this.fit();
+      this.updatePivot();
+    }
     this.invalidate();
   }
 
@@ -569,7 +617,46 @@ export class ModelScene {
     );
     this.turntable.target.copy(centre);
     this.turntable.radius = radius;
+    this.framed = this.viewport.width > 1 && this.viewport.height > 1;
     this.invalidate();
+  }
+
+  /* --------------------------------------------------------------- pivot */
+
+  /**
+   * Point the orbit centre at what the user is actually looking at.
+   *
+   * Precedence: the selection, then the matched set, then the model's robust
+   * framing box. `Turntable.setPivot` keeps the eye where it is, so this is
+   * invisible until the next drag — which is the point. `false` from it, or no
+   * bounds at all, means the previous pivot stands: a filter that matched
+   * nothing must not drop the pivot on the origin or on a NaN.
+   */
+  private updatePivot(): void {
+    const bounds = this.pivotBox();
+    if (!bounds) return;
+    const centre = new Vector3().addVectors(bounds.min, bounds.max).multiplyScalar(0.5);
+    if (this.turntable.setPivot(centre)) this.invalidate();
+  }
+
+  /**
+   * The box the pivot is taken from. The precedence and the outlier rule are
+   * `pivotBounds` / `robustBounds` in `mesh-stream` — pure and exported so the
+   * headless gate runs the same arithmetic the viewer does.
+   */
+  private pivotBox(): { min: Vector3; max: Vector3 } | null {
+    const framing = this.framing;
+    // No framing pass means no outlier verdict to inherit; the honest answer is
+    // the true box rather than a guess at which elements are broken.
+    if (!framing) {
+      if (this.selection.length > 0) {
+        const chosen = this.bounds(this.selection);
+        if (chosen) return chosen;
+      }
+      return this.bounds(this.matched === null ? null : [...this.matched]);
+    }
+    const box = pivotBounds(framing, this.boxRow, this.selection, this.matched);
+    return box ? { min: new Vector3(...box.min), max: new Vector3(...box.max) } : null;
   }
 
   /* -------------------------------------------------------------- picking */
