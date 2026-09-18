@@ -9,9 +9,18 @@
  * own factual line, the reason a verdict could not be reached, and the
  * evaluator's caveats. A `not_evaluable` rule reads as `not_evaluable` here,
  * never as a pass.
+ *
+ * ── The rows are the other half of the selection ─────────────────────────
+ * This list and the 3D tile show one selection from two sides. Clicking a row
+ * highlights its mesh; picking a mesh scrolls this list to that row and fills
+ * it. Hovering either lights the other, because shared identity alone is not a
+ * visible link — you have to be able to SEE which one it is.
+ *
+ * A row click NEVER moves the camera. That is a stated rule, and the two
+ * controls that do move it are named buttons on the tile.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Trace } from "./trace";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
@@ -27,13 +36,27 @@ const COLUMNS = "23ch 26ch minmax(16ch, 1fr) minmax(28ch, 2fr)";
 interface TraceBandProps {
   lang: Lang;
   trace: Trace;
+  /** GUIDs selected in this model, whichever side selected them. */
+  selection: string[];
+  hover: string | null;
+  onPick: (guid: string | null, additive: boolean) => void;
+  onHover: (guid: string | null) => void;
   onClose: () => void;
 }
 
-export function TraceBand({ lang, trace, onClose }: TraceBandProps) {
+export function TraceBand({
+  lang,
+  trace,
+  selection,
+  hover,
+  onPick,
+  onHover,
+  onClose,
+}: TraceBandProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const chosen = useMemo(() => new Set(selection), [selection]);
 
   useEffect(() => {
     const element = scroller.current;
@@ -49,6 +72,28 @@ export function TraceBand({ lang, trace, onClose }: TraceBandProps) {
   }, []);
 
   const rows = trace.rows;
+
+  /* Scroll the most recently selected row into view — the "pick in scene ⇄
+     scroll + highlight the row" half of the link. Computed as an OFFSET rather
+     than via `scrollIntoView` on a node: the list is windowed, so the row that
+     needs scrolling to is usually not in the DOM yet. Skipped when the row is
+     already visible, so clicking a row never yanks the list under the cursor. */
+  const latest = selection.length > 0 ? selection[selection.length - 1] : null;
+  const latestAt = useMemo(
+    () => (latest === null ? -1 : rows.findIndex((row) => row.guid === latest)),
+    [latest, rows],
+  );
+  useEffect(() => {
+    if (latestAt < 0) return;
+    const element = scroller.current;
+    if (!element) return;
+    const top = latestAt * ROW_HEIGHT;
+    if (top >= element.scrollTop && top + ROW_HEIGHT <= element.scrollTop + element.clientHeight) {
+      return;
+    }
+    element.scrollTop = Math.max(0, top - element.clientHeight / 2 + ROW_HEIGHT / 2);
+  }, [latestAt]);
+
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const last = Math.min(
     rows.length,
@@ -164,38 +209,53 @@ export function TraceBand({ lang, trace, onClose }: TraceBandProps) {
             const reason = row.code
               ? reasonText({ ...row, code: row.code, reason: row.reason ?? "" }, lang)
               : (row.reason ?? "");
+            const picked = chosen.has(row.guid);
+            const lit = hover === row.guid;
             return (
               <div
                 key={`${row.guid}-${at}`}
-                className="absolute inset-x-0 grid items-center gap-x-2 border-b border-line px-3 text-[12px]"
+                data-guid={row.guid}
+                onClick={(event) => onPick(row.guid, event.shiftKey || event.ctrlKey || event.metaKey)}
+                onMouseEnter={() => onHover(row.guid)}
+                onMouseLeave={() => onHover(null)}
+                // Whole-surface colour, never an edge stripe: ink for the
+                // selection (the same ink the scene draws its edges in), gold
+                // for the hover (the same gold the scene hovers in), so the
+                // pairing is legible rather than merely true.
+                className={
+                  "absolute inset-x-0 grid cursor-pointer items-center gap-x-2 border-b border-line px-3 text-[12px] " +
+                  (picked ? "bg-ink text-cream" : lit ? "bg-gold/40" : "hover:bg-palegreen")
+                }
                 style={{
                   top: at * ROW_HEIGHT,
                   height: ROW_HEIGHT,
                   gridTemplateColumns: COLUMNS,
                 }}
               >
+                {/* Never truncated. A GUID is an identifier, and half of one
+                    identifies nothing. */}
                 <span
                   onDoubleClick={copyOnDoubleClick(row.guid)}
-                  className="cursor-copy font-mono text-[12px] text-ink"
+                  className="cursor-copy font-mono text-[12px]"
                 >
                   {row.guid}
                 </span>
                 <span
                   onDoubleClick={copyOnDoubleClick(row.entity)}
-                  className="cursor-copy truncate font-mono text-[12px] text-green"
+                  className={"cursor-copy truncate font-mono text-[12px] " + (picked ? "" : "text-green")}
                 >
                   {row.entity}
                 </span>
                 <span
                   onDoubleClick={copyOnDoubleClick(row.name ?? "")}
-                  className="cursor-copy truncate text-ink"
+                  className="cursor-copy truncate"
                   title={row.name ?? undefined}
                 >
                   {row.name}
                 </span>
                 <span
                   onDoubleClick={copyOnDoubleClick(reason)}
-                  className="cursor-copy truncate text-muted"
+                  className={"cursor-copy truncate " + (picked ? "" : "text-muted")}
                   title={reason}
                 >
                   {reason}

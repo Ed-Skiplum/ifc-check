@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Ruleset } from "./ids/types.ts";
 import { AppBar, LangToggle } from "./ui/AppBar";
 import { kpiClaims } from "./ui/claims";
+import { useCrossFilter } from "./ui/cross-filter";
 import { DropTarget } from "./ui/DropTarget";
 import { ModelPanel } from "./ui/ModelPanel";
 import { TraceBand } from "./ui/TraceBand";
@@ -29,6 +30,11 @@ export default function App() {
   const [rulesetName, setRulesetName] = useState<string | null>(null);
   const [rulesetError, setRulesetError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(0);
+  // Cross-filter and selection live HERE, above both the boards and the
+  // derivation band, because a row in the band and a mesh in a tile are two
+  // views of one selection. Held per model id, so two files on screen do not
+  // share a filter.
+  const cross = useCrossFilter();
 
   // Keep the document language in step with the toggle, for screen readers and
   // for the browser's own hyphenation.
@@ -162,6 +168,13 @@ export default function App() {
                 selected={view.model === model.id ? view.focus : null}
                 onFocus={(next) => onFocus(model.id, next)}
                 onRemove={() => onRemove(model.id)}
+                view={cross.view(model.id)}
+                onMode={(mode) => cross.setMode(model.id, mode)}
+                onAddChip={(chip) => cross.addChip(model.id, chip)}
+                onRemoveChip={(key) => cross.removeChip(model.id, key)}
+                onClearChips={() => cross.clearChips(model.id)}
+                onPick={(guid, additive) => cross.pick(model.id, guid, additive)}
+                onHover={(guid) => cross.setHover(model.id, guid)}
               />
             ))}
           </main>
@@ -173,6 +186,10 @@ export default function App() {
               key={`${trace.modelId}:${trace.focus}`}
               lang={view.lang}
               trace={trace}
+              selection={cross.view(trace.modelId).selection}
+              hover={cross.view(trace.modelId).hover}
+              onPick={(guid, additive) => cross.pick(trace.modelId, guid, additive)}
+              onHover={(guid) => cross.setHover(trace.modelId, guid)}
               onClose={() => setView({ model: null, focus: null })}
             />
           ) : null}

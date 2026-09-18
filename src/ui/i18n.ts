@@ -77,6 +77,30 @@ const STRINGS = {
   "tile.classes": { nb: "Klasser", en: "Classes" },
   "tile.storeys": { nb: "Etasjer", en: "Storeys" },
   "tile.floorMatrix": { nb: "Etasjematrise", en: "Floor matrix" },
+  "tile.viewer": { nb: "Modell", en: "Model" },
+
+  /* --------------------------------------------------------------- viewer */
+  "viewer.loading": { nb: "Leser geometri", en: "Reading geometry" },
+  "viewer.fit": { nb: "Tilpass", en: "Fit" },
+  "viewer.zoomSelection": { nb: "Zoom til valg", en: "Zoom to selection" },
+  // A cap is allowed, a silent cap is not: these two labels carry the numbers.
+  "viewer.budget": { nb: "Budsjett", en: "Budget" },
+  "viewer.outside": { nb: "Uten geometri", en: "No geometry" },
+  // The entry camera frames the bulk; these are drawn but not framed.
+  "viewer.framing": { nb: "Utenfor ramme", en: "Outside framing" },
+  // Mesh-to-row hover is off above the raycast budget; row-to-mesh still works.
+  "viewer.hoverOff": { nb: "Uthev ved peking av", en: "Pointer hover off" },
+
+  /* ------------------------------------------------------------- crossfilter */
+  "filter.label": { nb: "Filter", en: "Filter" },
+  "filter.mode.filter": { nb: "Vis kun", en: "Isolate" },
+  "filter.mode.highlight": { nb: "Uthev", en: "Highlight" },
+  "filter.clear": { nb: "Tøm filter", en: "Clear filter" },
+  "filter.remove": { nb: "Fjern", en: "Remove" },
+  "filter.kind.class": { nb: "Klasse", en: "Class" },
+  "filter.kind.cell": { nb: "Celle", en: "Cell" },
+  "filter.kind.check": { nb: "Kontroll", en: "Check" },
+  "filter.kind.rule": { nb: "Regel", en: "Rule" },
 
   /* -------------------------------------------------------------- columns */
   "col.class": { nb: "IFC-klasse", en: "IFC class" },

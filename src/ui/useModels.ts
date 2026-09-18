@@ -13,6 +13,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { ModelReport } from "../engine/types";
+import type { MeshBatch, MeshBudget } from "../viewer/mesh-stream";
 import type { ModelResult } from "../ids/evaluate.ts";
 import type { Ruleset } from "../ids/types.ts";
 import type { ModelProfile } from "./profile";
@@ -31,6 +32,14 @@ export interface ModelEntry {
   error?: string;
   /** Set when the file was not an IFC at all — also never silently dropped. */
   rejected?: boolean;
+  /** The streamed geometry, once the mesh pass has finished. Transferred out
+   *  of the worker, so these arrays are not copies of anything. */
+  meshBatches?: MeshBatch[];
+  meshShift?: [number, number, number];
+  meshBudget?: MeshBudget;
+  /** The mesh pass failed. Named and shown, never folded into the parse error
+   *  and never left as a blank tile. */
+  meshError?: string;
   /** Present once a ruleset has been evaluated against this model. */
   evaluation?: ModelResult;
   evaluationError?: string;
@@ -57,6 +66,10 @@ interface Controller {
 function createController(setModels: SetModels): Controller {
   const queue: { id: string; file: File }[] = [];
   const workers = new Map<string, Worker>();
+  /** Streamed batches, accumulated OUTSIDE React state and committed once the
+   *  pass finishes. A large model streams hundreds of batches, and one state
+   *  update per batch would be one full board re-render per batch. */
+  const meshes = new Map<string, MeshBatch[]>();
   /** Ids still on screen. A model removed mid-read must not spawn a worker
    *  nobody holds a handle to. */
   const live = new Set<string>();
@@ -86,6 +99,7 @@ function createController(setModels: SetModels): Controller {
     slots.get(id)?.();
     workers.get(id)?.terminate();
     workers.delete(id);
+    meshes.delete(id);
   }
 
   function ask(id: string, worker: Worker) {
@@ -128,6 +142,21 @@ function createController(setModels: SetModels): Controller {
           releaseSlot();
           dispose(id);
           patch(id, { state: "failed", error: message.message });
+        } else if (message.kind === "mesh-batch") {
+          const held = meshes.get(id) ?? [];
+          held.push(message.batch);
+          meshes.set(id, held);
+        } else if (message.kind === "mesh-done") {
+          patch(id, {
+            meshBatches: meshes.get(id) ?? [],
+            meshShift: message.shift,
+            meshBudget: message.budget,
+            meshError: undefined,
+          });
+          meshes.delete(id);
+        } else if (message.kind === "mesh-error") {
+          meshes.delete(id);
+          patch(id, { meshError: message.message });
         } else if (message.kind === "evaluated") {
           patch(id, { evaluating: false, evaluation: message.result, evaluationError: undefined });
         } else {
@@ -182,6 +211,7 @@ function createController(setModels: SetModels): Controller {
     clear() {
       queue.length = 0;
       live.clear();
+      meshes.clear();
       for (const id of [...workers.keys()]) dispose(id);
       setModels(() => []);
     },

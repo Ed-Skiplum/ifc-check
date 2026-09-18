@@ -43,10 +43,11 @@ import { LAYOUT_13, LAYOUT_21 } from "./bento-layouts";
 import { useBentoCols } from "./useBentoCols";
 import { FloorMatrix } from "./FloorMatrix";
 import { Verification } from "./Verification";
+import type { ModelView } from "./cross-filter";
+import { ViewerTile } from "../viewer/ViewerTile";
 import {
   ClassDistribution,
   ReadoutList,
-  ReadoutStrip,
   SpatialGauge,
   StoreyRoster,
   type Readout,
@@ -60,6 +61,15 @@ interface DashboardProps {
   claims: KpiClaims;
   selected: string | null;
   onFocus: (focus: Focus) => void;
+  /** Cross-filter and selection state for THIS model. The board does not own
+   *  it — the same state drives the derivation band below the grid, which is
+   *  what makes row and mesh two views of one selection. */
+  view: ModelView;
+  /** The elements the active chips resolve to. `null` = no filter; an EMPTY
+   *  set is a filter that matched nothing and draws an empty scene. */
+  matched: Set<string> | null;
+  onPick: (guid: string | null, additive: boolean) => void;
+  onHover: (guid: string | null) => void;
 }
 
 /** A project rule that speaks for a universal check. The same number reads
@@ -95,7 +105,18 @@ function containment(checks: CheckResult[]): { good: number; total: number } {
   return { good: Math.max(0, check.applicable - check.findings.length), total: check.applicable };
 }
 
-export function Dashboard({ lang, model, census, claims, selected, onFocus }: DashboardProps) {
+export function Dashboard({
+  lang,
+  model,
+  census,
+  claims,
+  selected,
+  onFocus,
+  view,
+  matched,
+  onPick,
+  onHover,
+}: DashboardProps) {
   const { ref, cols } = useBentoCols();
   const report = model.report;
   const profile = model.profile;
@@ -107,7 +128,21 @@ export function Dashboard({ lang, model, census, claims, selected, onFocus }: Da
   // measured element renders on the first pass and the canvas on the second.
   // `useBentoCols` measures in a layout effect, so that happens before paint.
   const tiles: BentoTileSpec[] | null =
-    report && profile && cols ? buildTiles({ cols, lang, model, census, claimed, selected, onFocus }) : null;
+    report && profile && cols
+      ? buildTiles({
+          cols,
+          lang,
+          model,
+          census,
+          claimed,
+          selected,
+          onFocus,
+          view,
+          matched,
+          onPick,
+          onHover,
+        })
+      : null;
 
   return (
     // The bento canvas carries `container-type: size`, so it takes its height
@@ -129,6 +164,10 @@ interface BuildArgs {
   claimed: Map<string, RuleResult>;
   selected: string | null;
   onFocus: (focus: Focus) => void;
+  view: ModelView;
+  matched: Set<string> | null;
+  onPick: (guid: string | null, additive: boolean) => void;
+  onHover: (guid: string | null) => void;
 }
 
 /** One builder per tile, as the three sprucelab instances do it: the page owns
@@ -141,6 +180,10 @@ function buildTiles({
   claimed,
   selected,
   onFocus,
+  view,
+  matched,
+  onPick,
+  onHover,
 }: BuildArgs): BentoTileSpec[] {
   const report = model.report!;
   const profile = model.profile!;
@@ -179,6 +222,35 @@ function buildTiles({
       ),
     },
     {
+      // The MODEL, beside the focal. A tile, never a mode: 3D is folded into
+      // the board that already exists, and what narrows the tables narrows it
+      // too. It is P0 because it is the second thing read, not because it is
+      // the second-largest — the span is what makes it the latter.
+      id: "viewer",
+      kind: "viewer",
+      priority: "P0",
+      span: { w: 5, h: 5 },
+      label: t("tile.viewer", lang),
+      sub: model.meshBudget
+        ? `${formatCount(model.meshBudget.triangles, lang)} tri`
+        : undefined,
+      body: (
+        <ViewerTile
+          lang={lang}
+          batches={model.meshBatches}
+          shift={model.meshShift}
+          budget={model.meshBudget}
+          meshError={model.meshError}
+          matched={matched}
+          mode={view.mode}
+          selection={view.selection}
+          hover={view.hover}
+          onPick={onPick}
+          onHover={onHover}
+        />
+      ),
+    },
+    {
       id: "spatial",
       kind: "gauge",
       priority: "P0",
@@ -202,8 +274,11 @@ function buildTiles({
     {
       id: "file",
       kind: "readout",
-      priority: "P1",
-      span: { w: 5, h: 2 },
+      // Below the fold on 13 tracks: the fold there is 8 rows, and the focal,
+      // the model and the gauge fill it. The file's own facts are context, and
+      // context is what goes under the line.
+      priority: "P2",
+      span: wide ? { w: 8, h: 2 } : { w: 5, h: 2 },
       label: t("tile.file", lang),
       body: <ReadoutList items={fileItems} />,
       click: {
@@ -216,13 +291,13 @@ function buildTiles({
     {
       id: "project",
       kind: "readout",
-      priority: "P1",
-      // A 1-row strip has no header rule, so on 13 tracks the label rides
-      // inline and the pairs go on one line. Same content, the shape the span
-      // can actually carry.
-      span: wide ? { w: 8, h: 2 } : { w: 5, h: 1 },
+      priority: "P2",
+      // Both spans carry a header rule now, so the strip variant is gone: the
+      // 3×2 is the narrowest column of the 5+3+5 band on 13 tracks, which is
+      // what a two-pair readout actually needs.
+      span: wide ? { w: 8, h: 2 } : { w: 3, h: 2 },
       label: t("kpi.project", lang),
-      body: wide ? <ReadoutList items={projectItems} /> : <ReadoutStrip items={projectItems} />,
+      body: <ReadoutList items={projectItems} />,
     },
     {
       id: "classes",
@@ -243,7 +318,7 @@ function buildTiles({
     {
       id: "storeys",
       kind: "roster",
-      priority: "P1",
+      priority: "P2",
       span: wide ? { w: 8, h: 3 } : { w: 5, h: 2 },
       label: t("tile.storeys", lang),
       sub: formatCount(census.storeys.length, lang),

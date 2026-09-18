@@ -306,9 +306,27 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   },
   viewer: {
     question: "what does the model look like, from here",
-    // a 3D scene stops being navigable outside this
+    // a 3D scene stops being navigable outside this. The bound is kept as
+    // authored: the G55 de-dup viewer this board's 3D is ported from ran at
+    // roughly 1.3:1 per pane and degraded exactly as described when the split
+    // halved it, so 0.9-2.2 matches the working reference rather than
+    // contradicting it.
     aspect: { min: 0.9, max: 2.2 },
-    spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }, { w: 3, h: 3 }],
+    // DEVIATION FROM UPSTREAM (3 of 3). `5x5` is added because NONE of the
+    // four upstream spans can satisfy this kind's own aspect bound on either
+    // canvas: 5x2 renders 2.6:1, 8x3 2.8:1 and 8x2 4.2:1, all outside 2.2, and
+    // only the 3x3 fits — at nine cells, which cannot carry the model on a
+    // board whose focal is forty. 5x5 renders 1.05:1 on 13 tracks and 1.00:1
+    // on 21, and at twenty-five cells it is the second-largest tile after the
+    // focal, which is where the owner asked the 3D to sit. It is in no span
+    // CLASS, so it competes with neither the one focal nor the one gauge.
+    spans: [
+      { w: 5, h: 2 },
+      { w: 8, h: 2 },
+      { w: 8, h: 3 },
+      { w: 3, h: 3 },
+      { w: 5, h: 5 },
+    ],
   },
 };
 
