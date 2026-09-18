@@ -65,10 +65,17 @@ const STRINGS = {
   "storey.shared": { nb: "Delt kote", en: "Shared elevation" },
 
   /* --------------------------------------------------------- rule results */
+  // Verdict words follow the Skiplum reports vocabulary already in use on
+  // delivered dashboards (Bestått / Advarsel / Avvik / N/A) rather than terms
+  // invented here.
   "result.pass": { nb: "Bestått", en: "Pass" },
-  "result.fail": { nb: "Feil", en: "Fail" },
-  "result.not_applicable": { nb: "Ikke aktuell", en: "Not applicable" },
+  "result.fail": { nb: "Avvik", en: "Deviation" },
+  "result.not_applicable": { nb: "N/A", en: "N/A" },
   "result.not_evaluable": { nb: "Kan ikke vurderes", en: "Not evaluable" },
+  "result.pass.sub": { nb: "Kravet er oppfylt", en: "Requirement met" },
+  "result.fail.sub": { nb: "Må utbedres", en: "Must be corrected" },
+  "result.not_applicable.sub": { nb: "Ikke relevant", en: "Not relevant" },
+  "result.not_evaluable.sub": { nb: "Mangler data", en: "Data unavailable" },
   "result.evaluating": { nb: "Vurderer", en: "Evaluating" },
 
   /* ------------------------------------------------------------- findings */
