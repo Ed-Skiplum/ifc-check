@@ -23,6 +23,9 @@ import type { ModelGraph, ModelSummary } from "../ids/model.ts";
 import type { Ruleset } from "../ids/types.ts";
 import type { ModelWorkerResponse } from "../ui/model-worker";
 import { profileOf } from "./rehydrate.ts";
+// A restored board must carry the same type facts a freshly parsed one does,
+// or the type ledger renders dead on exactly the path the cache exists for.
+import { withTypeFacts } from "../ui/types/facts.ts";
 
 export type RestoreWorkerRequest =
   | {
@@ -56,7 +59,11 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
       summary: request.summary,
       checks: runFundamentals(request.graph, request.summary),
     };
-    post({ kind: "parsed", report, profile: profileOf(request.graph) });
+    post({
+      kind: "parsed",
+      report,
+      profile: withTypeFacts(profileOf(request.graph), request.graph),
+    });
   } catch (err) {
     // A restore that cannot be completed fails as loudly as a parse that
     // cannot. Silently showing an empty tile would be the same file looking

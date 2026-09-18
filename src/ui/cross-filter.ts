@@ -30,11 +30,12 @@ import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
 import { cellRows } from "./profile";
 import { serialiseFocus, type Focus } from "./trace";
+import { typeGuids } from "./types/aggregate";
 import type { ModelEntry } from "./useModels";
 
 export type { Mode };
 
-export type ChipKind = "class" | "cell" | "check" | "rule";
+export type ChipKind = "class" | "cell" | "check" | "rule" | "type";
 
 export interface FilterChip {
   /** `serialiseFocus(focus)` — the same key the hash view uses, so a chip and
@@ -66,6 +67,9 @@ export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip 
     const rule = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
     return { key, kind: "rule", label: rule?.ruleName ?? focus.ruleId, focus };
   }
+  if (focus.kind === "type") {
+    return { key, kind: "type", label: focus.typeName ?? t("type.untyped", lang), focus };
+  }
   return null;
 }
 
@@ -94,6 +98,10 @@ function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
     const rule = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
     if (!rule) return null;
     return new Set(rule.findings.map((f) => f.guid));
+  }
+  if (focus.kind === "type") {
+    if (!profile) return null;
+    return typeGuids(profile, focus.typeName);
   }
   // `kpi` never reaches here — `chipOf` refuses to make a chip out of it — and
   // the exhaustive fallthrough is what keeps that true if a focus kind is added.

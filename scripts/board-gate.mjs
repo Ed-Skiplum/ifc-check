@@ -33,6 +33,7 @@ const TILES = {
   file: ["readout", "P2"],
   storeys: ["roster", "P2"],
   matrix: ["matrix", "P2"],
+  types: ["roster", "P2"],
 };
 
 let failed = false;

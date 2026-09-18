@@ -102,6 +102,9 @@ const STRINGS = {
   "filter.kind.cell": { nb: "Celle", en: "Cell" },
   "filter.kind.check": { nb: "Kontroll", en: "Check" },
   "filter.kind.rule": { nb: "Regel", en: "Rule" },
+  // Ready for the `type` facet in `cross-filter.ts`: `FilterBar` renders
+  // `filter.kind.<chip.kind>`, so the string has to exist before the chip can.
+  "filter.kind.type": { nb: "Type", en: "Type" },
 
   /* -------------------------------------------------------------- columns */
   "col.class": { nb: "IFC-klasse", en: "IFC class" },
@@ -145,6 +148,35 @@ const STRINGS = {
   "trace.notes": { nb: "Forbehold", en: "Caveats" },
   "trace.reason": { nb: "Begrunnelse", en: "Reason" },
   "trace.rule": { nb: "Regel", en: "Rule" },
+
+  /* ----------------------------------------------------------- type ledger */
+  // Column heads that are IFC ATTRIBUTE NAMES stay verbatim in both languages:
+  // `PredefinedType`, `IsExternal`, `FireRating` and `LoadBearing` are what the
+  // schema calls them, and a header is a name rather than a translation.
+  "tile.types": { nb: "Typer", en: "Types" },
+  "col.type": { nb: "Type", en: "Type" },
+  "col.instances": { nb: "Forekomster", en: "Instances" },
+  "col.geometry": { nb: "Geometri", en: "Geometry" },
+  "col.triangles": { nb: "Trekanter", en: "Triangles" },
+  "col.materials": { nb: "Materialer", en: "Materials" },
+  "col.properties": { nb: "Egenskaper", en: "Properties" },
+  "type.untyped": { nb: "Uten type", en: "Untyped" },
+  "type.disagree": { nb: "Ulike verdier", en: "Values differ" },
+  "type.perType": { nb: "Forekomster per type", en: "Instances per type" },
+  "type.median": { nb: "Median", en: "Median" },
+  "type.single": { nb: "Én forekomst", en: "One instance" },
+  // OUR band, said to be ours. The boundary itself is printed beside it, so the
+  // number a reader would want to argue with is on the screen, not in the code.
+  "type.threshold": { nb: "Vår terskel", en: "Our threshold" },
+  "type.health.sound": { nb: "God", en: "Sound" },
+  "type.health.watch": { nb: "Blandet", en: "Mixed" },
+  "type.health.weak": { nb: "Svak", en: "Weak" },
+  // Not a blank column: the psets ARE parsed and simply have no JS accessor.
+  "type.psets": { nb: "Egenskapssett", en: "Property sets" },
+  "type.unavailable": { nb: "utilgjengelig", en: "unavailable" },
+  "type.facts": { nb: "Typefakta", en: "Type facts" },
+  "type.geometryUnread": { nb: "ikke lest", en: "not read" },
+  "type.geometryCapped": { nb: "begrenset", en: "capped" },
 
   /* ---------------------------------------------------------------- errors */
   "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },

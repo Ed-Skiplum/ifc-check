@@ -16,6 +16,7 @@ import type { ResultState } from "../ids/evaluate.ts";
 import type { StringKey } from "./i18n";
 import type { ModelEntry } from "./useModels";
 import { cellRows } from "./profile";
+import { typeGuids } from "./types/aggregate";
 
 /** The two census numbers that have rows behind them but no check of their
  *  own. Everything else on the board drills to a check or to a rule. */
@@ -26,6 +27,10 @@ export type Focus =
   | { kind: "check"; checkId: string }
   | { kind: "kpi"; kpi: KpiFocus }
   | { kind: "class"; entity: string }
+  /** One row of the type ledger. `typeName: null` is the UNTYPED remainder,
+   *  which is a target like any other — it is the one set a reviewer most often
+   *  wants in the scene. */
+  | { kind: "type"; typeName: string | null }
   | { kind: "cell"; storeyGuid: string | null; entity: string };
 
 const KPIS: KpiFocus[] = ["products", "storeys"];
@@ -35,6 +40,11 @@ export function serialiseFocus(focus: Focus): string {
   if (focus.kind === "check") return `check:${focus.checkId}`;
   if (focus.kind === "kpi") return `kpi:${focus.kpi}`;
   if (focus.kind === "class") return `class:${focus.entity}`;
+  // `-` is the untyped remainder and `=` prefixes a real name, so a type
+  // actually CALLED "-" round-trips as `type:=-` and collides with nothing.
+  if (focus.kind === "type") {
+    return focus.typeName === null ? "type:-" : `type:=${focus.typeName}`;
+  }
   return `cell:${focus.storeyGuid ?? "-"}|${focus.entity}`;
 }
 
@@ -50,6 +60,12 @@ export function parseFocus(raw: string | null): Focus | null {
     return (KPIS as string[]).includes(rest) ? { kind: "kpi", kpi: rest as KpiFocus } : null;
   }
   if (kind === "class") return rest ? { kind: "class", entity: rest } : null;
+  if (kind === "type") {
+    if (rest === "-") return { kind: "type", typeName: null };
+    return rest.startsWith("=") && rest.length > 1
+      ? { kind: "type", typeName: rest.slice(1) }
+      : null;
+  }
   if (kind === "cell") {
     const bar = rest.lastIndexOf("|");
     if (bar < 0) return null;
@@ -214,6 +230,20 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
     return {
       ...base,
       titleText: focus.entity,
+      notes: [],
+      stats: [{ label: "trace.elements", value: rows.length }],
+      rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),
+      rowsComplete: true,
+    };
+  }
+
+  if (focus.kind === "type") {
+    const guids = typeGuids(profile, focus.typeName);
+    const rows = profile.rows.filter((r) => guids.has(r.guid));
+    return {
+      ...base,
+      titleKey: focus.typeName === null ? "type.untyped" : "col.type",
+      titleText: focus.typeName ?? undefined,
       notes: [],
       stats: [{ label: "trace.elements", value: rows.length }],
       rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),

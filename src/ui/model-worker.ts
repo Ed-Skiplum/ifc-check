@@ -30,6 +30,11 @@ import type { Ruleset } from "../ids/types.ts";
 // not import this module: it would pull the wasm parser into a worker whose
 // whole point is that it never parses anything.
 import { profileOf } from "../storage/rehydrate.ts";
+// The type facts ride ON TOP of that shared reduction rather than inside it:
+// they are what the type ledger aggregates, and the restore worker reduces the
+// same graph, so widening the shared function would be the wrong place for a
+// board-specific payload. See `src/ui/types/facts.ts`.
+import { withTypeFacts } from "./types/facts";
 import type { ModelProfile } from "./profile";
 
 export type ModelWorkerRequest =
@@ -167,7 +172,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
       summary,
       checks: runFundamentals(graph, summary),
     };
-    send({ kind: "parsed", report, profile: profileOf(graph), graph });
+    send({ kind: "parsed", report, profile: withTypeFacts(profileOf(graph), graph), graph });
   } catch (err) {
     // A file that cannot be parsed is reported as itself, never folded into
     // the others as a pass or dropped from the run.

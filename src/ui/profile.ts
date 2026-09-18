@@ -12,12 +12,44 @@
  * line would be an invention.
  */
 
-/** One product, reduced to what the dashboard and its drill-downs read. */
+/** One product, reduced to what the dashboard and its drill-downs read.
+ *
+ * The TYPE FACTS at the bottom are optional, and their absence is a real state
+ * rather than a missing value: `profileOf` in `src/storage/rehydrate.ts` is the
+ * shared graph -> profile reduction and does not carry them, so a profile that
+ * has not been through `withTypeFacts` (`src/ui/types/facts.ts`) arrives
+ * without them. The type ledger reports that as "not supplied by this profile"
+ * and never as "this model has no types" — the two are different answers and
+ * only one of them is about the file.
+ *
+ * What the type facts can cover is bounded by the parser, not by this type:
+ * arbitrary property sets are parsed by ifcfast but have no JS accessor
+ * ([ifcfast#183](https://github.com/EdvardGK/ifcfast/issues/183)), so
+ * `materials` plus the three flattened common properties below are the whole of
+ * what an element DECLARES in the browser. Nothing downstream may imply more.
+ */
 export interface ProductRowLite {
   guid: string;
   entity: string;
   name: string | null;
   storeyGuid: string | null;
+  /** `ProductRow.type_name` — the type object's Name, null when untyped. */
+  typeName?: string | null;
+  /** `ProductRow.typed` — an IfcRelDefinesByType reached this element. */
+  typed?: boolean;
+  /** `ProductRow.type_source`, verbatim from the parser. */
+  typeSource?: string;
+  predefinedType?: string | null;
+  objectType?: string | null;
+  materials?: string[];
+  isExternal?: boolean | null;
+  fireRating?: string | null;
+  loadBearing?: boolean | null;
+  /** This product is the opening of an `IfcRelVoidsElement`. The fundamentals
+   *  drop these before counting (`physicalProducts`), so the type ledger drops
+   *  them too and its `n of m` is the same arithmetic the verification block
+   *  prints for `single-instance-types` rather than a second, near-miss one. */
+  isOpening?: boolean;
 }
 
 export interface StoreyRowLite {

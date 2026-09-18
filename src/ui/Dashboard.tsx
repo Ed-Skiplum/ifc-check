@@ -53,6 +53,7 @@ import {
   type Readout,
 } from "./forms";
 import { formatBytes, formatCount, formatMs } from "./format";
+import { aggregateTypes, meshIndex, TypeLedgerTile, type TypeLedger } from "./types";
 
 interface DashboardProps {
   lang: Lang;
@@ -124,16 +125,32 @@ export function Dashboard({
 
   const claimed = useMemo(() => claimedChecks(claims, results), [claims, results]);
 
+  // One pass over the products per (profile, geometry) change, not per render.
+  // Triangles come from the STREAMED mesh, the only place a per-element count
+  // exists; batches that have not arrived make the geometry columns UNKNOWN
+  // rather than zero.
+  const ledger = useMemo(
+    () =>
+      profile
+        ? aggregateTypes(profile, {
+            mesh: meshIndex(model.meshBatches),
+            meshCapped: model.meshBudget?.capped ?? false,
+          })
+        : null,
+    [profile, model.meshBatches, model.meshBudget],
+  );
+
   // The grid needs its own box measured before it can choose a layout, so the
   // measured element renders on the first pass and the canvas on the second.
   // `useBentoCols` measures in a layout effect, so that happens before paint.
   const tiles: BentoTileSpec[] | null =
-    report && profile && cols
+    report && profile && ledger && cols
       ? buildTiles({
           cols,
           lang,
           model,
           census,
+          ledger,
           claimed,
           selected,
           onFocus,
@@ -161,6 +178,7 @@ interface BuildArgs {
   lang: Lang;
   model: ModelEntry;
   census: Census;
+  ledger: TypeLedger;
   claimed: Map<string, RuleResult>;
   selected: string | null;
   onFocus: (focus: Focus) => void;
@@ -177,6 +195,7 @@ function buildTiles({
   lang,
   model,
   census,
+  ledger,
   claimed,
   selected,
   onFocus,
@@ -282,13 +301,14 @@ function buildTiles({
       // the model and the gauge fill it. The file's own facts are context, and
       // context is what goes under the line.
       //
-      // COMPACT on both canvases. `ReadoutList` flows its pairs into
-      // `auto-fit` columns of 9ch, so seven values fill a 3×2 in three columns
-      // on 21 tracks and a 5×2 in four on 13 — both inside `readout`'s 0.8..3.0
-      // (1.5:1 and 2.63:1). The 8×2 these two tiles used to take rendered 4:1
-      // around a tenth of a tile of content.
+      // COMPACT, and now 3×2 on BOTH canvases. `ReadoutList` flows its pairs
+      // into `auto-fit` columns of 9ch, so seven values fill a 3×2 in two or
+      // three columns at 1.5:1 / 1.58:1 against `readout`'s 0.8..3.0. On 13
+      // tracks it took the 5 tracks beside the storeys and left a 3×2 notch of
+      // air at the left edge; it now sits IN that notch and the 5 tracks it
+      // vacated carry the type ledger. Same tile, same content, no new rows.
       priority: "P2",
-      span: wide ? { w: 3, h: 2 } : { w: 5, h: 2 },
+      span: { w: 3, h: 2 },
       label: t("tile.file", lang),
       body: <ReadoutList items={fileItems} />,
       click: {
@@ -303,11 +323,12 @@ function buildTiles({
       kind: "distribution",
       priority: "P1",
       // 8×3 on 13 tracks, where it is the whole left column of the second
-      // band; 8×2 on 21, where it shares the right column with the roster and
-      // the roster is the one that needs the third row — a bar list degrades
-      // into a shorter scroll, a table with a sticky header degrades into two
-      // visible rows.
-      span: wide ? { w: 8, h: 2 } : { w: 8, h: 3 },
+      // band. 3×3 on 21, in the narrow column the re-cut top region opened:
+      // a bar list is the one form here that degrades into a shorter scroll
+      // rather than into an unreadable shape, and 3×3 renders 1.0:1 where the
+      // 8×2 it replaces rendered 4.0:1 — inside `distribution`'s own bound for
+      // the first time on that canvas.
+      span: wide ? { w: 3, h: 3 } : { w: 8, h: 3 },
       label: t("tile.classes", lang),
       sub: formatCount(census.classes.length, lang),
       body: (
@@ -333,6 +354,41 @@ function buildTiles({
           run: () => onFocus({ kind: "kpi", kpi: "storeys" }),
         },
       },
+    },
+    {
+      // THE TYPE LEDGER. Review, not mapping: one row per type, the instances
+      // it carries, whether they have geometry, and what they declare — with
+      // the single-instance DISPROPORTION at the head, because that is the
+      // reading the owner asked for and a count of rows is not it.
+      //
+      // The tile header's `sub` is the same `singles / types` the focal's
+      // `single-instance-types` row prints, by the same arithmetic over the
+      // same product set, so the two can never disagree.
+      id: "types",
+      kind: "roster",
+      priority: "P2",
+      span: { w: 5, h: 2 },
+      label: t("tile.types", lang),
+      sub: `${formatCount(ledger.singles, lang)} / ${formatCount(ledger.types, lang)}`,
+      body: (
+        <TypeLedgerTile
+          lang={lang}
+          ledger={ledger}
+          selected={selected}
+          onFocus={onFocus}
+        />
+      ),
+      // A profile that never carried the type facts says so IN ITS OWN SLOT.
+      // "This model has no types" and "nobody supplied the type facts" are
+      // different answers and only one of them is about the file.
+      ...(ledger.factsPresent
+        ? {}
+        : {
+            status: {
+              kind: "empty" as const,
+              message: `${t("type.facts", lang)} · ${t("type.unavailable", lang)}`,
+            },
+          }),
     },
     {
       id: "matrix",
