@@ -224,6 +224,19 @@ const STRINGS = {
   "field.storeyElevation": { nb: "Kote (m)", en: "Elevation (m)" },
   "action.addRow": { nb: "Legg til", en: "Add" },
 
+  /* ------------------------------------------------------------------ BCF */
+  "action.bcf": { nb: "BCF", en: "BCF" },
+  "bcf.maxGuids": { nb: "Maks GUID per sak", en: "Max GUIDs per issue" },
+  "bcf.author": { nb: "Forfatter", en: "Author" },
+  "bcf.export": { nb: "Eksporter", en: "Export" },
+  "bcf.topics": { nb: "Saker", en: "Topics" },
+  "bcf.snapshots": { nb: "Bilder", en: "Snapshots" },
+  "bcf.invalid": { nb: "Ugyldig mot XSD", en: "Invalid against XSD" },
+  "bcf.spaces": { nb: "Rom fra", en: "Spaces from" },
+  "bcf.noSpaces": { nb: "Ingen rom", en: "No spaces" },
+  "bcf.noSpace": { nb: "Uten rom", en: "No space" },
+  "bcf.noCamera": { nb: "Uten kamera", en: "No camera" },
+
   /* ---------------------------------------------------------------- errors */
   "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },
 } as const satisfies Record<string, { nb: string; en: string }>;

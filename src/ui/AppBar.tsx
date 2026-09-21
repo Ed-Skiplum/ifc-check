@@ -3,6 +3,8 @@ import type { Lang } from "./i18n";
 import { LANGS, t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
+import { BcfExport } from "./BcfExport";
+import type { ModelEntry } from "./useModels";
 
 export function LangToggle({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void }) {
   return (
@@ -55,6 +57,7 @@ interface AppBarProps {
   lang: Lang;
   onLang: (lang: Lang) => void;
   modelCount: number;
+  models: ModelEntry[];
   onFiles: (files: File[]) => void;
   onClearAll: () => void;
   onClearCache: () => void;
@@ -70,6 +73,7 @@ export function AppBar({
   lang,
   onLang,
   modelCount,
+  models,
   onFiles,
   onClearAll,
   onClearCache,
@@ -133,6 +137,8 @@ export function AppBar({
       >
         {t("action.clearCache", lang)}
       </button>
+
+      <BcfExport lang={lang} models={models} />
 
       {rulesetName === null ? (
         <button

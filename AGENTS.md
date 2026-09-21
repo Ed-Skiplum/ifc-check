@@ -31,10 +31,13 @@ src/ui/          the screen, and the worker that drives the engine
   SetupPage.tsx    the project mappings page (`#page=setup`)
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
+src/bcf/         BCF 2.1 export: topic plan, camera, spaces, XML, zip, XSD
+                 validation (pure) + `browser.ts` (snapshots, download)
 src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
   check-cli.ts   run the fundamentals headlessly
   ids-cli.ts     author, lint, emit and run rulesets headlessly
+  bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
@@ -202,6 +205,43 @@ band (at most four band cuts per row), hence one strip; the grid has no
 KPI-row kind. Strip-class spans are aspect-checked against
 `BENTO_STRIP_ASPECT_MAX`, as the spec states, in both `BentoGrid` and
 `board-gate.mjs`.
+
+## BCF export
+
+The app bar's `BCF` control writes one BCF 2.1 archive for every loaded model
+(`src/bcf/`). Fields: max GUIDs per issue (default 500, Dalux's limit) and
+author (remembered per viewer in localStorage). Nothing is downloaded unless
+every document validates against buildingSMART's BCF 2.1 XSDs, vendored
+byte-identical in `vendor/bcf-schema/`.
+
+- **Topics:** only state `fail`, fundamentals and ruleset rules alike. One per
+  model × check × STATED storey (`storey_guid`; a finding on a storey is that
+  storey's; no storey is its own group, last). A group over the max is split by
+  IfcSpace when a loaded model carries spaces (itself first, else the one
+  sharing most storey names), and any bucket still over the max into
+  `(i/n)` parts. Title `check · storey [· space] [(i/n)]`; storey and space are
+  also `Labels`. Ordered by storey elevation. Copy-object exclusions never
+  appear. Topic GUID = uuid v5 over cache_key, check, storey GlobalId, space
+  GlobalId and part, so a re-export is stable.
+- **Space assignment is geometric:** the wasm graph has no space containment
+  or space boundaries. An element's mesh-box centre is tested against each
+  space's triangle mesh (upward-ray parity, box prefilter, smallest space wins)
+  in absolute metres, which is why the space model can be another file. Space
+  label = Name, else its GlobalId (LongName has no accessor).
+- **Camera:** framed like zoom-to-selection (`robustBounds` + `fitRadius` at the
+  entry pose, 1024×768, fov 45), then IFC = (vx, −vz, vy) + stream shift. No
+  camera or snapshot on a capped model or a chunk with no geometry.
+- **Snapshot:** a hidden `ModelScene` renders the chunk under a highlight filter
+  with the selection overlay (`ModelScene.snapshot`).
+
+Verified 2026-09-21 on KNM (Mottakskontroll RIB; Void-demo ARK+RIV+RIB) and
+HI90 (ARK+RIE, the space path): every document XSD-valid under xmllint-wasm
+and Python `xmlschema`; bcf-client 0.8.5 parses every archive; every selected
+element with an ifcopenshell world-coordinate mesh projects inside its topic's
+exported camera, except elements the framing leaves out as far outliers. The
+browser export was driven in headless Chrome against a LOCAL preview build and
+its viewpoints are byte-identical to `bcf-cli.ts`. Dalux and Solibri import
+are NOT verified.
 
 ## The dashboard grid — binding, not advisory
 

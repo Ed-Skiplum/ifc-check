@@ -416,6 +416,59 @@ export class ModelScene {
     this.frameBox(bounds);
   }
 
+  /**
+   * One frame from an explicit camera, with `guids` shown the way the board
+   * shows a selection under a highlight filter: the rest ghosted, the chunk
+   * drawn with the selection wash and ink edges. Returned as a PNG data URL.
+   *
+   * For the BCF export, on a HIDDEN scene of its own: it resizes the drawing
+   * buffer at pixel ratio 1 and replaces filter and selection, which a visible
+   * tile must never have done to it. The camera is set directly rather than
+   * through the turntable, whose radius clamp would otherwise move a camera
+   * framed on far outliers away from the one written to the viewpoint.
+   */
+  snapshot(
+    guids: string[],
+    pose: { eye: [number, number, number]; target: [number, number, number] },
+    width: number,
+    height: number,
+  ): string {
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(width, height, false);
+    this.selectEdge.resolution.set(width, height);
+    this.hoverEdge.resolution.set(width, height);
+    this.matched = new Set(guids);
+    this.mode = "highlight";
+    this.applyFilter();
+    this.selection = guids;
+    this.hover = null;
+    this.rebuildOverlays();
+
+    const eye = new Vector3(...pose.eye);
+    const target = new Vector3(...pose.target);
+    const radius = eye.distanceTo(target);
+    this.camera.aspect = width / height;
+    this.camera.position.copy(eye);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(target);
+    this.camera.near = Math.max(radius / 2000, 1e-3);
+    this.camera.far = Math.max(radius * 50, 100);
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+    this.renderer.render(this.scene, this.camera);
+    // Read back in the same task as the render: the drawing buffer is still
+    // intact, so no `preserveDrawingBuffer` is needed.
+    const url = this.canvas.toDataURL("image/png");
+    this.dirty = false;
+    return url;
+  }
+
+  /** Dispose and give the WebGL context back at once, for a hidden scene. */
+  disposeContext(): void {
+    this.dispose();
+    this.renderer.forceContextLoss();
+  }
+
   resize(width: number, height: number, insets: FitInsets = this.insets): void {
     // A canvas is a REPLACED element: CSS cannot stretch it, the drawing buffer
     // has to be told its size. `setSize(w, h, false)` writes width/height and

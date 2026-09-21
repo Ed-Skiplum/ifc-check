@@ -220,6 +220,7 @@ export default function App() {
             lang={view.lang}
             onLang={(lang) => setView({ lang })}
             modelCount={models.length}
+            models={models}
             onFiles={takeFiles}
             onClearAll={onClearAll}
             onClearCache={clearCache}

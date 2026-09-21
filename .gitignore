@@ -27,3 +27,6 @@ dist-ssr
 
 # Vendored wasm source/build tree (dropped in out-of-band, not part of the app)
 _wasmbuild/
+
+# Scratch and sample outputs (BCF exports, probes)
+tmp/
