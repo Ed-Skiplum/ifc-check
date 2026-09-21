@@ -10,9 +10,7 @@
  * room. Nothing here shows a result: the recent list is what the cache stores
  * about each model, not a verdict from a previous run.
  *
- * Every tile is a real entrance. There is no copy on this page beyond labels;
- * a line that wants writing is a `[WRITE]` string, rendered as a marked
- * placeholder until edkjo replaces it.
+ * Every tile is a real entrance. There is no copy on this page beyond labels.
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -21,10 +19,8 @@ import { MAPPING_ROLES } from "../ids/lint.ts";
 import { listCached, type CachedListing } from "../storage/model-cache.ts";
 import { MicroLabel } from "./BentoGrid";
 import { formatBytes, formatCount } from "./format";
-import type { Lang, StringKey } from "./i18n";
+import type { Lang } from "./i18n";
 import { locale, t } from "./i18n";
-
-const WRITE = "[WRITE]";
 
 interface LandingProps {
   lang: Lang;
@@ -107,24 +103,6 @@ function Tile({
   );
 }
 
-/** A `[WRITE]` string, shown as a marked hole rather than as text. */
-function Written({ k, lang, className = "" }: { k: StringKey; lang: Lang; className?: string }) {
-  const value = t(k, lang);
-  if (value.includes(WRITE)) {
-    return (
-      <span
-        className={
-          "inline-block border border-dashed border-gold px-2 py-0.5 font-mono text-[11px] text-gold " +
-          className
-        }
-      >
-        {WRITE} {k}
-      </span>
-    );
-  }
-  return <span className={className}>{value}</span>;
-}
-
 /* --------------------------------------------------------------------- IFC */
 
 function IfcTile({ lang, dragging, onFiles }: LandingProps) {
@@ -149,7 +127,6 @@ function IfcTile({ lang, dragging, onFiles }: LandingProps) {
           <span className="flex items-center gap-3 bg-green px-4 py-1.5 text-sm font-medium text-cream group-hover:bg-ink">
             {t("action.openIfc", lang)}
           </span>
-          <Written k="landing.ifc.note" lang={lang} />
         </button>
         <input
           ref={input}
