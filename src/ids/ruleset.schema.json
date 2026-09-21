@@ -722,7 +722,7 @@
             "progress-code",
             "copy-object"
           ],
-          "description": "Marks this rule as one of the project mappings. code-lookup only, at most one rule per mapping. The two classifications take a list, progress-code takes values, copy-object takes values true, false."
+          "description": "Marks this rule as one of the project mappings. code-lookup only, at most one rule per mapping. The two classifications take a list, progress-code takes values. copy-object is a scope filter: values true, false or the project's own discipline codes; a matching element is excluded from every other rule's selection."
         },
         "select": {
           "$ref": "#/$defs/selector"

@@ -121,10 +121,13 @@ function sharedElevation(
   };
 }
 
-/** Openings are not physical elements; they are subtractions from one. */
-function physicalProducts(graph: IfcGraph): ProductRow[] {
+/** Openings are not physical elements; they are subtractions from one.
+ *  `excluded` is the copy-object mapping's reference/copy objects (evaluate.ts
+ *  `ModelResult.excludedGuids`) — out of scope for every check here exactly as
+ *  for every ruleset rule, never a defect they can be found by. */
+function physicalProducts(graph: IfcGraph, excluded?: ReadonlySet<string>): ProductRow[] {
   const openings = new Set(graph.voids.map((v) => v.opening_guid));
-  return graph.products.filter((p) => !openings.has(p.guid));
+  return graph.products.filter((p) => !openings.has(p.guid) && !excluded?.has(p.guid));
 }
 
 function result(
@@ -356,9 +359,10 @@ function checkStoreyElevation(graph: IfcGraph, summary: IfcSummary): CheckResult
  * tracking, model diffing, federated selection — and breaks it silently,
  * because each consumer simply keeps whichever one it saw last.
  */
-function checkGuidUnique(graph: IfcGraph): CheckResult {
+function checkGuidUnique(graph: IfcGraph, excluded?: ReadonlySet<string>): CheckResult {
+  const products = excluded ? graph.products.filter((p) => !excluded.has(p.guid)) : graph.products;
   const seen = new Map<string, ProductRow[]>();
-  for (const p of graph.products) {
+  for (const p of products) {
     const bucket = seen.get(p.guid);
     if (bucket) bucket.push(p);
     else seen.set(p.guid, [p]);
@@ -373,10 +377,10 @@ function checkGuidUnique(graph: IfcGraph): CheckResult {
   return result(
     "guid-unique",
     "deviation",
-    graph.products.length,
+    products.length,
     findings,
-    unique(seen.size, graph.products.length),
-    `${seen.size} distinct GlobalId across ${graph.products.length} products`,
+    unique(seen.size, products.length),
+    `${seen.size} distinct GlobalId across ${products.length} products`,
   );
 }
 
@@ -489,15 +493,20 @@ function checkMaterials(products: ProductRow[]): CheckResult {
  *  the structure hold, do the identifiers identify, then how far the model has
  *  been taken. Deviations first is deliberate — sorting by verdict would move
  *  a row every time a file changed. */
-export function runFundamentals(graph: IfcGraph, summary: IfcSummary): CheckResult[] {
-  const products = physicalProducts(graph);
+export function runFundamentals(
+  graph: IfcGraph,
+  summary: IfcSummary,
+  excludedGuids?: ReadonlySet<string>,
+): CheckResult[] {
+  const excluded = excludedGuids && excludedGuids.size > 0 ? excludedGuids : undefined;
+  const products = physicalProducts(graph, excluded);
   return [
     checkParseIntegrity(summary),
     checkSpatialChain(graph),
     checkContained(graph, products),
     checkStoreyInBuilding(graph),
     checkStoreyElevation(graph, summary),
-    checkGuidUnique(graph),
+    checkGuidUnique(graph, excluded),
     checkNamed(products),
     checkTyped(products),
     checkTypeNames(products),

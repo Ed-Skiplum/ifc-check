@@ -202,6 +202,9 @@ const STRINGS = {
   "field.system": { nb: "System", en: "System" },
   "field.extract": { nb: "Uttrekk (regex)", en: "Extract (regex)" },
   "field.values": { nb: "Tillatte verdier", en: "Allowed values" },
+  "field.copyMode": { nb: "Verditype", en: "Value type" },
+  "field.copyMode.boolean": { nb: "Ja/Nei", en: "Yes/No" },
+  "field.copyMode.codes": { nb: "Fagkoder", en: "Discipline codes" },
 
   /* ---------------------------------------------------------------- errors */
   "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },

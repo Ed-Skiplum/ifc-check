@@ -14,7 +14,7 @@
 import initWasm, { IfcModel } from "../../vendor/ifcfast-wasm/ifcfast_wasm.js";
 import wasmUrl from "../../vendor/ifcfast-wasm/ifcfast_wasm_bg.wasm?url";
 import { runFundamentals } from "../engine/fundamentals";
-import type { IfcGraph, IfcSummary, ModelReport } from "../engine/types";
+import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import {
   MESH_PRODUCTS_PER_BATCH,
   MESH_TRIANGLE_CEILING,
@@ -51,7 +51,10 @@ export type ModelWorkerResponse =
   | { kind: "mesh-batch"; batch: MeshBatch }
   | { kind: "mesh-done"; shift: [number, number, number]; budget: MeshBudget }
   | { kind: "mesh-error"; message: string }
-  | { kind: "evaluated"; result: ModelResult }
+  /** `checks` is the fundamentals re-run over this ruleset's exclusions: the
+   *  same rows the parse produced when the copy-object mapping is absent or
+   *  excludes nothing, filtered when it excludes reference objects. */
+  | { kind: "evaluated"; result: ModelResult; checks: CheckResult[] }
   | { kind: "evaluate-error"; message: string };
 
 let ready: Promise<unknown> | null = null;
@@ -192,7 +195,10 @@ function evaluate(ruleset: Ruleset) {
   try {
     const graph: ModelGraph = heldGraph;
     const summary: ModelSummary = heldSummary;
-    send({ kind: "evaluated", result: evaluateRuleset(ruleset, graph, summary, heldName) });
+    const result = evaluateRuleset(ruleset, graph, summary, heldName);
+    const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
+    const checks = runFundamentals(heldGraph, heldSummary, excluded);
+    send({ kind: "evaluated", result, checks });
   } catch (err) {
     send({
       kind: "evaluate-error",

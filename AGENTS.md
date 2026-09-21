@@ -122,6 +122,14 @@ drops IFC classes its whitelist does not carry — `IfcGeographicElement` among
 them ([ifcfast#178](https://github.com/EdvardGK/ifcfast/issues/178)) — so an
 empty product list means "empty or unsupported", never "clean".
 
+**One exception to "judged with no ruleset loaded":** when the loaded ruleset
+carries an enabled `copy-object` mapping (see Project mappings below), the
+worker re-runs `runFundamentals` with that mapping's reference/copy objects
+excluded, exactly as it excludes them from every ruleset rule's own selection.
+`checks` on the model report is replaced with that re-run, not merged; parsing
+without a ruleset, or with one that carries no `copy-object` mapping, behaves
+exactly as before.
+
 ## The dashboard grid — binding, not advisory
 
 The board is an INSTANCE of the house bento grid, not a layout of its own.
@@ -324,29 +332,59 @@ Example project config: `examples/knm.ruleset.json`.
 Where a project stores the concepts every project has. A mapping is a role
 on a `code-lookup` extended rule, `"mapping": "<role>"`, not a construct of
 its own: it lives in the ruleset, round-trips through the JSON as-is, and is
-evaluated by the same `codeLookup` path. At most one rule per role (lint
-`mapping-duplicate`).
+evaluated by the same `codeLookup` path — except `copy-object`, which is a
+scope filter (below). At most one rule per role (lint `mapping-duplicate`).
+A mapping is matched by its `mapping` field, never by `id`, so the id on the
+rule is cosmetic: it is set to the role name on creation (`progress-code`,
+`copy-object`, never a suffixed variant like `progress-code-code`) but an
+older file with a different id for the same role still loads and evaluates
+correctly.
 
 | `mapping` | header (POFIN) | lookup | lint |
 |---|---|---|---|
 | `system-classification` | Systemkode | `list` | `mapping-list` |
 | `component-classification` | Komponentklasse | `list` | `mapping-list` |
 | `progress-code` | Prosesstatuskode (MMI) | `values` (the project's codes) | `mapping-values` |
-| `copy-object` | Duplikat objekt | `values` exactly `true`, `false` | `mapping-boolean` |
+| `copy-object` | Duplikat objekt | `values`, two modes (below) | `mapping-values` |
 
 Headers are from POFIN 2.1 EIR bygg, "Veiledning til krav til alfanumerisk
 informasjon" (`resources/standards/pofin/02-1-eir-bygg.md`). POFIN has no
 header for component classification; it names NS 3457-8 "komponentklasser"
 under Objekttypenavn and Forekomst, so the header is Komponentklasse.
 
-**POFIN's Duplikat objekt is not a boolean.** Its value is the fagkode of the
-discipline that owns the object (`NONS_Process.DuplicateOwnedBy: RIV`).
-`copy-object` checks a boolean because that is what was asked for (the
-G55-style `Referanseobjekt` Ja/Nei flag); a model following POFIN literally
-fails it on every object. Unresolved.
+**`copy-object` is a SCOPE FILTER, not a data-quality check.** An object whose
+mapped value matches is a reference/copy object and is **excluded from the
+selection of every other rule, fundamentals included** — no finding is ever
+reported on it. A missing or empty value is an ordinary, in-scope object, and
+so is a value `extract` does not match: this mapping never fails an element,
+it only decides what the rest of the ruleset gets to see. The mapping's own
+result is a count, never a finding — `"N of M objects excluded as reference
+objects"` — so the filter is never silent about what it did.
 
-`true`/`false` is how this tool renders an IFC BOOLEAN (the flattened
-IsExternal/LoadBearing do the same) and the xs:boolean form IDS uses.
+Two value modes, both stored as plain `values` (no new rule field, so this
+round-trips through the ruleset JSON as-is; the setup page derives which mode
+is active from the values themselves, `isBooleanValues`):
+
+- **boolean** — the G55-style `Referanseobjekt` Ja/Nei flag, `values` the pair
+  `true`, `false` (`true`/`false` is how this tool renders an IFC BOOLEAN, the
+  flattened IsExternal/LoadBearing do the same, and the xs:boolean lexical
+  form IDS uses). Only `true` marks a reference; `false` is an ordinary
+  object saying so explicitly, never a second reference value.
+- **codes** — POFIN's actual `Duplikat objekt` value, the fagkode of the
+  discipline that owns the object (`NONS_Process.DuplicateOwnedBy: RIV`), as a
+  user-entered comma-separated list. Any of the listed codes marks a
+  reference; there is no "opposite" value in this mode.
+
+`code-values-empty` still rejects an empty list in either mode; nothing else
+constrains the shape, so `mapping-values` is the only lint code the mapping
+needs (the old `mapping-boolean` code that required exactly `true`, `false`
+is gone).
+
+If the source is not evaluable (property or classification, ifcfast#183), the
+filter cannot run: the mapping's own rule reports `not_evaluable` with the
+reason, carrying a note that reference objects could not be excluded from the
+rest of the ruleset. Every other rule then runs unfiltered, exactly as if the
+mapping were absent — **never** silently treated as "no reference objects".
 
 The setup page (`#page=setup`, "Oppsett") has one card per role. A card
 creates its rule on first enable (id = the role, `select` physicalElement,
@@ -354,15 +392,23 @@ the rule builder's blank source and extract), and turning it off sets
 `enabled: false`, keeping what was entered. Edits apply to the loaded models
 at once. Lint issues for a card's rule print on the card; a ruleset with lint
 errors cannot be downloaded. A property or classification source shows the
-board's own `Kan ikke vurderes` state with `ifcfast#183`. Built and
-type-checked; **not exercised in a browser.**
+board's own `Kan ikke vurderes` state with `ifcfast#183`. The `copy-object`
+card additionally carries a boolean/codes toggle (`isBooleanValues` decides
+which is shown as active) and, in codes mode, the same allowed-values input
+`progress-code` uses. Built and type-checked; **not exercised in a browser.**
 
 Verified headlessly: `selftest` asserts each mapping lint refusal, the schema
 refusal of a code-lookup with neither list nor values, a values lookup on a
-synthetic model (in list passes, outside and empty fail) and a property-sourced
-mapping as `not_evaluable`. `examples/knm.ruleset.json` expresses its NS 3457-8
-type-name rule as `component-classification`; `run` on KNM_ARK / RIV / RIB is
-byte-identical to before the mapping was added (84/84, 4/4, 2/2 no match).
+synthetic model (in list passes, outside and empty fail), a property-sourced
+mapping as `not_evaluable` carrying the "could not be excluded" note (and that
+`progress-code` still evaluates the full, unfiltered set when it does), and
+the copy-object scope filter excluding a reference object from another rule's
+findings in both boolean and codes mode. `examples/knm.ruleset.json` expresses
+its NS 3457-8 type-name rule as `component-classification`; `run` on
+KNM_ARK / RIV / RIB (KNM_Void-demo `01_inn/export_2026-09-14/`) is
+byte-identical to before the mapping was added (84/84, 4/4, 2/2 no match) —
+that ruleset carries no `copy-object` mapping, so this exercises the
+no-filter path, not the exclusion itself.
 
 ### Things the format prevents
 

@@ -292,7 +292,22 @@ function createController(setModels: SetModels): Controller {
           commit(id);
         }
       } else if (message.kind === "evaluated") {
-        patch(id, { evaluating: false, evaluation: message.result, evaluationError: undefined });
+        // The copy-object mapping's exclusions apply to fundamentals too, so
+        // the worker recomputed `checks` alongside the ruleset result; merge
+        // rather than patch, since `report` itself is not replaced.
+        setModels((current) =>
+          current.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  evaluating: false,
+                  evaluation: message.result,
+                  evaluationError: undefined,
+                  report: m.report ? { ...m.report, checks: message.checks } : m.report,
+                }
+              : m,
+          ),
+        );
       } else {
         patch(id, { evaluating: false, evaluation: undefined, evaluationError: message.message });
       }

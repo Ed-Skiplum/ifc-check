@@ -27,7 +27,7 @@ import { validateXML } from "xmllint-wasm";
 
 import { evaluateRuleset } from "../src/ids/evaluate.ts";
 import { exportRuleset, partitionRules } from "../src/ids/export.ts";
-import { hasErrors, lintRuleset } from "../src/ids/lint.ts";
+import { BOOLEAN_VALUES, hasErrors, lintRuleset } from "../src/ids/lint.ts";
 import { RULESET_JSON_SCHEMA } from "../src/ids/schema.ts";
 import { SAMPLE_RULESET } from "../src/ids/sample.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
@@ -375,13 +375,13 @@ async function cmdSelftest(): Promise<number> {
     ["a classification mapping without a list", withRules([
       mappingRule("system-classification", { values: ["x"] }),
     ]), "mapping-list"],
-    ["a copy-object mapping that is not boolean", withRules([
-      mappingRule("copy-object", { values: ["ja", "nei"] }),
-    ]), "mapping-boolean"],
     ["a code-lookup with both list and values", withRules([
       mappingRule("progress-code", { values: ["300"], list: "ns3457-8" }),
     ]), "code-list-shape"],
     ["an empty values list", withRules([mappingRule("progress-code", { values: [] })]), "code-values-empty"],
+    ["a copy-object mapping with an empty values list", withRules([
+      mappingRule("copy-object", { values: [] }),
+    ]), "code-values-empty"],
   ];
   for (const [name, ruleset, code] of mappingNegatives) {
     record(`lint rejects: ${name}`, code, lintCodes(ruleset));
@@ -390,6 +390,19 @@ async function cmdSelftest(): Promise<number> {
     "JSON Schema rejects: code-lookup with neither list nor values",
     "rejected",
     shapeErrors(withRules([mappingRule("progress-code", {})])).length > 0 ? "rejected" : "accepted",
+  );
+  // copy-object is a scope filter with two value modes, both plain `values`:
+  // the boolean pair (unchanged) or the project's own discipline codes. Not a
+  // stricter shape than progress-code's, so both lint clean.
+  record(
+    "lint accepts: copy-object in boolean mode",
+    "0 errors",
+    `${lintRuleset(withRules([mappingRule("copy-object", { values: [...BOOLEAN_VALUES] })])).filter((i) => i.severity === "error").length} errors`,
+  );
+  record(
+    "lint accepts: copy-object with a discipline-code list",
+    "0 errors",
+    `${lintRuleset(withRules([mappingRule("copy-object", { values: ["RIV"] })])).filter((i) => i.severity === "error").length} errors`,
   );
 
   // Evaluation of a values lookup on a synthetic model: one value in the list,
@@ -424,6 +437,71 @@ async function cmdSelftest(): Promise<number> {
         .join(", ") + "]",
   );
   record("property-sourced mapping is not_evaluable", "not_evaluable", copy.state);
+  record(
+    "property-sourced mapping notes that exclusion did not run",
+    "true",
+    String((copy.notes ?? []).some((n) => n.includes("could not be excluded"))),
+  );
+  record(
+    "a non-evaluable copy-object mapping excludes nothing from another rule",
+    "3",
+    String(progress.applicable),
+  );
+
+  // copy-object is a SCOPE FILTER: an identified reference object is excluded
+  // from every other rule's selection, fundamentals included, in BOTH value
+  // modes. `progress-code` reads the same synthetic elements' Name so a
+  // reference object that would otherwise fail it disappears instead.
+  const el = (guid: string, name: string | null, objectType: string | null) => ({
+    guid, entity: "IFCWALL", name, predefined_type: null, object_type: objectType,
+    tag: null, storey_guid: null, parent_guid: null, type_name: null, typed: false,
+    materials: [], is_external: null, fire_rating: null, load_bearing: null,
+  });
+  const referenceGraph = (rows: [string | null, string | null][]): ModelGraph => ({
+    schema: "IFC4",
+    products: rows.map(([name, objectType], i) => el(`r${i + 1}`, name, objectType)),
+    contained_in: [], aggregates: [], voids: [], storeys: [], buildings: [], sites: [], spaces: [],
+  });
+
+  const boolCase = evaluateRuleset(
+    withRules([
+      mappingRule("progress-code", { source: { attribute: "Name" }, values: ["300"] }),
+      mappingRule("copy-object", { values: [...BOOLEAN_VALUES] }),
+    ]),
+    referenceGraph([
+      ["300", "false"], // explicit non-reference: ordinary, in scope
+      ["999", "true"], // reference: excluded — would otherwise fail progress-code
+      ["300", null], // no flag: ordinary, in scope
+    ]),
+    summary,
+    "boolean-mode",
+  );
+  const [boolProgress, boolCopy] = boolCase.results;
+  record(
+    "boolean mode: reference object excluded from another rule's findings",
+    "pass 2/0, excluded 1 of 3 objects excluded as reference objects",
+    `${boolProgress.state} ${boolProgress.applicable}/${boolProgress.failed}, excluded ${boolCopy.detail}`,
+  );
+
+  const codesCase = evaluateRuleset(
+    withRules([
+      mappingRule("progress-code", { source: { attribute: "Name" }, values: ["300"] }),
+      mappingRule("copy-object", { values: ["RIV"] }),
+    ]),
+    referenceGraph([
+      ["300", null], // no code: ordinary, in scope
+      ["999", "RIV"], // reference: excluded — would otherwise fail progress-code
+      ["300", "ARK"], // not an allowed code: ordinary, in scope
+    ]),
+    summary,
+    "codes-mode",
+  );
+  const [codesProgress, codesCopy] = codesCase.results;
+  record(
+    "codes mode: reference object excluded from another rule's findings",
+    "pass 2/0, excluded 1 of 3 objects excluded as reference objects",
+    `${codesProgress.state} ${codesProgress.applicable}/${codesProgress.failed}, excluded ${codesCopy.detail}`,
+  );
 
   const result = exportRuleset(SAMPLE_RULESET);
   const { included, excluded } = partitionRules(SAMPLE_RULESET);

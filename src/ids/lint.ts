@@ -624,9 +624,24 @@ export const MAPPING_ROLES: MappingRole[] = [
   "copy-object",
 ];
 
-/** The values a copy-object mapping checks against: an IFC BOOLEAN as this
- *  tool renders it, the xs:boolean lexical form IDS uses. */
+/** The values a copy-object mapping checks against in its boolean mode: an
+ *  IFC BOOLEAN as this tool renders it, the xs:boolean lexical form IDS uses.
+ *  Its other mode is a non-empty list of the project's own discipline codes
+ *  (POFIN's `NONS_Process.DuplicateOwnedBy`, e.g. `RIV`). The mode is never
+ *  stored separately — it is derived from `values` by `isBooleanValues` so it
+ *  round-trips through the ruleset JSON as-is. */
 export const BOOLEAN_VALUES = ["true", "false"] as const;
+
+/** Whether a copy-object mapping's `values` are the boolean pair rather than
+ *  the project's own codes. Order-independent, so `["false", "true"]` still
+ *  reads as boolean mode. */
+export function isBooleanValues(values: string[] | undefined): boolean {
+  return (
+    values !== undefined &&
+    values.length === BOOLEAN_VALUES.length &&
+    BOOLEAN_VALUES.every((v) => values.includes(v))
+  );
+}
 
 /** A mapping is a role on a code-lookup rule; each role fixes which half of
  *  the lookup it uses. */
@@ -646,13 +661,11 @@ function checkMapping(ctx: Ctx, path: string, rule: ExtendedRule): void {
       add(ctx, "error", `${path}.check.list`, "mapping-list", `mapping ${role} reads a bundled code list; set list`);
     }
   } else if (check.values === undefined) {
+    // progress-code and copy-object both check the value against `values`;
+    // copy-object accepts either the boolean pair (BOOLEAN_VALUES) or the
+    // project's own discipline codes — `code-values-empty` already rejects an
+    // empty list, so no further shape is imposed here.
     add(ctx, "error", `${path}.check.values`, "mapping-values", `mapping ${role} checks against values; set values`);
-  } else if (
-    role === "copy-object" &&
-    (check.values.length !== BOOLEAN_VALUES.length ||
-      !BOOLEAN_VALUES.every((v) => check.values?.includes(v)))
-  ) {
-    add(ctx, "error", `${path}.check.values`, "mapping-boolean", `mapping copy-object checks a boolean; values must be ${BOOLEAN_VALUES.join(", ")}`);
   }
 }
 
