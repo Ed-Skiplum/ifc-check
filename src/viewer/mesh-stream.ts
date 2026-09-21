@@ -19,6 +19,8 @@
  * second id space. GUID is the table-facing key; the slot is the GPU-facing one.
  */
 
+import { bulkOutliers } from "../engine/placement.ts";
+
 /** One product's record inside a batch, as `metaJson` parses. */
 export interface MeshMetaRow {
   guid: string;
@@ -215,13 +217,12 @@ export interface ElementBoxes {
  * and selecting an excluded one and pressing zoom-to-selection frames it
  * exactly, because that path uses the true box.
  *
- * The rule is per element: the centre must be within `SPREAD` times the 98th
+ * The rule is per element (`bulkOutliers`, `src/engine/placement.ts`): the
+ * centre must be within `FAR_SPREAD` times the 98th
  * percentile of centre distances, and the element's own half-diagonal must not
  * exceed that same cutoff. The first catches a stray placement, the second
  * catches geometry that exploded in place.
  */
-const FRAMING_SPREAD = 5;
-const FRAMING_FLOOR_METRES = 1;
 
 export function framingBox(set: MeshSet): FramingBox | null {
   const centres: [number, number, number][] = [];
@@ -258,21 +259,10 @@ export function framingBox(set: MeshSet): FramingBox | null {
   }
   if (boxes.length === 0) return null;
 
-  const median = (values: number[]) => {
-    const sorted = [...values].sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length / 2)];
-  };
-  const hub: [number, number, number] = [
-    median(centres.map((c) => c[0])),
-    median(centres.map((c) => c[1])),
-    median(centres.map((c) => c[2])),
-  ];
-  const spread = centres.map((c) =>
-    Math.max(Math.abs(c[0] - hub[0]), Math.abs(c[1] - hub[1]), Math.abs(c[2] - hub[2])),
-  );
-  const sorted = [...spread].sort((a, b) => a - b);
-  const p98 = sorted[Math.floor(0.98 * (sorted.length - 1))];
-  const cutoff = Math.max(p98 * FRAMING_SPREAD, FRAMING_FLOOR_METRES);
+  // The stray rule lives in the engine, where `mesh-placement` uses the SAME
+  // function: what the camera leaves out of the frame and what the check calls
+  // far from the model are one verdict, not two near-miss ones.
+  const { outlier: stray } = bulkOutliers(centres, halves);
 
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
@@ -284,7 +274,7 @@ export function framingBox(set: MeshSet): FramingBox | null {
       bounds[i * 6 + a] = boxes[i].min[a];
       bounds[i * 6 + 3 + a] = boxes[i].max[a];
     }
-    if (spread[i] > cutoff || halves[i] > cutoff) {
+    if (stray[i]) {
       outlier[i] = 1;
       continue;
     }

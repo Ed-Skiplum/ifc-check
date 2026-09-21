@@ -50,6 +50,7 @@ import {
   type CachedModel,
   type FileLookup,
 } from "../storage/model-cache.ts";
+import { collectBoxes, unshiftBoxes, type ElementBox } from "../engine/placement";
 import type { RestoreWorkerRequest } from "../storage/restore-worker";
 import type { ModelProfile } from "./profile";
 import type { ModelWorkerResponse } from "./model-worker";
@@ -340,6 +341,9 @@ function createController(setModels: SetModels): Controller {
         patch(id, { meshError: record.meshError });
       }
 
+      // The placement check needs every element's box. A capped cache left
+      // batches out, and a check over part of the model would under-report.
+      const mesh = record.mesh;
       const request: RestoreWorkerRequest = {
         kind: "restore",
         fileName: record.fileName,
@@ -347,6 +351,12 @@ function createController(setModels: SetModels): Controller {
         parseMs: record.parseMs,
         summary: record.summary,
         graph: record.graph,
+        boxes: mesh && !mesh.budget.capped ? boxesFromBatches(mesh.batches, mesh.shift) : null,
+        noGeometry: !mesh
+          ? "no geometry: the mesh pass failed"
+          : mesh.budget.capped
+            ? "geometry capped in the cache: re-open the file to run this check"
+            : undefined,
       };
       worker.postMessage(request);
     } catch (err) {
@@ -594,4 +604,13 @@ export function useModels() {
   );
 
   return { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, openCached };
+}
+
+/** Per-element world boxes from cached mesh batches, the same fold the parse
+ *  worker runs while streaming. */
+function boxesFromBatches(batches: MeshBatch[], shift: [number, number, number]) {
+  const boxes = new Map<string, ElementBox>();
+  for (const batch of batches) collectBoxes(boxes, batch.meta, batch.positions);
+  unshiftBoxes(boxes, shift);
+  return boxes;
 }

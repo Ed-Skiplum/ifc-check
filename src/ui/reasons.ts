@@ -73,6 +73,14 @@ const REASONS: Record<ReasonCode, Record<Lang, Render>> = {
     nb: (p) => `GlobalId deles av ${p.count} elementer`,
     en: (p) => `GlobalId shared by ${p.count} elements`,
   },
+  "storey-mismatch": {
+    nb: (p) => `bunn geometri ${p.bottom} m, etasje «${p.storey}» på ${p.elevation} m, forventet «${p.expected}»`,
+    en: (p) => `mesh bottom ${p.bottom} m, storey "${p.storey}" at ${p.elevation} m, expected "${p.expected}"`,
+  },
+  "far-from-model": {
+    nb: (p) => `geometri ${p.distance} m fra modellens hovedvolum`,
+    en: (p) => `mesh ${p.distance} m from the model's main body`,
+  },
 };
 
 export function reasonText(finding: Finding, lang: Lang): string {

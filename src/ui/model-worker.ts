@@ -14,6 +14,12 @@
 import initWasm, { IfcModel } from "../../vendor/ifcfast-wasm/ifcfast_wasm.js";
 import wasmUrl from "../../vendor/ifcfast-wasm/ifcfast_wasm_bg.wasm?url";
 import { runFundamentals } from "../engine/fundamentals";
+import {
+  checkMeshPlacement,
+  collectBoxes,
+  unshiftBoxes,
+  type ElementBox,
+} from "../engine/placement";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import {
   MESH_PRODUCTS_PER_BATCH,
@@ -67,6 +73,10 @@ function ensureWasm() {
 let heldGraph: IfcGraph | null = null;
 let heldSummary: IfcSummary | null = null;
 let heldName = "";
+/** Per-element world boxes from the mesh stream, kept for `mesh-placement`
+ *  so a ruleset's copy-object filter can re-run it without re-meshing. null
+ *  when the mesh pass failed: the check then reports it could not run. */
+let heldBoxes: Map<string, ElementBox> | null = null;
 
 /** `self` inside a module worker is a `DedicatedWorkerGlobalScope`, whose
  *  `postMessage` takes a transfer list. The project compiles against the DOM
@@ -98,7 +108,10 @@ function send(response: ModelWorkerResponse, transfer?: Transferable[]) {
  * crashing the machine is worse than capping — but it may not be silent, and
  * nothing downstream can reconstruct what was withheld if this does not say so.
  */
-function streamMeshes(model: IfcModel): { shift: [number, number, number]; budget: MeshBudget } {
+function streamMeshes(
+  model: IfcModel,
+  boxes: Map<string, ElementBox>,
+): { shift: [number, number, number]; budget: MeshBudget } {
   let elements = 0;
   let totalElements = 0;
   let triangles = 0;
@@ -112,6 +125,8 @@ function streamMeshes(model: IfcModel): { shift: [number, number, number]; budge
     indices: Uint32Array,
   ) => {
     const meta = JSON.parse(metaJson) as MeshMetaRow[];
+    // Before the ceiling: a capped viewer still gets a complete placement check.
+    collectBoxes(boxes, meta, positions);
     const batchTriangles = indices.length / 3;
     totalElements += meta.length;
     totalTriangles += batchTriangles;
@@ -154,10 +169,13 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     // Geometry first, then the graph — see `streamMeshes`. A mesh failure is
     // reported as itself and does NOT take the checks down with it: the board
     // is a checker that happens to draw, not a viewer that happens to check.
+    let boxes: Map<string, ElementBox> | null = new Map();
     try {
-      const meshes = streamMeshes(model);
+      const meshes = streamMeshes(model, boxes);
+      unshiftBoxes(boxes, meshes.shift);
       send({ kind: "mesh-done", shift: meshes.shift, budget: meshes.budget });
     } catch (err) {
+      boxes = null;
       send({ kind: "mesh-error", message: err instanceof Error ? err.message : String(err) });
     }
 
@@ -167,13 +185,14 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     heldGraph = graph;
     heldSummary = summary;
     heldName = fileName;
+    heldBoxes = boxes;
 
     const report: ModelReport = {
       fileName,
       sizeBytes: bytes.byteLength,
       parseMs,
       summary,
-      checks: runFundamentals(graph, summary),
+      checks: [...runFundamentals(graph, summary), checkMeshPlacement(graph, summary, boxes)],
     };
     send({ kind: "parsed", report, profile: withTypeFacts(profileOf(graph), graph), graph });
   } catch (err) {
@@ -197,7 +216,10 @@ function evaluate(ruleset: Ruleset) {
     const summary: ModelSummary = heldSummary;
     const result = evaluateRuleset(ruleset, graph, summary, heldName);
     const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
-    const checks = runFundamentals(heldGraph, heldSummary, excluded);
+    const checks = [
+      ...runFundamentals(heldGraph, heldSummary, excluded),
+      checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
+    ];
     send({ kind: "evaluated", result, checks });
   } catch (err) {
     send({

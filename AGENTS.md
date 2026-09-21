@@ -15,6 +15,9 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
                  + CheckSeverity / Verdict / DisplayValue
   fundamentals.ts  the eleven structure-and-usability checks, their severities
                    and `verdictOf`
+  placement.ts   `mesh-placement`, the twelfth check: needs the streamed meshes,
+                 so it runs beside `runFundamentals`, not inside it
+  kpis.ts        the seven numbers on the board's KPI row
 src/ui/          the screen, and the worker that drives the engine
   model-worker.ts  one Web Worker per file; keeps the parsed graph resident
                    so a ruleset dropped later evaluates without re-parsing
@@ -129,6 +132,48 @@ excluded, exactly as it excludes them from every ruleset rule's own selection.
 `checks` on the model report is replaced with that re-run, not merged; parsing
 without a ruleset, or with one that carries no `copy-object` mapping, behaves
 exactly as before.
+
+## `mesh-placement` — geometry against the stated storey
+
+DEVIATION. Runs wherever geometry exists (parse worker, restore worker from
+the cached batches, `check-cli.ts`); with no complete geometry (mesh pass
+failed, or a cache whose batches were capped) it is `not_applicable` with the
+reason. Copy-object exclusions and openings are dropped exactly as in
+`runFundamentals`. One finding per element:
+
+- `far-from-model` — the element's mesh centre, or its own half-extent, is
+  beyond 5 × the 98th percentile of centre distances from the median centre
+  (Chebyshev per axis), floored at 1 m. This is `bulkOutliers`, the SAME
+  function the viewer's entry camera uses to decide what not to frame, so
+  "Utenfor ramme" and this check always name the same elements. On
+  `KNM_Mottakskontroll/02_arbeid/KNM_RIB.ifc` it flags the five ifcfast#190
+  beams and nothing else.
+- `storey-mismatch` — the storey the mesh BOTTOM falls in (greatest elevation
+  <= bottom + 0.1 m) is not the stated storey. Method and tolerance from
+  `KNM_Mottakskontroll/02_arbeid/ids/storey_check.py`. Elevation is scaled by
+  `unit_scale` (ifcfast#180). Refuses to run, and says so in `detail`, when
+  fewer than two distinct elevations exist or when the elevation span and the
+  mesh-bottom span do not overlap (elevations relative to a building placed
+  elsewhere).
+
+Not measurable: distance from an element's OWN placement origin. The core has
+a `drift` table (`drift_distance_m`) but the wasm build exposes only its row
+count.
+
+## The KPI row
+
+Seven cards, one number each, in a 13×1 / 21×1 `tellTales` strip on top of
+both layouts (`kpis.ts` + `KpiRow` in `forms.tsx`): Typer (declared type
+objects, `summary.tables.type_objects.rows`), Uten type (`element-typed`
+findings), Etasjer, Filstørrelse, Materialer (distinct names over physical
+in-scope products), Uten etasje (`storey-containment` findings; the wasm graph
+sees storey containment only), Plassering (`mesh-placement` findings). The
+three finding counts carry their check's verdict colour and cross-filter via
+the `check` focus; the rest are neutral counts. Seven tiles cannot share a
+band (at most four band cuts per row), hence one strip; the grid has no
+KPI-row kind. Strip-class spans are aspect-checked against
+`BENTO_STRIP_ASPECT_MAX`, as the spec states, in both `BentoGrid` and
+`board-gate.mjs`.
 
 ## The dashboard grid — binding, not advisory
 

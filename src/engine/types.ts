@@ -158,7 +158,9 @@ export type ReasonCode =
   | "placeholder-type-name"
   | "single-instance-type"
   | "no-material"
-  | "guid-duplicate";
+  | "guid-duplicate"
+  | "storey-mismatch"
+  | "far-from-model";
 
 export interface Finding {
   /** Full GlobalId. Never truncate this for display. */

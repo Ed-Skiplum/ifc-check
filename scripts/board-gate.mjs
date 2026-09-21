@@ -17,6 +17,8 @@
 import {
   BENTO_KINDS,
   BENTO_ROW_FACTOR,
+  BENTO_STRIP_ASPECT_MAX,
+  bentoSpanClass,
   formatBentoErrors,
   generateGridPositions,
   validateBentoLayout,
@@ -26,10 +28,13 @@ import { LAYOUT_13, LAYOUT_21 } from "../src/ui/bento-layouts.ts";
 /** id -> [kind, priority], mirroring `Dashboard.tsx`. Everything else about a
  *  tile is read off the layout. */
 const TILES = {
+  kpis: ["tellTales", "P0"],
   verify: ["tellTales", "P0"],
   viewer: ["viewer", "P0"],
-  spatial: ["gauge", "P0"],
-  classes: ["distribution", "P1"],
+  // P0/P1 on 21 tracks, P2 on 13 where the KPI row pushes them past the fold
+  // (see `Dashboard.tsx`). Keyed per canvas below.
+  spatial: ["gauge", { 13: "P2", 21: "P0" }],
+  classes: ["distribution", { 13: "P2", 21: "P1" }],
   file: ["readout", "P2"],
   storeys: ["roster", "P2"],
   matrix: ["matrix", "P2"],
@@ -49,7 +54,7 @@ for (const definition of [LAYOUT_13, LAYOUT_21]) {
     return {
       id,
       kind: entry[0],
-      priority: entry[1],
+      priority: typeof entry[1] === "string" ? entry[1] : entry[1][definition.cols],
       span: { w: position.colSpan, h: position.rowSpan },
     };
   });
@@ -58,7 +63,13 @@ for (const definition of [LAYOUT_13, LAYOUT_21]) {
   const rowFactor = BENTO_ROW_FACTOR[definition.cols];
   const aspects = tiles.map((tile) => {
     const ratio = tile.span.w / (tile.span.h * rowFactor);
-    const { min, max } = BENTO_KINDS[tile.kind].aspect;
+    const { min } = BENTO_KINDS[tile.kind].aspect;
+    // A strip-class span is checked against the strip ceiling, as the spec
+    // states at BENTO_STRIP_ASPECT_MAX ("a strip IS a wide thin band").
+    const max =
+      bentoSpanClass(tile.span) === "strip"
+        ? BENTO_STRIP_ASPECT_MAX
+        : BENTO_KINDS[tile.kind].aspect.max;
     return {
       id: tile.id,
       kind: tile.kind,

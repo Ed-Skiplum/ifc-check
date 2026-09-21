@@ -10,6 +10,13 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { runFundamentals, verdictOf } from "../src/engine/fundamentals.ts";
+import {
+  checkMeshPlacement,
+  collectBoxes,
+  unshiftBoxes,
+  type ElementBox,
+} from "../src/engine/placement.ts";
+import { modelKpis } from "../src/engine/kpis.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 const wasmDir = new URL("../vendor/ifcfast-wasm/", import.meta.url);
@@ -27,9 +34,25 @@ for (const path of process.argv.slice(2)) {
   const model = IfcModel.fromBytes(new Uint8Array(bytes), name);
   const parseMs = performance.now() - t0;
 
+  // Geometry first, exactly as the parse worker does it: `graphJson()` then
+  // reuses the streamed stats instead of running a second mesh pass.
+  const boxes = new Map<string, ElementBox>();
+  model.streamMeshes(250, (metaJson: string, positions: Float32Array) => {
+    collectBoxes(boxes, JSON.parse(metaJson), positions);
+  });
+  unshiftBoxes(boxes, JSON.parse(model.streamShiftJson()));
+
   const summary = JSON.parse(model.summaryJson()) as IfcSummary;
   const graph = JSON.parse(model.graphJson()) as IfcGraph;
-  const checks = runFundamentals(graph, summary);
+  const checks = [...runFundamentals(graph, summary), checkMeshPlacement(graph, summary, boxes)];
+  const openings = new Set(graph.voids.map((v) => v.opening_guid));
+  const kpis = modelKpis({
+    summary,
+    checks,
+    sizeBytes: bytes.length,
+    storeys: graph.storeys.length,
+    products: graph.products.map((p) => ({ ...p, isOpening: openings.has(p.guid) })),
+  });
 
   console.log(
     `\n=== ${name} | ${summary.schema} | ${(bytes.length / 1e6).toFixed(1)} MB ` +
@@ -55,5 +78,11 @@ for (const path of process.argv.slice(2)) {
       console.log(`      ... ${c.findings.length - 2} more`);
     }
   }
+  const show = (v: number | null) => (v === null ? "n/a" : String(v));
+  console.log(
+    `  KPI  types ${show(kpis.types)} · untyped ${show(kpis.untyped)} · floors ${kpis.floors} · ` +
+      `size ${(kpis.sizeBytes / 1e6).toFixed(1)} MB · materials ${kpis.materials} · ` +
+      `orphans ${show(kpis.orphans)} · placement ${show(kpis.placement)}`,
+  );
   model.free();
 }

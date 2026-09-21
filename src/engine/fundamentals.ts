@@ -57,9 +57,12 @@ const REASON_EN: Record<ReasonCode, (p: Record<string, string | number>) => stri
   "single-instance-type": (p) => `type "${p.typeName}" is used by one element`,
   "no-material": () => "no material associated",
   "guid-duplicate": (p) => `GlobalId shared by ${p.count} elements`,
+  "storey-mismatch": (p) =>
+    `mesh bottom ${p.bottom} m, storey "${p.storey}" at ${p.elevation} m, expected "${p.expected}"`,
+  "far-from-model": (p) => `mesh ${p.distance} m from the model's main body`,
 };
 
-function finding(
+export function finding(
   el: { guid: string; entity: string; name: string | null },
   code: ReasonCode,
   params: Record<string, string | number> = {},
@@ -84,11 +87,11 @@ const NOUN_EN: Record<DisplayNoun, [one: string, many: string]> = {
   levels: ["level", "levels"],
 };
 
-function literal(text: string): DisplayValue {
+export function literal(text: string): DisplayValue {
   return { code: "literal", params: { text }, text };
 }
 
-function share(good: number, total: number): DisplayValue {
+export function share(good: number, total: number): DisplayValue {
   return { code: "share", params: { good, total }, text: `${good} of ${total}` };
 }
 
@@ -130,7 +133,7 @@ function physicalProducts(graph: IfcGraph, excluded?: ReadonlySet<string>): Prod
   return graph.products.filter((p) => !openings.has(p.guid) && !excluded?.has(p.guid));
 }
 
-function result(
+export function result(
   id: string,
   severity: CheckSeverity,
   applicable: number,

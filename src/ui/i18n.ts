@@ -55,6 +55,11 @@ const STRINGS = {
   "kpi.project": { nb: "Prosjekt", en: "Project" },
   "kpi.duplicateStepIds": { nb: "Dupliserte STEP-id", en: "Duplicate STEP ids" },
   "kpi.unresolved": { nb: "Uavklart", en: "Unresolved" },
+  "kpi.types": { nb: "Typer", en: "Types" },
+  "kpi.untyped": { nb: "Uten type", en: "Untyped" },
+  "kpi.materials": { nb: "Materialer", en: "Materials" },
+  "kpi.orphans": { nb: "Uten etasje", en: "Orphans" },
+  "kpi.placement": { nb: "Plassering", en: "Placement" },
 
   /* --------------------------------------------------------- verification */
   // The verdict vocabulary is the one on delivered Skiplum dashboards
@@ -77,6 +82,7 @@ const STRINGS = {
   "check.type-name-placeholder": { nb: "Typenavn", en: "Type name" },
   "check.single-instance-types": { nb: "Type brukt én gang", en: "Single-instance type" },
   "check.element-material": { nb: "Materiale", en: "Material" },
+  "check.mesh-placement": { nb: "Plassering", en: "Placement" },
 
   /* ---------------------------------------------------------------- tiles */
   "tile.verify": { nb: "Verifikasjon", en: "Verification" },

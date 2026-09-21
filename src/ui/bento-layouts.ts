@@ -80,6 +80,19 @@
  * 13-track board legal, where rows 9–10 sit past the 8-row fold and a P1 there
  * would be a `fold` fault rather than a judgement call.
  *
+ * ── The KPI row (2026-09-21) ─────────────────────────────────────
+ * edkjo asked for seven KPI cards on top: types, untyped, floors, file size,
+ * materials, orphans, placement. Seven TILES cannot share one band: a row's
+ * tiles must start and end on band cuts, and the sanctioned decompositions
+ * give at most four cuts per row on either canvas (13: 3|2|3|5 via the 3+5+5
+ * and 5+3+5 seams; 21: 5|3|5|8). So the row is ONE full-width strip, 13×1 /
+ * 21×1, the strip span `tellTales` already owns upstream, with the seven
+ * cards as its cells. Both boards gain exactly that one row on top; nothing
+ * else moves. On 13 tracks the gauge and the class bars now end on row 9, past
+ * the 8-row fold, so they drop to P2 there; the 21-track board keeps every
+ * priority (9 rows against a 10-row fold). The grid has no KPI-row kind; if
+ * one is wanted, it is an upstream change in sprucelab, not a local one.
+ *
  * The layouts are checked against all of that at render by
  * `validateBentoLayout`, and headlessly by `node scripts/board-gate.mjs`, so a
  * typo here is a loud failure rather than a quietly wrong board.
@@ -101,8 +114,9 @@ function rows(count: number, bands: [string, number][]): string[][] {
 
 export const LAYOUT_13: BentoLayoutDefinition = {
   cols: 13,
-  rows: 13,
+  rows: 14,
   layout: [
+    ...rows(1, [["kpis", 13]]),
     ...rows(5, [["verify", 8], ["viewer", 5]]),
     ...rows(3, [["classes", 8], ["spatial", 5]]),
     ...rows(2, [["file", 3], ["types", 5], ["storeys", 5]]),
@@ -112,8 +126,9 @@ export const LAYOUT_13: BentoLayoutDefinition = {
 
 export const LAYOUT_21: BentoLayoutDefinition = {
   cols: 21,
-  rows: 8,
+  rows: 9,
   layout: [
+    ...rows(1, [["kpis", 21]]),
     ...rows(3, [["viewer", 5], ["classes", 3], ["spatial", 5], ["verify", 8]]),
     ...rows(2, [["viewer", 5], ["file", 3], ["types", 5], ["verify", 8]]),
     ...rows(3, [["storeys", 8], ["matrix", 13]]),

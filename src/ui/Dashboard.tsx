@@ -36,7 +36,7 @@ import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
 import type { Census } from "./profile";
 import type { Focus } from "./trace";
-import type { Lang } from "./i18n";
+import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
 import { BentoGrid } from "./BentoGrid";
 import { LAYOUT_13, LAYOUT_21 } from "./bento-layouts";
@@ -47,6 +47,8 @@ import type { ModelView } from "./cross-filter";
 import { ViewerTile } from "../viewer/ViewerTile";
 import {
   ClassDistribution,
+  KpiRow,
+  type KpiCard,
   ReadoutList,
   SpatialGauge,
   StoreyRoster,
@@ -54,6 +56,8 @@ import {
 } from "./forms";
 import { formatBytes, formatCount, formatMs } from "./format";
 import { aggregateTypes, meshIndex, TypeLedgerTile, type TypeLedger } from "./types";
+import { verdictOf } from "../engine/fundamentals";
+import { modelKpis } from "../engine/kpis";
 
 interface DashboardProps {
   lang: Lang;
@@ -226,7 +230,57 @@ function buildTiles({
     { label: t("kpi.application", lang), value: summary.authoring_app ?? "—", text: true },
   ];
 
+  // THE KPI ROW. Seven numbers, one each, asked for by name. Three carry the
+  // verdict of the check they count and cross-filter to its findings on click;
+  // the other four are counts and stay neutral.
+  const excluded = model.evaluation?.excludedGuids;
+  const kpis = modelKpis({
+    summary,
+    checks: report.checks,
+    sizeBytes: report.sizeBytes,
+    storeys: profile.storeys.length,
+    products: profile.rows,
+    excluded: excluded?.length ? new Set(excluded) : undefined,
+  });
+  const checkOf = (id: string) => report.checks.find((c) => c.id === id);
+  const counted = (key: string, labelKey: StringKey, checkId: string, n: number | null): KpiCard => {
+    const check = checkOf(checkId);
+    return {
+      key,
+      label: t(labelKey, lang),
+      value: n === null ? "—" : formatCount(n, lang),
+      verdict: check ? verdictOf(check) : "na",
+      checkId,
+      findings: n ?? 0,
+    };
+  };
+  const plain = (key: string, labelKey: StringKey, value: string): KpiCard => ({
+    key,
+    label: t(labelKey, lang),
+    value,
+  });
+  const kpiCards: KpiCard[] = [
+    plain("types", "kpi.types", kpis.types === null ? "—" : formatCount(kpis.types, lang)),
+    counted("untyped", "kpi.untyped", "element-typed", kpis.untyped),
+    plain("floors", "kpi.storeys", formatCount(kpis.floors, lang)),
+    plain("size", "kpi.size", formatBytes(kpis.sizeBytes, lang)),
+    plain("materials", "kpi.materials", formatCount(kpis.materials, lang)),
+    counted("orphans", "kpi.orphans", "storey-containment", kpis.orphans),
+    counted("placement", "kpi.placement", "mesh-placement", kpis.placement),
+  ];
+
   return [
+    {
+      // A 1-row strip across the whole canvas, above the focal. `tellTales`
+      // is the registry's strip kind (13×1 / 21×1 upstream too); the grid has
+      // no KPI-row kind, and seven tiles cannot share one band (at most four
+      // band cuts per row), so the seven cards are cells of this one tile.
+      id: "kpis",
+      kind: "tellTales",
+      priority: "P0",
+      span: { w: wide ? 21 : 13, h: 1 },
+      body: <KpiRow cards={kpiCards} selected={selected} onFocus={onFocus} />,
+    },
     {
       id: "verify",
       kind: "tellTales",
@@ -276,7 +330,9 @@ function buildTiles({
     {
       id: "spatial",
       kind: "gauge",
-      priority: "P0",
+      // P2 on 13 tracks: the KPI row took the first row, and the gauge now
+      // ends on row 9, past that canvas's 8-row fold, where only P2 may sit.
+      priority: wide ? "P0" : "P2",
       span: { w: 5, h: 3 },
       label: t("tile.spatial", lang),
       body: (
@@ -321,7 +377,8 @@ function buildTiles({
     {
       id: "classes",
       kind: "distribution",
-      priority: "P1",
+      // Same as the gauge: past the 13-track fold once the KPI row is on top.
+      priority: wide ? "P1" : "P2",
       // 8×3 on 13 tracks, where it is the whole left column of the second
       // band. 3×3 on 21, in the narrow column the re-cut top region opened:
       // a bar list is the one form here that degrades into a shorter scroll

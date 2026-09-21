@@ -17,6 +17,7 @@
  */
 
 import { runFundamentals } from "../engine/fundamentals.ts";
+import { checkMeshPlacement, type ElementBox } from "../engine/placement.ts";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import { evaluateRuleset } from "../ids/evaluate.ts";
 import type { ModelGraph, ModelSummary } from "../ids/model.ts";
@@ -37,12 +38,20 @@ export type RestoreWorkerRequest =
       parseMs: number;
       summary: IfcSummary;
       graph: IfcGraph;
+      /** Per-element world boxes rebuilt from the cached mesh batches on the
+       *  main thread (`boxesFromBatches`), so `mesh-placement` reads the same
+       *  geometry the fresh parse did. null when the cache cannot supply the
+       *  whole model; `noGeometry` then says why. */
+      boxes: Map<string, ElementBox> | null;
+      noGeometry?: string;
     }
   | { kind: "evaluate"; ruleset: Ruleset };
 
 let heldGraph: IfcGraph | null = null;
 let heldSummary: IfcSummary | null = null;
 let heldName = "";
+let heldBoxes: Map<string, ElementBox> | null = null;
+let heldNoGeometry: string | undefined;
 
 const post = self.postMessage.bind(self) as (message: ModelWorkerResponse) => void;
 
@@ -51,13 +60,18 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
     heldGraph = request.graph;
     heldSummary = request.summary;
     heldName = request.fileName;
+    heldBoxes = request.boxes;
+    heldNoGeometry = request.noGeometry;
 
     const report: ModelReport = {
       fileName: request.fileName,
       sizeBytes: request.sizeBytes,
       parseMs: request.parseMs,
       summary: request.summary,
-      checks: runFundamentals(request.graph, request.summary),
+      checks: [
+        ...runFundamentals(request.graph, request.summary),
+        checkMeshPlacement(request.graph, request.summary, heldBoxes, undefined, heldNoGeometry),
+      ],
     };
     post({
       kind: "parsed",
@@ -86,7 +100,10 @@ function evaluate(ruleset: Ruleset) {
     const summary: ModelSummary = heldSummary;
     const result = evaluateRuleset(ruleset, graph, summary, heldName);
     const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
-    const checks: CheckResult[] = runFundamentals(heldGraph, heldSummary, excluded);
+    const checks: CheckResult[] = [
+      ...runFundamentals(heldGraph, heldSummary, excluded),
+      checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded, heldNoGeometry),
+    ];
     post({ kind: "evaluated", result, checks });
   } catch (err) {
     post({

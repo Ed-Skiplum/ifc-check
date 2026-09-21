@@ -11,7 +11,7 @@
  */
 
 import type { ReactNode } from "react";
-import type { IfcSummary } from "../engine/types";
+import type { IfcSummary, Verdict } from "../engine/types";
 import type { ClassCount, StoreyFact } from "./profile";
 import type { Focus } from "./trace";
 import type { Lang } from "./i18n";
@@ -292,6 +292,86 @@ export function ReadoutStrip({ items }: { items: Readout[] }) {
           </span>
         </span>
       ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ the KPI row */
+
+export interface KpiCard {
+  key: string;
+  label: string;
+  value: string;
+  /** Set only where the engine has a verdict for this number; a pure count
+   *  stays neutral and never borrows the traffic-light alphabet. */
+  verdict?: Verdict;
+  /** The check whose findings this number counts. With findings, a click
+   *  cross-filters to them through the same `check` focus the focal rows use. */
+  checkId?: string;
+  findings?: number;
+}
+
+/** One number per card, the board's top strip. The cards share the strip's
+ *  row, so they are cells of one tile rather than seven tiles: the grid's band
+ *  arithmetic cannot seat seven tiles in one row (see `bento-layouts.ts`). */
+export function KpiRow({
+  cards,
+  selected,
+  onFocus,
+}: {
+  cards: KpiCard[];
+  selected: string | null;
+  onFocus: (focus: Focus) => void;
+}) {
+  return (
+    <div
+      className="-mx-[var(--bento-pad)] grid h-full min-w-0 flex-1 gap-px bg-line"
+      style={{ gridTemplateColumns: `repeat(${cards.length}, minmax(0, 1fr))` }}
+    >
+      {cards.map((card) => {
+        const fill = card.verdict ? VERDICT_FILL[card.verdict] : "bg-panel text-ink";
+        const clickable = !!card.checkId && (card.findings ?? 0) > 0;
+        const key = card.checkId ? `check:${card.checkId}` : null;
+        const inner = (
+          <>
+            <span
+              className={
+                "truncate leading-none font-semibold tracking-[0.12em] uppercase " +
+                (card.verdict ? "opacity-90" : "text-gold")
+              }
+              style={{ fontSize: "var(--bento-label)" }}
+            >
+              {card.verdict ? `${VERDICT_GLYPH[card.verdict]} ` : ""}
+              {card.label}
+            </span>
+            <span
+              className="truncate font-mono leading-none font-semibold tabular-nums"
+              style={{ fontSize: "min(var(--bento-value), calc(var(--bento-row) * 0.45))" }}
+              title={card.value}
+            >
+              {card.value}
+            </span>
+          </>
+        );
+        const cls =
+          `flex min-w-0 flex-col justify-center gap-0.5 px-[var(--bento-pad)] text-left ${fill} ` +
+          (key && selected === key ? "outline-2 -outline-offset-2 outline-ink" : "");
+        return clickable ? (
+          <button
+            key={card.key}
+            type="button"
+            aria-label={`${card.label} ${card.value}`}
+            onClick={() => onFocus({ kind: "check", checkId: card.checkId! })}
+            className={`${cls} hover:brightness-110`}
+          >
+            {inner}
+          </button>
+        ) : (
+          <span key={card.key} className={cls}>
+            {inner}
+          </span>
+        );
+      })}
     </div>
   );
 }

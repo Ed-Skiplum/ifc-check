@@ -37,6 +37,8 @@ import {
   BENTO_MAX_WIDTH,
   BENTO_ROW_FACTOR,
   BENTO_KINDS,
+  BENTO_STRIP_ASPECT_MAX,
+  bentoSpanClass,
   PHI,
   bentoTrackDivisor,
   formatBentoErrors,
@@ -142,7 +144,13 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
       // outside a squarish field, a viewer stops being navigable, a ladder is a
       // band by design. A global bound would have to admit all three and so
       // would catch none of them.
-      const { min, max } = BENTO_KINDS[spec.kind].aspect;
+      const { min } = BENTO_KINDS[spec.kind].aspect;
+      // A strip-class span answers to the strip ceiling the spec declares
+      // (`BENTO_STRIP_ASPECT_MAX`), not to its kind's tile bound.
+      const max =
+        bentoSpanClass({ w: pos.colSpan, h: pos.rowSpan }) === "strip"
+          ? BENTO_STRIP_ASPECT_MAX
+          : BENTO_KINDS[spec.kind].aspect.max;
       if (aspect > max || aspect < min) {
         console.warn(
           `[bento] tile "${spec.id}" (${spec.kind}) renders at ${aspect.toFixed(2)}:1 — ` +
