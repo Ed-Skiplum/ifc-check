@@ -25,7 +25,9 @@
  *   8  the entry cap evicts oldest-first, and takes the dangling pre-parse key
  *      with it
  *   9  the byte cap refuses an entry that cannot coexist with the ceiling
- *  10  clearing the cache empties it
+ *  10  the landing's listing names what is stored, newest first, and fills in
+ *      a row written before the listing fields existed
+ *  11  clearing the cache empties it
  *
  * Run:  node scripts/cache-gate.mjs <model.ifc>
  * Exit: 0 all assertions hold, 1 an assertion failed, 2 usage/internal.
@@ -35,7 +37,7 @@ import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { initSync, IfcModel } from "../vendor/ifcfast-wasm/ifcfast_wasm.js";
-import { ask, MODELS, transact } from "../src/storage/idb.ts";
+import { ask, META, MODELS, transact } from "../src/storage/idb.ts";
 import {
   CACHE_FORMAT,
   CACHE_MAX_BYTES,
@@ -44,6 +46,7 @@ import {
   cacheUsage,
   clearCache,
   contentKey,
+  listCached,
   estimateBytes,
   readBoard,
   readByFile,
@@ -279,6 +282,31 @@ check(
     meshError: null,
   })) === false,
   "an entry that cannot coexist with the ceiling is refused, not stored",
+);
+
+/* ------------------------------------------------------------ the listing */
+
+const listed = await listCached();
+const newest = `synthetic-${CACHE_MAX_ENTRIES + 1}`;
+check(listed.length === CACHE_MAX_ENTRIES, `the listing holds every stored entry (${listed.length})`);
+check(
+  listed[0]?.cacheKey === newest && listed[0]?.fileName === `${newest}.ifc` && listed[0]?.products === 0,
+  "the listing is newest first and carries the stored name and product count",
+);
+check(
+  listed.every((row, i) => i === 0 || listed[i - 1].usedAt >= row.usedAt),
+  "the listing is ordered by last use",
+);
+await transact([META], "readwrite", async (tx) => {
+  const row = await ask(tx.objectStore(META).get(newest));
+  const { fileName: _f, sizeBytes: _s, schema: _c, products: _p, ...bare } = row;
+  tx.objectStore(META).put(bare);
+  return true;
+});
+const backfilled = (await listCached()).find((row) => row.cacheKey === newest);
+check(
+  backfilled?.fileName === `${newest}.ifc` && backfilled?.sizeBytes === 1024 && backfilled?.schema === summary.schema,
+  "a meta row without listing fields is filled in from its record",
 );
 
 await clearCache();

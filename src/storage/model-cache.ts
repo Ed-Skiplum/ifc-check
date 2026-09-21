@@ -102,6 +102,13 @@ interface MetaRow {
   format: number;
   usedAt: number;
   bytes: number;
+  /** What the landing lists, copied off the record so listing the cache never
+   *  loads a graph. Optional: rows written before these existed are backfilled
+   *  from their record once, by `listCached`. */
+  fileName?: string;
+  sizeBytes?: number;
+  schema?: string;
+  products?: number;
 }
 
 interface DropKeyRow {
@@ -338,7 +345,13 @@ export async function storeModel(input: StoreInput): Promise<boolean> {
     mesh: input.mesh,
     meshError: input.meshError,
   };
-  const meta: MetaRow = { cacheKey: input.cacheKey, format: CACHE_FORMAT, usedAt: at, bytes };
+  const meta: MetaRow = {
+    cacheKey: input.cacheKey,
+    format: CACHE_FORMAT,
+    usedAt: at,
+    bytes,
+    ...listedFields(record),
+  };
 
   const written = await transact([MODELS, META, DROPKEYS], "readwrite", async (tx) => {
     tx.objectStore(MODELS).put(record);
@@ -439,6 +452,73 @@ export async function clearCache(): Promise<void> {
     tx.objectStore(BOARD).clear();
     return true;
   });
+}
+
+function listedFields(record: CachedModel): Pick<MetaRow, "fileName" | "sizeBytes" | "schema" | "products"> {
+  return {
+    fileName: record.fileName,
+    sizeBytes: record.sizeBytes,
+    schema: typeof record.summary.schema === "string" ? record.summary.schema : "",
+    products: record.graph.products.length,
+  };
+}
+
+/** One cached model, as the landing lists it. Every field is read off the
+ *  stored record; nothing here is estimated. */
+export interface CachedListing {
+  cacheKey: string;
+  fileName: string;
+  sizeBytes: number;
+  schema: string;
+  products: number;
+  /** Last time the model was stored or opened. */
+  usedAt: number;
+}
+
+/**
+ * The models the cache can put back on the board, most recently used first.
+ *
+ * Only entries this build can actually restore are listed: a stale format or
+ * an expired row is left out rather than offered and then refused. A row from
+ * before the listing fields existed is filled in from its record once (without
+ * touching its LRU time), and one whose record no longer validates is dropped.
+ */
+export async function listCached(): Promise<CachedListing[]> {
+  const rows = await transact([META], "readonly", (tx) =>
+    ask<MetaRow[]>(tx.objectStore(META).getAll()),
+  );
+  if (rows === null) return [];
+
+  const at = now();
+  const out: CachedListing[] = [];
+  for (const row of rows) {
+    if (row.format !== CACHE_FORMAT || at - row.usedAt > CACHE_MAX_AGE_MS) continue;
+    let listed = row;
+    if (typeof row.fileName !== "string" || typeof row.products !== "number") {
+      const raw = await transact([MODELS], "readonly", (tx) =>
+        ask<unknown>(tx.objectStore(MODELS).get(row.cacheKey)),
+      );
+      const record = raw === null || raw === undefined ? null : validate(raw);
+      if (record === null) {
+        void forget([row.cacheKey]);
+        continue;
+      }
+      listed = { ...row, ...listedFields(record) };
+      await transact([META], "readwrite", async (tx) => {
+        tx.objectStore(META).put(listed);
+        return true;
+      });
+    }
+    out.push({
+      cacheKey: listed.cacheKey,
+      fileName: listed.fileName ?? "",
+      sizeBytes: listed.sizeBytes ?? 0,
+      schema: listed.schema ?? "",
+      products: listed.products ?? 0,
+      usedAt: listed.usedAt,
+    });
+  }
+  return out.sort((a, b) => b.usedAt - a.usedAt);
 }
 
 /** Entry count and budgeted bytes, for a caller that wants to say what

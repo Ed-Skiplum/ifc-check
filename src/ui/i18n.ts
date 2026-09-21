@@ -16,6 +16,16 @@ const STRINGS = {
   "accept.ifc": { nb: "IFC · IFCZIP", en: "IFC · IFCZIP" },
   "accept.ruleset": { nb: "IDS · RULESET.JSON", en: "IDS · RULESET.JSON" },
 
+  /* -------------------------------------------------------------- landing */
+  "app.name": { nb: "ifc-check", en: "ifc-check" },
+  "label.recent": { nb: "Nylig kontrollert", en: "Recently checked" },
+  "col.used": { nb: "Sist brukt", en: "Last used" },
+  "action.open": { nb: "Åpne", en: "Open" },
+  "recent.gone": { nb: "Ikke lenger i bufferen", en: "No longer in the cache" },
+  // `[WRITE]` = edkjo writes this line. The landing renders the sentinel as a
+  // marked placeholder until it is replaced; do not fill it in with model copy.
+  "landing.ifc.note": { nb: "[WRITE]", en: "[WRITE]" },
+
   /* ------------------------------------------------------------- app bar */
   "action.openIfc": { nb: "Åpne IFC", en: "Open IFC" },
   "action.openRuleset": { nb: "Åpne regelsett", en: "Open ruleset" },

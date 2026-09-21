@@ -97,6 +97,7 @@ interface Controller {
   clear: () => void;
   clearCache: () => void;
   restore: () => void;
+  open: (cacheKey: string) => Promise<boolean>;
   setRuleset: (ruleset: Ruleset | null) => void;
 }
 
@@ -470,6 +471,31 @@ function createController(setModels: SetModels): Controller {
       })();
     },
 
+    /** Put one cached model on the board, as a refresh would: no file, no
+     *  parse. False when the record is gone or no longer readable, so the
+     *  caller can say so instead of showing a model that never arrives. */
+    async open(cacheKey: string) {
+      let record: CachedModel | null = null;
+      try {
+        record = await readModel(cacheKey);
+      } catch {
+        record = null;
+      }
+      if (record === null) return false;
+      const id = takeId();
+      live.add(id);
+      order.push(id);
+      keys.set(id, record.cacheKey);
+      const opened = record;
+      setModels((current) => [
+        ...current,
+        { id, fileName: opened.fileName, sizeBytes: opened.sizeBytes, state: "parsing" },
+      ]);
+      rehydrate(id, opened);
+      saveBoard();
+      return true;
+    },
+
     remove(id: string) {
       const queued = queue.findIndex((job) => job.id === id);
       if (queued >= 0) queue.splice(queued, 1);
@@ -547,6 +573,10 @@ export function useModels() {
   const applyRuleset = useCallback((ruleset: Ruleset | null) => {
     controller.current?.setRuleset(ruleset);
   }, []);
+  const openCached = useCallback(
+    (cacheKey: string) => controller.current?.open(cacheKey) ?? Promise.resolve(false),
+    [],
+  );
 
-  return { models, addFiles, removeModel, clearModels, clearCache, applyRuleset };
+  return { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, openCached };
 }

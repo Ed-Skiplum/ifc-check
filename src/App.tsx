@@ -1,6 +1,6 @@
 /** The flow. Each stage appears when it becomes real.
  *
- *   empty      one centered drop target, nothing else
+ *   empty      the landing: IFC drop, ruleset, setup, recently checked models
  *   reading    the files, named, with their progress — and their errors in full
  *   dashboard  what the file IS: KPI tiles, class census, storeys, floor matrix
  *   rules      only once a ruleset says what right looks like
@@ -13,10 +13,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Ruleset } from "./ids/types.ts";
 import { AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
+import { t } from "./ui/i18n";
 import { SetupPage } from "./ui/SetupPage";
 import { kpiClaims } from "./ui/claims";
 import { useCrossFilter } from "./ui/cross-filter";
-import { DropTarget } from "./ui/DropTarget";
+import { Landing } from "./ui/Landing";
 import { ModelPanel } from "./ui/ModelPanel";
 import { TraceBand } from "./ui/TraceBand";
 import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
@@ -33,7 +34,8 @@ const EMPTY_RULESET: Ruleset = {
 
 export default function App() {
   const [view, setView] = useHashView();
-  const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset } = useModels();
+  const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, openCached } =
+    useModels();
   const [ruleset, setRuleset] = useState<Ruleset | null>(null);
   const [rulesetName, setRulesetName] = useState<string | null>(null);
   const [rulesetError, setRulesetError] = useState<string | null>(null);
@@ -170,12 +172,32 @@ export default function App() {
     >
       {models.length === 0 ? (
         <>
-          <div className="flex shrink-0 justify-end gap-3 p-3">
-            <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
-            <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
-          </div>
+          <header className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-4 py-2">
+            <button
+              type="button"
+              onClick={() => setView({ page: null })}
+              className="text-[15px] font-semibold tracking-tight text-ink"
+            >
+              {t("app.name", view.lang)}
+            </button>
+            <div className="ml-auto flex items-center gap-3">
+              <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
+              <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
+            </div>
+          </header>
           {setupPage ?? (
-            <DropTarget lang={view.lang} dragging={dragging > 0} onFiles={takeFiles} />
+            <Landing
+              lang={view.lang}
+              dragging={dragging > 0}
+              onFiles={takeFiles}
+              ruleset={ruleset}
+              rulesetName={rulesetName}
+              rulesetError={rulesetError}
+              onRulesetFile={(file) => void loadRuleset(file)}
+              onClearRuleset={clearRuleset}
+              onSetup={toggleSetup}
+              onOpenCached={openCached}
+            />
           )}
         </>
       ) : (
