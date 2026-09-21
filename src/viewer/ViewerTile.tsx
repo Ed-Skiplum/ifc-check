@@ -34,10 +34,23 @@ import {
 } from "./mesh-stream";
 import { ModelScene, type Mode } from "./scene";
 
-/** The HUD sits over the top of the canvas, so a fit that filled the raw
- *  canvas would push content behind it. These are the usable-viewport insets
- *  the fit solver is given. */
-const INSETS = { top: 26, right: 10, bottom: 10, left: 10 };
+/** The HUD chips sit over the top of the canvas and the camera buttons over
+ *  its bottom-right, so a fit that filled the raw canvas would push content
+ *  behind them. These are the usable-viewport insets the fit solver is given. */
+const INSETS = { top: 22, right: 10, bottom: 24, left: 10 };
+
+/** One HUD chip: counts only on the canvas, the full text in the title, so
+ *  the chips stay one line at 1100 px instead of wrapping over the scene. */
+function Chip({ tone, title, children }: { tone: string; title: string; children: string }) {
+  return (
+    <span
+      title={title}
+      className={`shrink-0 px-1.5 font-mono whitespace-nowrap tabular-nums [font-size:var(--bento-label,10px)] ${tone}`}
+    >
+      {children}
+    </span>
+  );
+}
 
 interface ViewerTileProps {
   lang: Lang;
@@ -184,60 +197,82 @@ export function ViewerTile({
         className="block h-full w-full cursor-crosshair outline-none"
       />
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-1.5 px-1.5 py-1">
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-1.5 overflow-hidden px-1.5 py-1">
         {failure || meshError ? (
           <span className="bg-bad px-1.5 font-mono text-cream [font-size:var(--bento-label,10px)]">
             {failure ?? meshError}
           </span>
+        ) : set ? (
+          <Chip
+            tone="bg-panel/85 text-ink"
+            title={`${formatCount(reach?.shown ?? 0, lang)} / ${formatCount(set.index.size, lang)}`}
+          >
+            {reach && reach.shown !== set.index.size
+              ? `${formatCount(reach.shown, lang)} / ${formatCount(set.index.size, lang)}`
+              : formatCount(set.index.size, lang)}
+          </Chip>
         ) : (
-          <span className="bg-panel/85 px-1.5 font-mono tabular-nums text-ink [font-size:var(--bento-label,10px)]">
-            {set
-              ? `${formatCount(reach?.shown ?? 0, lang)} / ${formatCount(set.index.size, lang)}`
-              : t("viewer.loading", lang)}
-          </span>
+          <Chip tone="bg-panel/85 text-ink" title={t("viewer.loading", lang)}>
+            {t("viewer.loading", lang)}
+          </Chip>
         )}
 
-        {/* A cap is legitimate; a SILENT cap is not. Numbers and the reason,
-            never a quietly smaller model. */}
+        {/* A cap is legitimate; a SILENT cap is not. Numbers on the canvas,
+            the reason in the title, never a quietly smaller model. */}
         {capped && budget ? (
-          <span className="bg-bad px-1.5 font-mono tabular-nums text-cream [font-size:var(--bento-label,10px)]">
-            {t("viewer.budget", lang)} {formatCount(budget.elements, lang)} /{" "}
-            {formatCount(budget.totalElements, lang)} · {formatCount(budget.triangles, lang)} /{" "}
-            {formatCount(budget.totalTriangles, lang)} tri
-          </span>
+          <Chip
+            tone="bg-bad text-cream"
+            title={`${t("viewer.budget", lang)} ${formatCount(budget.elements, lang)} / ${formatCount(
+              budget.totalElements,
+              lang,
+            )} · ${formatCount(budget.triangles, lang)} / ${formatCount(budget.totalTriangles, lang)} tri`}
+          >
+            {`${formatCount(budget.elements, lang)} / ${formatCount(budget.totalElements, lang)}`}
+          </Chip>
         ) : null}
 
         {missing > 0 ? (
-          <span className="bg-gold px-1.5 font-mono tabular-nums text-ink [font-size:var(--bento-label,10px)]">
-            {t("viewer.outside", lang)} {formatCount(missing, lang)}
-          </span>
+          <Chip
+            tone="bg-gold text-ink"
+            title={`${t("viewer.outside", lang)} ${formatCount(missing, lang)}`}
+          >
+            {`∅ ${formatCount(missing, lang)}`}
+          </Chip>
         ) : null}
 
         {/* The entry camera frames the bulk. Elements too far out to frame
             with it are still drawn and still pickable — the count says the
             camera skipped them, not the scene. */}
         {framing && framing.excluded > 0 ? (
-          <span className="bg-gold px-1.5 font-mono tabular-nums text-ink [font-size:var(--bento-label,10px)]">
-            {t("viewer.framing", lang)} {formatCount(framing.excluded, lang)} /{" "}
-            {formatCount(framing.total, lang)}
-          </span>
+          <Chip
+            tone="bg-gold text-ink"
+            title={`${t("viewer.framing", lang)} ${formatCount(framing.excluded, lang)} / ${formatCount(
+              framing.total,
+              lang,
+            )}`}
+          >
+            {`${formatCount(framing.excluded, lang)} ${t("viewer.framingShort", lang)}`}
+          </Chip>
         ) : null}
 
         {hoverOff ? (
-          <span className="bg-gold px-1.5 font-mono tabular-nums text-ink [font-size:var(--bento-label,10px)]">
-            {t("viewer.hoverOff", lang)} {formatCount(faces, lang)}
-          </span>
+          <Chip
+            tone="bg-gold text-ink"
+            title={`${t("viewer.hoverOff", lang)} ${formatCount(faces, lang)}`}
+          >
+            {t("viewer.hoverOffShort", lang)}
+          </Chip>
         ) : null}
-
-        <span className="ml-auto flex gap-1">
-          <TileButton label={t("viewer.fit", lang)} onClick={fit} />
-          <TileButton
-            label={t("viewer.zoomSelection", lang)}
-            onClick={zoom}
-            disabled={selection.length === 0}
-          />
-        </span>
       </div>
+
+      <span className="pointer-events-none absolute right-0 bottom-0 flex gap-1 px-1.5 py-1">
+        <TileButton label={t("viewer.fit", lang)} onClick={fit} />
+        <TileButton
+          label={t("viewer.zoomSelection", lang)}
+          onClick={zoom}
+          disabled={selection.length === 0}
+        />
+      </span>
     </div>
   );
 }

@@ -1,5 +1,11 @@
-/** Storeys down the side, IFC classes across the top, element counts in the
- *  cells — where the model actually is.
+/** Etasje × klasse: storeys down the side, IFC classes across the top,
+ *  element counts in the cells — what is on each floor. It lives on the
+ *  Innhold tab; how a file stacks up against the config floors is the Etasjer
+ *  tile on Kontroll (2026-09-21).
+ *
+ * Headers are not rotated: the `Ifc` prefix is dropped and the name may wrap
+ * at its word humps to two lines, with the full class name in the title. The
+ * total column carries the storey's element count.
  *
  * Magnitude is a one-hue ramp from the palette's pale green to its green, on a
  * log scale because element counts per storey are heavily skewed and a linear
@@ -16,6 +22,12 @@ import { formatCount } from "./format";
 const LOW = [230, 239, 221] as const; // palegreen #E6EFDD
 const HIGH = [44, 94, 63] as const; // green #2C5E3F
 
+/** `IfcBuildingElementProxy` → `Building|Element|Proxy`: no prefix, and a
+ *  zero-width break at each hump so a header can wrap to two lines. */
+function header(entity: string): string {
+  return entity.replace(/^Ifc/i, "").replace(/(?<=[a-z])(?=[A-Z])/g, "\u200B");
+}
+
 function ramp(count: number, peak: number): { background: string; color: string } {
   const share = peak <= 1 ? 1 : Math.log1p(count) / Math.log1p(peak);
   const mix = LOW.map((low, i) => Math.round(low + (HIGH[i] - low) * share));
@@ -25,7 +37,7 @@ function ramp(count: number, peak: number): { background: string; color: string 
   };
 }
 
-interface FloorMatrixProps {
+interface StoreyClassCensusProps {
   lang: Lang;
   classes: ClassCount[];
   matrix: MatrixRow[];
@@ -35,7 +47,7 @@ interface FloorMatrixProps {
   onOpen: (storeyGuid: string | null, entity: string) => void;
 }
 
-export function FloorMatrix({
+export function StoreyClassCensus({
   lang,
   classes,
   matrix,
@@ -43,37 +55,34 @@ export function FloorMatrix({
   peak,
   selected,
   onOpen,
-}: FloorMatrixProps) {
+}: StoreyClassCensusProps) {
   const names = new Map(storeys.map((s) => [s.guid, s.name]));
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-input">
-      <table className="border-separate border-spacing-0 text-left">
+      <table className="w-full border-separate border-spacing-0 text-left">
         <thead>
           <tr>
             <th
               scope="col"
-              className="sticky top-0 left-0 z-30 h-[7.5rem] w-44 min-w-44 border-r border-b border-line bg-panel px-2 align-bottom text-[10px] font-semibold tracking-[0.12em] text-gold uppercase"
+              className="sticky top-0 left-0 z-30 w-36 min-w-36 border-r border-b border-line bg-panel px-2 py-1 align-bottom text-[10px] font-semibold tracking-[0.12em] text-gold uppercase"
             >
               {t("tile.storeys", lang)}
             </th>
             <th
               scope="col"
-              className="sticky top-0 left-44 z-30 w-14 min-w-14 border-r-2 border-b border-line bg-panel px-1 align-bottom text-[10px] font-semibold text-gold uppercase"
+              className="sticky top-0 left-36 z-30 w-14 min-w-14 border-r-2 border-b border-line bg-panel px-1 py-1 text-right align-bottom text-[10px] font-semibold tracking-[0.12em] text-gold uppercase"
             >
-              <span className="[writing-mode:vertical-rl] rotate-180 tracking-[0.12em]">
-                {t("col.count", lang)}
-              </span>
+              {t("col.count", lang)}
             </th>
             {classes.map((klass) => (
               <th
                 key={klass.entity}
                 scope="col"
-                className="sticky top-0 z-20 w-11 min-w-11 border-r border-b border-line bg-panel px-1 pb-1 align-bottom font-mono text-[11px] font-medium text-ink"
+                title={klass.entity}
+                className="sticky top-0 z-20 min-w-10 border-r border-b border-line bg-panel px-1 py-1 text-right align-bottom font-mono text-[10px] leading-tight font-medium text-ink"
               >
-                <span className="[writing-mode:vertical-rl] rotate-180 whitespace-nowrap">
-                  {klass.entity}
-                </span>
+                <span className="line-clamp-2 break-words">{header(klass.entity)}</span>
               </th>
             ))}
           </tr>
@@ -86,7 +95,7 @@ export function FloorMatrix({
                 // A storey with no name falls back to its GlobalId. That is
                 // never truncated, so it renders mono and full width.
                 className={
-                  "sticky left-0 z-10 h-7 w-44 min-w-44 overflow-hidden border-r border-b border-line bg-panel px-2 text-left font-medium text-ink " +
+                  "sticky left-0 z-10 h-7 w-36 min-w-36 overflow-hidden border-r border-b border-line bg-panel px-2 text-left font-medium text-ink " +
                   (row.storeyGuid !== null && !names.get(row.storeyGuid)
                     ? "font-mono text-[11px]"
                     : "truncate text-[12px]")
@@ -97,7 +106,7 @@ export function FloorMatrix({
                   ? t("matrix.noStorey", lang)
                   : (names.get(row.storeyGuid) ?? row.storeyGuid)}
               </th>
-              <td className="sticky left-44 z-10 h-7 border-r-2 border-b border-line bg-panel px-1 text-right font-mono text-[11px] tabular-nums text-ink">
+              <td className="sticky left-36 z-10 h-7 border-r-2 border-b border-line bg-panel px-1 text-right font-mono text-[11px] tabular-nums text-ink">
                 {formatCount(row.total, lang)}
               </td>
               {classes.map((klass) => {

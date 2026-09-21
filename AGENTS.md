@@ -24,10 +24,18 @@ src/ui/          the screen, and the worker that drives the engine
   model-worker.ts  one Web Worker per file; keeps the parsed graph resident
                    so a ruleset dropped later evaluates without re-parsing
   bento-spec.ts    the house dashboard grid, mirrored from sprucelab
+  ModelPanel.tsx   one model: header (name, state, size, file facts), filter
+                   bar, the two tabs, the derivation band under the active tab
+  Dashboard.tsx    tab 1 (Kontroll): the bento board
   BentoGrid.tsx    + useBentoCols.ts + bento-layouts.ts — the two authored
-                   layouts and the container-query track ladder
-  Verification.tsx the focal tile: one row per universal check
-  forms.tsx        the supporting tiles (gauge, distribution, roster, readouts)
+                   tab-1 layouts and the container-query track ladder
+  Verification.tsx the focal tile: one row per universal check, then the
+                   project rules under "Regler" when a ruleset is loaded
+  FloorSetup.tsx   the Etasjer tile: config floors × loaded models, or the
+                   file's own storeys with no config
+  Contents.tsx     tab 2 (Innhold): classes, Etasje × klasse
+                   (StoreyClassCensus.tsx), type ledger
+  forms.tsx        gauge, distribution, KPI row, readouts
   SetupPage.tsx    the project mappings page (`#page=setup`)
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
@@ -184,10 +192,19 @@ finding. No config loaded: `not_applicable`, never a pass. The parse runs it
 with no config; a ruleset re-runs it with the config; clearing the ruleset
 puts the parse-time checks back (`ModelEntry.baseChecks`).
 
-On the board the `storeys` tile renders `FloorSetupMatrix` when a config is
-loaded (rows = config floors, then unmatched file storeys; one column per
-loaded model; cells from the same `matchStoreys` the check uses), and the
-file's own roster otherwise. `check-cli.ts --ruleset <file>` supplies the
+On the Kontroll tab the `floors` tile ("Etasjer") renders `FloorSetupMatrix`
+when a config is loaded: rows = config floors (name · kote), then under a
+divider one row per file storey that matches no floor; one column per loaded
+model (file stem), this panel's model first; cells from the same
+`matchStoreys` the check uses. Cell vocabulary: ✓ green = match; gold
+`✗ <file name>` = right kote, wrong name; gold `✗ +0,350` = right name, kote
+off by the signed Δ in metres (file − config); gold `! ␣` = matches only after
+trimming; gold `! ×2` = several storeys on one floor; red `✗` = the storey's
+own not-in-config row; `—` = floor absent, never a finding. The full
+"name · kote" is each cell's title. Sub: `floors × models` and `+N` extra rows.
+With no config the tile lists the file's own storeys (name · kote, gold
+shared-kote marker), no model columns. What is ON each floor is the census,
+"Etasje × klasse", on the Innhold tab, never on this tile. `check-cli.ts --ruleset <file>` supplies the
 config headlessly. `examples/knm.ruleset.json` carries no floor config: the
 KNM BEP §6.5 marks the elevations TBD ("working placeholders").
 
@@ -205,6 +222,42 @@ band (at most four band cuts per row), hence one strip; the grid has no
 KPI-row kind. Strip-class spans are aspect-checked against
 `BENTO_STRIP_ASPECT_MAX`, as the spec states, in both `BentoGrid` and
 `board-gate.mjs`.
+
+## The model panel: two tabs
+
+Per model (`ModelPanel.tsx`). The header line carries name · state · size and
+the file's own facts as a `ReadoutStrip` (schema · unit · products · parse
+time · project · application; products opens its derivation). Under it the
+filter bar, ABOVE the tab strip: chips belong to the model, so they persist
+across tabs. Then:
+
+1. **Kontroll** (`Dashboard.tsx`, bento): KPI strip, verification focal (the
+   eleven checks + `mesh-placement` + `storey-config`, then the ruleset's
+   rules as rows under "Regler", `not_evaluable` included; this replaced the
+   separate rule strip), the model tile, the spatial gauge (four lamps) and
+   the Etasjer tile.
+2. **Innhold** (`Contents.tsx`, flow surface, not bento): band 1 is Klasser
+   (38.2 %) | Etasje × klasse (61.8 %, `Ifc` prefix dropped, headers wrap to
+   two lines, total column = elements per storey); band 2 is the type ledger,
+   full width, sticky header, its disproportion band as the head. Both bands
+   are fixed, viewport-derived heights; their tables scroll inside.
+
+The tab is `tab=contents` in the URL hash (absent = Kontroll), one for all
+panels, pushed to history so Back/Forward walk it. Both tabs stay mounted and
+the inactive one is `hidden`, so the 3D scene and its camera survive a tab
+switch. The derivation band opens INSIDE the panel of the model it belongs to,
+under the active tab, at 38.2 % of the panel body (the tab keeps 61.8 %).
+
+Checked 2026-09-21 in headless Chrome against a LOCAL preview build, not the
+deployed site: both tabs at 1440 and 1100 with KNM_ARK, ARK+RIV+RIB + knm
+ruleset, and ARK+RIV+RIB + a test floor config; the band split; the setup
+double-click dialog (opens on an off card, Aktiver turns it on, an on card
+ignores double-click); the app bar at 390 with a model loaded (no control
+past the right edge).
+
+The app bar wraps at narrow widths, so BCF, the ruleset, Oppsett and NB/EN
+stay reachable at 390 px. The board itself has no portrait layout (canon
+2026-08-01); that is out of scope, not a defect.
 
 ## BCF export
 
@@ -294,8 +347,19 @@ What that binds:
 
 Two deviations from upstream, both in the kind→span registry and both named at
 the entry in `bento-spec.ts`: `tellTales` takes the focal spans (the
-verification block is this board's focal) and `matrix` takes the full-band
-spans (the storey × class census is below-fold context here, not the focal).
+verification block is this board's focal) and `viewer` takes 5×5 (no upstream
+viewer span meets the kind's own aspect bound). The former `matrix` full-band
+deviation is reverted: the census left the board for the Innhold tab
+(2026-09-21), and `matrix` is back to upstream's 8×5 / 13×8.
+
+Tab-1 layouts: 13 tracks × 9 rows (`kpis` 13×1; `verify` 8×5 | `viewer` 5×5;
+`floors` 8×3 | `spatial` 5×3) and 21 tracks × 6 rows (`kpis` 21×1; `viewer`
+5×5 | 3 tracks of air | `spatial` 5×3 over `floors` 5×2 | `verify` 8×5).
+`node scripts/board-gate.mjs` validates both. Open upstream questions for
+sprucelab, not forked here: the 13-track board is 9 rows against an 8-row fold
+because of the KPI strip, which forces `floors` and `spatial` to P2 there;
+and whether a KPI-row kind should exist. The 21-track air (cols 6–8) is
+structural air by default; if it reads as a void live, a 3×2 readout fits it.
 
 ## IDS, and where it stops
 
@@ -519,7 +583,15 @@ reason, carrying a note that reference objects could not be excluded from the
 rest of the ruleset. Every other rule then runs unfiltered, exactly as if the
 mapping were absent — **never** silently treated as "no reference objects".
 
-The setup page (`#page=setup`, "Oppsett") has one card per role. A card
+The setup page (`#page=setup`, "Oppsett") has one card per role, laid out as
+the Etasjeoppsett card as a full first band (fixed viewport-derived height,
+rows scroll inside) and the four mapping cards 2×2 under it, header and cards
+in one bounded container. Each card's on/off is a switch (`role="switch"`,
+`Switch.tsx`; the landing's setup tile draws the same switch). Double-clicking
+a card that is off opens a small confirm dialog (the card's name, Aktiver /
+Avbryt); a card that is on ignores double-click, and a double-click on a live
+field is left to the field. The ruleset name field is marked invalid only
+after it has been touched or a download was attempted. A card
 creates its rule on first enable (id = the role, `select` physicalElement,
 the rule builder's blank source and extract), and turning it off sets
 `enabled: false`, keeping what was entered. Edits apply to the loaded models

@@ -91,8 +91,12 @@ const STRINGS = {
   "tile.file": { nb: "Fil", en: "File" },
   "tile.classes": { nb: "Klasser", en: "Classes" },
   "tile.storeys": { nb: "Etasjer", en: "Storeys" },
-  "tile.floorMatrix": { nb: "Etasjematrise", en: "Floor matrix" },
+  "tile.census": { nb: "Etasje × klasse", en: "Storey × class" },
   "tile.viewer": { nb: "Modell", en: "Model" },
+
+  /* ----------------------------------------------------------------- tabs */
+  "tab.checks": { nb: "Kontroll", en: "Checks" },
+  "tab.contents": { nb: "Innhold", en: "Contents" },
 
   /* --------------------------------------------------------------- viewer */
   "viewer.loading": { nb: "Leser geometri", en: "Reading geometry" },
@@ -105,6 +109,9 @@ const STRINGS = {
   "viewer.framing": { nb: "Utenfor ramme", en: "Outside framing" },
   // Mesh-to-row hover is off above the raycast budget; row-to-mesh still works.
   "viewer.hoverOff": { nb: "Uthev ved peking av", en: "Pointer hover off" },
+  // The HUD chips' short forms; the full label above is the chip's title.
+  "viewer.framingShort": { nb: "utenfor", en: "outside" },
+  "viewer.hoverOffShort": { nb: "peking av", en: "hover off" },
 
   /* ------------------------------------------------------------- crossfilter */
   "filter.label": { nb: "Filter", en: "Filter" },
@@ -203,6 +210,8 @@ const STRINGS = {
   "mapping.progress-code": { nb: "Prosesstatuskode (MMI)", en: "Process status code (MMI)" },
   "mapping.copy-object": { nb: "Duplikat objekt", en: "Duplicate object" },
   "field.enabled": { nb: "Aktiv", en: "Enabled" },
+  "action.enable": { nb: "Aktiver", en: "Enable" },
+  "action.cancel": { nb: "Avbryt", en: "Cancel" },
   "field.list": { nb: "Kodeliste", en: "Code list" },
   "field.target": { nb: "Gjelder", en: "Applies to" },
   "field.target.occurrence": { nb: "Forekomster", en: "Occurrences" },

@@ -22,14 +22,20 @@
  */
 
 import type { CheckResult } from "../engine/types";
-import type { RuleResult } from "../ids/evaluate.ts";
+import type { ModelResult, RuleResult } from "../ids/evaluate.ts";
 import type { Focus } from "./trace";
 import type { Lang, StringKey } from "./i18n";
 import { verdictOf } from "../engine/fundamentals";
 import { t } from "./i18n";
 import { displayText } from "./display";
 import { formatCount, formatShare } from "./format";
-import { VERDICT_FILL, VERDICT_GLYPH, VERDICT_OF_RESULT } from "./state-visuals";
+import {
+  RESULT_FILL,
+  RESULT_GLYPH,
+  VERDICT_FILL,
+  VERDICT_GLYPH,
+  VERDICT_OF_RESULT,
+} from "./state-visuals";
 
 /** name · the filled verdict cell · the proportion. The verdict cell is a
  *  fixed column so every block starts on the same line and the colour reads as
@@ -44,7 +50,18 @@ interface VerificationProps {
   claimed: Map<string, RuleResult>;
   selected: string | null;
   onFocus: (focus: Focus) => void;
+  /** Only when a ruleset is loaded: the project rules, as rows under a
+   *  section rule. This replaced the separate rule strip under the board
+   *  (2026-09-21), which squeezed every tile above it. */
+  rules?: {
+    evaluation?: ModelResult;
+    evaluating?: boolean;
+    error?: string;
+  };
 }
+
+const ROW = "grid h-6 w-full items-center gap-x-2 border-b border-line px-[var(--bento-pad)] text-left";
+const CELL = "flex h-5 items-center gap-2 px-2 text-[11px]";
 
 /** The proportion behind the value, when the value has one. A share and a
  *  uniqueness count do; a length unit does not, and an invented percentage
@@ -56,7 +73,14 @@ function proportion(check: CheckResult, lang: Lang): string {
   return "";
 }
 
-export function Verification({ lang, checks, claimed, selected, onFocus }: VerificationProps) {
+export function Verification({
+  lang,
+  checks,
+  claimed,
+  selected,
+  onFocus,
+  rules,
+}: VerificationProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-input">
       <div
@@ -90,7 +114,7 @@ export function Verification({ lang, checks, claimed, selected, onFocus }: Verif
               onClick={() => onFocus(focus)}
               title={rule ? rule.ruleName : check.detail}
               className={
-                "grid w-full items-center gap-x-2 border-b border-line px-[var(--bento-pad)] py-1 text-left hover:bg-palegreen " +
+                `${ROW} hover:bg-palegreen ` +
                 (selected === key ? "outline-2 -outline-offset-2 outline-ink" : "")
               }
               style={{ gridTemplateColumns: COLUMNS }}
@@ -102,9 +126,7 @@ export function Verification({ lang, checks, claimed, selected, onFocus }: Verif
               {/* Whole-element fill, always a glyph and the verdict's own name
                   as well as the colour — so the row survives a monochrome
                   print and a colour-blind reader. */}
-              <span
-                className={`flex items-center gap-2 px-2 py-0.5 text-[11px] ${VERDICT_FILL[verdict]}`}
-              >
+              <span className={`${CELL} ${VERDICT_FILL[verdict]}`}>
                 <span className="font-mono text-[12px] font-bold">{VERDICT_GLYPH[verdict]}</span>
                 <span className="shrink-0 text-[9px] font-semibold tracking-[0.1em] uppercase">
                   {t(`verdict.${verdict}`, lang)}
@@ -120,7 +142,90 @@ export function Verification({ lang, checks, claimed, selected, onFocus }: Verif
             </button>
           );
         })}
+
+        {rules ? <RuleRows lang={lang} rules={rules} selected={selected} onFocus={onFocus} /> : null}
       </div>
     </div>
+  );
+}
+
+/** The project rules, one row each, in the check rows' shape. Every rule is
+ *  rendered, including the ones the evaluator could not answer: a
+ *  `not_evaluable` rule hidden from here is the exact failure the tool exists
+ *  to prevent. */
+function RuleRows({
+  lang,
+  rules,
+  selected,
+  onFocus,
+}: {
+  lang: Lang;
+  rules: NonNullable<VerificationProps["rules"]>;
+  selected: string | null;
+  onFocus: (focus: Focus) => void;
+}) {
+  const results = rules.evaluation?.results;
+  return (
+    <>
+      <div
+        className="sticky top-0 z-10 flex h-6 items-center gap-2 border-y border-line bg-panel px-[var(--bento-pad)] text-[10px] font-semibold tracking-[0.12em] text-gold uppercase"
+      >
+        <span>{t("label.rules", lang)}</span>
+        {results ? (
+          <span className="ml-auto font-mono tabular-nums text-muted">
+            {formatCount(results.length, lang)}
+          </span>
+        ) : null}
+      </div>
+
+      {rules.error ? (
+        <pre className="m-0 bg-bad px-[var(--bento-pad)] py-1 font-mono text-[11px] leading-snug whitespace-pre-wrap text-cream">
+          {t("error.ruleset", lang)}: {rules.error}
+        </pre>
+      ) : !results ? (
+        rules.evaluating ? (
+          <div className={`${ROW} font-mono text-[11px] text-muted`}>
+            {t("result.evaluating", lang)}
+          </div>
+        ) : null
+      ) : (
+        results.map((result) => {
+          const key = `rule:${result.ruleId}`;
+          const evaluable = result.state !== "not_evaluable";
+          return (
+            <button
+              key={result.ruleId}
+              type="button"
+              onClick={() => onFocus({ kind: "rule", ruleId: result.ruleId })}
+              title={result.ruleName}
+              className={
+                `${ROW} hover:bg-palegreen ` +
+                (selected === key ? "outline-2 -outline-offset-2 outline-ink" : "")
+              }
+              style={{ gridTemplateColumns: COLUMNS }}
+            >
+              <span className="truncate text-[12px] text-ink">{result.ruleName}</span>
+              <span className={`${CELL} ${RESULT_FILL[result.state]}`}>
+                <span className="font-mono text-[12px] font-bold">{RESULT_GLYPH[result.state]}</span>
+                <span className="shrink-0 text-[9px] font-semibold tracking-[0.1em] uppercase">
+                  {t(`result.${result.state}`, lang)}
+                </span>
+                {evaluable ? (
+                  <span className="ml-auto truncate font-mono text-[12px] font-semibold tabular-nums">
+                    {formatCount(Math.max(0, result.applicable - result.failed), lang)} /{" "}
+                    {formatCount(result.applicable, lang)}
+                  </span>
+                ) : null}
+              </span>
+              <span className="text-right font-mono text-[11px] tabular-nums text-muted">
+                {evaluable && result.applicable > 0
+                  ? formatShare(Math.max(0, result.applicable - result.failed), result.applicable, lang)
+                  : ""}
+              </span>
+            </button>
+          );
+        })
+      )}
+    </>
   );
 }

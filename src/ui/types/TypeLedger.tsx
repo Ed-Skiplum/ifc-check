@@ -188,7 +188,7 @@ export function TypeLedger({ lang, ledger, selected, onFocus }: TypeLedgerProps)
       <Headline lang={lang} ledger={ledger} bucketTotal={bucketTotal} />
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="border-separate border-spacing-0 text-left">
+        <table className="w-full border-separate border-spacing-0 text-left">
           <thead>
             <tr>
               <Th>{t("col.type", lang)}</Th>

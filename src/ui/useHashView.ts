@@ -18,6 +18,9 @@ export interface ViewState {
   focus: string | null;
   /** A page other than the board, or null. */
   page: "setup" | null;
+  /** The model panel's tab. null is the first tab, Kontroll; it is left out
+   *  of the hash so a bare URL and a board link stay short. */
+  tab: "contents" | null;
 }
 
 function isLang(value: string | null): value is Lang {
@@ -52,11 +55,16 @@ function parse(): ViewState {
     model: hash.get("model"),
     focus: hash.get("focus"),
     page: readPage(hash),
+    tab: readTab(hash),
   };
 }
 
 function readPage(hash: URLSearchParams): ViewState["page"] {
   return hash.get("page") === "setup" ? "setup" : null;
+}
+
+function readTab(hash: URLSearchParams): ViewState["tab"] {
+  return hash.get("tab") === "contents" ? "contents" : null;
 }
 
 function serialise(view: ViewState): string {
@@ -65,6 +73,7 @@ function serialise(view: ViewState): string {
   if (view.model) params.set("model", view.model);
   if (view.focus) params.set("focus", view.focus);
   if (view.page) params.set("page", view.page);
+  if (view.tab) params.set("tab", view.tab);
   return `#${params.toString()}`;
 }
 
@@ -90,6 +99,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         model: hash.get("model"),
         focus: hash.get("focus"),
         page: readPage(hash),
+        tab: readTab(hash),
       }));
     };
     window.addEventListener("hashchange", onHashChange);
@@ -127,6 +137,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         model: hash.get("model"),
         focus: hash.get("focus"),
         page: readPage(hash),
+        tab: readTab(hash),
       }));
     };
     window.addEventListener("popstate", onPopState);

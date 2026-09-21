@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Ruleset } from "../ids/types.ts";
+import { SwitchGlyph } from "./Switch";
 import { MAPPING_ROLES } from "../ids/lint.ts";
 import { listCached, type CachedListing } from "../storage/model-cache.ts";
 import { MicroLabel } from "./BentoGrid";
@@ -257,7 +258,7 @@ function RulesetTile({
 /* ------------------------------------------------------------------- setup */
 
 /** Set = the ruleset carries an enabled rule with that mapping role, the same
- *  test the setup page uses to draw its toggle. */
+ *  test the setup page uses to draw its switch, and drawn as the same switch. */
 function mappingSet(ruleset: Ruleset | null, role: string): boolean {
   if (ruleset === null) return false;
   return ruleset.rules.some(
@@ -290,12 +291,7 @@ function SetupTile({
                   key={role}
                   className="flex flex-1 items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
                 >
-                  <span
-                    aria-hidden="true"
-                    className={
-                      "h-2 w-2 shrink-0 " + (set ? "bg-green" : "border border-muted bg-transparent")
-                    }
-                  />
+                  <SwitchGlyph on={set} />
                   <span className="truncate text-[13px] text-ink">{t(`mapping.${role}`, lang)}</span>
                 </li>
               );

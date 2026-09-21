@@ -10,30 +10,15 @@
  * list scrolls inside it, and nothing here resizes with its data.
  */
 
-import type { ReactNode } from "react";
-import type { IfcSummary, Verdict } from "../engine/types";
-import type { ClassCount, StoreyFact } from "./profile";
+import type { Verdict } from "../engine/types";
+import type { ClassCount } from "./profile";
 import type { Focus } from "./trace";
 import type { Lang } from "./i18n";
-import { t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
-import { formatCount, formatElevation, formatShare } from "./format";
+import { formatCount } from "./format";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 
 const PAD = "px-[var(--bento-pad)]";
-
-function Th({ children, right }: { children: ReactNode; right?: boolean }) {
-  return (
-    <th
-      className={
-        "sticky top-0 z-10 border-b border-line bg-panel px-2 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase " +
-        (right ? "text-right" : "text-left")
-      }
-    >
-      {children}
-    </th>
-  );
-}
 
 /* ------------------------------------------------------------ the gauge */
 
@@ -42,29 +27,25 @@ function Th({ children, right }: { children: ReactNode; right?: boolean }) {
  *
  * A gauge answers "how far vs a declared target", and this is the one target
  * on the screen that no project has to state: the spatial decomposition is
- * what IFC IS. The fifth bar is the elements that reached a storey, which is
- * the same chain one level further down.
+ * what IFC IS. Four lamps. The "element in storey" bar that sat under them
+ * went (2026-09-21): it repeated the focal's row and the KPI "Uten etasje".
  */
 export function SpatialGauge({
   lang,
   levels,
-  contained,
-  onFocus,
 }: {
   lang: Lang;
   levels: { level: string; size: number }[];
-  contained: { good: number; total: number };
-  onFocus: (focus: Focus) => void;
 }) {
   return (
-    <div className={`flex min-h-0 flex-1 flex-col gap-1 overflow-auto pb-[var(--bento-pad)] ${PAD}`}>
+    <div className={`flex min-h-0 flex-1 flex-col gap-1 overflow-hidden pb-[var(--bento-pad)] ${PAD}`}>
       {levels.map((level) => {
         const present = level.size > 0;
         return (
           <span
             key={level.level}
             className={
-              "flex items-center gap-2 px-2 py-0.5 " +
+              "flex min-h-0 flex-1 items-center gap-2 px-2 " +
               (present ? VERDICT_FILL.pass : VERDICT_FILL.fail)
             }
           >
@@ -78,37 +59,6 @@ export function SpatialGauge({
           </span>
         );
       })}
-
-      {/* The chain one level down: how much of the model actually reached a
-          storey. A bar rather than a lamp, because it is a proportion. */}
-      <button
-        type="button"
-        onClick={() => onFocus({ kind: "check", checkId: "storey-containment" })}
-        className="mt-auto flex flex-col gap-1 border border-line bg-input px-2 py-1 text-left hover:bg-palegreen"
-      >
-        <span className="flex items-baseline gap-2">
-          <span className="text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
-            {t("check.storey-containment", lang)}
-          </span>
-          <span className="ml-auto font-mono text-[12px] tabular-nums text-ink">
-            {formatCount(contained.good, lang)} / {formatCount(contained.total, lang)}
-          </span>
-          <span className="font-mono text-[11px] tabular-nums text-muted">
-            {formatShare(contained.good, contained.total, lang)}
-          </span>
-        </span>
-        <span className="h-1.5 w-full bg-line">
-          <span
-            className="block h-full bg-green"
-            style={{
-              width:
-                contained.total > 0
-                  ? `${(contained.good / contained.total) * 100}%`
-                  : "0%",
-            }}
-          />
-        </span>
-      </button>
     </div>
   );
 }
@@ -156,85 +106,6 @@ export function ClassDistribution({
   );
 }
 
-/* ------------------------------------------------------------ the roster */
-
-/** The storeys, by identity: name, kote, how many elements sit there.
- *
- * The gold marker on a shared elevation is the same fact the `storey-elevation`
- * verdict carries; it is kept here because the verdict says THAT storeys
- * collide and this says WHICH.
- */
-export function StoreyRoster({
-  lang,
-  storeys,
-  summary,
-}: {
-  lang: Lang;
-  storeys: StoreyFact[];
-  summary: IfcSummary;
-}) {
-  return (
-    <div className="min-h-0 flex-1 overflow-auto bg-input">
-      <table className="w-full border-separate border-spacing-0 text-left">
-        <thead>
-          <tr>
-            <Th>{t("col.name", lang)}</Th>
-            <Th right>{t("col.elevation", lang)}</Th>
-            <Th right>{t("col.elements", lang)}</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {storeys.map((storey) => (
-            <tr key={storey.guid}>
-              {/* A storey with no name falls back to its GlobalId, which is
-                  never truncated — so it renders mono and full. */}
-              <td
-                onDoubleClick={copyOnDoubleClick(storey.name ?? storey.guid)}
-                title={storey.name ?? undefined}
-                className={
-                  "h-6 cursor-copy border-b border-line px-2 text-[12px] text-ink " +
-                  (storey.name === null ? "font-mono text-[11px]" : "max-w-0 truncate")
-                }
-              >
-                {storey.name ?? storey.guid}
-              </td>
-              <td className="h-6 border-b border-line p-0 text-right">
-                {storey.sharedWith > 1 ? (
-                  <span
-                    title={t("storey.shared", lang)}
-                    className="flex h-6 items-center justify-end gap-1.5 bg-gold px-2 font-mono text-[11px] tabular-nums text-ink"
-                  >
-                    <span className="font-bold">!</span>
-                    {formatElevation(
-                      storey.elevation,
-                      summary.unit_scale,
-                      summary.unit_resolved,
-                      lang,
-                    )}
-                    <span className="font-semibold">×{storey.sharedWith}</span>
-                  </span>
-                ) : (
-                  <span className="block px-2 font-mono text-[11px] tabular-nums text-ink">
-                    {formatElevation(
-                      storey.elevation,
-                      summary.unit_scale,
-                      summary.unit_resolved,
-                      lang,
-                    )}
-                  </span>
-                )}
-              </td>
-              <td className="h-6 border-b border-line px-2 text-right font-mono text-[11px] tabular-nums text-ink">
-                {formatCount(storey.elements, lang)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------- the readouts */
 
 export interface Readout {
@@ -243,6 +114,8 @@ export interface Readout {
   /** Long free text (a project name, an authoring application) wraps instead
    *  of being set as a figure. */
   text?: boolean;
+  /** A door: the value opens a derivation. */
+  onClick?: () => void;
 }
 
 /** Label-over-value pairs in a fixed box. Used for the file's own facts and
@@ -274,7 +147,8 @@ export function ReadoutList({ items }: { items: Readout[] }) {
   );
 }
 
-/** The same pairs on one line, for a 1-row strip that has no header rule. */
+/** The same pairs on one line: the model panel's header carries the file's
+ *  own facts this way (2026-09-21), where a 3×2 readout tile clipped them. */
 export function ReadoutStrip({ items }: { items: Readout[] }) {
   return (
     <div className="flex min-w-0 flex-1 items-baseline gap-x-3 overflow-hidden">
@@ -283,13 +157,27 @@ export function ReadoutStrip({ items }: { items: Readout[] }) {
           <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
             {item.label}
           </span>
-          <span
-            onDoubleClick={copyOnDoubleClick(item.value)}
-            title={item.value}
-            className="cursor-copy truncate text-[12px] text-ink"
-          >
-            {item.value}
-          </span>
+          {item.onClick ? (
+            <button
+              type="button"
+              onClick={item.onClick}
+              title={item.value}
+              className="truncate font-mono text-[12px] tabular-nums text-ink underline decoration-line underline-offset-2 hover:text-green"
+            >
+              {item.value}
+            </button>
+          ) : (
+            <span
+              onDoubleClick={copyOnDoubleClick(item.value)}
+              title={item.value}
+              className={
+                "cursor-copy truncate text-[12px] text-ink " +
+                (item.text ? "" : "font-mono tabular-nums")
+              }
+            >
+              {item.value}
+            </span>
+          )}
         </span>
       ))}
     </div>

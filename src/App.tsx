@@ -2,9 +2,11 @@
  *
  *   empty      the landing: IFC drop, ruleset, setup, recently checked models
  *   reading    the files, named, with their progress — and their errors in full
- *   dashboard  what the file IS: KPI tiles, class census, storeys, floor matrix
- *   rules      only once a ruleset says what right looks like
- *   derivation the rows and the arithmetic behind whatever number is open
+ *   Kontroll   the model board: KPIs, verification (+ project rules once a
+ *              ruleset says what right looks like), model, spatial, floors
+ *   Innhold    the census: classes, storey × class, type ledger
+ *   derivation the rows and the arithmetic behind whatever number is open,
+ *              under the active tab of that model
  *
  * A model's numbers are facts until a rule claims them. Nothing on the
  * dashboard calls a model wrong against a requirement nobody stated.
@@ -259,25 +261,29 @@ export default function App() {
                 onHover={(guid) => cross.setHover(model.id, guid)}
                 floors={ruleset?.storeys?.length ? ruleset.storeys : null}
                 peers={peers}
+                tab={view.tab ?? "checks"}
+                onTab={(tab) => setView({ tab: tab === "checks" ? null : tab })}
+                trace={
+                  trace && trace.modelId === model.id ? (
+                    <TraceBand
+                      // A different target is a different list: remount so it
+                      // starts at the top.
+                      key={`${trace.modelId}:${trace.focus}`}
+                      lang={view.lang}
+                      trace={trace}
+                      selection={cross.view(trace.modelId).selection}
+                      hover={cross.view(trace.modelId).hover}
+                      onPick={(guid, additive) => cross.pick(trace.modelId, guid, additive)}
+                      onHover={(guid) => cross.setHover(trace.modelId, guid)}
+                      onClose={() => setView({ model: null, focus: null })}
+                    />
+                  ) : null
+                }
               />
             ))}
           </main>
           )}
 
-          {!setupOpen && trace ? (
-            <TraceBand
-              // A different target is a different list: remount so it starts
-              // at the top.
-              key={`${trace.modelId}:${trace.focus}`}
-              lang={view.lang}
-              trace={trace}
-              selection={cross.view(trace.modelId).selection}
-              hover={cross.view(trace.modelId).hover}
-              onPick={(guid, additive) => cross.pick(trace.modelId, guid, additive)}
-              onHover={(guid) => cross.setHover(trace.modelId, guid)}
-              onClose={() => setView({ model: null, focus: null })}
-            />
-          ) : null}
         </>
       )}
     </div>

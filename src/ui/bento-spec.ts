@@ -18,8 +18,10 @@
  * ── The two deliberate deviations, both in the kind→span registry ────────
  * The registry is the one part of the spec that is CONTENT vocabulary rather
  * than grid structure, and upstream's entries encode which tile is the focal
- * on sprucelab's boards. On ifc-check the focal is a different tile, so two
- * kinds take spans upstream does not give them. Both are named at the entry.
+ * on sprucelab's boards. On ifc-check the focal is a different tile and the
+ * model tile needs a shape upstream lacks, so two kinds take spans upstream
+ * does not give them: `tellTales` (the focal) and `viewer` (5×5). Both are
+ * named at the entry.
  * Nothing structural moves: the span ladder, the bands, the seams, the fold
  * and the one-focal / one-gauge rules are untouched, and the focal here is
  * still exactly one 8×5.
@@ -211,24 +213,11 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
   matrix: {
     question: "where does a condition hold (axis × axis)",
     // A heat grid tolerates a wide band — rows are the long axis.
-    //
-    // BOUND RAISED 4.0 → 4.6 (2026-09-18). A census grid's width is driven by
-    // its COLUMN COUNT, and this board's columns are the IFC-class axis: the
-    // reference model carries 18 of them against 8 storeys, so the tile wants
-    // to be wide. 13×3 is the widest shape either canvas can give it without
-    // taking a focal span, and it renders 4.33:1 on 21 tracks and 4.56:1 on 13
-    // — which means 4.0 rejected the only span this kind can actually occupy
-    // on this board, rather than describing a tile that reads badly. 4.6 admits
-    // it and still refuses 21×3 (7.0:1), where the cells stop being cells.
-    aspect: { min: 0.5, max: 4.6 },
-    // DEVIATION FROM UPSTREAM (1 of 2). Upstream gives `matrix` the focal
-    // spans only, because on every sprucelab board the matrix IS the focal.
-    // Here the focal is the verification block, and the storey × class census
-    // is supporting context below the fold — the owner's own framing: "showing
-    // a quantity takeoff of how many elements there are of different types,
-    // great, but gives no feedback". So it takes the full band of its canvas,
-    // a shape a heat grid fills exactly as well as it fills a focal.
-    spans: [{ w: 8, h: 5 }, { w: 13, h: 8 }, { w: 13, h: 3 }, { w: 21, h: 3 }],
+    aspect: { min: 0.5, max: 4.0 },
+    // Upstream spans, verbatim. The local full-band deviation (13×3 / 21×3)
+    // went with the storey × class census when it left the board for the
+    // Innhold tab (2026-09-21); no board here carries a matrix now.
+    spans: [{ w: 8, h: 5 }, { w: 13, h: 8 }],
   },
   gauge: {
     question: "how far vs a declared target",
@@ -259,7 +248,7 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
     question: "is anything wrong (silence = fine)",
     // a column of rows, each carrying evidence — not a strip
     aspect: { min: 0.7, max: 2.2 },
-    // DEVIATION FROM UPSTREAM (2 of 2). Upstream gives `tellTales` strip spans
+    // DEVIATION FROM UPSTREAM (1 of 2). Upstream gives `tellTales` strip spans
     // only — a row of lamps. Here it is the focal: eleven universal checks,
     // each carrying the VALUE it found beside its verdict, which is a column
     // of evidence rather than a row of lamps and does not fit one row. Taking
@@ -330,7 +319,7 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
     // halved it, so 0.9-2.2 matches the working reference rather than
     // contradicting it.
     aspect: { min: 0.9, max: 2.2 },
-    // DEVIATION FROM UPSTREAM (3 of 3). `5x5` is added because NONE of the
+    // DEVIATION FROM UPSTREAM (2 of 2). `5x5` is added because NONE of the
     // four upstream spans can satisfy this kind's own aspect bound on either
     // canvas: 5x2 renders 2.6:1, 8x3 2.8:1 and 8x2 4.2:1, all outside 2.2, and
     // only the 3x3 fits — at nine cells, which cannot carry the model on a

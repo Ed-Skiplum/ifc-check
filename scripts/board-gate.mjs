@@ -10,6 +10,9 @@
  * step with `Dashboard.tsx` except each tile's kind and priority — the two
  * facts a grid cannot infer. Those are the seven lines below.
  *
+ * Both layouts are the Kontroll tab's; the Innhold tab is a flow surface, not
+ * a bento, and has nothing for this gate to check.
+ *
  * Run:  node scripts/board-gate.mjs
  * Exit: 0 both layouts valid, 1 a layout is invalid, 2 internal.
  */
@@ -25,20 +28,17 @@ import {
 } from "../src/ui/bento-spec.ts";
 import { LAYOUT_13, LAYOUT_21 } from "../src/ui/bento-layouts.ts";
 
-/** id -> [kind, priority], mirroring `Dashboard.tsx`. Everything else about a
- *  tile is read off the layout. */
+/** id -> [kind, priority], mirroring `Dashboard.tsx` (tab 1, Kontroll).
+ *  Everything else about a tile is read off the layout. Air (".") is not a
+ *  tile. */
 const TILES = {
   kpis: ["tellTales", "P0"],
   verify: ["tellTales", "P0"],
   viewer: ["viewer", "P0"],
-  // P0/P1 on 21 tracks, P2 on 13 where the KPI row pushes them past the fold
-  // (see `Dashboard.tsx`). Keyed per canvas below.
+  // On 13 tracks the board is 9 rows against an 8-row fold, so the two tiles
+  // in the last band are P2 there (see `bento-layouts.ts`). Keyed per canvas.
   spatial: ["gauge", { 13: "P2", 21: "P0" }],
-  classes: ["distribution", { 13: "P2", 21: "P1" }],
-  file: ["readout", "P2"],
-  storeys: ["roster", "P2"],
-  matrix: ["matrix", "P2"],
-  types: ["roster", "P2"],
+  floors: ["roster", { 13: "P2", 21: "P1" }],
 };
 
 let failed = false;
@@ -83,12 +83,20 @@ for (const definition of [LAYOUT_13, LAYOUT_21]) {
   const cells = definition.rows * definition.cols;
   const air = definition.layout.flat().filter((cell) => cell === ".").length;
 
-  console.log(`── ${definition.cols} tracks, ${definition.rows} rows`);
+  console.log(`── tab 1 (Kontroll) · ${definition.cols} tracks, ${definition.rows} rows`);
   console.log(`   tiles ${tiles.length} · air ${air}/${cells} cells (${((air / cells) * 100).toFixed(1)} %)`);
   console.log(`   validateBentoLayout: ${errors.length === 0 ? "clean" : "FAILED"}`);
   if (errors.length > 0) {
     failed = true;
     console.log(formatBentoErrors(errors).split("\n").map((line) => `     ${line}`).join("\n"));
+  }
+  // Every kind the layout's tiles use must exist in the registry, and no
+  // tile may still be a `matrix`: that kind is back to its upstream spans.
+  for (const tile of tiles) {
+    if (!BENTO_KINDS[tile.kind]) {
+      failed = true;
+      console.log(`     unknown kind "${tile.kind}" on "${tile.id}"`);
+    }
   }
   // Every tile, pass or fail. A section that prints only on failure cannot be
   // told apart from a section that never ran, and "zero aspect warnings" is a

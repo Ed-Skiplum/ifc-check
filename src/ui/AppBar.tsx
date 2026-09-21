@@ -88,14 +88,20 @@ export function AppBar({
   const rulesetInput = useRef<HTMLInputElement>(null);
 
   return (
-    <header className="flex shrink-0 items-center gap-4 border-b border-line bg-panel px-4 py-2">
+    // Wraps at narrow widths so every control stays reachable (review
+    // 2026-09-21: at 390 px the bar ran 740-820 px wide and BCF, the ruleset,
+    // Oppsett and NB/EN were off-screen). The board itself has no portrait
+    // layout; the bar is chrome and must not lock anyone out.
+    <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-panel px-4 py-2">
       <button
         type="button"
         onClick={() => ifcInput.current?.click()}
         className="flex items-center gap-3 bg-green px-4 py-1.5 text-sm font-medium text-cream hover:bg-ink"
       >
         <span>{t("action.openIfc", lang)}</span>
-        <span className="font-mono text-[11px] tracking-wide">{t("accept.ifc", lang)}</span>
+        <span className="hidden font-mono text-[11px] tracking-wide sm:inline">
+          {t("accept.ifc", lang)}
+        </span>
       </button>
       <input
         ref={ifcInput}
@@ -152,7 +158,7 @@ export function AppBar({
           }
         >
           <span>{t("drop.ruleset", lang)}</span>
-          <span className="font-mono text-[10px] tracking-wide">
+          <span className="hidden font-mono text-[10px] tracking-wide sm:inline">
             {t("accept.ruleset", lang)}
           </span>
         </button>
@@ -163,7 +169,8 @@ export function AppBar({
           </span>
           <span
             onDoubleClick={copyOnDoubleClick(rulesetName)}
-            className="cursor-copy font-mono text-[12px] text-ink"
+            title={rulesetName}
+            className="max-w-[40ch] cursor-copy truncate font-mono text-[12px] text-ink"
           >
             {rulesetName}
           </span>

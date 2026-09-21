@@ -5,9 +5,14 @@
  * rule carrying that `mapping` role in the ruleset, so what is set here is
  * exactly what the ruleset JSON holds and what the evaluator runs. Turning a
  * card off sets the rule's `enabled` to false and keeps what was entered.
+ *
+ * The on/off is a switch (2026-09-21). edkjo found the old bordered "Aktiv"
+ * button non-obvious and asked that double-clicking a card that is off asks
+ * whether to enable it; a card that is on ignores double-click, and a
+ * double-click inside a live field is the field's own.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { BOOLEAN_VALUES, MAPPING_ROLES, hasErrors, isBooleanValues, lintRuleset } from "../ids/lint.ts";
 import type {
@@ -21,6 +26,7 @@ import type {
 } from "../ids/types.ts";
 import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
+import { Switch } from "./Switch";
 
 const SOURCE_KINDS = ["attribute", "property", "classification"] as const;
 type SourceKind = (typeof SOURCE_KINDS)[number];
@@ -190,6 +196,7 @@ function MappingCard({
   lang,
   onToggle,
   onCheck,
+  onAskEnable,
 }: {
   role: MappingRole;
   rule: ExtendedRule | null;
@@ -197,6 +204,8 @@ function MappingCard({
   lang: Lang;
   onToggle: () => void;
   onCheck: (next: CodeLookupCheck) => void;
+  /** Double-click on the card while it is off. */
+  onAskEnable: () => void;
 }) {
   const active = rule !== null && rule.enabled !== false;
   const check =
@@ -208,23 +217,31 @@ function MappingCard({
   const classification = role === "system-classification" || role === "component-classification";
   const copyMode: CopyMode = isBooleanValues(check.values) ? "boolean" : "codes";
 
+  // Never hijack a double-click meant for a live control.
+  const onLive = (event: MouseEvent<HTMLElement>) =>
+    (event.target as HTMLElement).closest(
+      "input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)",
+    ) !== null;
+  const onDoubleClick = (event: MouseEvent<HTMLElement>) => {
+    if (active || onLive(event)) return;
+    onAskEnable();
+  };
+
   return (
-    <section className="flex flex-col gap-3 border border-line bg-panel p-3">
+    <section
+      onDoubleClick={onDoubleClick}
+      // The second press of a double-click on an OFF card would otherwise
+      // select the word under the pointer behind the dialog.
+      onMouseDown={(event) => {
+        if (!active && event.detail > 1 && !onLive(event)) event.preventDefault();
+      }}
+      className="flex flex-col gap-3 border border-line bg-panel p-3"
+    >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="m-0 text-sm font-medium text-ink">{t(`mapping.${role}`, lang)}</h2>
-        <button
-          type="button"
-          aria-pressed={active}
-          onClick={onToggle}
-          className={
-            "border px-2 py-0.5 text-[12px] " +
-            (active
-              ? "border-green bg-green text-cream"
-              : "border-line bg-input text-muted hover:border-green hover:text-green")
-          }
-        >
-          {t("field.enabled", lang)}
-        </button>
+        <h2 className={"m-0 text-sm font-medium " + (active ? "text-ink" : "text-muted")}>
+          {t(`mapping.${role}`, lang)}
+        </h2>
+        <Switch on={active} label={t("field.enabled", lang)} onChange={onToggle} />
       </div>
 
       {classification ? (
@@ -430,11 +447,13 @@ function StoreyCard({
     issues.some((issue) => issue.path === `storeys[${i}].${field}` && issue.severity === "error");
   const set = (i: number, patch: Partial<StoreyConfig>) =>
     onChange(storeys.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  // A FIXED, viewport-derived card (DESIGN.md §1): the rows scroll inside
+  // it, so adding a floor never moves the cards below.
   return (
-    <section className="flex flex-col gap-3 border border-line bg-panel p-3">
-      <h2 className="m-0 text-sm font-medium text-ink">{t("setup.storeys", lang)}</h2>
+    <section className="flex h-[clamp(15rem,40vh,34rem)] flex-col gap-3 border border-line bg-panel p-3">
+      <h2 className="m-0 shrink-0 text-sm font-medium text-ink">{t("setup.storeys", lang)}</h2>
       {storeys.length > 0 ? (
-        <div className="grid items-center gap-x-2 gap-y-1 [grid-template-columns:minmax(0,1fr)_9rem_auto]">
+        <div className="grid min-h-0 content-start items-center gap-x-2 gap-y-1 overflow-auto [grid-template-columns:minmax(0,1fr)_9rem_auto]">
           <span className={LABEL}>{t("field.storeyName", lang)}</span>
           <span className={LABEL}>{t("field.storeyElevation", lang)}</span>
           <span />
@@ -454,16 +473,71 @@ function StoreyCard({
       <button
         type="button"
         onClick={() => onChange([...storeys, { name: "", elevation: Number.NaN }])}
-        className="w-fit border border-line bg-input px-2 py-0.5 text-[12px] text-muted hover:border-green hover:text-green"
+        className="w-fit shrink-0 border border-line bg-input px-2 py-0.5 text-[12px] text-muted hover:border-green hover:text-green"
       >
         {t("action.addRow", lang)}
       </button>
       {issues.length > 0 ? (
-        <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+        <pre className="m-0 max-h-24 shrink-0 overflow-auto bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
           {issues.map((i) => `${i.path}: ${i.message}`).join("\n")}
         </pre>
       ) : null}
     </section>
+  );
+}
+
+/** Enable a card that is off: its name, and the two answers. Nothing else. */
+function EnableDialog({
+  title,
+  lang,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  lang: Lang;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      aria-label={title}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+      onClick={(event) => {
+        // A click on the backdrop lands on the dialog element itself.
+        if (event.target === ref.current) onCancel();
+      }}
+      className="m-auto border border-line bg-panel p-0 text-ink backdrop:bg-ink/30"
+    >
+      <div className="flex min-w-64 flex-col gap-3 p-4">
+        <h2 className="m-0 text-sm font-medium text-ink">{title}</h2>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="border border-line bg-input px-3 py-1 text-[12px] text-ink hover:border-green hover:text-green"
+          >
+            {t("action.cancel", lang)}
+          </button>
+          <button
+            type="button"
+            autoFocus
+            onClick={onConfirm}
+            className="bg-green px-3 py-1 text-[12px] text-cream hover:bg-ink"
+          >
+            {t("action.enable", lang)}
+          </button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 
@@ -542,6 +616,12 @@ export function SetupPage({
 }) {
   const lint = lintRuleset(ruleset);
   const nameIssue = lint.some((i) => i.ruleId === null && i.path === "name");
+  // The name field is marked invalid only once it has been touched or a
+  // download was attempted, never on a page nobody has typed on yet.
+  const [nameTouched, setNameTouched] = useState(false);
+  const [attempted, setAttempted] = useState(false);
+  const [asking, setAsking] = useState<MappingRole | null>(null);
+  const blocked = hasErrors(lint);
 
   const toggle = (role: MappingRole) => {
     const rule = mappingRule(ruleset, role);
@@ -572,30 +652,42 @@ export function SetupPage({
     });
   };
 
+
   return (
-    <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-4 py-3">
-      <div className="mx-auto flex w-full max-w-[1136px] flex-wrap items-end gap-3">
-        <h1 className="m-0 mr-auto text-base font-medium text-ink">{t("action.setup", lang)}</h1>
-        <Field label={t("label.ruleset", lang)}>
-          <input
-            type="text"
-            className={INPUT + " w-64"}
-            aria-invalid={nameIssue}
-            value={ruleset.name}
-            onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
-          />
-        </Field>
-        <button
-          type="button"
-          disabled={hasErrors(lint)}
-          onClick={() => downloadRuleset(ruleset, fileName)}
-          className="flex items-center gap-2 bg-green px-3 py-1.5 text-[12px] text-cream hover:bg-ink disabled:bg-muted"
-        >
-          <span>{t("action.download", lang)}</span>
-          <span className="font-mono text-[11px]">{fileName}</span>
-        </button>
-      </div>
-      <div className="grid items-start justify-center gap-4 [grid-template-columns:repeat(auto-fit,minmax(340px,560px))]">
+    <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-3">
+      {/* ONE bounded container for the header and the cards, so the title,
+          the name field and the download button align with the cards' edges
+          at every width. */}
+      <div className="mx-auto flex w-full max-w-[1136px] flex-col gap-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <h1 className="m-0 mr-auto text-base font-medium text-ink">{t("action.setup", lang)}</h1>
+          <Field label={t("label.ruleset", lang)}>
+            <input
+              type="text"
+              className={INPUT + " w-64"}
+              aria-invalid={nameIssue && (nameTouched || attempted)}
+              value={ruleset.name}
+              onBlur={() => setNameTouched(true)}
+              onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
+            />
+          </Field>
+          <button
+            type="button"
+            aria-disabled={blocked}
+            onClick={() => {
+              setAttempted(true);
+              if (!blocked) downloadRuleset(ruleset, fileName);
+            }}
+            className={
+              "flex items-center gap-2 px-3 py-1.5 text-[12px] text-cream " +
+              (blocked ? "cursor-not-allowed bg-muted" : "bg-green hover:bg-ink")
+            }
+          >
+            <span>{t("action.download", lang)}</span>
+            <span className="font-mono text-[11px]">{fileName}</span>
+          </button>
+        </div>
+
         <StoreyCard
           storeys={ruleset.storeys ?? []}
           issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
@@ -606,21 +698,40 @@ export function SetupPage({
             onChange(next);
           }}
         />
-        {MAPPING_ROLES.map((role) => {
-          const rule = mappingRule(ruleset, role);
-          return (
-            <MappingCard
-              key={role}
-              role={role}
-              rule={rule}
-              issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
-              lang={lang}
-              onToggle={() => toggle(role)}
-              onCheck={(check) => setCheck(role, check)}
-            />
-          );
-        })}
+
+        <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
+          {MAPPING_ROLES.map((role) => {
+            const rule = mappingRule(ruleset, role);
+            return (
+              <MappingCard
+                key={role}
+                role={role}
+                rule={rule}
+                issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
+                lang={lang}
+                onToggle={() => toggle(role)}
+                onCheck={(check) => setCheck(role, check)}
+                onAskEnable={() => setAsking(role)}
+              />
+            );
+          })}
+        </div>
       </div>
+
+      {asking ? (
+        <EnableDialog
+          title={t(`mapping.${asking}`, lang)}
+          lang={lang}
+          onCancel={() => setAsking(null)}
+          onConfirm={() => {
+            const role = asking;
+            setAsking(null);
+            const rule = mappingRule(ruleset, role);
+            // Only ever turns a card ON: it was off when the dialog opened.
+            if (rule === null || rule.enabled === false) toggle(role);
+          }}
+        />
+      ) : null}
     </main>
   );
 }

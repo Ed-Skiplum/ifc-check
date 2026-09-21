@@ -13,8 +13,8 @@
  *               outside the spatial tree, a broken Project→Site→Building→
  *               Storey chain. Wrong on any project, so the board says so.
  *   project     MMI, classification codes, naming conventions, required
- *               property sets. These wait for the ruleset, in the rule strip
- *               below this canvas, and nothing here pre-empts them.
+ *               property sets. These wait for the ruleset; once one is
+ *               loaded its rules are rows under "Regler" in the same focal.
  *
  * A universal verdict is still not a grade: there is no composite number, and
  * no verdict is rendered at element granularity. "851 elements have no name"
@@ -26,11 +26,14 @@
  * grid"*. Two authored layouts, chosen by the GRID's own inline size, so an
  * iframe on skiplum.com picks the layout its own box can carry. This module
  * authors tiles; it does not author tiling.
+ *
+ * This is the Kontroll tab (2026-09-21): lead values and outputs only. The
+ * census and the type ledger are on the Innhold tab (`Contents.tsx`), and the
+ * file's own facts are on the panel header.
  */
 
 import { useMemo } from "react";
-import type { CheckResult } from "../engine/types";
-import type { RuleResult } from "../ids/evaluate.ts";
+import type { ModelResult, RuleResult } from "../ids/evaluate.ts";
 import type { BentoCols, BentoTileSpec } from "./bento-spec";
 import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
@@ -41,25 +44,15 @@ import { t } from "./i18n";
 import { BentoGrid } from "./BentoGrid";
 import { LAYOUT_13, LAYOUT_21 } from "./bento-layouts";
 import { useBentoCols } from "./useBentoCols";
-import { FloorMatrix } from "./FloorMatrix";
 import { Verification } from "./Verification";
 import type { ModelView } from "./cross-filter";
 import { ViewerTile } from "../viewer/ViewerTile";
-import {
-  ClassDistribution,
-  KpiRow,
-  type KpiCard,
-  ReadoutList,
-  SpatialGauge,
-  StoreyRoster,
-  type Readout,
-} from "./forms";
-import { formatBytes, formatCount, formatMs } from "./format";
-import { aggregateTypes, meshIndex, TypeLedgerTile, type TypeLedger } from "./types";
+import { KpiRow, type KpiCard, SpatialGauge } from "./forms";
+import { formatBytes, formatCount } from "./format";
 import { verdictOf } from "../engine/fundamentals";
 import { modelKpis } from "../engine/kpis";
-import type { FloorConfig } from "../engine/storey-config";
-import { FloorSetupMatrix, type FloorPeer } from "./FloorSetup";
+import { matchStoreys, type FloorConfig } from "../engine/storey-config";
+import { FloorSetupMatrix, StoreyList, type FloorPeer } from "./FloorSetup";
 
 interface DashboardProps {
   lang: Lang;
@@ -78,7 +71,10 @@ interface DashboardProps {
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
   floors: FloorConfig[] | null;
+  /** Every loaded model's storeys, this model first. */
   peers: FloorPeer[];
+  /** Only when a ruleset is loaded; see `Verification`. */
+  rules?: { evaluation?: ModelResult; evaluating?: boolean; error?: string };
 }
 
 /** A project rule that speaks for a universal check. The same number reads
@@ -108,12 +104,6 @@ function chainLevels(profile: NonNullable<ModelEntry["profile"]>) {
   ];
 }
 
-function containment(checks: CheckResult[]): { good: number; total: number } {
-  const check = checks.find((c) => c.id === "storey-containment");
-  if (!check) return { good: 0, total: 0 };
-  return { good: Math.max(0, check.applicable - check.findings.length), total: check.applicable };
-}
-
 export function Dashboard({
   lang,
   model,
@@ -127,6 +117,7 @@ export function Dashboard({
   onHover,
   floors,
   peers,
+  rules,
 }: DashboardProps) {
   const { ref, cols } = useBentoCols();
   const report = model.report;
@@ -135,32 +126,16 @@ export function Dashboard({
 
   const claimed = useMemo(() => claimedChecks(claims, results), [claims, results]);
 
-  // One pass over the products per (profile, geometry) change, not per render.
-  // Triangles come from the STREAMED mesh, the only place a per-element count
-  // exists; batches that have not arrived make the geometry columns UNKNOWN
-  // rather than zero.
-  const ledger = useMemo(
-    () =>
-      profile
-        ? aggregateTypes(profile, {
-            mesh: meshIndex(model.meshBatches),
-            meshCapped: model.meshBudget?.capped ?? false,
-          })
-        : null,
-    [profile, model.meshBatches, model.meshBudget],
-  );
-
   // The grid needs its own box measured before it can choose a layout, so the
   // measured element renders on the first pass and the canvas on the second.
   // `useBentoCols` measures in a layout effect, so that happens before paint.
   const tiles: BentoTileSpec[] | null =
-    report && profile && ledger && cols
+    report && profile && cols
       ? buildTiles({
           cols,
           lang,
           model,
           census,
-          ledger,
           claimed,
           selected,
           onFocus,
@@ -170,6 +145,7 @@ export function Dashboard({
           onHover,
           floors,
           peers,
+          rules,
         })
       : null;
 
@@ -190,7 +166,6 @@ interface BuildArgs {
   lang: Lang;
   model: ModelEntry;
   census: Census;
-  ledger: TypeLedger;
   claimed: Map<string, RuleResult>;
   selected: string | null;
   onFocus: (focus: Focus) => void;
@@ -200,6 +175,7 @@ interface BuildArgs {
   onHover: (guid: string | null) => void;
   floors: FloorConfig[] | null;
   peers: FloorPeer[];
+  rules?: DashboardProps["rules"];
 }
 
 /** One builder per tile, as the three sprucelab instances do it: the page owns
@@ -209,7 +185,6 @@ function buildTiles({
   lang,
   model,
   census,
-  ledger,
   claimed,
   selected,
   onFocus,
@@ -219,28 +194,26 @@ function buildTiles({
   onHover,
   floors,
   peers,
+  rules,
 }: BuildArgs): BentoTileSpec[] {
   const report = model.report!;
   const profile = model.profile!;
   const summary = report.summary;
   const wide = cols === 21;
-
-  // ONE tile answers "what is this file". It was two — `file` and `project`,
-  // each an 8×2 readout carrying between two and five short values, and
-  // `project` repeated its own header, `kpi.project`, as its first row. A tile
-  // header is a NAME, so the row went and the two strings the file names
-  // itself by moved in here beside the file's own facts. Seven short values
-  // earn ONE compact tile; harmonic size is earned by content, and 8×2 for
-  // this is 4:1 against `readout`'s own 3.0 ceiling twice over.
-  const fileItems: Readout[] = [
-    { label: t("kpi.products", lang), value: formatCount(summary.products, lang) },
-    { label: t("kpi.schema", lang), value: summary.schema },
-    { label: t("kpi.unit", lang), value: summary.length_unit || "—" },
-    { label: t("kpi.size", lang), value: formatBytes(report.sizeBytes, lang) },
-    { label: t("kpi.parseTime", lang), value: formatMs(report.parseMs, lang) },
-    { label: t("kpi.project", lang), value: summary.project_name ?? "—", text: true },
-    { label: t("kpi.application", lang), value: summary.authoring_app ?? "—", text: true },
-  ];
+  const configured = !!floors && floors.length > 0;
+  // File storeys, over every loaded model, that match no config floor: the
+  // rows under the floor tile's divider.
+  const extra = configured
+    ? peers.reduce(
+        (sum, peer) =>
+          sum +
+          (peer.unitResolved
+            ? matchStoreys(peer.storeys, peer.unitScale, floors!).filter((m) => m.config === null)
+                .length
+            : 0),
+        0,
+      )
+    : 0;
 
   // THE KPI ROW. Seven numbers, one each, asked for by name. Three carry the
   // verdict of the check they count and cross-filter to its findings on click;
@@ -307,6 +280,7 @@ function buildTiles({
           claimed={claimed}
           selected={selected}
           onFocus={onFocus}
+          rules={rules}
         />
       ),
     },
@@ -342,19 +316,12 @@ function buildTiles({
     {
       id: "spatial",
       kind: "gauge",
-      // P2 on 13 tracks: the KPI row took the first row, and the gauge now
-      // ends on row 9, past that canvas's 8-row fold, where only P2 may sit.
+      // P2 on 13 tracks: that board is 9 rows against an 8-row fold and the
+      // gauge ends on row 9, where only P2 may sit.
       priority: wide ? "P0" : "P2",
       span: { w: 5, h: 3 },
       label: t("tile.spatial", lang),
-      body: (
-        <SpatialGauge
-          lang={lang}
-          levels={chainLevels(profile)}
-          contained={containment(report.checks)}
-          onFocus={onFocus}
-        />
-      ),
+      body: <SpatialGauge lang={lang} levels={chainLevels(profile)} />,
       click: {
         drill: {
           label: t("check.spatial-chain", lang),
@@ -363,132 +330,30 @@ function buildTiles({
       },
     },
     {
-      id: "file",
-      kind: "readout",
-      // Below the fold on 13 tracks: the fold there is 8 rows, and the focal,
-      // the model and the gauge fill it. The file's own facts are context, and
-      // context is what goes under the line.
-      //
-      // COMPACT, and now 3×2 on BOTH canvases. `ReadoutList` flows its pairs
-      // into `auto-fit` columns of 9ch, so seven values fill a 3×2 in two or
-      // three columns at 1.5:1 / 1.58:1 against `readout`'s 0.8..3.0. On 13
-      // tracks it took the 5 tracks beside the storeys and left a 3×2 notch of
-      // air at the left edge; it now sits IN that notch and the 5 tracks it
-      // vacated carry the type ledger. Same tile, same content, no new rows.
-      priority: "P2",
-      span: { w: 3, h: 2 },
-      label: t("tile.file", lang),
-      body: <ReadoutList items={fileItems} />,
-      click: {
-        drill: {
-          label: t("kpi.products", lang),
-          run: () => onFocus({ kind: "kpi", kpi: "products" }),
-        },
-      },
-    },
-    {
-      id: "classes",
-      kind: "distribution",
-      // Same as the gauge: past the 13-track fold once the KPI row is on top.
-      priority: wide ? "P1" : "P2",
-      // 8×3 on 13 tracks, where it is the whole left column of the second
-      // band. 3×3 on 21, in the narrow column the re-cut top region opened:
-      // a bar list is the one form here that degrades into a shorter scroll
-      // rather than into an unreadable shape, and 3×3 renders 1.0:1 where the
-      // 8×2 it replaces rendered 4.0:1 — inside `distribution`'s own bound for
-      // the first time on that canvas.
-      span: wide ? { w: 3, h: 3 } : { w: 8, h: 3 },
-      label: t("tile.classes", lang),
-      sub: formatCount(census.classes.length, lang),
-      body: (
-        <ClassDistribution
-          lang={lang}
-          classes={census.classes}
-          selected={selected}
-          onFocus={onFocus}
-        />
-      ),
-    },
-    {
-      id: "storeys",
+      // THE floor tile: the config floors against every loaded model, or the
+      // file's own storeys when no config is loaded. It replaced both the
+      // storey roster and the storey × class matrix on this tab; the census
+      // is "Etasje × klasse" on Innhold.
+      id: "floors",
       kind: "roster",
-      priority: "P2",
-      span: wide ? { w: 8, h: 3 } : { w: 5, h: 2 },
+      priority: wide ? "P1" : "P2",
+      span: wide ? { w: 5, h: 2 } : { w: 8, h: 3 },
       label: t("tile.storeys", lang),
-      sub: formatCount(census.storeys.length, lang),
-      // With a floor config loaded, the same tile carries the config against
-      // every loaded model's storeys; without one it is the file's own roster.
-      body:
-        floors && floors.length > 0 ? (
-          <FloorSetupMatrix lang={lang} config={floors} peers={peers} />
-        ) : (
-          <StoreyRoster lang={lang} storeys={census.storeys} summary={summary} />
-        ),
+      sub: configured
+        ? `${formatCount(floors!.length, lang)} × ${formatCount(peers.length, lang)}` +
+          (extra > 0 ? ` · +${formatCount(extra, lang)}` : "")
+        : formatCount(census.storeys.length, lang),
+      body: configured ? (
+        <FloorSetupMatrix lang={lang} config={floors!} peers={peers} />
+      ) : (
+        <StoreyList lang={lang} storeys={census.storeys} summary={summary} />
+      ),
       click: {
         drill: {
           label: t("kpi.storeys", lang),
           run: () => onFocus({ kind: "kpi", kpi: "storeys" }),
         },
       },
-    },
-    {
-      // THE TYPE LEDGER. Review, not mapping: one row per type, the instances
-      // it carries, whether they have geometry, and what they declare — with
-      // the single-instance DISPROPORTION at the head, because that is the
-      // reading the owner asked for and a count of rows is not it.
-      //
-      // The tile header's `sub` is the same `singles / types` the focal's
-      // `single-instance-types` row prints, by the same arithmetic over the
-      // same product set, so the two can never disagree.
-      id: "types",
-      kind: "roster",
-      priority: "P2",
-      span: { w: 5, h: 2 },
-      label: t("tile.types", lang),
-      sub: `${formatCount(ledger.singles, lang)} / ${formatCount(ledger.types, lang)}`,
-      body: (
-        <TypeLedgerTile
-          lang={lang}
-          ledger={ledger}
-          selected={selected}
-          onFocus={onFocus}
-        />
-      ),
-      // A profile that never carried the type facts says so IN ITS OWN SLOT.
-      // "This model has no types" and "nobody supplied the type facts" are
-      // different answers and only one of them is about the file.
-      ...(ledger.factsPresent
-        ? {}
-        : {
-            status: {
-              kind: "empty" as const,
-              message: `${t("type.facts", lang)} · ${t("type.unavailable", lang)}`,
-            },
-          }),
-    },
-    {
-      id: "matrix",
-      kind: "matrix",
-      priority: "P2",
-      // 13 tracks wide on both canvases — the full width of the narrow board,
-      // and the 13+8 cut of the wide one, where it now runs cols 9..21 with
-      // the gauge and the file readout beside it instead of eight tracks of
-      // nothing. It renders 4.56:1 / 4.33:1 against `matrix`'s bound, which is
-      // why that bound moved to 4.6; see the note at the kind's entry.
-      span: { w: 13, h: 3 },
-      label: t("tile.floorMatrix", lang),
-      sub: `${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`,
-      body: (
-        <FloorMatrix
-          lang={lang}
-          classes={census.classes}
-          matrix={census.matrix}
-          storeys={census.storeys}
-          peak={census.matrixPeak}
-          selected={selected}
-          onOpen={(storeyGuid, entity) => onFocus({ kind: "cell", storeyGuid, entity })}
-        />
-      ),
     },
   ];
 }

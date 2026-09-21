@@ -1,7 +1,9 @@
 /** The derivation behind whatever number is open.
  *
- * Fixed height against the viewport: opening it costs table rows, never page
- * height, and the band does not resize as the row count changes. The list is
+ * It opens under the active tab of its model's panel and takes a fixed 38.2 %
+ * of that panel's body (`ModelPanel`), so the tab keeps 61.8 %: opening it
+ * costs table rows, never page height, and the band does not resize as the
+ * row count changes. The list is
  * windowed — one real model produced 851 rows — but the spacer carries the
  * full height, so the scrollbar still represents the true row count.
  *
@@ -102,7 +104,7 @@ export function TraceBand({
   const visible = rows.slice(first, last);
 
   return (
-    <section className="flex h-[38vh] shrink-0 flex-col border-t-2 border-line bg-panel">
+    <section className="flex h-full min-h-0 flex-col border-t-2 border-line bg-panel">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5">
         {trace.state ? (
           <span
