@@ -12,7 +12,7 @@
  *                                   now also carries per-element boxes and the
  *                                   outlier verdict
  *   `elementRows` / `pivotBounds`   the pivot precedence and the outlier rule
- *   `Turntable.setPivot`            the eye-preserving re-target
+ *   `Turntable.setPivot`            the camera-preserving re-target
  *
  * Asserted:
  *   1  no filter, no selection  -> the pivot is the framing box centre
@@ -22,11 +22,15 @@
  *   4  selection beats filter   -> a selection inside a filter wins
  *   5  an outlier inside the visible set does not move the pivot
  *   6  a selection OF an outlier is not suppressed: its BOX reaches the broken
- *      element. The pivot then applied is the nearest one the radius stops
- *      allow, which is reported per case rather than glossed over
+ *      element, and the pivot is stored as that centre (no camera move means
+ *      no radius stop to clamp it against)
  *   7  a filter matching nothing returns no bounds, so the caller holds
- *   8  re-targeting does not move the camera: the eye position is bit-stable
- *      across every re-target above, and the polar limits still hold
+ *   8  re-targeting does not move the camera: the eye position AND the view
+ *      direction are stable across every re-target above (the eye alone is
+ *      not enough: holding the eye while re-aiming at the pivot is the
+ *      "click shifts the camera" bug), and the polar limits still hold
+ *   9  the next orbit turns about the pivot: its screen position is unchanged
+ *      by a drag, and the polar limits still hold
  *
  * Run:  node scripts/pivot-gate.mjs <model.ifc> [productsPerBatch]
  * Exit: 0 all assertions hold, 1 an assertion failed, 2 usage/internal.
@@ -156,6 +160,7 @@ const entryEye = camera.position.clone();
 const results = [];
 const failures = [];
 let worstEyeDrift = 0;
+let worstViewTurn = 0;
 
 for (const probe of cases) {
   const box = pivotBounds(framing, rows, probe.selection, probe.matched);
@@ -165,8 +170,10 @@ for (const probe of cases) {
   turntable.radius = fitRadius(camera, framingMin, framingMax, framingCentre, viewport, insets);
   turntable.phi = 1.05;
   turntable.theta = Math.PI * 0.25;
+  turntable.clearPivot();
   turntable.apply(camera);
   const before = camera.position.clone();
+  const lookBefore = camera.getWorldDirection(new Vector3());
 
   let accepted = false;
   if (box) accepted = turntable.setPivot(new Vector3(...centreOf(box)));
@@ -174,6 +181,23 @@ for (const probe of cases) {
   const after = camera.position.clone();
   const drift = before.distanceTo(after);
   worstEyeDrift = Math.max(worstEyeDrift, drift);
+  const turn = lookBefore.angleTo(camera.getWorldDirection(new Vector3()));
+  worstViewTurn = Math.max(worstViewTurn, turn);
+
+  // The next drag: the pivot must hold its place on screen.
+  let pivotScreenDrift = null;
+  if (accepted && turntable.pivot) {
+    const pivotNdc = turntable.pivot.clone().project(camera);
+    if (Math.abs(pivotNdc.z) < 1) {
+      turntable.orbit(37, -21, viewport);
+      turntable.apply(camera);
+      const moved = turntable.pivot.clone().project(camera);
+      pivotScreenDrift = Math.hypot(moved.x - pivotNdc.x, moved.y - pivotNdc.y);
+      if (pivotScreenDrift > 1e-6) {
+        failures.push(`${probe.name}: orbit moved the pivot on screen by ${pivotScreenDrift} ndc`);
+      }
+    }
+  }
 
   results.push({
     case: probe.name,
@@ -181,26 +205,29 @@ for (const probe of cases) {
     matched: probe.matched === null ? null : probe.matched.size,
     box: show(box),
     retargetAccepted: accepted,
-    pivotApplied: [round(turntable.target.x), round(turntable.target.y), round(turntable.target.z)],
-    // True when a limit bound and the applied pivot is the nearest legal one
-    // at the same eye rather than the requested centre. Printed, never hidden:
-    // it is the difference between "the pivot is the box centre" and "the pivot
-    // is as close to it as the radius stops allow".
-    pivotClamped: box
-      ? centreOf(box).some((v, i) => Math.abs(v - turntable.target.getComponent(i)) > 1e-3)
+    pivotApplied: turntable.pivot
+      ? [round(turntable.pivot.x), round(turntable.pivot.y), round(turntable.pivot.z)]
+      : null,
+    // True when the stored pivot is not the requested box centre. Expected
+    // false everywhere now that setPivot stores the point literally.
+    pivotClamped: box && turntable.pivot
+      ? centreOf(box).some((v, i) => Math.abs(v - turntable.pivot.getComponent(i)) > 1e-3)
       : false,
     eyeBefore: [round(before.x), round(before.y), round(before.z)],
     eyeAfter: [round(after.x), round(after.y), round(after.z)],
     eyeDriftMetres: Number(drift.toExponential(3)),
+    viewTurnRadians: Number(turn.toExponential(3)),
+    pivotScreenDriftAfterOrbit: pivotScreenDrift === null ? null : Number(pivotScreenDrift.toExponential(3)),
     phi: Number(turntable.phi.toFixed(6)),
     radiusMetres: round(turntable.radius),
   });
 
   if (drift > 1e-6) failures.push(`${probe.name}: re-target moved the eye by ${drift} m`);
+  if (turn > 1e-9) failures.push(`${probe.name}: re-target turned the view by ${turn} rad`);
   if (turntable.phi < POLAR_FLOOR - 1e-9 || turntable.phi > Math.PI - POLAR_FLOOR + 1e-9) {
     failures.push(`${probe.name}: phi ${turntable.phi} outside the polar limits`);
   }
-  if (box && !Number.isFinite(turntable.target.lengthSq())) {
+  if (box && !Number.isFinite((turntable.pivot ?? turntable.target).lengthSq())) {
     failures.push(`${probe.name}: pivot is not finite`);
   }
 }
@@ -242,9 +269,7 @@ if (!samePoint(byName.e.box.pivot, columnPivot, 1e-9)) {
 if (outlierGuids.length > 0) {
   // Not suppressing the broken element is deliberate: the framing box refuses
   // to FRAME it, the pivot refuses to be DRAGGED by it, and a user who selects
-  // it outright is not told it does not exist. What is asserted is the BOX --
-  // `pivotClamped` on that case says whether the radius stops then pulled the
-  // applied pivot back along the view ray, which on this model they do.
+  // it outright is not told it does not exist. What is asserted is the BOX.
   const away = Math.hypot(
     ...byName.f.box.pivot.map((v, i) => v - framingPivot[i]),
   );
@@ -286,7 +311,8 @@ console.log(
         outlierDoesNotWreckPivot: !failures.some((f) => f.startsWith("5")),
         outlierSelectionBoxReachesIt: !failures.some((f) => f.startsWith("6")),
         emptyFilterHoldsPivot: !failures.some((f) => f.startsWith("7")),
-        cameraUnchangedAcrossRetarget: worstEyeDrift <= 1e-6,
+        cameraUnchangedAcrossRetarget: worstEyeDrift <= 1e-6 && worstViewTurn <= 1e-9,
+        worstViewTurnRadians: Number(worstViewTurn.toExponential(3)),
         worstEyeDriftMetres: Number(worstEyeDrift.toExponential(3)),
       },
       failures,

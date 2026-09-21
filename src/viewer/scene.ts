@@ -38,9 +38,10 @@
  * time is what makes an orbit feel broken — you filter to six columns, drag,
  * and the whole building swings about a centre two hundred metres behind them.
  *
- * Re-targeting is NOT a camera flight. `Turntable.setPivot` holds the eye and
- * re-derives the pose around the new centre, so the picture is identical the
- * frame before and after; only the axis the next drag turns about has moved.
+ * Re-targeting is NOT a camera flight. `Turntable.setPivot` only stores the
+ * orbit centre; eye and view direction are untouched, so the picture is
+ * identical the frame before and after a click. Only the point the next drag
+ * turns about has moved.
  * `Tilpass` and `Zoom til valg` stay the only two things that move the eye.
  */
 
@@ -102,6 +103,9 @@ const HOVER_EDGE_WIDTH = 1.4;
 const EDGE_THRESHOLD = 24;
 
 const DRAG_SLOP = 3;
+
+/** Entities a click or hover never lands on. */
+const UNPICKABLE = new Set(["IfcSpace", "IfcOpeningElement"]);
 
 interface BatchView {
   mesh: Mesh;
@@ -617,6 +621,8 @@ export class ModelScene {
     );
     this.turntable.target.copy(centre);
     this.turntable.radius = radius;
+    this.turntable.clearPivot();
+    this.updatePivot();
     this.framed = this.viewport.width > 1 && this.viewport.height > 1;
     this.invalidate();
   }
@@ -678,15 +684,24 @@ export class ModelScene {
       this.batches.map((view) => view.mesh),
       false,
     );
+    // First in-filter product along the ray; a ghosted one (highlight mode's
+    // unmatched faces) only when nothing in-filter lies behind it. Room and
+    // opening volumes are never targets: a translucent IfcSpace otherwise wins
+    // every click made from inside or through it.
+    let ghost: { guid: string; point: Vector3 } | null = null;
     for (const hit of hits) {
       if (hit.faceIndex === undefined || hit.faceIndex === null) continue;
       const view = this.batches[(hit.object.userData as { batch: number }).batch];
       if (!view) continue;
       const slot = view.workingSlots[hit.faceIndex];
       if (slot < 0) continue;
-      return { guid: set.slotGuid[slot], point: hit.point.clone() };
+      const guid = set.slotGuid[slot];
+      const entity = set.index.get(guid)?.entity;
+      if (entity !== undefined && UNPICKABLE.has(entity)) continue;
+      if (hit.faceIndex < view.matchedFaces) return { guid, point: hit.point.clone() };
+      ghost ??= { guid, point: hit.point.clone() };
     }
-    return null;
+    return ghost;
   }
 
   /* --------------------------------------------------------------- events */
@@ -709,6 +724,11 @@ export class ModelScene {
     }
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
+    // Inside the click slop nothing moves: a click is press+release with hand
+    // jitter, and that jitter must not turn the view. `drag.x/y` stay at the
+    // press point until the slop is crossed, so the first real step carries
+    // the whole distance and the drag does not lag the hand.
+    if (drag.moved <= DRAG_SLOP && Math.abs(dx) + Math.abs(dy) <= DRAG_SLOP) return;
     drag.x = event.clientX;
     drag.y = event.clientY;
     drag.moved += Math.abs(dx) + Math.abs(dy);
