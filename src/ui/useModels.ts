@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import type { MeshBatch, MeshBudget } from "../viewer/mesh-stream";
+import type { CheckResult } from "../engine/types";
 import type { ModelResult } from "../ids/evaluate.ts";
 import type { Ruleset } from "../ids/types.ts";
 import {
@@ -76,6 +77,10 @@ export interface ModelEntry {
   /** The mesh pass failed. Named and shown, never folded into the parse error
    *  and never left as a blank tile. */
   meshError?: string;
+  /** The checks as parsed, with no ruleset. A ruleset re-runs them (copy-object
+   *  exclusions, the floor config); clearing it puts these back, so a cleared
+   *  ruleset never leaves its filtered checks on the board. */
+  baseChecks?: CheckResult[];
   /** Present once a ruleset has been evaluated against this model. */
   evaluation?: ModelResult;
   evaluationError?: string;
@@ -249,7 +254,12 @@ function createController(setModels: SetModels): Controller {
       const message = event.data;
       if (message.kind === "parsed") {
         release();
-        patch(id, { state: "ready", report: message.report, profile: message.profile });
+        patch(id, {
+          state: "ready",
+          report: message.report,
+          profile: message.profile,
+          baseChecks: message.report.checks,
+        });
         const draft = drafts.get(id);
         if (draft) {
           draft.parsed = true;
@@ -560,6 +570,7 @@ function createController(setModels: SetModels): Controller {
         setModels((current) =>
           current.map((m) => ({
             ...m,
+            report: m.report && m.baseChecks ? { ...m.report, checks: m.baseChecks } : m.report,
             evaluating: false,
             evaluation: undefined,
             evaluationError: undefined,

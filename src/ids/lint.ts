@@ -707,6 +707,39 @@ export function lintRuleset(ruleset: Ruleset): LintIssue[] {
     add(ctx, "error", "info.date", "date-not-iso", "info/date must be YYYY-MM-DD");
   }
 
+  if (ruleset.storeys !== undefined) {
+    if (!Array.isArray(ruleset.storeys)) {
+      add(ctx, "error", "storeys", "storeys-not-array", "storeys must be an array");
+    } else {
+      const names = new Set<string>();
+      const levels = new Set<number>();
+      ruleset.storeys.forEach((storey, i) => {
+        const path = `storeys[${i}]`;
+        const name = typeof storey?.name === "string" ? storey.name : "";
+        if (name.trim() === "") {
+          add(ctx, "error", `${path}.name`, "storey-name-empty", "storey has no name");
+        } else {
+          if (name !== name.trim()) {
+            add(ctx, "warning", `${path}.name`, "storey-name-whitespace", `storey name "${name}" has leading or trailing whitespace`);
+          }
+          if (names.has(name)) {
+            add(ctx, "error", `${path}.name`, "storey-name-duplicate", `storey name "${name}" appears twice`);
+          }
+          names.add(name);
+        }
+        if (typeof storey?.elevation !== "number" || !Number.isFinite(storey.elevation)) {
+          add(ctx, "error", `${path}.elevation`, "storey-elevation-invalid", "storey elevation must be a number (metres)");
+        } else {
+          const key = Math.round(storey.elevation * 1000);
+          if (levels.has(key)) {
+            add(ctx, "warning", `${path}.elevation`, "storey-elevation-duplicate", `elevation ${storey.elevation} m appears twice`);
+          }
+          levels.add(key);
+        }
+      });
+    }
+  }
+
   const seen = new Set<string>();
   const roles = new Set<string>();
   const rules = Array.isArray(ruleset.rules) ? ruleset.rules : [];

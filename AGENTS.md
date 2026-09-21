@@ -18,6 +18,8 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   placement.ts   `mesh-placement`, the twelfth check: needs the streamed meshes,
                  so it runs beside `runFundamentals`, not inside it
   kpis.ts        the seven numbers on the board's KPI row
+  storey-config.ts  `storey-config`: file storeys against the ruleset's floor
+                 config (`storeys`)
 src/ui/          the screen, and the worker that drives the engine
   model-worker.ts  one Web Worker per file; keeps the parsed graph resident
                    so a ruleset dropped later evaluates without re-parsing
@@ -159,6 +161,32 @@ reason. Copy-object exclusions and openings are dropped exactly as in
 Not measurable: distance from an element's OWN placement origin. The core has
 a `drift` table (`drift_distance_m`) but the wasm build exposes only its row
 count.
+
+## `storey-config` — the floor config (Etasjeoppsett)
+
+The ruleset may carry `storeys: [{name, elevation}]` (elevation in METRES,
+author's order). Schema and lint cover it (`storey-name-empty`,
+`storey-name-duplicate`, `storey-elevation-invalid` are errors;
+`storey-name-whitespace`, `storey-elevation-duplicate` warnings). The setup
+page edits it as one more section; an empty list is removed, i.e. no config.
+
+DEVIATION, per model: every file storey must match one config floor exactly on
+name (case-sensitive, untrimmed) AND elevation (mm, after `unit_scale`,
+ifcfast#180). Findings: `storey-not-in-config`, `storey-name-mismatch` (right
+elevation, wrong name), `storey-elevation-mismatch` (right name, wrong
+elevation), `storey-name-whitespace` (matches only after trimming),
+`storey-duplicate-match`, and `storey-count-exceeds` (more storeys than the
+config; fewer is fine). A config floor a file lacks is absent, never a
+finding. No config loaded: `not_applicable`, never a pass. The parse runs it
+with no config; a ruleset re-runs it with the config; clearing the ruleset
+puts the parse-time checks back (`ModelEntry.baseChecks`).
+
+On the board the `storeys` tile renders `FloorSetupMatrix` when a config is
+loaded (rows = config floors, then unmatched file storeys; one column per
+loaded model; cells from the same `matchStoreys` the check uses), and the
+file's own roster otherwise. `check-cli.ts --ruleset <file>` supplies the
+config headlessly. `examples/knm.ruleset.json` carries no floor config: the
+KNM BEP §6.5 marks the elevations TBD ("working placeholders").
 
 ## The KPI row
 

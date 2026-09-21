@@ -17,6 +17,7 @@ import type {
   LintIssue,
   MappingRole,
   Ruleset,
+  StoreyConfig,
 } from "../ids/types.ts";
 import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
@@ -411,6 +412,123 @@ function MappingCard({
   );
 }
 
+/** The floor config: ordered floors, name + elevation in metres. Stored as the
+ *  ruleset's `storeys`, checked by `storey-config`. No defaults: the list
+ *  starts empty, and an empty list is no config. */
+function StoreyCard({
+  storeys,
+  issues,
+  lang,
+  onChange,
+}: {
+  storeys: StoreyConfig[];
+  issues: LintIssue[];
+  lang: Lang;
+  onChange: (next: StoreyConfig[]) => void;
+}) {
+  const invalid = (i: number, field: string) =>
+    issues.some((issue) => issue.path === `storeys[${i}].${field}` && issue.severity === "error");
+  const set = (i: number, patch: Partial<StoreyConfig>) =>
+    onChange(storeys.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  return (
+    <section className="flex flex-col gap-3 border border-line bg-panel p-3">
+      <h2 className="m-0 text-sm font-medium text-ink">{t("setup.storeys", lang)}</h2>
+      {storeys.length > 0 ? (
+        <div className="grid items-center gap-x-2 gap-y-1 [grid-template-columns:minmax(0,1fr)_9rem_auto]">
+          <span className={LABEL}>{t("field.storeyName", lang)}</span>
+          <span className={LABEL}>{t("field.storeyElevation", lang)}</span>
+          <span />
+          {storeys.map((storey, i) => (
+            <StoreyRow
+              key={i}
+              storey={storey}
+              lang={lang}
+              nameInvalid={invalid(i, "name")}
+              elevationInvalid={invalid(i, "elevation")}
+              onChange={(patch) => set(i, patch)}
+              onRemove={() => onChange(storeys.filter((_, j) => j !== i))}
+            />
+          ))}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => onChange([...storeys, { name: "", elevation: Number.NaN }])}
+        className="w-fit border border-line bg-input px-2 py-0.5 text-[12px] text-muted hover:border-green hover:text-green"
+      >
+        {t("action.addRow", lang)}
+      </button>
+      {issues.length > 0 ? (
+        <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+          {issues.map((i) => `${i.path}: ${i.message}`).join("\n")}
+        </pre>
+      ) : null}
+    </section>
+  );
+}
+
+/** The elevation keeps its own draft so "-" or "118," can be typed on the way
+ *  to a number; the ruleset gets the parsed value (NaN while incomplete, which
+ *  lint refuses, so an unfinished row cannot be downloaded). */
+function StoreyRow({
+  storey,
+  lang,
+  nameInvalid,
+  elevationInvalid,
+  onChange,
+  onRemove,
+}: {
+  storey: StoreyConfig;
+  lang: Lang;
+  nameInvalid: boolean;
+  elevationInvalid: boolean;
+  onChange: (patch: Partial<StoreyConfig>) => void;
+  onRemove: () => void;
+}) {
+  const shown = Number.isFinite(storey.elevation) ? String(storey.elevation) : "";
+  const [draft, setDraft] = useState(shown);
+  const [seen, setSeen] = useState(shown);
+  if (seen !== shown) {
+    setSeen(shown);
+    if (parseElevation(draft) !== storey.elevation) setDraft(shown);
+  }
+  return (
+    <>
+      <input
+        type="text"
+        className={INPUT}
+        aria-invalid={nameInvalid}
+        value={storey.name}
+        onChange={(e) => onChange({ name: e.target.value })}
+      />
+      <input
+        type="text"
+        inputMode="decimal"
+        className={INPUT + " text-right"}
+        aria-invalid={elevationInvalid}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onChange({ elevation: parseElevation(e.target.value) });
+        }}
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        className="px-2 py-0.5 text-[12px] text-muted hover:text-bad"
+      >
+        {t("action.remove", lang)}
+      </button>
+    </>
+  );
+}
+
+/** Comma or point decimal; anything else is NaN. */
+function parseElevation(text: string): number {
+  const clean = text.trim().replace(",", ".");
+  return clean === "" || !/^-?\d+(\.\d+)?$/.test(clean) ? Number.NaN : Number(clean);
+}
+
 export function SetupPage({
   lang,
   ruleset,
@@ -478,6 +596,16 @@ export function SetupPage({
         </button>
       </div>
       <div className="grid items-start justify-center gap-4 [grid-template-columns:repeat(auto-fit,minmax(340px,560px))]">
+        <StoreyCard
+          storeys={ruleset.storeys ?? []}
+          issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
+          lang={lang}
+          onChange={(storeys) => {
+            const next: Ruleset = { ...ruleset, storeys };
+            if (storeys.length === 0) delete next.storeys;
+            onChange(next);
+          }}
+        />
         {MAPPING_ROLES.map((role) => {
           const rule = mappingRule(ruleset, role);
           return (

@@ -60,6 +60,12 @@ const REASON_EN: Record<ReasonCode, (p: Record<string, string | number>) => stri
   "storey-mismatch": (p) =>
     `mesh bottom ${p.bottom} m, storey "${p.storey}" at ${p.elevation} m, expected "${p.expected}"`,
   "far-from-model": (p) => `mesh ${p.distance} m from the model's main body`,
+  "storey-not-in-config": (p) => `"${p.storey}" at ${p.elevation} m is not in the floor config`,
+  "storey-name-mismatch": (p) => `name "${p.storey}", config at this elevation is "${p.config}"`,
+  "storey-elevation-mismatch": (p) => `elevation ${p.elevation} m, config ${p.config} m`,
+  "storey-name-whitespace": (p) => `name "${p.storey}" matches "${p.config}" only after trimming whitespace`,
+  "storey-duplicate-match": (p) => `second storey matching config floor "${p.config}"`,
+  "storey-count-exceeds": (p) => `${p.count} storeys, config has ${p.config}`,
 };
 
 export function finding(

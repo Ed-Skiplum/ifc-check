@@ -83,6 +83,7 @@ const STRINGS = {
   "check.single-instance-types": { nb: "Type brukt én gang", en: "Single-instance type" },
   "check.element-material": { nb: "Materiale", en: "Material" },
   "check.mesh-placement": { nb: "Plassering", en: "Placement" },
+  "check.storey-config": { nb: "Etasjeoppsett", en: "Storey setup" },
 
   /* ---------------------------------------------------------------- tiles */
   "tile.verify": { nb: "Verifikasjon", en: "Verification" },
@@ -218,6 +219,10 @@ const STRINGS = {
   "field.copyMode": { nb: "Verditype", en: "Value type" },
   "field.copyMode.boolean": { nb: "Ja/Nei", en: "Yes/No" },
   "field.copyMode.codes": { nb: "Fagkoder", en: "Discipline codes" },
+  "setup.storeys": { nb: "Etasjeoppsett", en: "Storey setup" },
+  "field.storeyName": { nb: "Navn", en: "Name" },
+  "field.storeyElevation": { nb: "Kote (m)", en: "Elevation (m)" },
+  "action.addRow": { nb: "Legg til", en: "Add" },
 
   /* ---------------------------------------------------------------- errors */
   "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },

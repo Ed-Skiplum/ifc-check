@@ -190,6 +190,22 @@ export const RULESET_JSON_SCHEMA = {
         "does NOT gate which files a rule runs against.",
     },
     info: { $ref: "#/$defs/info" },
+    storeys: {
+      type: "array",
+      description:
+        "The project's floor config (Etasjeoppsett), in the author's order. Every " +
+        "storey in a model must match one entry exactly on name and elevation " +
+        "(mm), and a model may have fewer storeys but never more.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "elevation"],
+        properties: {
+          name: { type: "string", minLength: 1 },
+          elevation: { type: "number", description: "Metres." },
+        },
+      },
+    },
     rules: { type: "array", items: { $ref: "#/$defs/rule" } },
   },
 

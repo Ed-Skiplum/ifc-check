@@ -58,6 +58,8 @@ import { formatBytes, formatCount, formatMs } from "./format";
 import { aggregateTypes, meshIndex, TypeLedgerTile, type TypeLedger } from "./types";
 import { verdictOf } from "../engine/fundamentals";
 import { modelKpis } from "../engine/kpis";
+import type { FloorConfig } from "../engine/storey-config";
+import { FloorSetupMatrix, type FloorPeer } from "./FloorSetup";
 
 interface DashboardProps {
   lang: Lang;
@@ -75,6 +77,8 @@ interface DashboardProps {
   matched: Set<string> | null;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
+  floors: FloorConfig[] | null;
+  peers: FloorPeer[];
 }
 
 /** A project rule that speaks for a universal check. The same number reads
@@ -121,6 +125,8 @@ export function Dashboard({
   matched,
   onPick,
   onHover,
+  floors,
+  peers,
 }: DashboardProps) {
   const { ref, cols } = useBentoCols();
   const report = model.report;
@@ -162,6 +168,8 @@ export function Dashboard({
           matched,
           onPick,
           onHover,
+          floors,
+          peers,
         })
       : null;
 
@@ -190,6 +198,8 @@ interface BuildArgs {
   matched: Set<string> | null;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
+  floors: FloorConfig[] | null;
+  peers: FloorPeer[];
 }
 
 /** One builder per tile, as the three sprucelab instances do it: the page owns
@@ -207,6 +217,8 @@ function buildTiles({
   matched,
   onPick,
   onHover,
+  floors,
+  peers,
 }: BuildArgs): BentoTileSpec[] {
   const report = model.report!;
   const profile = model.profile!;
@@ -404,7 +416,14 @@ function buildTiles({
       span: wide ? { w: 8, h: 3 } : { w: 5, h: 2 },
       label: t("tile.storeys", lang),
       sub: formatCount(census.storeys.length, lang),
-      body: <StoreyRoster lang={lang} storeys={census.storeys} summary={summary} />,
+      // With a floor config loaded, the same tile carries the config against
+      // every loaded model's storeys; without one it is the file's own roster.
+      body:
+        floors && floors.length > 0 ? (
+          <FloorSetupMatrix lang={lang} config={floors} peers={peers} />
+        ) : (
+          <StoreyRoster lang={lang} storeys={census.storeys} summary={summary} />
+        ),
       click: {
         drill: {
           label: t("kpi.storeys", lang),

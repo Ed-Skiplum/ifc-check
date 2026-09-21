@@ -4,7 +4,10 @@
  * produce the counts they should against real models. Node 24 strips the types
  * natively, so this needs no build step and no extra dependency.
  *
- *   node scripts/check-cli.ts <model.ifc> [...]
+ *   node scripts/check-cli.ts [--ruleset <file.ruleset.json>] <model.ifc> [...]
+ *
+ * `--ruleset` supplies the floor config (`storeys`) for `storey-config`;
+ * without it that check is not_applicable.
  */
 
 import { readFileSync } from "node:fs";
@@ -17,6 +20,7 @@ import {
   type ElementBox,
 } from "../src/engine/placement.ts";
 import { modelKpis } from "../src/engine/kpis.ts";
+import { checkStoreyConfig, type FloorConfig } from "../src/engine/storey-config.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 const wasmDir = new URL("../vendor/ifcfast-wasm/", import.meta.url);
@@ -26,7 +30,15 @@ initSync({ module: readFileSync(new URL("ifcfast_wasm_bg.wasm", wasmDir)) });
 const VERDICT_WIDTH = 8;
 const STATE_WIDTH = 24;
 
-for (const path of process.argv.slice(2)) {
+const args = process.argv.slice(2);
+let floors: FloorConfig[] | undefined;
+const at = args.indexOf("--ruleset");
+if (at >= 0) {
+  floors = JSON.parse(readFileSync(args[at + 1], "utf-8")).storeys;
+  args.splice(at, 2);
+}
+
+for (const path of args) {
   const bytes = readFileSync(path);
   const name = basename(path);
 
@@ -44,7 +56,11 @@ for (const path of process.argv.slice(2)) {
 
   const summary = JSON.parse(model.summaryJson()) as IfcSummary;
   const graph = JSON.parse(model.graphJson()) as IfcGraph;
-  const checks = [...runFundamentals(graph, summary), checkMeshPlacement(graph, summary, boxes)];
+  const checks = [
+    ...runFundamentals(graph, summary),
+    checkStoreyConfig(graph, summary, floors),
+    checkMeshPlacement(graph, summary, boxes),
+  ];
   const openings = new Set(graph.voids.map((v) => v.opening_guid));
   const kpis = modelKpis({
     summary,

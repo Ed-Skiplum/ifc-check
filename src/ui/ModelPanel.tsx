@@ -28,6 +28,8 @@ import { census } from "./profile";
 import { Dashboard } from "./Dashboard";
 import { FilterBar } from "./FilterBar";
 import { RuleStrip } from "./RuleStrip";
+import type { FloorConfig } from "../engine/storey-config";
+import type { FloorPeer } from "./FloorSetup";
 
 interface ModelPanelProps {
   lang: Lang;
@@ -44,6 +46,10 @@ interface ModelPanelProps {
   onClearChips: () => void;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
+  /** The ruleset's floor config, or null when none is loaded. */
+  floors: FloorConfig[] | null;
+  /** Every loaded model's storeys, for the floor-config matrix. */
+  peers: FloorPeer[];
 }
 
 export function ModelPanel({
@@ -61,6 +67,8 @@ export function ModelPanel({
   onClearChips,
   onPick,
   onHover,
+  floors,
+  peers,
 }: ModelPanelProps) {
   const profile = model.profile;
   const facts = useMemo(() => (profile ? census(profile) : null), [profile]);
@@ -165,6 +173,8 @@ export function ModelPanel({
           matched={filter.matched}
           onPick={onPick}
           onHover={onHover}
+          floors={floors}
+          peers={peers}
         />
       ) : null}
 

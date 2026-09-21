@@ -20,6 +20,7 @@ import { useCrossFilter } from "./ui/cross-filter";
 import { Landing } from "./ui/Landing";
 import { ModelPanel } from "./ui/ModelPanel";
 import { TraceBand } from "./ui/TraceBand";
+import type { FloorPeer } from "./ui/FloorSetup";
 import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
 import { buildTrace, parseFocus, serialiseFocus, type Focus } from "./ui/trace";
 import { useHashView } from "./ui/useHashView";
@@ -126,6 +127,19 @@ export default function App() {
   ) : null;
 
   const claims = useMemo(() => kpiClaims(ruleset), [ruleset]);
+  const peers = useMemo<FloorPeer[]>(
+    () =>
+      models
+        .filter((m) => m.profile && m.report)
+        .map((m) => ({
+          id: m.id,
+          fileName: m.fileName,
+          storeys: m.profile!.storeys,
+          unitScale: m.report!.summary.unit_scale,
+          unitResolved: m.report!.summary.unit_resolved,
+        })),
+    [models],
+  );
   const focus = parseFocus(view.focus);
   const selectedModel = models.find((m) => m.id === view.model);
   const trace = selectedModel && focus ? buildTrace(selectedModel, focus) : null;
@@ -242,6 +256,8 @@ export default function App() {
                 onClearChips={() => cross.clearChips(model.id)}
                 onPick={(guid, additive) => cross.pick(model.id, guid, additive)}
                 onHover={(guid) => cross.setHover(model.id, guid)}
+                floors={ruleset?.storeys?.length ? ruleset.storeys : null}
+                peers={peers}
               />
             ))}
           </main>

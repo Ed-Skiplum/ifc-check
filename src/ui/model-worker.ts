@@ -20,6 +20,7 @@ import {
   unshiftBoxes,
   type ElementBox,
 } from "../engine/placement";
+import { checkStoreyConfig } from "../engine/storey-config";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import {
   MESH_PRODUCTS_PER_BATCH,
@@ -192,7 +193,11 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
       sizeBytes: bytes.byteLength,
       parseMs,
       summary,
-      checks: [...runFundamentals(graph, summary), checkMeshPlacement(graph, summary, boxes)],
+      checks: [
+        ...runFundamentals(graph, summary),
+        checkStoreyConfig(graph, summary, undefined),
+        checkMeshPlacement(graph, summary, boxes),
+      ],
     };
     send({ kind: "parsed", report, profile: withTypeFacts(profileOf(graph), graph), graph });
   } catch (err) {
@@ -218,6 +223,7 @@ function evaluate(ruleset: Ruleset) {
     const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
     const checks = [
       ...runFundamentals(heldGraph, heldSummary, excluded),
+      checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
     ];
     send({ kind: "evaluated", result, checks });

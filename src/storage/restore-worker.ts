@@ -18,6 +18,7 @@
 
 import { runFundamentals } from "../engine/fundamentals.ts";
 import { checkMeshPlacement, type ElementBox } from "../engine/placement.ts";
+import { checkStoreyConfig } from "../engine/storey-config.ts";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import { evaluateRuleset } from "../ids/evaluate.ts";
 import type { ModelGraph, ModelSummary } from "../ids/model.ts";
@@ -70,6 +71,7 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
       summary: request.summary,
       checks: [
         ...runFundamentals(request.graph, request.summary),
+        checkStoreyConfig(request.graph, request.summary, undefined),
         checkMeshPlacement(request.graph, request.summary, heldBoxes, undefined, heldNoGeometry),
       ],
     };
@@ -102,6 +104,7 @@ function evaluate(ruleset: Ruleset) {
     const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
     const checks: CheckResult[] = [
       ...runFundamentals(heldGraph, heldSummary, excluded),
+      checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded, heldNoGeometry),
     ];
     post({ kind: "evaluated", result, checks });

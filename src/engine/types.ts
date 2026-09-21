@@ -160,7 +160,13 @@ export type ReasonCode =
   | "no-material"
   | "guid-duplicate"
   | "storey-mismatch"
-  | "far-from-model";
+  | "far-from-model"
+  | "storey-not-in-config"
+  | "storey-name-mismatch"
+  | "storey-elevation-mismatch"
+  | "storey-name-whitespace"
+  | "storey-duplicate-match"
+  | "storey-count-exceeds";
 
 export interface Finding {
   /** Full GlobalId. Never truncate this for display. */

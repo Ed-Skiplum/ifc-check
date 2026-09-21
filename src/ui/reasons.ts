@@ -81,6 +81,30 @@ const REASONS: Record<ReasonCode, Record<Lang, Render>> = {
     nb: (p) => `geometri ${p.distance} m fra modellens hovedvolum`,
     en: (p) => `mesh ${p.distance} m from the model's main body`,
   },
+  "storey-not-in-config": {
+    nb: (p) => `«${p.storey}» på ${p.elevation} m finnes ikke i etasjeoppsettet`,
+    en: (p) => `"${p.storey}" at ${p.elevation} m is not in the floor config`,
+  },
+  "storey-name-mismatch": {
+    nb: (p) => `navn «${p.storey}», etasjeoppsettet har «${p.config}» på denne koten`,
+    en: (p) => `name "${p.storey}", config at this elevation is "${p.config}"`,
+  },
+  "storey-elevation-mismatch": {
+    nb: (p) => `kote ${p.elevation} m, etasjeoppsettet ${p.config} m`,
+    en: (p) => `elevation ${p.elevation} m, config ${p.config} m`,
+  },
+  "storey-name-whitespace": {
+    nb: (p) => `navn «${p.storey}» er lik «${p.config}» bare uten mellomrom i endene`,
+    en: (p) => `name "${p.storey}" matches "${p.config}" only after trimming whitespace`,
+  },
+  "storey-duplicate-match": {
+    nb: (p) => `andre etasje som treffer «${p.config}» i etasjeoppsettet`,
+    en: (p) => `second storey matching config floor "${p.config}"`,
+  },
+  "storey-count-exceeds": {
+    nb: (p) => `${p.count} etasjer, etasjeoppsettet har ${p.config}`,
+    en: (p) => `${p.count} storeys, config has ${p.config}`,
+  },
 };
 
 export function reasonText(finding: Finding, lang: Lang): string {

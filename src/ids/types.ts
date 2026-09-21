@@ -312,6 +312,14 @@ export interface RulesetInfo {
   milestone?: string;
 }
 
+/** One floor of the project's floor config (Etasjeoppsett). Order is the
+ *  author's; `elevation` in METRES. Checked by `storey-config`
+ *  (src/engine/storey-config.ts). */
+export interface StoreyConfig {
+  name: string;
+  elevation: number;
+}
+
 export interface Ruleset {
   /** Bumped only on a breaking change to this format. */
   formatVersion: 1;
@@ -321,6 +329,9 @@ export interface Ruleset {
    *  not gate which files a rule runs against. */
   ifcVersions: IfcVersion[];
   info?: RulesetInfo;
+  /** The project's floors. Absent or empty = no floor config: the
+   *  `storey-config` check is then not_applicable. */
+  storeys?: StoreyConfig[];
   rules: Rule[];
 }
 
