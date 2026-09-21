@@ -25,6 +25,32 @@ export function LangToggle({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) 
   );
 }
 
+export function SetupToggle({
+  lang,
+  open,
+  onToggle,
+}: {
+  lang: Lang;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={open}
+      onClick={onToggle}
+      className={
+        "border px-2 py-1 text-[12px] " +
+        (open
+          ? "border-green bg-green text-cream"
+          : "border-line bg-input text-ink hover:border-green hover:text-green")
+      }
+    >
+      {t("action.setup", lang)}
+    </button>
+  );
+}
+
 interface AppBarProps {
   lang: Lang;
   onLang: (lang: Lang) => void;
@@ -36,6 +62,8 @@ interface AppBarProps {
   onRulesetFile: (file: File) => void;
   onClearRuleset: () => void;
   draggingRuleset: boolean;
+  setupOpen: boolean;
+  onSetup: () => void;
 }
 
 export function AppBar({
@@ -49,6 +77,8 @@ export function AppBar({
   onRulesetFile,
   onClearRuleset,
   draggingRuleset,
+  setupOpen,
+  onSetup,
 }: AppBarProps) {
   const ifcInput = useRef<HTMLInputElement>(null);
   const rulesetInput = useRef<HTMLInputElement>(null);
@@ -152,7 +182,8 @@ export function AppBar({
         }}
       />
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-3">
+        <SetupToggle lang={lang} open={setupOpen} onToggle={onSetup} />
         <LangToggle lang={lang} onLang={onLang} />
       </div>
     </header>

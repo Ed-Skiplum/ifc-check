@@ -589,6 +589,25 @@ function typeSubjects(
   }));
 }
 
+/** What a code-lookup checks codes against: a bundled list, or the project's
+ *  own `values`. One code path for both, so the findings read the same. */
+function resolveLookup(check: CodeLookupCheck): { label: string; has: (code: string) => boolean } {
+  if (check.values !== undefined) {
+    const allowed = new Set(check.values);
+    return { label: `the allowed values (${check.values.join(", ")})`, has: (c) => allowed.has(c) };
+  }
+  const list =
+    check.list === undefined
+      ? undefined
+      : (CODE_LISTS as Record<string, CodeList | undefined>)[check.list];
+  if (!list) {
+    throw new Unsupported(
+      `code list "${String(check.list)}" is not bundled; bundled lists are ${CODE_LIST_IDS.join(", ")}`,
+    );
+  }
+  return { label: list.meta.label, has: (c) => Object.hasOwn(list.codes, c) };
+}
+
 function codeLookup(
   check: CodeLookupCheck,
   select: Selector,
@@ -600,12 +619,7 @@ function codeLookup(
   notes: string[],
   maxFindings: number,
 ): Omit<RuleResult, "ruleId" | "ruleName" | "kind"> {
-  const list = (CODE_LISTS as Record<string, CodeList | undefined>)[check.list];
-  if (!list) {
-    throw new Unsupported(
-      `code list "${check.list}" is not bundled; bundled lists are ${CODE_LIST_IDS.join(", ")}`,
-    );
-  }
+  const lookup = resolveLookup(check);
   const source = check.source;
   if ("property" in source) {
     throw new Unsupported(
@@ -655,7 +669,7 @@ function codeLookup(
     };
   }
 
-  const label = list.meta.label;
+  const label = lookup.label;
   let missing = 0;
   let noMatch = 0;
   let unknown = 0;
@@ -671,7 +685,7 @@ function codeLookup(
       if (code === undefined || code === "") {
         noMatch += 1;
         reason = `${attribute} "${value}" does not match ${check.extract}`;
-      } else if (!Object.hasOwn(list.codes, code)) {
+      } else if (!lookup.has(code)) {
         unknown += 1;
         reason = `code "${code}" from ${attribute} "${value}" is not in ${label}`;
       }

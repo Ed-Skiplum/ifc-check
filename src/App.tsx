@@ -12,7 +12,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Ruleset } from "./ids/types.ts";
-import { AppBar, LangToggle } from "./ui/AppBar";
+import { AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
+import { SetupPage } from "./ui/SetupPage";
 import { kpiClaims } from "./ui/claims";
 import { useCrossFilter } from "./ui/cross-filter";
 import { DropTarget } from "./ui/DropTarget";
@@ -22,6 +23,13 @@ import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
 import { buildTrace, parseFocus, serialiseFocus, type Focus } from "./ui/trace";
 import { useHashView } from "./ui/useHashView";
 import { isAcceptedFile, useModels } from "./ui/useModels";
+
+const EMPTY_RULESET: Ruleset = {
+  formatVersion: 1,
+  name: "",
+  ifcVersions: ["IFC4"],
+  rules: [],
+};
 
 export default function App() {
   const [view, setView] = useHashView();
@@ -85,6 +93,36 @@ export default function App() {
     if (view.focus?.startsWith("rule:")) setView({ focus: null });
   }, [applyRuleset, setView, view.focus]);
 
+  // The setup page edits the ruleset in place and the board re-evaluates on
+  // every change. The evaluator answers a half-filled mapping with its own
+  // states (not_evaluable, a finding per subject); the lint issues show on the
+  // page, and a ruleset with lint errors cannot be downloaded.
+  const editRuleset = useCallback(
+    (next: Ruleset) => {
+      setRuleset(next);
+      setRulesetError(null);
+      setRulesetName((name) => name ?? `${next.name || "regelsett"}.ruleset.json`);
+      applyRuleset(next);
+    },
+    [applyRuleset],
+  );
+  const setupOpen = view.page === "setup";
+  const toggleSetup = useCallback(
+    () => setView({ page: setupOpen ? null : "setup" }),
+    [setView, setupOpen],
+  );
+  const setupFileName = rulesetName && /\.json$/i.test(rulesetName)
+    ? rulesetName
+    : `${(rulesetName ?? ruleset?.name ?? "regelsett").replace(/\.(ids|xml)$/i, "")}.ruleset.json`;
+  const setupPage = setupOpen ? (
+    <SetupPage
+      lang={view.lang}
+      ruleset={ruleset ?? EMPTY_RULESET}
+      fileName={setupFileName}
+      onChange={editRuleset}
+    />
+  ) : null;
+
   const claims = useMemo(() => kpiClaims(ruleset), [ruleset]);
   const focus = parseFocus(view.focus);
   const selectedModel = models.find((m) => m.id === view.model);
@@ -132,10 +170,13 @@ export default function App() {
     >
       {models.length === 0 ? (
         <>
-          <div className="flex shrink-0 justify-end p-3">
+          <div className="flex shrink-0 justify-end gap-3 p-3">
+            <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
             <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
           </div>
-          <DropTarget lang={view.lang} dragging={dragging > 0} onFiles={takeFiles} />
+          {setupPage ?? (
+            <DropTarget lang={view.lang} dragging={dragging > 0} onFiles={takeFiles} />
+          )}
         </>
       ) : (
         <>
@@ -150,6 +191,8 @@ export default function App() {
             onRulesetFile={(file) => void loadRuleset(file)}
             onClearRuleset={clearRuleset}
             draggingRuleset={dragging > 0}
+            setupOpen={setupOpen}
+            onSetup={toggleSetup}
           />
 
           {rulesetError ? (
@@ -158,6 +201,7 @@ export default function App() {
             </pre>
           ) : null}
 
+          {setupPage ?? (
           <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto px-4 py-3">
             {models.map((model) => (
               <ModelPanel
@@ -179,8 +223,9 @@ export default function App() {
               />
             ))}
           </main>
+          )}
 
-          {trace ? (
+          {!setupOpen && trace ? (
             <TraceBand
               // A different target is a different list: remount so it starts
               // at the top.

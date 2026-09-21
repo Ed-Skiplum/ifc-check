@@ -14,8 +14,10 @@ export {
   specificationNode,
 } from "./emit.ts";
 export {
+  BOOLEAN_VALUES,
   CLASS_GROUPS,
   IFC_VERSIONS,
+  MAPPING_ROLES,
   PART_OF_RELATIONS,
   hasErrors,
   lintRuleset,

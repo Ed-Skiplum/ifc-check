@@ -109,9 +109,13 @@ function CodeLookupFields({
         <label className="rb-row">
           <span className="rb-label">{t("check.list", lang)}</span>
           <select
-            value={check.list}
+            value={check.list ?? ""}
             onChange={(e) =>
-              onChange({ ...check, list: e.target.value as CodeLookupCheck["list"] })
+              onChange({
+                ...check,
+                list: e.target.value as CodeLookupCheck["list"],
+                values: undefined,
+              })
             }
           >
             {CODE_LIST_IDS.map((id) => (

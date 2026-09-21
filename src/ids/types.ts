@@ -242,7 +242,11 @@ export type CodeSource =
  *  element uses is never checked, and only its Name is readable. */
 export interface CodeLookupCheck {
   type: "code-lookup";
-  list: CodeListId;
+  /** A bundled code list. Exactly one of `list` and `values`. */
+  list?: CodeListId;
+  /** The project's own allowed codes, when no bundled list applies. Exactly
+   *  one of `list` and `values`. */
+  values?: string[];
   target?: "occurrence" | "type";
   source: CodeSource;
   /** JavaScript regular expression with exactly one capture group; the group
@@ -259,8 +263,24 @@ export type ExtendedCheck =
 
 export type ExtendedCheckType = ExtendedCheck["type"];
 
+/** The project mappings: where in the IFC a project reads the concepts every
+ *  project has but each one stores differently. A mapping is not a separate
+ *  construct, it is a role on a code-lookup rule, so it runs through the same
+ *  evaluator as any other rule. At most one rule per role.
+ *
+ *  - `system-classification`, `component-classification`: a bundled `list`.
+ *  - `progress-code`: the project's allowed `values`.
+ *  - `copy-object`: `values` exactly `true`, `false` — a boolean read as text. */
+export type MappingRole =
+  | "system-classification"
+  | "component-classification"
+  | "progress-code"
+  | "copy-object";
+
 export interface ExtendedRule extends RuleBase {
   kind: "extended";
+  /** Set when this rule is one of the project mappings. code-lookup only. */
+  mapping?: MappingRole;
   /** Omitted for model-metadata; optional for code-lookup (omitted selects
    *  everything); required for every other element-scoped check. */
   select?: Selector;

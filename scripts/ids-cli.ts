@@ -346,6 +346,85 @@ async function cmdSelftest(): Promise<number> {
     );
   }
 
+  // The project mappings ride on code-lookup; the example config must stay
+  // valid, and each constraint a mapping adds must actually refuse.
+  const knm = JSON.parse(
+    readFileSync(new URL("../examples/knm.ruleset.json", import.meta.url), "utf8"),
+  ) as Ruleset;
+  record(
+    "examples/knm.ruleset.json lints clean and validates",
+    "0 errors / valid",
+    `${lintRuleset(knm).filter((i) => i.severity === "error").length} errors / ` +
+      (shapeErrors(knm).length === 0 ? "valid" : "invalid"),
+  );
+  const mappingRule = (mapping: string, check: Record<string, unknown>, id = mapping) => ({
+    id,
+    kind: "extended",
+    name: id,
+    mapping,
+    check: { type: "code-lookup", source: { attribute: "ObjectType" }, extract: "^(.+)$", ...check },
+  });
+  const withRules = (rules: unknown[]) => ({ ...SAMPLE_RULESET, rules }) as unknown as Ruleset;
+  const lintCodes = (ruleset: Ruleset) =>
+    lintRuleset(ruleset).filter((i) => i.severity === "error").map((i) => i.code).join(",") || "none";
+  const mappingNegatives: [string, Ruleset, string][] = [
+    ["one mapping on two rules", withRules([
+      mappingRule("progress-code", { values: ["300"] }, "a"),
+      mappingRule("progress-code", { values: ["300"] }, "b"),
+    ]), "mapping-duplicate"],
+    ["a classification mapping without a list", withRules([
+      mappingRule("system-classification", { values: ["x"] }),
+    ]), "mapping-list"],
+    ["a copy-object mapping that is not boolean", withRules([
+      mappingRule("copy-object", { values: ["ja", "nei"] }),
+    ]), "mapping-boolean"],
+    ["a code-lookup with both list and values", withRules([
+      mappingRule("progress-code", { values: ["300"], list: "ns3457-8" }),
+    ]), "code-list-shape"],
+    ["an empty values list", withRules([mappingRule("progress-code", { values: [] })]), "code-values-empty"],
+  ];
+  for (const [name, ruleset, code] of mappingNegatives) {
+    record(`lint rejects: ${name}`, code, lintCodes(ruleset));
+  }
+  record(
+    "JSON Schema rejects: code-lookup with neither list nor values",
+    "rejected",
+    shapeErrors(withRules([mappingRule("progress-code", {})])).length > 0 ? "rejected" : "accepted",
+  );
+
+  // Evaluation of a values lookup on a synthetic model: one value in the list,
+  // one outside it, one empty. A property source stays not_evaluable (#183).
+  const wall = (guid: string, objectType: string | null) => ({
+    guid, entity: "IFCWALL", name: guid, predefined_type: null, object_type: objectType,
+    tag: null, storey_guid: null, parent_guid: null, type_name: null, typed: false,
+    materials: [], is_external: null, fire_rating: null, load_bearing: null,
+  });
+  const graph: ModelGraph = {
+    schema: "IFC4",
+    products: [wall("w1", "300"), wall("w2", "250"), wall("w3", null)],
+    contained_in: [], aggregates: [], voids: [], storeys: [], buildings: [], sites: [], spaces: [],
+  };
+  const summary: ModelSummary = {
+    schema: "IFC4", length_unit: "METRE", unit_scale: 1, unit_resolved: true,
+    authoring_app: null, project_name: null, duplicate_step_ids: 0, products: 3,
+  };
+  const synthetic = evaluateRuleset(withRules([
+    mappingRule("progress-code", { values: ["300", "400"] }),
+    { ...mappingRule("copy-object", { values: ["true", "false"], extract: "^(.*)$" }),
+      check: { type: "code-lookup", values: ["true", "false"], extract: "^(.*)$",
+        source: { property: { propertySet: "P", name: "B" } } } },
+  ]), graph, summary, "synthetic");
+  const [progress, copy] = synthetic.results;
+  record(
+    "values lookup: in list passes, outside list and empty fail",
+    "fail 3/2 [not in values, empty]",
+    `${progress.state} ${progress.applicable}/${progress.failed} [` +
+      progress.findings
+        .map((f) => (f.reason.endsWith("is empty") ? "empty" : f.reason.includes("is not in the allowed values") ? "not in values" : f.reason))
+        .join(", ") + "]",
+  );
+  record("property-sourced mapping is not_evaluable", "not_evaluable", copy.state);
+
   const result = exportRuleset(SAMPLE_RULESET);
   const { included, excluded } = partitionRules(SAMPLE_RULESET);
   record("sample splits into both kinds", "6 ids / 4 excluded", `${included.length} ids / ${excluded.length} excluded`);

@@ -349,6 +349,18 @@ export const RULESET_JSON_SCHEMA = {
         description: { type: "string" },
         instructions: { type: "string" },
         enabled: { type: "boolean", default: true },
+        mapping: {
+          enum: [
+            "system-classification",
+            "component-classification",
+            "progress-code",
+            "copy-object",
+          ],
+          description:
+            "Marks this rule as one of the project mappings. code-lookup only, at " +
+            "most one rule per mapping. The two classifications take a list, " +
+            "progress-code takes values, copy-object takes values true, false.",
+        },
         select: { $ref: "#/$defs/selector" },
         check: { $ref: "#/$defs/extendedCheck" },
       },
@@ -420,15 +432,23 @@ export const RULESET_JSON_SCHEMA = {
         {
           type: "object",
           additionalProperties: false,
-          required: ["type", "list", "source", "extract"],
+          required: ["type", "source", "extract"],
+          oneOf: [{ required: ["list"] }, { required: ["values"] }],
           description:
-            "Extract a code from a value and look it up in a bundled code list. " +
+            "Extract a code from a value and look it up in a bundled code list, or " +
+            "in the project's own values. " +
             "Not IDS: a restriction tests the whole value. target 'type' checks " +
             "the types of the selected elements, one per type Name; a type no " +
             "element uses is not reachable.",
           properties: {
             type: { const: "code-lookup" },
             list: { enum: [...CODE_LIST_IDS] },
+            values: {
+              type: "array",
+              minItems: 1,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1 },
+            },
             target: { enum: ["occurrence", "type"], default: "occurrence" },
             source: {
               description:

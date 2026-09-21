@@ -23,6 +23,7 @@ src/ui/          the screen, and the worker that drives the engine
                    layouts and the container-query track ladder
   Verification.tsx the focal tile: one row per universal check
   forms.tsx        the supporting tiles (gauge, distribution, roster, readouts)
+  SetupPage.tsx    the project mappings page (`#page=setup`)
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
 src/codelists/   bundled code lists (code -> name), generated; lookups only
@@ -276,6 +277,9 @@ built to avoid.
   "source": { "attribute": "Name" }, "extract": "^([A-Z]{2,3})-\\d{2}$" }
 ```
 
+- Exactly one of `list` and `values`. `values` is the project's own list of
+  allowed codes (lint rejects an empty list; the finding reads `is not in the
+  allowed values (...)`). Same evaluator path as a bundled list.
 - `list` names a bundled list in `src/codelists/`. Only `ns3457-8` ships
   (NS 3457-8:2021, 909 codes, all three levels). Each generated module carries
   its provenance in `meta`: source file, SHA-256, date, count. Lookups only:
@@ -314,6 +318,51 @@ regex, zero and two capture groups. The builder fields are type-checked and
 built, not exercised in a browser.
 
 Example project config: `examples/knm.ruleset.json`.
+
+### Project mappings
+
+Where a project stores the concepts every project has. A mapping is a role
+on a `code-lookup` extended rule, `"mapping": "<role>"`, not a construct of
+its own: it lives in the ruleset, round-trips through the JSON as-is, and is
+evaluated by the same `codeLookup` path. At most one rule per role (lint
+`mapping-duplicate`).
+
+| `mapping` | header (POFIN) | lookup | lint |
+|---|---|---|---|
+| `system-classification` | Systemkode | `list` | `mapping-list` |
+| `component-classification` | Komponentklasse | `list` | `mapping-list` |
+| `progress-code` | Prosesstatuskode (MMI) | `values` (the project's codes) | `mapping-values` |
+| `copy-object` | Duplikat objekt | `values` exactly `true`, `false` | `mapping-boolean` |
+
+Headers are from POFIN 2.1 EIR bygg, "Veiledning til krav til alfanumerisk
+informasjon" (`resources/standards/pofin/02-1-eir-bygg.md`). POFIN has no
+header for component classification; it names NS 3457-8 "komponentklasser"
+under Objekttypenavn and Forekomst, so the header is Komponentklasse.
+
+**POFIN's Duplikat objekt is not a boolean.** Its value is the fagkode of the
+discipline that owns the object (`NONS_Process.DuplicateOwnedBy: RIV`).
+`copy-object` checks a boolean because that is what was asked for (the
+G55-style `Referanseobjekt` Ja/Nei flag); a model following POFIN literally
+fails it on every object. Unresolved.
+
+`true`/`false` is how this tool renders an IFC BOOLEAN (the flattened
+IsExternal/LoadBearing do the same) and the xs:boolean form IDS uses.
+
+The setup page (`#page=setup`, "Oppsett") has one card per role. A card
+creates its rule on first enable (id = the role, `select` physicalElement,
+the rule builder's blank source and extract), and turning it off sets
+`enabled: false`, keeping what was entered. Edits apply to the loaded models
+at once. Lint issues for a card's rule print on the card; a ruleset with lint
+errors cannot be downloaded. A property or classification source shows the
+board's own `Kan ikke vurderes` state with `ifcfast#183`. Built and
+type-checked; **not exercised in a browser.**
+
+Verified headlessly: `selftest` asserts each mapping lint refusal, the schema
+refusal of a code-lookup with neither list nor values, a values lookup on a
+synthetic model (in list passes, outside and empty fail) and a property-sourced
+mapping as `not_evaluable`. `examples/knm.ruleset.json` expresses its NS 3457-8
+type-name rule as `component-classification`; `run` on KNM_ARK / RIV / RIB is
+byte-identical to before the mapping was added (84/84, 4/4, 2/2 no match).
 
 ### Things the format prevents
 

@@ -16,6 +16,8 @@ export interface ViewState {
   model: string | null;
   /** Serialised drill target within that model, or null. See ui/trace.ts. */
   focus: string | null;
+  /** A page other than the board, or null. */
+  page: "setup" | null;
 }
 
 function isLang(value: string | null): value is Lang {
@@ -49,7 +51,12 @@ function parse(): ViewState {
     lang: initialLang(hash),
     model: hash.get("model"),
     focus: hash.get("focus"),
+    page: readPage(hash),
   };
+}
+
+function readPage(hash: URLSearchParams): ViewState["page"] {
+  return hash.get("page") === "setup" ? "setup" : null;
 }
 
 function serialise(view: ViewState): string {
@@ -57,6 +64,7 @@ function serialise(view: ViewState): string {
   params.set("lang", view.lang);
   if (view.model) params.set("model", view.model);
   if (view.focus) params.set("focus", view.focus);
+  if (view.page) params.set("page", view.page);
   return `#${params.toString()}`;
 }
 
@@ -81,6 +89,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         lang: isLang(lang) ? lang : current.lang,
         model: hash.get("model"),
         focus: hash.get("focus"),
+        page: readPage(hash),
       }));
     };
     window.addEventListener("hashchange", onHashChange);
@@ -117,6 +126,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         lang: isLang(lang) ? lang : current.lang,
         model: hash.get("model"),
         focus: hash.get("focus"),
+        page: readPage(hash),
       }));
     };
     window.addEventListener("popstate", onPopState);

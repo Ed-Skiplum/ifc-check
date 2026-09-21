@@ -14,9 +14,11 @@ import type {
   ClassGroup,
   CodeLookupCheck,
   EntityFacet,
+  ExtendedRule,
   IdsValue,
   IfcVersion,
   LintIssue,
+  MappingRole,
   PartOfRelation,
   Requirements,
   Restriction,
@@ -487,6 +489,7 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
     checkValue(ctx, `${path}.check.value`, check.value);
     return;
   }
+  if (rule.mapping !== undefined) checkMapping(ctx, path, rule);
   if (check.type === "code-lookup") {
     checkCodeLookup(ctx, path, check);
     if (rule.select) {
@@ -535,7 +538,18 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
 }
 
 function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
-  if (!(CODE_LIST_IDS as string[]).includes(check.list)) {
+  const hasList = check.list !== undefined;
+  const hasValues = check.values !== undefined;
+  if (hasList === hasValues) {
+    add(
+      ctx,
+      "error",
+      `${path}.check`,
+      "code-list-shape",
+      "code-lookup needs exactly one of list or values",
+    );
+  }
+  if (hasList && !(CODE_LIST_IDS as string[]).includes(check.list as string)) {
     add(
       ctx,
       "error",
@@ -543,6 +557,20 @@ function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
       "code-list-unknown",
       `code list "${String(check.list)}" is not bundled; bundled lists are ${CODE_LIST_IDS.join(", ")}`,
     );
+  }
+  if (hasValues) {
+    const values = check.values;
+    if (!Array.isArray(values) || values.length === 0) {
+      add(ctx, "error", `${path}.check.values`, "code-values-empty", "values lists no code");
+    } else {
+      values.forEach((value, i) => {
+        if (typeof value !== "string" || value === "") {
+          add(ctx, "error", `${path}.check.values[${i}]`, "code-value-empty", "empty code in values");
+        } else if (values.indexOf(value) !== i) {
+          add(ctx, "warning", `${path}.check.values[${i}]`, "code-value-duplicate", `"${value}" is listed twice`);
+        }
+      });
+    }
   }
   const source = (check.source ?? {}) as Record<string, unknown>;
   const keys = Object.keys(source);
@@ -554,6 +582,16 @@ function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
       "code-source-shape",
       "source needs exactly one of attribute, property or classification",
     );
+  } else if (keys[0] === "attribute" && !source.attribute) {
+    add(ctx, "error", `${path}.check.source.attribute`, "code-source-empty", "source names no attribute");
+  } else if (keys[0] === "property") {
+    const property = (source.property ?? {}) as { propertySet?: string; name?: string };
+    if (!property.propertySet) {
+      add(ctx, "error", `${path}.check.source.property.propertySet`, "code-source-empty", "source names no property set");
+    }
+    if (!property.name) {
+      add(ctx, "error", `${path}.check.source.property.name`, "code-source-empty", "source names no property");
+    }
   }
   let groups = -1;
   try {
@@ -576,6 +614,45 @@ function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
       "extract-groups",
       `extract has ${groups} capture groups; it needs exactly one, the code`,
     );
+  }
+}
+
+export const MAPPING_ROLES: MappingRole[] = [
+  "system-classification",
+  "component-classification",
+  "progress-code",
+  "copy-object",
+];
+
+/** The values a copy-object mapping checks against: an IFC BOOLEAN as this
+ *  tool renders it, the xs:boolean lexical form IDS uses. */
+export const BOOLEAN_VALUES = ["true", "false"] as const;
+
+/** A mapping is a role on a code-lookup rule; each role fixes which half of
+ *  the lookup it uses. */
+function checkMapping(ctx: Ctx, path: string, rule: ExtendedRule): void {
+  const role = rule.mapping as string;
+  if (!(MAPPING_ROLES as string[]).includes(role)) {
+    add(ctx, "error", `${path}.mapping`, "mapping-unknown", `unknown mapping "${role}"; mappings are ${MAPPING_ROLES.join(", ")}`);
+    return;
+  }
+  const check = rule.check;
+  if (check.type !== "code-lookup") {
+    add(ctx, "error", `${path}.mapping`, "mapping-check", `mapping ${role} needs a code-lookup check, not ${check.type}`);
+    return;
+  }
+  if (role === "system-classification" || role === "component-classification") {
+    if (check.list === undefined) {
+      add(ctx, "error", `${path}.check.list`, "mapping-list", `mapping ${role} reads a bundled code list; set list`);
+    }
+  } else if (check.values === undefined) {
+    add(ctx, "error", `${path}.check.values`, "mapping-values", `mapping ${role} checks against values; set values`);
+  } else if (
+    role === "copy-object" &&
+    (check.values.length !== BOOLEAN_VALUES.length ||
+      !BOOLEAN_VALUES.every((v) => check.values?.includes(v)))
+  ) {
+    add(ctx, "error", `${path}.check.values`, "mapping-boolean", `mapping copy-object checks a boolean; values must be ${BOOLEAN_VALUES.join(", ")}`);
   }
 }
 
@@ -618,6 +695,7 @@ export function lintRuleset(ruleset: Ruleset): LintIssue[] {
   }
 
   const seen = new Set<string>();
+  const roles = new Set<string>();
   const rules = Array.isArray(ruleset.rules) ? ruleset.rules : [];
   rules.forEach((rule, index) => {
     ctx.ruleId = rule?.id ?? null;
@@ -628,6 +706,12 @@ export function lintRuleset(ruleset: Ruleset): LintIssue[] {
       seen.add(rule.id);
     }
     checkRule(ctx, rule, index, ruleset);
+    if (rule?.kind === "extended" && rule.mapping !== undefined) {
+      if (roles.has(rule.mapping)) {
+        add(ctx, "error", `rules[${index}].mapping`, "mapping-duplicate", `mapping ${rule.mapping} is set on more than one rule`);
+      }
+      roles.add(rule.mapping);
+    }
   });
   ctx.ruleId = null;
   if (rules.length === 0) {

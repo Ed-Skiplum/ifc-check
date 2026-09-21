@@ -178,6 +178,31 @@ const STRINGS = {
   "type.geometryUnread": { nb: "ikke lest", en: "not read" },
   "type.geometryCapped": { nb: "begrenset", en: "capped" },
 
+  /* ------------------------------------------------------------- setup */
+  // Mapping headers are the POFIN names (EIR bygg, alfanumerisk informasjon):
+  // Systemkode, Prosesstatuskode (MMI), Duplikat objekt, and NS 3457-8
+  // komponentklasser. Field labels match the rule builder's (builder/strings.ts).
+  "action.setup": { nb: "Oppsett", en: "Setup" },
+  "action.download": { nb: "Last ned", en: "Download" },
+  "mapping.system-classification": { nb: "Systemkode", en: "System code" },
+  "mapping.component-classification": { nb: "Komponentklasse", en: "Component class" },
+  "mapping.progress-code": { nb: "Prosesstatuskode (MMI)", en: "Process status code (MMI)" },
+  "mapping.copy-object": { nb: "Duplikat objekt", en: "Duplicate object" },
+  "field.enabled": { nb: "Aktiv", en: "Enabled" },
+  "field.list": { nb: "Kodeliste", en: "Code list" },
+  "field.target": { nb: "Gjelder", en: "Applies to" },
+  "field.target.occurrence": { nb: "Forekomster", en: "Occurrences" },
+  "field.target.type": { nb: "Typer", en: "Types" },
+  "field.source": { nb: "Kilde", en: "Source" },
+  "field.source.attribute": { nb: "Attributt", en: "Attribute" },
+  "field.source.property": { nb: "Egenskap", en: "Property" },
+  "field.source.classification": { nb: "Klassifikasjon", en: "Classification" },
+  "field.propertySet": { nb: "Egenskapssett", en: "Property set" },
+  "field.propertyName": { nb: "Egenskapsnavn", en: "Property name" },
+  "field.system": { nb: "System", en: "System" },
+  "field.extract": { nb: "Uttrekk (regex)", en: "Extract (regex)" },
+  "field.values": { nb: "Tillatte verdier", en: "Allowed values" },
+
   /* ---------------------------------------------------------------- errors */
   "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },
 } as const satisfies Record<string, { nb: string; en: string }>;
