@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
-import { BOOLEAN_VALUES, MAPPING_ROLES, hasErrors, lintRuleset } from "../ids/lint.ts";
+import { BOOLEAN_VALUES, MAPPING_ROLES, hasErrors, isBooleanValues, lintRuleset } from "../ids/lint.ts";
 import type {
   CodeLookupCheck,
   CodeSource,
@@ -23,6 +23,11 @@ import { t } from "./i18n";
 
 const SOURCE_KINDS = ["attribute", "property", "classification"] as const;
 type SourceKind = (typeof SOURCE_KINDS)[number];
+
+/** copy-object's two value modes — never a rule field, only how the card
+ *  reads and writes the mapping's `values`. See `isBooleanValues`. */
+const COPY_MODES = ["boolean", "codes"] as const;
+type CopyMode = (typeof COPY_MODES)[number];
 
 function sourceKind(source: CodeSource): SourceKind {
   if ("property" in source) return "property";
@@ -200,6 +205,7 @@ function MappingCard({
   const off = !active;
   const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
   const classification = role === "system-classification" || role === "component-classification";
+  const copyMode: CopyMode = isBooleanValues(check.values) ? "boolean" : "codes";
 
   return (
     <section className="flex flex-col gap-3 border border-line bg-panel p-3">
@@ -369,7 +375,32 @@ function MappingCard({
             </Field>
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <span className={LABEL}>{t("field.copyMode", lang)}</span>
+            <Seg
+              options={COPY_MODES}
+              value={copyMode}
+              disabled={off}
+              label={(o) => t(`field.copyMode.${o}` as StringKey, lang)}
+              onChange={(mode) =>
+                onCheck({ ...check, values: mode === "boolean" ? [...BOOLEAN_VALUES] : [] })
+              }
+            />
+          </div>
+          {copyMode === "codes" ? (
+            <Field label={t("field.values", lang)}>
+              <ValuesInput
+                values={check.values ?? []}
+                disabled={off}
+                invalid={invalid("values")}
+                onChange={(values) => onCheck({ ...check, values })}
+              />
+            </Field>
+          ) : null}
+        </div>
+      )}
 
       {active && issues.length > 0 ? (
         <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">

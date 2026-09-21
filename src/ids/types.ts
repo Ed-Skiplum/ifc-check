@@ -270,7 +270,14 @@ export type ExtendedCheckType = ExtendedCheck["type"];
  *
  *  - `system-classification`, `component-classification`: a bundled `list`.
  *  - `progress-code`: the project's allowed `values`.
- *  - `copy-object`: `values` exactly `true`, `false` — a boolean read as text. */
+ *  - `copy-object`: a SCOPE FILTER, not a data-quality check. Its `values` are
+ *    either the boolean pair `true`, `false` (a G55-style Referanseobjekt
+ *    Ja/Nei flag read as text — only `true` marks a reference, `false` is an
+ *    ordinary object saying so explicitly) or the project's own discipline
+ *    codes (POFIN's `NONS_Process.DuplicateOwnedBy`, e.g. `RIV` — any of them
+ *    marks a reference). Either way, a reference/copy object is excluded from
+ *    the selection of every other rule, fundamentals included. A missing or
+ *    empty value is an ordinary, in-scope object. */
 export type MappingRole =
   | "system-classification"
   | "component-classification"

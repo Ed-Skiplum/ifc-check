@@ -17,7 +17,7 @@
  */
 
 import { runFundamentals } from "../engine/fundamentals.ts";
-import type { IfcGraph, IfcSummary, ModelReport } from "../engine/types";
+import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import { evaluateRuleset } from "../ids/evaluate.ts";
 import type { ModelGraph, ModelSummary } from "../ids/model.ts";
 import type { Ruleset } from "../ids/types.ts";
@@ -84,7 +84,10 @@ function evaluate(ruleset: Ruleset) {
   try {
     const graph: ModelGraph = heldGraph;
     const summary: ModelSummary = heldSummary;
-    post({ kind: "evaluated", result: evaluateRuleset(ruleset, graph, summary, heldName) });
+    const result = evaluateRuleset(ruleset, graph, summary, heldName);
+    const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
+    const checks: CheckResult[] = runFundamentals(heldGraph, heldSummary, excluded);
+    post({ kind: "evaluated", result, checks });
   } catch (err) {
     post({
       kind: "evaluate-error",

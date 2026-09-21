@@ -18,12 +18,14 @@
 
 import { entityNameValue } from "./emit.ts";
 import { isEnabled } from "./export.ts";
+import { isBooleanValues } from "./lint.ts";
 import { CODE_LISTS, CODE_LIST_IDS, type CodeList } from "../codelists/index.ts";
 import type { ModelGraph, ModelProduct, ModelSummary } from "./model.ts";
 import type {
   AttributeFacet,
   CodeLookupCheck,
   ClassificationFacet,
+  ExtendedRule,
   IdsValue,
   MaterialFacet,
   PartOfFacet,
@@ -72,6 +74,12 @@ export interface ModelResult {
   products: number;
   results: RuleResult[];
   counts: Record<ResultState, number>;
+  /** GlobalIds the copy-object mapping identified as reference/copy objects
+   *  and excluded from every other rule's selection. Absent when the ruleset
+   *  carries no enabled copy-object mapping; present (possibly empty) when it
+   *  does, whether or not the mapping itself was evaluable — fundamentals
+   *  should exclude the same set. */
+  excludedGuids?: string[];
 }
 
 export interface EvaluateOptions {
@@ -713,6 +721,138 @@ function codeLookup(
   };
 }
 
+/* ------------------------------------------------------- reference objects */
+
+/** The copy-object mapping is a SCOPE FILTER, not a data-quality check: an
+ *  object whose mapped value matches is a reference/copy object and is
+ *  excluded from every other rule's selection, fundamentals included. A
+ *  missing or empty value is an ordinary, in-scope object — never a finding.
+ *  `extract` not matching the value is the same: the object stays in scope
+ *  rather than failing anything, because this rule no longer reports on data
+ *  quality.
+ *
+ *  Two value modes, both stored as `values` (see `isBooleanValues`):
+ *    boolean  a Ja/Nei flag. "true" is a reference; "false" is an ordinary
+ *             object saying so explicitly, not a second reference value.
+ *    codes    the project's own discipline codes (POFIN's
+ *             `NONS_Process.DuplicateOwnedBy`). Any of them is a reference —
+ *             there is no "opposite" value in this mode.
+ *
+ *  Only an attribute source is evaluable, same boundary as `codeLookup`
+ *  (ifcfast#183); a property or classification source throws `Unsupported`,
+ *  caught by the caller and turned into `not_evaluable`. */
+function identifyReferenceObjects(
+  rule: ExtendedRule,
+  allProducts: ModelProduct[],
+  byGuid: Map<string, ModelProduct>,
+  relations: Relations,
+  ruleset: Ruleset,
+): { excluded: Set<string>; candidates: number } {
+  const check = rule.check;
+  if (check.type !== "code-lookup") {
+    throw new Unsupported(
+      `mapping copy-object needs a code-lookup check, not ${check.type}`,
+    );
+  }
+  if (check.target === "type") {
+    throw new Unsupported(
+      "copy-object applies to occurrences, not types; target must be omitted or occurrence",
+    );
+  }
+  const source = check.source;
+  if ("property" in source) {
+    throw new Unsupported(
+      "property values are parsed but have no accessor in the wasm build " +
+        "(ifcfast#183), so a property source cannot be evaluated here",
+    );
+  }
+  if ("classification" in source) {
+    throw new Unsupported(
+      "classification references are parsed but have no accessor in the wasm build " +
+        "(ifcfast#183), so a classification source cannot be evaluated here",
+    );
+  }
+  const attribute = source.attribute;
+  const regex = compileExtract(check.extract);
+  const values = check.values ?? [];
+  // Boolean mode reads a Ja/Nei flag: "true" is a reference, "false" is an
+  // ordinary object saying so explicitly, not a second reference value. Codes
+  // mode has no such opposite — any of the project's own codes is a match.
+  const boolMode = isBooleanValues(values);
+  const allowed = new Set(values);
+  const isReference = (code: string) => (boolMode ? code === "true" : allowed.has(code));
+  const select = rule.select ?? {};
+  const candidates = allProducts.filter((p) =>
+    selects(select, p, byGuid, relations, ruleset.ifcVersions),
+  );
+  const excluded = new Set<string>();
+  for (const product of candidates) {
+    const value = readAttribute(product, attribute);
+    if (value === null || value === "") continue;
+    const code = regex.exec(value)?.[1];
+    if (code === undefined || code === "") continue;
+    if (isReference(code)) excluded.add(product.guid);
+  }
+  return { excluded, candidates: candidates.length };
+}
+
+/** Runs the copy-object mapping (if any, and enabled) and returns both the
+ *  GlobalIds to exclude from every other rule and the mapping's own result: a
+ *  count, never a finding. A source that cannot be evaluated excludes nothing
+ *  and says so plainly, on the rule itself and in a note — never silently. */
+function copyObjectFilter(
+  ruleset: Ruleset,
+  allProducts: ModelProduct[],
+  byGuid: Map<string, ModelProduct>,
+  relations: Relations,
+): { rule: ExtendedRule; excluded: Set<string>; result: RuleResult } | null {
+  const rule = ruleset.rules.find(
+    (r): r is ExtendedRule => r.kind === "extended" && r.mapping === "copy-object",
+  );
+  if (!rule || !isEnabled(rule)) return null;
+
+  const base = { ruleId: rule.id, ruleName: rule.name, kind: rule.kind } as const;
+  try {
+    const { excluded, candidates } = identifyReferenceObjects(
+      rule,
+      allProducts,
+      byGuid,
+      relations,
+      ruleset,
+    );
+    return {
+      rule,
+      excluded,
+      result: {
+        ...base,
+        state: "pass",
+        applicable: candidates,
+        failed: 0,
+        findings: [],
+        detail: `${excluded.size} of ${candidates} objects excluded as reference objects`,
+      },
+    };
+  } catch (error) {
+    if (error instanceof Unsupported) {
+      return {
+        rule,
+        excluded: new Set(),
+        result: {
+          ...base,
+          state: "not_evaluable",
+          applicable: 0,
+          failed: 0,
+          findings: [],
+          detail: "not evaluated",
+          reason: error.message,
+          notes: ["reference objects could not be excluded from other rules' findings"],
+        },
+      };
+    }
+    throw error;
+  }
+}
+
 /* ------------------------------------------------------------- evaluation */
 
 function cap(findings: Finding[], maxFindings: number): Finding[] {
@@ -989,13 +1129,25 @@ export function evaluateRuleset(
   options: EvaluateOptions = {},
 ): ModelResult {
   const maxFindings = options.maxFindings ?? 0;
-  const products = selectableProducts(graph);
-  const byGuid = new Map(products.map((p) => [p.guid, p]));
+  // The full, unfiltered universe: the copy-object mapping identifies
+  // reference objects from it, and byGuid/relations resolve partOf lookups
+  // even when the other end is a reference object.
+  const allProducts = selectableProducts(graph);
+  const byGuid = new Map(allProducts.map((p) => [p.guid, p]));
   const relations = buildRelations(graph);
+
+  const filter = copyObjectFilter(ruleset, allProducts, byGuid, relations);
+  const products =
+    filter && filter.excluded.size > 0
+      ? allProducts.filter((p) => !filter.excluded.has(p.guid))
+      : allProducts;
+
   const results = ruleset.rules
     .filter(isEnabled)
     .map((rule) =>
-      evaluateRule(rule, products, summary, byGuid, relations, ruleset, maxFindings),
+      filter && rule === filter.rule
+        ? filter.result
+        : evaluateRule(rule, products, summary, byGuid, relations, ruleset, maxFindings),
     );
   const counts: Record<ResultState, number> = {
     pass: 0,
@@ -1010,5 +1162,6 @@ export function evaluateRuleset(
     products: summary.products,
     results,
     counts,
+    excludedGuids: filter ? [...filter.excluded] : undefined,
   };
 }
