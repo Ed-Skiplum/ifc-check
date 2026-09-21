@@ -1,4 +1,5 @@
-/** Which IfcSpace an element sits in, by geometry.
+/** Which IfcSpace an element sits in, by geometry, and whether it is a
+ *  DISCRETE object of that space rather than part of the enclosing mass.
  *
  * The wasm graph carries no space containment and no IfcRelSpaceBoundary
  * (`contained_in` is storey-only, see `src/engine/types.ts`), so the space is
@@ -16,6 +17,25 @@
  *
  * Positions are f32 at the stream (ifcfast#188 on the vendored build), so a
  * point within a few millimetres of a space face can land on either side.
+ *
+ * ── Discrete vs massing ─────────────────────────────────────────────────
+ * Only a discrete object (furniture, fixtures, terminals, equipment) belongs
+ * to a room; walls, slabs, coverings, openings and anything else that bounds
+ * or spans rooms does not. Decided by geometry, no IFC class list. An element
+ * is discrete in space S when all of:
+ *   1. its mesh-box centre is inside S's mesh (smallest space wins);
+ *   2. at least DISCRETE_MIN_INSIDE of a GRID^3 lattice of cell centres over
+ *      its mesh box lies inside S's mesh;
+ *   3. no lattice point lies inside ANOTHER space (it does not span rooms);
+ *   4. its box height is at most DISCRETE_MAX_HEIGHT of S's box height (it
+ *      does not run floor to ceiling like a wall or a lining).
+ * Thresholds measured on HI90 ARK+RIE (140 spaces, 2026-09-21), elements whose
+ * centre is in a space: height/space-height is <= 0.77 for every terminal,
+ * appliance, alarm and furnishing and >= 1.10 for every wall, lining and
+ * opening, so 0.9 sits in the gap. Inside-fraction (after 3 and 4) is >= 0.60
+ * for every terminal (0.60 = a wall-mounted box half in the wall) and <= 0.40
+ * for openings, so 0.5 sits in the gap. Known residue: thin slabs and
+ * building-element parts lying wholly in a room pass as discrete.
  */
 
 import type { MeshBatch } from "../viewer/mesh-stream.ts";
@@ -30,9 +50,21 @@ interface SpaceMesh {
   triangles: Float64Array;
 }
 
+export const DISCRETE_GRID = 5;
+export const DISCRETE_MIN_INSIDE = 0.5;
+export const DISCRETE_MAX_HEIGHT = 0.9;
+
+export interface Box3 {
+  min: readonly [number, number, number];
+  max: readonly [number, number, number];
+}
+
 export interface SpaceLocator {
   spaces: number;
   locate(point: readonly [number, number, number]): BcfSpace | null;
+  /** The space `box` is a discrete object of, or null when it is massing or
+   *  in no space. See the rule above. */
+  discreteSpace(box: Box3): BcfSpace | null;
 }
 
 /** Count IfcSpace rows in a set of batches (cheap, for choosing a source). */
@@ -78,23 +110,52 @@ export function buildSpaceLocator(
     }
   }
 
+  // A fixed sub-millimetre nudge keeps the upward ray off shared edges and
+  // vertices, where a crossing would be counted twice or not at all.
+  const inside = (mesh: SpaceMesh, x: number, y: number, z: number) => {
+    const px = x + 1.37e-7;
+    const py = y + 2.91e-7;
+    if (px < mesh.min[0] || px > mesh.max[0]) return false;
+    if (py < mesh.min[1] || py > mesh.max[1]) return false;
+    if (z < mesh.min[2] || z > mesh.max[2]) return false;
+    return insideMesh(mesh.triangles, px, py, z);
+  };
+  const locateMesh = (x: number, y: number, z: number): SpaceMesh | null => {
+    let best: SpaceMesh | null = null;
+    for (const mesh of meshes) {
+      if (best && mesh.volume >= best.volume) continue;
+      if (inside(mesh, x, y, z)) best = mesh;
+    }
+    return best;
+  };
+
   return {
     spaces: meshes.length,
     locate(point) {
-      // A fixed sub-millimetre nudge keeps the upward ray off shared edges and
-      // vertices, where a crossing would be counted twice or not at all.
-      const px = point[0] + 1.37e-7;
-      const py = point[1] + 2.91e-7;
-      const pz = point[2];
-      let best: SpaceMesh | null = null;
-      for (const mesh of meshes) {
-        if (px < mesh.min[0] || px > mesh.max[0]) continue;
-        if (py < mesh.min[1] || py > mesh.max[1]) continue;
-        if (pz < mesh.min[2] || pz > mesh.max[2]) continue;
-        if (best && mesh.volume >= best.volume) continue;
-        if (insideMesh(mesh.triangles, px, py, pz)) best = mesh;
+      return locateMesh(point[0], point[1], point[2])?.space ?? null;
+    },
+    discreteSpace(box) {
+      const size = [0, 1, 2].map((a) => box.max[a] - box.min[a]);
+      const own = locateMesh(box.min[0] + size[0] / 2, box.min[1] + size[1] / 2, box.min[2] + size[2] / 2);
+      if (!own) return null;
+      if (size[2] > DISCRETE_MAX_HEIGHT * (own.max[2] - own.min[2])) return null;
+      const n = DISCRETE_GRID;
+      let hits = 0;
+      for (let i = 0; i < n; i += 1) {
+        const x = box.min[0] + ((i + 0.5) / n) * size[0];
+        for (let j = 0; j < n; j += 1) {
+          const y = box.min[1] + ((j + 0.5) / n) * size[1];
+          for (let k = 0; k < n; k += 1) {
+            const z = box.min[2] + ((k + 0.5) / n) * size[2];
+            if (inside(own, x, y, z)) {
+              hits += 1;
+              continue;
+            }
+            for (const mesh of meshes) if (mesh !== own && inside(mesh, x, y, z)) return null;
+          }
+        }
       }
-      return best ? best.space : null;
+      return hits >= DISCRETE_MIN_INSIDE * n ** 3 ? own.space : null;
     },
   };
 }

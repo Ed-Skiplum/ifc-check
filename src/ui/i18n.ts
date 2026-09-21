@@ -234,7 +234,6 @@ const STRINGS = {
   "bcf.invalid": { nb: "Ugyldig mot XSD", en: "Invalid against XSD" },
   "bcf.spaces": { nb: "Rom fra", en: "Spaces from" },
   "bcf.noSpaces": { nb: "Ingen rom", en: "No spaces" },
-  "bcf.noSpace": { nb: "Uten rom", en: "No space" },
   "bcf.noCamera": { nb: "Uten kamera", en: "No camera" },
 
   /* ---------------------------------------------------------------- errors */

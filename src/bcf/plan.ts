@@ -7,8 +7,14 @@
  *
  * ── Granularity ─────────────────────────────────────────────────────────
  *   one group per  model × failing check × storey
- *   a group over `maxGuids` is split by SPACE when a space lookup exists,
- *   and any bucket still over `maxGuids` is cut into numbered parts.
+ *   a group over `maxGuids` is split by SPACE when a space lookup exists:
+ *   one bucket per room for the DISCRETE elements in it, and one storey
+ *   bucket for everything else (walls, slabs and other massing, and anything
+ *   in no room); any bucket still over `maxGuids` is cut into numbered parts.
+ *
+ * The space lookup answers only for discrete objects (see `spaces.ts`), so
+ * there is no "no space" bucket: an element that is not a room's discrete
+ * object is the storey's, and its topic is titled with the storey alone.
  *
  * The storey is the element's STATED containing storey (the graph's
  * `storey_guid`), never a geometric guess. A finding whose GlobalId is itself a
@@ -20,8 +26,10 @@
  *
  * ── Identity ────────────────────────────────────────────────────────────
  * Topic GUIDs are uuid v5 over (model cache_key, check key, storey GlobalId,
- * space GlobalId, part), so re-exporting the same model gives the same GUIDs
- * and a CDE can match the topics to the ones it already holds.
+ * space GlobalId or "-", part), so re-exporting the same model gives the same
+ * GUIDs and a CDE can match the topics to the ones it already holds. The
+ * storey bucket seeds like an unsplit group, so a storey's first topic keeps
+ * its GUID when the group grows past `maxGuids`.
  */
 
 import { uuidV5 } from "./uuid.ts";
@@ -73,14 +81,14 @@ export interface BcfModelPlanInput {
   storeys: BcfStorey[];
   /** Element GlobalId -> stated storey GlobalId (null = none). */
   storeyOf: Map<string, string | null>;
-  /** Element GlobalId -> space, or null when it is in none. Absent when no
-   *  space-bearing model is available: the split falls back to parts. */
+  /** Element GlobalId -> the space it is a DISCRETE object of, or null
+   *  (massing, or in no space). Absent when no space-bearing model is
+   *  available: the split falls back to parts. */
   spaceOf?: (guid: string) => BcfSpace | null;
 }
 
 export interface BcfStrings {
   noStorey: string;
-  noSpace: string;
 }
 
 export type SplitPath = "single" | "space" | "parts" | "space+parts";
@@ -109,6 +117,8 @@ export interface GroupReport {
   checkKey: string;
   storey: string;
   elements: number;
+  /** Elements that went to room buckets (the rest are the storey's). */
+  inRooms: number;
   path: SplitPath;
   topics: number;
 }
@@ -182,7 +192,6 @@ export function planTopics(
         storeyGuid: string | null,
         storeyLabel: string | null,
         space: BcfSpace | null,
-        spaceSplit: boolean,
         part: number,
         parts: number,
       ) => {
@@ -190,11 +199,11 @@ export function planTopics(
           model.cacheKey,
           check.key,
           storeyGuid ?? "no-storey",
-          space ? space.guid : spaceSplit ? "no-space" : "-",
+          space ? space.guid : "-",
           String(part),
         ].join("|");
         const guid = uuidV5(seed, BCF_NAMESPACE);
-        const spaceLabel = space ? space.name : spaceSplit ? strings.noSpace : null;
+        const spaceLabel = space ? space.name : null;
         const titleParts = [check.label];
         if (storeyLabel !== null) titleParts.push(storeyLabel);
         if (spaceLabel !== null) titleParts.push(spaceLabel);
@@ -223,12 +232,13 @@ export function planTopics(
 
       if (valid.length === 0) {
         // Failing, but nothing addressable: one topic, no components.
-        make([], null, null, null, false, 1, 1);
+        make([], null, null, null, 1, 1);
         groups.push({
           fileName: model.fileName,
           checkKey: check.key,
           storey: "-",
           elements: 0,
+          inRooms: 0,
           path: "single",
           topics: 1,
         });
@@ -252,9 +262,10 @@ export function planTopics(
             : storeyByGuid.get(storeyGuid)!.name || storeyGuid;
         const before = modelTopics.length;
         let path: SplitPath;
+        let inRooms = 0;
 
         if (guids.length <= size) {
-          make(guids, storeyGuid, storeyLabel, null, false, 1, 1);
+          make(guids, storeyGuid, storeyLabel, null, 1, 1);
           path = "single";
         } else if (model.spaceOf) {
           const bySpace = new Map<string | null, { space: BcfSpace | null; guids: string[] }>();
@@ -265,25 +276,26 @@ export function planTopics(
             if (bucket) bucket.guids.push(guid);
             else bySpace.set(key, { space, guids: [guid] });
           }
-          // Named spaces by name, the no-space bucket last.
+          // The storey bucket first, then rooms by name.
           const buckets = [...bySpace.values()].sort((a, b) => {
-            if (!a.space) return 1;
-            if (!b.space) return -1;
+            if (!a.space) return -1;
+            if (!b.space) return 1;
             return a.space.name.localeCompare(b.space.name, undefined, { numeric: true });
           });
           let cut = false;
           for (const bucket of buckets) {
+            if (bucket.space) inRooms += bucket.guids.length;
             const pieces = chunk(bucket.guids, size);
             if (pieces.length > 1) cut = true;
             pieces.forEach((piece, i) =>
-              make(piece, storeyGuid, storeyLabel, bucket.space, true, i + 1, pieces.length),
+              make(piece, storeyGuid, storeyLabel, bucket.space, i + 1, pieces.length),
             );
           }
-          path = cut ? "space+parts" : "space";
+          path = inRooms === 0 ? "parts" : cut ? "space+parts" : "space";
         } else {
           const pieces = chunk(guids, size);
           pieces.forEach((piece, i) =>
-            make(piece, storeyGuid, storeyLabel, null, false, i + 1, pieces.length),
+            make(piece, storeyGuid, storeyLabel, null, i + 1, pieces.length),
           );
           path = "parts";
         }
@@ -293,6 +305,7 @@ export function planTopics(
           checkKey: check.key,
           storey: storeyLabel,
           elements: guids.length,
+          inRooms,
           path,
           topics: modelTopics.length - before,
         });
@@ -300,7 +313,7 @@ export function planTopics(
     });
 
     // Floor first (by elevation, no-storey last), then check, then the order
-    // the topics were made in (space name, part).
+    // the topics were made in (storey bucket, space name, part).
     modelTopics
       .map((topic, made) => ({ topic, made }))
       .sort(

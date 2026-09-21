@@ -218,16 +218,34 @@ byte-identical in `vendor/bcf-schema/`.
   model × check × STATED storey (`storey_guid`; a finding on a storey is that
   storey's; no storey is its own group, last). A group over the max is split by
   IfcSpace when a loaded model carries spaces (itself first, else the one
-  sharing most storey names), and any bucket still over the max into
-  `(i/n)` parts. Title `check · storey [· space] [(i/n)]`; storey and space are
-  also `Labels`. Ordered by storey elevation. Copy-object exclusions never
-  appear. Topic GUID = uuid v5 over cache_key, check, storey GlobalId, space
-  GlobalId and part, so a re-export is stable.
-- **Space assignment is geometric:** the wasm graph has no space containment
-  or space boundaries. An element's mesh-box centre is tested against each
-  space's triangle mesh (upward-ray parity, box prefilter, smallest space wins)
-  in absolute metres, which is why the space model can be another file. Space
-  label = Name, else its GlobalId (LongName has no accessor).
+  sharing most storey names): one bucket per room for the DISCRETE elements in
+  it, and one storey bucket (first) for everything else, massing and anything
+  in no room alike. Any bucket still over the max is cut into `(i/n)` parts.
+  Title `check · storey [· space] [(i/n)]`; storey and space are also
+  `Labels`. There is no "Uten rom" bucket: an element that is not a room's
+  discrete object is the storey's. Ordered by storey elevation. Copy-object
+  exclusions never appear. Topic GUID = uuid v5 over cache_key, check, storey
+  GlobalId, space GlobalId (or `-`) and part, so a re-export is stable; the
+  storey bucket seeds like an unsplit group.
+- **Discrete vs massing is geometric** (`spaces.ts`, no IFC class list). The
+  wasm graph has no space containment or space boundaries, so everything is
+  tested against each space's triangle mesh (upward-ray parity, box
+  prefilter, smallest space wins) in absolute metres, which is why the space
+  model can be another file. An element is discrete in space S when (1) its
+  mesh-box centre is in S, (2) at least 0.5 of a 5×5×5 lattice over its mesh
+  box is in S, (3) no lattice point is in another space, and (4) its box
+  height is at most 0.9 × S's. Measured on HI90 ARK+RIE (140 spaces,
+  2026-09-21), elements with centre in a space: height ratio ≤ 0.77 for every
+  terminal, appliance, alarm and furnishing, ≥ 1.10 for every wall, lining
+  (IfcCovering) and opening; inside fraction ≥ 0.60 for every terminal (0.60
+  = a wall-mounted box half in the wall), ≤ 0.40 for openings. (3) moves the
+  HI90 glass partitions, exported as IfcFurnishingElement, to the storey:
+  they span rooms. Residue: thin slabs (2-5 cm) and small
+  IfcBuildingElementParts lying wholly in a room pass as discrete (9 of 250
+  massing-class elements with centre in a space). An IfcSpace fails (4)
+  against itself, so spaces are the storey's. Space label = Name, else its
+  GlobalId (LongName has no accessor). KNM Mottakskontroll and Void-demo carry
+  no IfcSpace, so there the split is parts only.
 - **Camera:** framed like zoom-to-selection (`robustBounds` + `fitRadius` at the
   entry pose, 1024×768, fov 45), then IFC = (vx, −vz, vy) + stream shift. No
   camera or snapshot on a capped model or a chunk with no geometry.
@@ -235,13 +253,15 @@ byte-identical in `vendor/bcf-schema/`.
   with the selection overlay (`ModelScene.snapshot`).
 
 Verified 2026-09-21 on KNM (Mottakskontroll RIB; Void-demo ARK+RIV+RIB) and
-HI90 (ARK+RIE, the space path): every document XSD-valid under xmllint-wasm
+HI90 (ARK+RIE, Dalux export 18 Sep, the space path): every document XSD-valid under xmllint-wasm
 and Python `xmlschema`; bcf-client 0.8.5 parses every archive; every selected
 element with an ifcopenshell world-coordinate mesh projects inside its topic's
 exported camera, except elements the framing leaves out as far outliers. The
 browser export was driven in headless Chrome against a LOCAL preview build and
 its viewpoints are byte-identical to `bcf-cli.ts`. Dalux and Solibri import
-are NOT verified.
+are NOT verified. Discrete split (same day, `bcf-cli.ts` only, not re-driven
+in the browser): HI90 topics 285 → 89 at N=500 and 461 → 259 at N=100; KNM
+unchanged, same GUIDs.
 
 ## The dashboard grid — binding, not advisory
 

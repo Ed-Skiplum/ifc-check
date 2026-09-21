@@ -20,6 +20,5 @@ export function bcfRender(lang: Lang): BcfRender {
     reason: (finding) => reasonText(finding, lang),
     displayValue: (value) => displayText(value, lang),
     noStorey: t("matrix.noStorey", lang),
-    noSpace: t("bcf.noSpace", lang),
   };
 }

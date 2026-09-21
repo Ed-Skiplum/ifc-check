@@ -134,20 +134,12 @@ function toChecks(source: BcfModelSource, render: BcfRender): BcfCheck[] {
   return checks;
 }
 
-/** Element centres in absolute IFC metres, Z up, from the streamed batches. */
-function centresOf(mesh: NonNullable<BcfModelSource["mesh"]>): Map<string, [number, number, number]> {
+/** Element mesh boxes in absolute IFC metres, Z up, from the streamed batches. */
+function boxesOf(mesh: NonNullable<BcfModelSource["mesh"]>): Map<string, ElementBox> {
   const boxes = new Map<string, ElementBox>();
   for (const batch of mesh.batches) collectBoxes(boxes, batch.meta, batch.positions);
   unshiftBoxes(boxes, mesh.shift);
-  const centres = new Map<string, [number, number, number]>();
-  for (const [guid, box] of boxes) {
-    centres.set(guid, [
-      (box.min[0] + box.max[0]) / 2,
-      (box.min[1] + box.max[1]) / 2,
-      (box.min[2] + box.max[2]) / 2,
-    ]);
-  }
-  return centres;
+  return boxes;
 }
 
 function storeyKey(name: string | null): string {
@@ -240,11 +232,11 @@ export async function exportBcf(
     const chosen = chooseSpaceSource(index, sources, candidates);
     if (chosen && source.mesh) {
       const locator = locatorOf(chosen.index);
-      let centres: Map<string, [number, number, number]> | null = null;
+      let boxes: Map<string, ElementBox> | null = null;
       input.spaceOf = (guid) => {
-        centres ??= centresOf(source.mesh!);
-        const centre = centres.get(guid);
-        return centre ? locator.locate(centre) : null;
+        boxes ??= boxesOf(source.mesh!);
+        const box = boxes.get(guid);
+        return box ? locator.discreteSpace(box) : null;
       };
       spaceSources.push({
         fileName: source.fileName,
