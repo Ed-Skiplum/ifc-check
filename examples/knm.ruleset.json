@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "name": "KNM",
+  "description": "Kistefos Nytt Museum. BEP §6.12: type names follow [ComponentCode]-[nn].",
+  "ifcVersions": ["IFC2X3", "IFC4"],
+  "rules": [
+    {
+      "id": "type-name-ns3457-8",
+      "kind": "extended",
+      "name": "Type name carries an NS 3457-8 component code",
+      "description": "BEP §6.12, [ComponentCode]-[nn]",
+      "check": {
+        "type": "code-lookup",
+        "list": "ns3457-8",
+        "target": "type",
+        "source": { "attribute": "Name" },
+        "extract": "^([A-Z]{2,3})-\\d{2}$"
+      }
+    }
+  ]
+}

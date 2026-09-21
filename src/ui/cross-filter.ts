@@ -97,7 +97,9 @@ function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
   if (focus.kind === "rule") {
     const rule = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
     if (!rule) return null;
-    return new Set(rule.findings.map((f) => f.guid));
+    // A finding about a type object names the type; its members are the
+    // elements in the model.
+    return new Set(rule.findings.flatMap((f) => f.members ?? [f.guid]));
   }
   if (focus.kind === "type") {
     if (!profile) return null;

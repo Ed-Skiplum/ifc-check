@@ -18,9 +18,11 @@
 
 import { entityNameValue } from "./emit.ts";
 import { isEnabled } from "./export.ts";
+import { CODE_LISTS, CODE_LIST_IDS, type CodeList } from "../codelists/index.ts";
 import type { ModelGraph, ModelProduct, ModelSummary } from "./model.ts";
 import type {
   AttributeFacet,
+  CodeLookupCheck,
   ClassificationFacet,
   IdsValue,
   MaterialFacet,
@@ -41,6 +43,9 @@ export interface Finding {
   entity: string;
   name: string | null;
   reason: string;
+  /** Set when the finding is about a type object: the GlobalIds of the
+   *  elements that use it, so a filter on the finding reaches the model. */
+  members?: string[];
 }
 
 export interface RuleResult {
@@ -496,6 +501,204 @@ function propertyNote(rule: Rule): string | null {
   return null;
 }
 
+/* ------------------------------------------------------------ code lookup */
+
+/** One thing a code-lookup rule reads a value from: an element, or a type
+ *  object together with the elements that use it. */
+interface CodeSubject {
+  guid: string;
+  entity: string;
+  name: string | null;
+  value: string | null;
+  members?: string[];
+}
+
+/** A compiled `extract` pattern. Exactly one capture group, or the rule cannot
+ *  say which part of the match is the code. */
+export function compileExtract(pattern: string): RegExp {
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern);
+  } catch {
+    throw new Unsupported(`extract "${pattern}" is not a valid regular expression`);
+  }
+  // An alternation with the empty pattern always matches "", and the match
+  // array then has one slot per capture group in `pattern`.
+  const groups = (new RegExp(`${pattern}|`).exec("")?.length ?? 1) - 1;
+  if (groups !== 1) {
+    throw new Unsupported(
+      `extract "${pattern}" has ${groups} capture groups; it needs exactly one`,
+    );
+  }
+  return regex;
+}
+
+const TYPE_CLASS = /(TYPE|STYLE)$/;
+
+/** The types of the selected elements, one subject per type Name.
+ *
+ * The parser exposes a type object only through the product rows that use it:
+ * `typed` plus the type's Name. It carries no type GlobalId, no type class and
+ * no row for a type nothing uses (ifcfast's `typesJson()` roster is no way
+ * round this: its `guid` is a representative OCCURRENCE's GlobalId, not the
+ * type's). So a type subject is keyed by Name, its finding carries "-" for a
+ * GlobalId it cannot know, and `members` carries the elements. Two type objects
+ * sharing one Name are one subject, which gives the same verdict for a
+ * Name-based lookup. Typed elements whose type has no Name form one subject. */
+function typeSubjects(
+  select: Selector,
+  products: ModelProduct[],
+  attribute: string,
+  byGuid: Map<string, ModelProduct>,
+  relations: Relations,
+  versions: Ruleset["ifcVersions"],
+): CodeSubject[] {
+  if (attribute !== "Name") {
+    throw new Unsupported(
+      `attribute ${attribute} is not exposed for type objects; the parser carries a ` +
+        "type's Name only, on the elements that use it",
+    );
+  }
+  const entity = select.entity;
+  if (
+    entity &&
+    (entity.group === "elementType" ||
+      entity.group === "typeProduct" ||
+      (entity.classes ?? []).some((c) => TYPE_CLASS.test(c.toUpperCase())))
+  ) {
+    throw new Unsupported(
+      "the type object's own class (e.g. IFCWALLTYPE) is not exposed by the parser; " +
+        "select types by the class of the elements that use them (e.g. IFCWALL)",
+    );
+  }
+  const groups = new Map<string, ModelProduct[]>();
+  for (const product of products) {
+    if (product.source === "spatial" || !product.typed) continue;
+    if (!selects(select, product, byGuid, relations, versions)) continue;
+    const key = product.type_name ?? "";
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(product);
+    else groups.set(key, [product]);
+  }
+  return [...groups].map(([typeName, members]) => ({
+    guid: "-",
+    entity: [...new Set(members.map((m) => m.entity))].join(", "),
+    name: typeName === "" ? null : typeName,
+    value: typeName === "" ? null : typeName,
+    members: members.map((m) => m.guid),
+  }));
+}
+
+function codeLookup(
+  check: CodeLookupCheck,
+  select: Selector,
+  products: ModelProduct[],
+  summary: ModelSummary,
+  byGuid: Map<string, ModelProduct>,
+  relations: Relations,
+  ruleset: Ruleset,
+  notes: string[],
+  maxFindings: number,
+): Omit<RuleResult, "ruleId" | "ruleName" | "kind"> {
+  const list = (CODE_LISTS as Record<string, CodeList | undefined>)[check.list];
+  if (!list) {
+    throw new Unsupported(
+      `code list "${check.list}" is not bundled; bundled lists are ${CODE_LIST_IDS.join(", ")}`,
+    );
+  }
+  const source = check.source;
+  if ("property" in source) {
+    throw new Unsupported(
+      "property values are parsed but have no accessor in the wasm build " +
+        "(ifcfast#183), so a property source cannot be evaluated here",
+    );
+  }
+  if ("classification" in source) {
+    throw new Unsupported(
+      "classification references are parsed but have no accessor in the wasm build " +
+        "(ifcfast#183), so a classification source cannot be evaluated here",
+    );
+  }
+  const attribute = source.attribute;
+  const regex = compileExtract(check.extract);
+  const target = check.target ?? "occurrence";
+
+  let subjects: CodeSubject[];
+  if (target === "type") {
+    subjects = typeSubjects(select, products, attribute, byGuid, relations, ruleset.ifcVersions);
+    const declared = summary.tables?.type_objects?.rows;
+    notes.push(
+      `${subjects.length} type names reached through the selected elements` +
+        (declared === undefined ? "" : `; the file declares ${declared} type objects`) +
+        ". A type no element uses is not exposed by the parser",
+    );
+  } else {
+    subjects = products
+      .filter((p) => selects(select, p, byGuid, relations, ruleset.ifcVersions))
+      .map((p) => ({
+        guid: p.guid,
+        entity: p.entity,
+        name: p.name,
+        value: readAttribute(p, attribute),
+      }));
+  }
+  const noun = target === "type" ? "types" : "elements";
+
+  if (subjects.length === 0) {
+    return {
+      state: "not_applicable",
+      applicable: 0,
+      failed: 0,
+      findings: [],
+      detail: `no ${noun} matched the selection`,
+      notes: notes.length ? notes : undefined,
+    };
+  }
+
+  const label = list.meta.label;
+  let missing = 0;
+  let noMatch = 0;
+  let unknown = 0;
+  const findings: Finding[] = [];
+  for (const subject of subjects) {
+    const value = subject.value;
+    let reason: string | null = null;
+    if (value === null || value === "") {
+      missing += 1;
+      reason = `${attribute} is empty`;
+    } else {
+      const code = regex.exec(value)?.[1];
+      if (code === undefined || code === "") {
+        noMatch += 1;
+        reason = `${attribute} "${value}" does not match ${check.extract}`;
+      } else if (!Object.hasOwn(list.codes, code)) {
+        unknown += 1;
+        reason = `code "${code}" from ${attribute} "${value}" is not in ${label}`;
+      }
+    }
+    if (reason === null) continue;
+    const finding: Finding = {
+      guid: subject.guid,
+      entity: subject.entity,
+      name: subject.name,
+      reason,
+    };
+    if (subject.members) finding.members = subject.members;
+    findings.push(finding);
+  }
+
+  return {
+    state: findings.length === 0 ? "pass" : "fail",
+    applicable: subjects.length,
+    failed: findings.length,
+    findings: cap(findings, maxFindings),
+    detail:
+      `${subjects.length - findings.length} of ${subjects.length} ${noun} carry a code from ` +
+      `${label}; ${missing} empty, ${noMatch} no match, ${unknown} not in the list`,
+    notes: notes.length ? notes : undefined,
+  };
+}
+
 /* ------------------------------------------------------------- evaluation */
 
 function cap(findings: Finding[], maxFindings: number): Finding[] {
@@ -553,6 +756,23 @@ function evaluateRule(
             ],
         detail: `${field} = ${value === null ? "(none)" : value}`,
         notes: notes.length ? notes : undefined,
+      };
+    }
+
+    if (rule.kind === "extended" && rule.check.type === "code-lookup") {
+      return {
+        ...base,
+        ...codeLookup(
+          rule.check,
+          rule.select ?? {},
+          products,
+          summary,
+          byGuid,
+          relations,
+          ruleset,
+          notes,
+          maxFindings,
+        ),
       };
     }
 

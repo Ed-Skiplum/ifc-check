@@ -53,6 +53,9 @@ const EXTENDED_REASONS: Record<ExtendedCheckType, string> = {
   "model-metadata":
     "IfcUnitAssignment, the STEP header and the parse statistics are not " +
     "reachable by any IDS facet",
+  "code-lookup":
+    "IDS 1.0 cannot extract part of a value and look it up in a code list; a " +
+    "restriction tests the whole value",
 };
 
 function slug(name: string): string {

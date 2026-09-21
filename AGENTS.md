@@ -25,6 +25,7 @@ src/ui/          the screen, and the worker that drives the engine
   forms.tsx        the supporting tiles (gauge, distribution, roster, readouts)
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
+src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
   check-cli.ts   run the fundamentals headlessly
   ids-cli.ts     author, lint, emit and run rulesets headlessly
@@ -261,11 +262,58 @@ because of a specific verified limit, not a preference:
 | `unique-attribute` | no uniqueness or cross-instance operator |
 | `type-usage-count` | no cross-instance counting — applicability `minOccurs` counts the whole selection, not per type |
 | `model-metadata` | header, `IfcUnitAssignment` and parse stats are unreachable by any facet |
+| `code-lookup` | a restriction tests the whole value; extracting part of it and looking it up in a code list has no facet |
 
 Only checks that can actually be evaluated are offered. **Geometry and
 georeferencing rule kinds do not exist**, because the data source does not — an
 authorable but inert rule is exactly the green-looking non-result this tool is
 built to avoid.
+
+### `code-lookup` and the bundled code lists
+
+```json
+{ "type": "code-lookup", "list": "ns3457-8", "target": "type",
+  "source": { "attribute": "Name" }, "extract": "^([A-Z]{2,3})-\\d{2}$" }
+```
+
+- `list` names a bundled list in `src/codelists/`. Only `ns3457-8` ships
+  (NS 3457-8:2021, 909 codes, all three levels). Each generated module carries
+  its provenance in `meta`: source file, SHA-256, date, count. Lookups only:
+  nothing enumerates a list into an IDS.
+- `extract` is a JavaScript regex (not XSD, not implicitly anchored) with
+  exactly one capture group, the code. Lint rejects zero or several groups.
+- `source` is one of `{attribute}`, `{property: {propertySet, name}}`,
+  `{classification: {system?}}`. Property and classification sources are in
+  the format and return `not_evaluable` citing ifcfast#183.
+- `target` `occurrence` (default) reads the elements `select` picks.
+  `type` reads the TYPES of those elements, one subject per type Name, with
+  the member elements in `finding.members` (the cross-filter uses them).
+  `select` is optional for this check; omitted selects everything.
+- Findings per subject: `<attr> is empty` · `does not match <extract>` ·
+  `code "X" ... is not in <list>`. The detail line counts all three.
+
+What a type subject cannot be, and why: the parser exposes a type object only
+through the product rows that use it (`typed` + `type_name`). There is no type
+GlobalId, no type class and no row for an unused type. So a type finding
+carries `-` for its GlobalId; a type-class entity filter (`IFCWALLTYPE`,
+groups `elementType` / `typeProduct`) and any attribute other than Name are
+`not_evaluable`; the result notes how many type objects the file declares
+(`summary.tables.type_objects.rows`) against how many were reached.
+`typesJson()` is no way round this: its `guid` is a representative
+OCCURRENCE's GlobalId (KNM_ARK: roster `3DfJg_…` is an IFCWALL, the
+IFCWALLTYPE is `2AOaxJLUjBAuPEsPyzVzoE`), and it too lists used types only.
+
+**Empty types (declared, used by no element) are therefore not a check.** The
+core parses a `type_objects` table (`guid, entity, name, step_id`; KNM_ARK
+declares 398, elements use 84 names) and a `type_guid` column on products, but
+the wasm build exposes neither. Needs an ifcfast accessor first.
+
+Verified headlessly (`ids-cli run`) on the KNM models: every finding kind,
+the pass path, the four `not_evaluable` reasons, and the lint errors for a bad
+regex, zero and two capture groups. The builder fields are type-checked and
+built, not exercised in a browser.
+
+Example project config: `examples/knm.ruleset.json`.
 
 ### Things the format prevents
 
@@ -352,4 +400,10 @@ rejected.
 ```bash
 python scripts/gen-ifc-classes.py                              # needs ifcopenshell
 node scripts/ids-cli.ts schema > src/ids/ruleset.schema.json   # selftest asserts this is current
+PYTHONUTF8=1 python scripts/gen-codelists.py                   # src/codelists/*.ts from the workspace standards tables
 ```
+
+`gen-codelists.py` fails rather than writing a partial list, and cross-checks
+NS 3457-8's source (`ns3457_pdf_extract.json`, the QA'd transcription its
+HANDOVER marks authoritative) against the reviewed `ns3457_table.csv` code by
+code.

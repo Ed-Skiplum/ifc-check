@@ -14,6 +14,7 @@ const EXCLUDE_KEYS: Record<string, StringKey> = {
   "not-expressible:unique-attribute": "exclude.unique-attribute",
   "not-expressible:type-usage-count": "exclude.type-usage-count",
   "not-expressible:model-metadata": "exclude.model-metadata",
+  "not-expressible:code-lookup": "exclude.code-lookup",
 };
 
 function reasonKey(excluded: ExcludedRule): StringKey {

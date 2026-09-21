@@ -11,6 +11,8 @@
  * before it is run.
  */
 
+import type { CodeListId } from "../codelists/index.ts";
+
 /* ------------------------------------------------------------------ values */
 
 /** XSD simple types usable as a restriction base. Emitted with the xs: prefix. */
@@ -221,17 +223,46 @@ export interface ModelMetadataCheck {
   value: IdsValue;
 }
 
+/** Where a code-lookup rule reads its value. Exactly one key. Property and
+ *  classification sources are part of the format but are reported
+ *  not_evaluable until the parser exposes psets and classifications
+ *  (ifcfast#183). */
+export type CodeSource =
+  | { attribute: string }
+  | { property: { propertySet: string; name: string } }
+  | { classification: { system?: string } };
+
+/** Extract a code from a value and look it up in a bundled code list
+ *  (src/codelists). Not IDS: a restriction tests the whole value, so a lookup
+ *  of an extracted part would need the list enumerated into every pattern.
+ *
+ *  `target` "occurrence" (default) checks the elements `select` picks.
+ *  "type" checks the types OF those elements, one per type Name: the parser
+ *  exposes a type object only through the elements that use it, so a type no
+ *  element uses is never checked, and only its Name is readable. */
+export interface CodeLookupCheck {
+  type: "code-lookup";
+  list: CodeListId;
+  target?: "occurrence" | "type";
+  source: CodeSource;
+  /** JavaScript regular expression with exactly one capture group; the group
+   *  is the code. Not anchored implicitly. */
+  extract: string;
+}
+
 export type ExtendedCheck =
   | ElementTypedCheck
   | UniqueAttributeCheck
   | TypeUsageCountCheck
-  | ModelMetadataCheck;
+  | ModelMetadataCheck
+  | CodeLookupCheck;
 
 export type ExtendedCheckType = ExtendedCheck["type"];
 
 export interface ExtendedRule extends RuleBase {
   kind: "extended";
-  /** Omitted for model-metadata; required for every element-scoped check. */
+  /** Omitted for model-metadata; optional for code-lookup (omitted selects
+   *  everything); required for every other element-scoped check. */
   select?: Selector;
   check: ExtendedCheck;
 }

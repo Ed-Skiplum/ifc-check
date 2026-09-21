@@ -5,7 +5,10 @@
 
 import { EntityPicker, FacetBags, ValueEditor, type FacetContext } from "./facets.tsx";
 import { t, type Lang, type StringKey } from "./strings.ts";
+import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import type {
+  CodeLookupCheck,
+  CodeSource,
   ExtendedCheck,
   ExtendedRule,
   IdsRule,
@@ -21,7 +24,34 @@ const CHECK_TYPES: ExtendedCheck["type"][] = [
   "unique-attribute",
   "type-usage-count",
   "model-metadata",
+  "code-lookup",
 ];
+
+const CODE_SOURCE_KINDS = ["attribute", "property", "classification"] as const;
+type CodeSourceKind = (typeof CODE_SOURCE_KINDS)[number];
+
+const CODE_SOURCE_FACET: Record<CodeSourceKind, StringKey> = {
+  attribute: "facet.attribute",
+  property: "facet.property",
+  classification: "facet.classification",
+};
+
+function sourceKind(source: CodeSource): CodeSourceKind {
+  if ("property" in source) return "property";
+  if ("classification" in source) return "classification";
+  return "attribute";
+}
+
+function blankSource(kind: CodeSourceKind): CodeSource {
+  switch (kind) {
+    case "attribute":
+      return { attribute: "Name" };
+    case "property":
+      return { property: { propertySet: "", name: "" } };
+    case "classification":
+      return { classification: {} };
+  }
+}
 
 const UNIQUE_ATTRIBUTES: UniqueAttributeCheck["attribute"][] = [
   "GlobalId",
@@ -51,7 +81,152 @@ function blankCheck(type: ExtendedCheck["type"]): ExtendedCheck {
       return { type, min: 2 };
     case "model-metadata":
       return { type, field: "length_unit", value: "METRE" };
+    case "code-lookup":
+      return {
+        type,
+        list: CODE_LIST_IDS[0],
+        target: "occurrence",
+        source: { attribute: "Name" },
+        extract: "^(.+)$",
+      };
   }
+}
+
+function CodeLookupFields({
+  check,
+  onChange,
+  lang,
+}: {
+  check: CodeLookupCheck;
+  onChange: (next: CodeLookupCheck) => void;
+  lang: Lang;
+}) {
+  const source = check.source;
+  const kind = sourceKind(source);
+  return (
+    <>
+      <div className="rb-wrap">
+        <label className="rb-row">
+          <span className="rb-label">{t("check.list", lang)}</span>
+          <select
+            value={check.list}
+            onChange={(e) =>
+              onChange({ ...check, list: e.target.value as CodeLookupCheck["list"] })
+            }
+          >
+            {CODE_LIST_IDS.map((id) => (
+              <option key={id} value={id}>
+                {CODE_LISTS[id].meta.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="rb-row">
+          <span className="rb-label">{t("check.target", lang)}</span>
+          <div className="rb-seg">
+            {(["occurrence", "type"] as const).map((target) => (
+              <button
+                key={target}
+                type="button"
+                aria-pressed={(check.target ?? "occurrence") === target}
+                onClick={() => onChange({ ...check, target })}
+              >
+                {t(`check.target.${target}` as StringKey, lang)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="rb-wrap">
+        <label className="rb-row">
+          <span className="rb-label">{t("check.source", lang)}</span>
+          <select
+            value={kind}
+            onChange={(e) =>
+              onChange({ ...check, source: blankSource(e.target.value as CodeSourceKind) })
+            }
+          >
+            {CODE_SOURCE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {t(CODE_SOURCE_FACET[k], lang)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {"attribute" in source ? (
+          <label className="rb-row">
+            <span className="rb-label">{t("check.attribute", lang)}</span>
+            <input
+              type="text"
+              className="rb-mono"
+              style={{ width: 140 }}
+              value={source.attribute}
+              onChange={(e) => onChange({ ...check, source: { attribute: e.target.value } })}
+            />
+          </label>
+        ) : null}
+        {"property" in source ? (
+          <>
+            <label className="rb-row">
+              <span className="rb-label">{t("property.propertySet", lang)}</span>
+              <input
+                type="text"
+                className="rb-mono"
+                value={source.property.propertySet}
+                onChange={(e) =>
+                  onChange({
+                    ...check,
+                    source: { property: { ...source.property, propertySet: e.target.value } },
+                  })
+                }
+              />
+            </label>
+            <label className="rb-row">
+              <span className="rb-label">{t("property.baseName", lang)}</span>
+              <input
+                type="text"
+                className="rb-mono"
+                value={source.property.name}
+                onChange={(e) =>
+                  onChange({
+                    ...check,
+                    source: { property: { ...source.property, name: e.target.value } },
+                  })
+                }
+              />
+            </label>
+          </>
+        ) : null}
+        {"classification" in source ? (
+          <label className="rb-row">
+            <span className="rb-label">{t("classification.system", lang)}</span>
+            <input
+              type="text"
+              className="rb-mono"
+              value={source.classification.system ?? ""}
+              onChange={(e) =>
+                onChange({
+                  ...check,
+                  source: {
+                    classification: e.target.value === "" ? {} : { system: e.target.value },
+                  },
+                })
+              }
+            />
+          </label>
+        ) : null}
+      </div>
+      <label className="rb-field">
+        <span className="rb-label">{t("check.extract", lang)}</span>
+        <input
+          type="text"
+          className="rb-mono"
+          value={check.extract}
+          onChange={(e) => onChange({ ...check, extract: e.target.value })}
+        />
+      </label>
+    </>
+  );
 }
 
 function Block({
@@ -308,6 +483,14 @@ function ExtendedBody({
               </label>
             ))}
           </div>
+        ) : null}
+
+        {check.type === "code-lookup" ? (
+          <CodeLookupFields
+            check={check}
+            onChange={(next) => onChange({ ...rule, check: next })}
+            lang={lang}
+          />
         ) : null}
 
         {check.type === "model-metadata" ? (

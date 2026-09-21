@@ -8,6 +8,8 @@
  * Write it to disk with:  node scripts/ids-cli.ts schema > ruleset.schema.json
  */
 
+import { CODE_LIST_IDS } from "../codelists/index.ts";
+
 export const RULESET_SCHEMA_ID =
   "https://skiplum.no/ifc-check/ruleset.schema.json";
 
@@ -413,6 +415,69 @@ export const RULESET_JSON_SCHEMA = {
               ],
             },
             value: { $ref: "#/$defs/idsValue" },
+          },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "list", "source", "extract"],
+          description:
+            "Extract a code from a value and look it up in a bundled code list. " +
+            "Not IDS: a restriction tests the whole value. target 'type' checks " +
+            "the types of the selected elements, one per type Name; a type no " +
+            "element uses is not reachable.",
+          properties: {
+            type: { const: "code-lookup" },
+            list: { enum: [...CODE_LIST_IDS] },
+            target: { enum: ["occurrence", "type"], default: "occurrence" },
+            source: {
+              description:
+                "Exactly one of attribute, property or classification. Property and " +
+                "classification are not evaluable until ifcfast#183.",
+              oneOf: [
+                {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["attribute"],
+                  properties: { attribute: { type: "string", minLength: 1 } },
+                },
+                {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["property"],
+                  properties: {
+                    property: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["propertySet", "name"],
+                      properties: {
+                        propertySet: { type: "string", minLength: 1 },
+                        name: { type: "string", minLength: 1 },
+                      },
+                    },
+                  },
+                },
+                {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["classification"],
+                  properties: {
+                    classification: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: { system: { type: "string", minLength: 1 } },
+                    },
+                  },
+                },
+              ],
+            },
+            extract: {
+              type: "string",
+              minLength: 1,
+              description:
+                "JavaScript regular expression with exactly one capture group, the " +
+                "code. Not anchored implicitly.",
+            },
           },
         },
       ],

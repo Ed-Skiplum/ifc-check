@@ -49,4 +49,6 @@ export interface ModelSummary {
   project_name: string | null;
   duplicate_step_ids: number;
   products: number;
+  /** Row counts of the parser's internal tables, e.g. `type_objects`. */
+  tables?: Record<string, { loaded: boolean; rows: number }>;
 }

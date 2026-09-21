@@ -60,6 +60,13 @@ export const STRINGS = {
   "check.min": { nb: "Min", en: "Min" },
   "check.max": { nb: "Maks", en: "Max" },
   "check.field": { nb: "Felt", en: "Field" },
+  "check.code-lookup": { nb: "Kodeoppslag", en: "Code lookup" },
+  "check.list": { nb: "Kodeliste", en: "Code list" },
+  "check.target": { nb: "Gjelder", en: "Applies to" },
+  "check.target.occurrence": { nb: "Forekomster", en: "Occurrences" },
+  "check.target.type": { nb: "Typer", en: "Types" },
+  "check.source": { nb: "Kilde", en: "Source" },
+  "check.extract": { nb: "Uttrekk (regex)", en: "Extract (regex)" },
 
   /* facets */
   "facet.entity": { nb: "Klasse", en: "Entity" },
@@ -155,6 +162,10 @@ export const STRINGS = {
   "exclude.model-metadata": {
     nb: "IfcUnitAssignment, STEP-headeren og parsestatistikken nås ikke av noe IDS-facet.",
     en: "IfcUnitAssignment, the STEP header and the parse statistics are not reachable by any IDS facet.",
+  },
+  "exclude.code-lookup": {
+    nb: "IDS 1.0 kan ikke hente ut en del av en verdi og slå den opp i en kodeliste.",
+    en: "IDS 1.0 cannot extract part of a value and look it up in a code list.",
   },
   "exclude.unknown": {
     nb: "Utvidet regel med ukjent sjekk.",

@@ -357,7 +357,7 @@ async function cmdSelftest(): Promise<number> {
   record(
     "no extended rule leaked into the .ids",
     "absent",
-    /element-typed|unique-attribute|type-usage-count|model-metadata/.test(good) ? "present" : "absent",
+    /element-typed|unique-attribute|type-usage-count|model-metadata|code-lookup/.test(good) ? "present" : "absent",
   );
   record(
     "no custom namespace in the .ids",

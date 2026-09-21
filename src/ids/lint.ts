@@ -7,10 +7,12 @@
  * kinds are errors here, so an unrunnable rule never reaches an export.
  */
 
+import { CODE_LIST_IDS } from "../codelists/index.ts";
 import { IFC_CLASSES } from "./ifc-classes.ts";
 import type {
   Applicability,
   ClassGroup,
+  CodeLookupCheck,
   EntityFacet,
   IdsValue,
   IfcVersion,
@@ -485,6 +487,13 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
     checkValue(ctx, `${path}.check.value`, check.value);
     return;
   }
+  if (check.type === "code-lookup") {
+    checkCodeLookup(ctx, path, check);
+    if (rule.select) {
+      checkFacets(ctx, `${path}.select`, rule.select, ruleset.ifcVersions, false);
+    }
+    return;
+  }
   if (!rule.select) {
     add(
       ctx,
@@ -522,6 +531,51 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
     ) {
       add(ctx, "error", `${path}.check.max`, "usage-count-inverted", "max is below min");
     }
+  }
+}
+
+function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
+  if (!(CODE_LIST_IDS as string[]).includes(check.list)) {
+    add(
+      ctx,
+      "error",
+      `${path}.check.list`,
+      "code-list-unknown",
+      `code list "${String(check.list)}" is not bundled; bundled lists are ${CODE_LIST_IDS.join(", ")}`,
+    );
+  }
+  const source = (check.source ?? {}) as Record<string, unknown>;
+  const keys = Object.keys(source);
+  if (keys.length !== 1 || !["attribute", "property", "classification"].includes(keys[0])) {
+    add(
+      ctx,
+      "error",
+      `${path}.check.source`,
+      "code-source-shape",
+      "source needs exactly one of attribute, property or classification",
+    );
+  }
+  let groups = -1;
+  try {
+    new RegExp(check.extract);
+    groups = (new RegExp(`${check.extract}|`).exec("")?.length ?? 1) - 1;
+  } catch {
+    add(
+      ctx,
+      "error",
+      `${path}.check.extract`,
+      "extract-invalid",
+      `extract "${check.extract}" is not a valid regular expression`,
+    );
+  }
+  if (groups >= 0 && groups !== 1) {
+    add(
+      ctx,
+      "error",
+      `${path}.check.extract`,
+      "extract-groups",
+      `extract has ${groups} capture groups; it needs exactly one, the code`,
+    );
   }
 }
 
