@@ -47,7 +47,7 @@ import { useBentoCols } from "./useBentoCols";
 import { Verification } from "./Verification";
 import type { ModelView } from "./cross-filter";
 import { ViewerTile } from "../viewer/ViewerTile";
-import { KpiRow, type KpiCard, SpatialGauge } from "./forms";
+import { ClassDistribution, KpiRow, type KpiCard, SpatialGauge } from "./forms";
 import { formatBytes, formatCount } from "./format";
 import { verdictOf } from "../engine/fundamentals";
 import { modelKpis } from "../engine/kpis";
@@ -150,10 +150,10 @@ export function Dashboard({
       : null;
 
   return (
-    // The bento canvas carries `container-type: size`, so it takes its height
-    // from here and never from its content. This chain is what makes the grid
-    // fit the box instead of running off the bottom of it.
-    <div ref={ref} className="min-h-0 w-full min-w-0 flex-1">
+    // The bento canvas measures its own width (`container-type: inline-size`)
+    // and takes its height from its rows; the page scrolls, the tiles do not
+    // shrink to fit the screen.
+    <div ref={ref} className="w-full min-w-0">
       {tiles && cols ? (
         <BentoGrid definition={cols === 21 ? LAYOUT_21 : LAYOUT_13} tiles={tiles} />
       ) : null}
@@ -254,7 +254,34 @@ function buildTiles({
     counted("placement", "kpi.placement", "mesh-placement", kpis.placement),
   ];
 
+  // 21 tracks only: the class bars. Beside a 5-wide model and a 5-wide gauge
+  // the only legal cut left is 3 tracks, and a board with a 3×5 hole in it
+  // reads as a void (edkjo, "bento box, not a matrix": the tiles close). The
+  // Klasser distribution is the tile whose kind owns 3×3; it is on the
+  // Innhold tab as well, as upstream scales up by making more tiles visible.
+  const classes: BentoTileSpec[] = wide
+    ? [
+        {
+          id: "classes",
+          kind: "distribution",
+          priority: "P1",
+          span: { w: 3, h: 3 },
+          label: t("tile.classes", lang),
+          sub: formatCount(census.classes.length, lang),
+          body: (
+            <ClassDistribution
+              lang={lang}
+              classes={census.classes}
+              selected={selected}
+              onFocus={onFocus}
+            />
+          ),
+        },
+      ]
+    : [];
+
   return [
+    ...classes,
     {
       // A 1-row strip across the whole canvas, above the focal. `tellTales`
       // is the registry's strip kind (13×1 / 21×1 upstream too); the grid has
@@ -337,7 +364,7 @@ function buildTiles({
       id: "floors",
       kind: "roster",
       priority: wide ? "P1" : "P2",
-      span: wide ? { w: 5, h: 2 } : { w: 8, h: 3 },
+      span: wide ? { w: 8, h: 2 } : { w: 8, h: 3 },
       label: t("tile.storeys", lang),
       sub: configured
         ? `${formatCount(floors!.length, lang)} × ${formatCount(peers.length, lang)}` +

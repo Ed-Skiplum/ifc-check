@@ -49,11 +49,16 @@ export function SpatialGauge({
               (present ? VERDICT_FILL.pass : VERDICT_FILL.fail)
             }
           >
-            <span className="font-mono text-[12px] font-bold">
+            <span className="font-mono text-[length:var(--bento-fs)] font-bold">
               {present ? VERDICT_GLYPH.pass : VERDICT_GLYPH.fail}
             </span>
-            <span className="truncate font-mono text-[11px]">{level.level}</span>
-            <span className="ml-auto font-mono text-[12px] font-semibold tabular-nums">
+            <span data-essential className="truncate font-mono text-[length:var(--bento-fs)]">
+              {level.level}
+            </span>
+            <span
+              data-essential
+              className="ml-auto shrink-0 font-mono text-[length:var(--bento-fs)] font-semibold tabular-nums"
+            >
               {formatCount(level.size, lang)}
             </span>
           </span>
@@ -87,7 +92,7 @@ export function ClassDistribution({
           type="button"
           onClick={() => onFocus({ kind: "class", entity: klass.entity })}
           className={
-            "relative flex h-6 w-full items-center justify-between gap-2 border-b border-line px-2 text-left hover:bg-palegreen " +
+            "relative flex h-[var(--bento-line,24px)] w-full items-center justify-between gap-2 border-b border-line px-2 text-left hover:bg-palegreen " +
             (selected === `class:${klass.entity}` ? "outline-2 -outline-offset-2 outline-ink" : "")
           }
         >
@@ -96,8 +101,16 @@ export function ClassDistribution({
             className="absolute inset-y-0 left-0 bg-green/15"
             style={{ width: peak > 0 ? `${(klass.count / peak) * 100}%` : "0%" }}
           />
-          <span className="relative truncate font-mono text-[11px] text-ink">{klass.entity}</span>
-          <span className="relative shrink-0 font-mono text-[11px] tabular-nums text-ink">
+          <span
+            title={klass.entity}
+            className="relative truncate font-mono text-[length:var(--bento-fs-sm,11px)] text-ink"
+          >
+            {klass.entity}
+          </span>
+          <span
+            data-essential
+            className="relative shrink-0 font-mono text-[length:var(--bento-fs-sm,11px)] tabular-nums text-ink"
+          >
             {formatCount(klass.count, lang)}
           </span>
         </button>
@@ -223,8 +236,9 @@ export function KpiRow({
         const inner = (
           <>
             <span
+              data-essential
               className={
-                "truncate leading-none font-semibold tracking-[0.12em] uppercase " +
+                "truncate leading-tight font-semibold tracking-[0.12em] uppercase " +
                 (card.verdict ? "opacity-90" : "text-gold")
               }
               style={{ fontSize: "var(--bento-label)" }}
@@ -233,7 +247,8 @@ export function KpiRow({
               {card.label}
             </span>
             <span
-              className="truncate font-mono leading-none font-semibold tabular-nums"
+              data-essential
+              className="truncate font-mono leading-tight font-semibold tabular-nums"
               style={{ fontSize: "min(var(--bento-value), calc(var(--bento-row) * 0.45))" }}
               title={card.value}
             >
@@ -242,7 +257,7 @@ export function KpiRow({
           </>
         );
         const cls =
-          `flex min-w-0 flex-col justify-center gap-0.5 px-[var(--bento-pad)] text-left ${fill} ` +
+          `flex min-w-0 flex-col justify-center px-[var(--bento-pad)] text-left ${fill} ` +
           (key && selected === key ? "outline-2 -outline-offset-2 outline-ink" : "");
         return clickable ? (
           <button

@@ -1,0 +1,61 @@
+{
+  "formatVersion": 1,
+  "name": "KNM (test floors)",
+  "description": "Kistefos Nytt Museum. BEP §6.12: type names follow [ComponentCode]-[nn].",
+  "ifcVersions": [
+    "IFC2X3",
+    "IFC4"
+  ],
+  "rules": [
+    {
+      "id": "type-name-ns3457-8",
+      "kind": "extended",
+      "mapping": "component-classification",
+      "name": "Type name carries an NS 3457-8 component code",
+      "description": "BEP §6.12, [ComponentCode]-[nn]",
+      "check": {
+        "type": "code-lookup",
+        "list": "ns3457-8",
+        "target": "type",
+        "source": {
+          "attribute": "Name"
+        },
+        "extract": "^([A-Z]{2,3})-\\d{2}$"
+      }
+    }
+  ],
+  "storeys": [
+    {
+      "name": "KNM_Tak",
+      "elevation": 142.8
+    },
+    {
+      "name": "KNM_Plan A.03",
+      "elevation": 128.75
+    },
+    {
+      "name": "KNM_Plan C.02",
+      "elevation": 128.0
+    },
+    {
+      "name": "KNM_Plan B.02",
+      "elevation": 127.0
+    },
+    {
+      "name": "KNM_Plan A.02",
+      "elevation": 126.5
+    },
+    {
+      "name": "KNM_Plan 01",
+      "elevation": 122.5
+    },
+    {
+      "name": "KNM_Plan U1",
+      "elevation": 118.6
+    },
+    {
+      "name": "Havnivå",
+      "elevation": 0.0
+    }
+  ]
+}

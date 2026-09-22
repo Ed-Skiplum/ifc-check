@@ -15,12 +15,13 @@
  * upstream they change here; this file is not a place to have opinions about
  * the grid.
  *
- * ── The two deliberate deviations, both in the kind→span registry ────────
+ * ── The deliberate deviations, all in the kind→span registry ─────────────
  * The registry is the one part of the spec that is CONTENT vocabulary rather
  * than grid structure, and upstream's entries encode which tile is the focal
  * on sprucelab's boards. On ifc-check the focal is a different tile and the
  * model tile needs a shape upstream lacks, so two kinds take spans upstream
- * does not give them: `tellTales` (the focal) and `viewer` (5×5). Both are
+ * does not give them: `tellTales` (the focal) and `viewer` (5×5). A third
+ * raises the `roster` aspect ceiling so the floor tile can be 8×2. Each is
  * named at the entry.
  * Nothing structural moves: the span ladder, the bands, the seams, the fold
  * and the one-focal / one-gauge rules are untouched, and the focal here is
@@ -275,7 +276,14 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
     // 5×2 and 8×3, the two shapes that show a whole storey list, and still
     // refuses 8×2 (4.0:1 / 4.21:1), where a sticky header plus two visible
     // rows is genuinely too short to be a roster.
-    aspect: { min: 0.6, max: 2.9 },
+    //
+    // DEVIATION FROM UPSTREAM (3 of 3, 2026-09-22): 2.9 → 4.1, to admit 8×2
+    // (4.03:1 on 21 tracks). The 2.9 ceiling reasoned that 8×2 leaves "a
+    // sticky header plus two visible rows"; with the list line at 0.27 of the
+    // track a 2-row tile carries five to six floors whatever its width, and
+    // width is what the Etasjer tile needs: one column per loaded model. The
+    // 21-track board seats it as 8×2 so the board closes without air.
+    aspect: { min: 0.6, max: 4.1 },
     spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }],
   },
   pulse: {

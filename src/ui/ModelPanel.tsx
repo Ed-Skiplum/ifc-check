@@ -15,9 +15,10 @@
  * stay mounted and the inactive one is hidden, so the 3D scene and its camera
  * survive a trip to Innhold and back.
  *
- * The derivation band opens under the active tab and takes 38.2 % of the
- * panel body, so the tab keeps 61.8 %. It used to take 38vh of the page from
- * below and shrink every tile on the board.
+ * The derivation band opens under the active tab, pinned to the bottom of the
+ * scrolling page at 38.2 % of the screen, so it is in view wherever the number
+ * was clicked. The board itself never shrinks for it: the board's height comes
+ * from its width (2026-09-22), and the page scrolls.
  *
  * ── Where the cross-filter is joined ─────────────────────────────────────
  * The same click that opens a derivation makes a chip. `onFocus` still does
@@ -43,6 +44,7 @@ import { Contents } from "./Contents";
 import { Dashboard } from "./Dashboard";
 import { FilterBar } from "./FilterBar";
 import { ReadoutStrip, type Readout } from "./forms";
+import { BENTO_MAX_WIDTH } from "./bento-spec";
 import { aggregateTypes, meshIndex } from "./types";
 import type { FloorConfig } from "../engine/storey-config";
 import type { FloorPeer } from "./FloorSetup";
@@ -180,7 +182,10 @@ export function ModelPanel({
     : undefined;
 
   return (
-    <section className="flex h-full min-h-0 shrink-0 flex-col gap-2">
+    // Convergence is a PAGE property (sprucelab DESIGN.md §2): header, filter
+    // bar, tabs and board cap together at the canvas's own cap, so on an
+    // ultrawide the file line starts where the board starts.
+    <section className="mx-auto flex w-full shrink-0 flex-col gap-2" style={{ maxWidth: BENTO_MAX_WIDTH }}>
       <div className="flex min-w-0 items-baseline gap-3">
         <span
           onDoubleClick={copyOnDoubleClick(model.fileName)}
@@ -262,12 +267,8 @@ export function ModelPanel({
             ))}
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-2">
-            <div
-              role="tabpanel"
-              hidden={tab !== "checks"}
-              className="flex min-h-0 flex-[1.618] flex-col"
-            >
+          <div className="flex flex-col gap-2">
+            <div role="tabpanel" hidden={tab !== "checks"} className="flex flex-col">
               <Dashboard
                 lang={lang}
                 model={model}
@@ -284,11 +285,7 @@ export function ModelPanel({
                 rules={rules}
               />
             </div>
-            <div
-              role="tabpanel"
-              hidden={tab !== "contents"}
-              className="flex min-h-0 flex-[1.618] flex-col"
-            >
+            <div role="tabpanel" hidden={tab !== "contents"} className="flex flex-col">
               <Contents
                 lang={lang}
                 census={facts}
@@ -297,7 +294,15 @@ export function ModelPanel({
                 onFocus={focus}
               />
             </div>
-            {trace ? <div className="flex min-h-0 flex-1 flex-col">{trace}</div> : null}
+            {/* Pinned to the bottom of the scrolling page while this panel
+                spans it, so a number clicked at the top of a tall board opens
+                its derivation in view; it takes 38.2 % of the screen and the
+                board keeps 61.8 %. At the end of the panel it rests in flow. */}
+            {trace ? (
+              <div className="sticky bottom-0 z-20 flex h-[38.2dvh] min-h-[16rem] flex-col">
+                {trace}
+              </div>
+            ) : null}
           </div>
         </>
       ) : null}

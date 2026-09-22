@@ -100,37 +100,20 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
   const divisor = bentoTrackDivisor(definition.cols);
   const fold = BENTO_FOLD_ROWS[definition.cols];
 
-  // The track is bounded by BOTH axes.
-  //
-  // Upstream derives the track from width alone and lets the fold budget
-  // scroll. Here the dashboard has to FIT its box: the owner asked twice for
-  // the grid to scale to the viewport, and a board that runs off the bottom is
-  // the thing he was pointing at. So the track is the SMALLER of what the width
-  // affords and what the height affords, which keeps the cell square and the
-  // span ladder intact.
-  //
-  // It divides by the layout's ACTUAL row count, not by `fold`. Dividing by
-  // `fold` sizes the track so that the first `fold` rows fill the box, which
-  // means every row past the fold is outside it — on the 13-track board that
-  // was rows 9..13, and the storey x class matrix lives in 11..13, so the
-  // densest tile on the canvas could not be seen at all. The alternative was
-  // to author both boards within the fold, and on 13 tracks that is
-  // arithmetically impossible: 8 rows is 104 cells, and the smallest legal
-  // set of these seven tiles is 126 (focal 8x5 = 40, one gauge 5x3 = 15,
-  // viewer 3x3 = 9, distribution 3x3 = 9, roster 5x2 = 10, readout 2x2 = 4,
-  // matrix 13x3 = 39). A board that cannot be authored is not a board.
-  //
-  // `fold` keeps the job the spec gives it — "P0/P1 never live below this
-  // line" — and `validateBentoLayout` still enforces exactly that. It is a
-  // reading-order rule; it is no longer the number the fit divides by.
-  //
-  // Heights are all multiples of the track — row = track x rowFactor and
-  // rowGap = track x PHI/10 — so `rows` rows occupy
-  //   track x (rows x rowFactor + (rows - 1) x PHI/10)
-  // and inverting that gives the height-afforded track below.
+  // The track is derived from the WIDTH alone, as upstream does it
+  // (2026-09-22, re-aligned). The local variant bounded it by the height too,
+  // `min(100cqw / divisor, 100cqh / rows)`, so the board always fit one
+  // screen. That is what made it "stunted" (edkjo): on a 16:9 or 16:10 laptop
+  // the height term won, every tile shrank below its content, and the Etasjer
+  // headers read "KNM…" while the focal hid its rules behind an inner
+  // scrollbar. edkjo, the direction that replaced it: "a grid of tiles …
+  // that way we can resize to monitor size easily as everything is
+  // proportional", "bento box, not a matrix". So one module, the track,
+  // derived from the grid's own width; every tile an integer number of
+  // tracks; the page scrolls vertically when the board is taller than the
+  // screen, and the composition changes only at the one breakpoint
+  // (`BENTO_21_MIN_WIDTH`). Between breakpoints everything scales together.
   const rowFactor = BENTO_ROW_FACTOR[definition.cols];
-  const heightDivisor =
-    definition.rows * rowFactor + ((definition.rows - 1) * PHI) / 10;
 
   // A span that is legal on the ladder can still render as an unpleasant tile:
   // with a near-square cell a 13x1 is about 13:1. Report those in dev rather
@@ -161,9 +144,7 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
   }
 
   const vars = {
-    // `100cqh` needs `container-type: size`, which in turn needs a definite
-    // height on this box — see the wrapper below.
-    "--bento-track": `min(calc(100cqw / ${divisor}), calc(100cqh / ${heightDivisor.toFixed(4)}))`,
+    "--bento-track": `calc(100cqw / ${divisor})`,
     "--bento-colgap": "calc(var(--bento-track) / 10)",
     "--bento-rowgap": `calc(var(--bento-colgap) * ${PHI})`,
     "--bento-pad": `calc(var(--bento-colgap) * ${PHI})`,
@@ -176,6 +157,18 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
     "--bento-text": "clamp(11px, calc(var(--bento-track) * 0.105), 15px)",
     "--bento-value": "clamp(17px, calc(var(--bento-track) * 0.32), 42px)",
     "--bento-row": `calc(var(--bento-track) * ${BENTO_ROW_FACTOR[definition.cols]})`,
+    // The list line: one row of a tile's list (a check, a floor, a lamp) is a
+    // fixed fraction of the track, so a tile shows the SAME number of rows at
+    // every size between breakpoints and its contents keep their proportions
+    // instead of leaving a void under 24 px rows on a big screen. 0.27 is what
+    // seats the thirteen checks, the "Regler" rule and three rules in the 8×5
+    // focal; the floor tile (8×3) then carries nine floors. Clamped at both
+    // ends like the type below.
+    "--bento-line": "clamp(20px, calc(var(--bento-track) * 0.27), 36px)",
+    // List type rides the line: body text at half a line, small caps and mono
+    // counts at four tenths.
+    "--bento-fs": "clamp(11px, calc(var(--bento-line) * 0.5), 16px)",
+    "--bento-fs-sm": "clamp(9px, calc(var(--bento-line) * 0.4), 13px)",
     // The convergence cap lands on the CONTAINER-QUERY ROOT on purpose:
     // `100cqw` reads whatever box carries `container-type`, so capping
     // anywhere else would leave the track ladder measuring the uncapped width
@@ -189,16 +182,10 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
     // width". Without it the whole ladder silently measures the viewport.
     <div
       data-bento-canvas
-      // `container-type: size` rather than `inline-size`: the track ladder now
-      // reads `100cqh` as well as `100cqw`, and only size containment resolves
-      // the block axis. It also means this box takes its height from its parent
-      // and never from its content, so the parent chain must hand it one.
-      // Centred on BOTH axes. `margin-inline: auto` only ever balanced the
-      // horizontal, so a grid shorter than its box left the whole remainder as
-      // dead space at the bottom — the owner's "large empty spaces at the
-      // bottom or wherever". Flex centring splits the leftover on each axis, so
-      // what is left over reads as margin rather than as a void.
-      className="flex h-full w-full min-w-0 items-center justify-center [container-type:size]"
+      // `inline-size` containment: `100cqw` is this grid's width, and the
+      // grid takes its height from its rows, never from its parent. The page
+      // scrolls when the board is taller than the screen.
+      className="w-full min-w-0 [container-type:inline-size]"
       style={vars}
     >
       {canvasErrors.length > 0 || noContainerQueries ? (
@@ -241,7 +228,10 @@ function placement(position: GridPosition): CSSProperties {
 /** Small-caps, high-letter-spacing section label — the house micro-label. */
 export function MicroLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="truncate text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
+    <span
+      data-essential
+      className="truncate text-[length:var(--bento-label,10px)] font-semibold tracking-[0.12em] text-gold uppercase"
+    >
       {children}
     </span>
   );
@@ -293,7 +283,7 @@ function BentoTile({ spec, position }: { spec: BentoTileSpec; position: GridPosi
       <div className="flex shrink-0 items-baseline gap-2 px-[var(--bento-pad)] pt-1.5 pb-1">
         <MicroLabel>{spec.label}</MicroLabel>
         {spec.sub ? (
-          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted">
+          <span className="ml-auto shrink-0 font-mono text-[length:var(--bento-label,10px)] tabular-nums text-muted">
             {spec.sub}
           </span>
         ) : null}

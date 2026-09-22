@@ -39,6 +39,8 @@ const TILES = {
   // in the last band are P2 there (see `bento-layouts.ts`). Keyed per canvas.
   spatial: ["gauge", { 13: "P2", 21: "P0" }],
   floors: ["roster", { 13: "P2", 21: "P1" }],
+  // 21 tracks only.
+  classes: ["distribution", "P1"],
 };
 
 let failed = false;

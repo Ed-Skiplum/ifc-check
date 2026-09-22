@@ -29,6 +29,7 @@ src/ui/          the screen, and the worker that drives the engine
   Dashboard.tsx    tab 1 (Kontroll): the bento board
   BentoGrid.tsx    + useBentoCols.ts + bento-layouts.ts — the two authored
                    tab-1 layouts and the container-query track ladder
+  model-labels.ts  the short column label per loaded model (ARK/RIV/RIB)
   Verification.tsx the focal tile: one row per universal check, then the
                    project rules under "Regler" when a ruleset is loaded
   FloorSetup.tsx   the Etasjer tile: config floors × loaded models, or the
@@ -46,6 +47,7 @@ scripts/
   check-cli.ts   run the fundamentals headlessly
   ids-cli.ts     author, lint, emit and run rulesets headlessly
   bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
+  viewport-gate.mjs  real models in headless Chrome at every target viewport
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
@@ -202,7 +204,13 @@ off by the signed Δ in metres (file − config); gold `! ␣` = matches only af
 trimming; gold `! ×2` = several storeys on one floor; red `✗` = the storey's
 own not-in-config row; `—` = floor absent, never a finding. The full
 "name · kote" is each cell's title. Sub: `floors × models` and `+N` extra rows.
-With no config the tile lists the file's own storeys (name · kote, gold
+Column headers are the models' distinguishing short names
+(`model-labels.ts`: the common prefix and suffix dropped at a separator, so
+`KNM_ARK`/`KNM_RIV`/`KNM_RIB` read `ARK`/`RIV`/`RIB`; one model, or a cut
+that leaves a name empty or two names equal, keeps the stems); the file name
+is the header's title. Model columns and every mark are sized to their
+content and never truncated; only a found storey NAME (`✗ <name>`) ellipsizes,
+at 16ch, by design. With no config the tile lists the file's own storeys (name · kote, gold
 shared-kote marker), no model columns. What is ON each floor is the census,
 "Etasje × klasse", on the Innhold tab, never on this tile. `check-cli.ts --ruleset <file>` supplies the
 config headlessly. `examples/knm.ruleset.json` carries no floor config: the
@@ -246,7 +254,9 @@ The tab is `tab=contents` in the URL hash (absent = Kontroll), one for all
 panels, pushed to history so Back/Forward walk it. Both tabs stay mounted and
 the inactive one is `hidden`, so the 3D scene and its camera survive a tab
 switch. The derivation band opens INSIDE the panel of the model it belongs to,
-under the active tab, at 38.2 % of the panel body (the tab keeps 61.8 %).
+under the active tab, pinned to the bottom of the scrolling page
+(`sticky bottom-0`) at 38.2 % of the screen, so a number clicked at the top of
+a tall board opens its derivation in view.
 
 Checked 2026-09-21 in headless Chrome against a LOCAL preview build, not the
 deployed site: both tabs at 1440 and 1100 with KNM_ARK, ARK+RIV+RIB + knm
@@ -354,12 +364,72 @@ deviation is reverted: the census left the board for the Innhold tab
 
 Tab-1 layouts: 13 tracks × 9 rows (`kpis` 13×1; `verify` 8×5 | `viewer` 5×5;
 `floors` 8×3 | `spatial` 5×3) and 21 tracks × 6 rows (`kpis` 21×1; `viewer`
-5×5 | 3 tracks of air | `spatial` 5×3 over `floors` 5×2 | `verify` 8×5).
+5×5 | `classes` 3×3 over `floors` 8×2 beside `spatial` 5×3 | `verify` 8×5).
 `node scripts/board-gate.mjs` validates both. Open upstream questions for
 sprucelab, not forked here: the 13-track board is 9 rows against an 8-row fold
 because of the KPI strip, which forces `floors` and `spatial` to P2 there;
-and whether a KPI-row kind should exist. The 21-track air (cols 6–8) is
-structural air by default; if it reads as a void live, a 3×2 readout fits it.
+and whether a KPI-row kind should exist.
+
+### Size and the page (2026-09-22)
+
+edkjo on the tabbed board: *"not sure what I'm looking at in the dash now. It
+seems stunted"*, then *"a grid of tiles … that way we can resize to monitor
+size easily as everything is proportional"*, *"bento box, not a matrix"*.
+
+- **Diagnosis.** The local grid bounded the track by BOTH axes,
+  `min(100cqw / divisor, 100cqh / rows)`, so the board always fit one screen.
+  On every 16:9 / 16:10 screen the height term won and every tile shrank
+  below its content: Etasjer headers read `KNM…`, deltas `−0,…`, the rules
+  hid behind an inner scrollbar.
+- **Now: one module, derived from the width** — `track = 100cqw / divisor`,
+  which is the upstream rule (this re-aligns the mirror; it is not a new
+  deviation). Every tile is an integer number of tracks, so the composition
+  scales uniformly with the grid's width. The canvas uses `container-type:
+  inline-size`, takes its height from its rows, and the page (`<main>`)
+  scrolls vertically. Model panels are content height; the panel caps at
+  `BENTO_MAX_WIDTH` with the canvas (convergence is a page property).
+- **Layout selection rule:** the grid's own inline width, one breakpoint.
+  Below 1900 px of grid: the 13-track layout; at or above: the 21-track one.
+  Between breakpoints nothing reflows, it scales. Above 2530 px the canvas
+  stops growing and the margins grow.
+- **Contents scale with the module.** `--bento-line` (a list row) =
+  `clamp(20px, 0.27 × track, 36px)`; `--bento-fs` = half a line,
+  `--bento-fs-sm` = 0.4 of a line (both clamped). The focal, floor, gauge and
+  class rows ride these, so a tile shows the same rows at every size: the
+  focal seats all thirteen checks plus the rule section, the 8×3 floor tile
+  eight to nine floors, the 8×2 one five.
+- **Deviations from upstream** (registry only, named at the entry): `tellTales`
+  focal spans, `viewer` 5×5, and (new) `roster` aspect ceiling 2.9 → 4.1 so
+  the floor tile can be 8×2 on 21 tracks. The 21-track board carries the
+  Klasser distribution (3×3) because the four board tiles cannot close 21×5
+  (40 + 25 + 15 + 24 = 104 of 105 cells) and the 3-track gap read as a void.
+  Upstream question: should the height-bound track be dropped upstream too
+  (it never existed there), and should `roster` admit 8×2?
+
+### The viewport gate
+
+`scripts/viewport-gate.mjs` (build first; `--url` for a deployed site):
+one headless Chrome, launched only with >= 4 GB free, fresh profile per run
+(the app restores the last session from IndexedDB). It drops real KNM models
+(KNM_Void-demo `export_2026-09-14`: ARK alone; ARK+RIV+RIB with
+`examples/knm-floors.test.ruleset.json`, a TEST floor config, not the KNM
+BEP's) and at every target viewport, both tabs, asserts: no horizontal
+overflow of page or main; no `[data-essential]` element ellipsized or cut by
+a clipping ancestor; per-tile minimum fully visible rows (focal 13, floors 6
+on 3 rows / 5 on 2 rows, gauge 4, KPI 7); no `overflow: hidden` box hiding
+content and no sideways scroll inside a tile. Also the landing at 390×844 and
+1280×720. Screenshots to `tmp/viewports/` (`-full.png` = whole page at the
+same width). Exit 0 / 1 / 2.
+
+Targets (CSS px): 1280×720, 1280×800, 1366×768, 1440×900, 1536×864,
+1680×1050, 1920×1080, 1920×1200, 2560×1440, 2048×1152 at dpr 1.25,
+3440×1440, and the skiplum.com iframe boxes 1100×800 and 1200×900 (emulated
+as the viewport: the app lays out against its own box). The board has no
+portrait layout (canon 2026-08-01).
+
+Mark any new essential label or value `data-essential`; by-design ellipsis
+(type names, material lists, rule names, a found storey name, the program
+name) stays unmarked and carries its full text in `title`.
 
 ## IDS, and where it stops
 

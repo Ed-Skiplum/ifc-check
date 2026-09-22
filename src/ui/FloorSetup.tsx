@@ -36,6 +36,7 @@ import { locale, t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatElevation } from "./format";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
+import { shortModelLabels } from "./model-labels";
 
 export interface FloorPeer {
   id: string;
@@ -54,15 +55,17 @@ function Th({
   children: ReactNode;
   right?: boolean;
   title?: string;
-  /** A model column: fixed ~10ch so four or more models fit an 8×3 tile. */
+  /** A model column: as wide as its label and its widest cell, never
+   *  truncated. The label is the model's distinguishing short name. */
   model?: boolean;
 }) {
   return (
     <th
       title={title}
+      data-essential={model ? "" : undefined}
       className={
-        (model ? "w-[10ch] max-w-[10ch] min-w-[10ch] font-mono normal-case tracking-normal " : "tracking-[0.08em] uppercase ") +
-        "sticky top-0 z-10 truncate border-b border-line bg-panel px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap text-gold " +
+        (model ? "w-px font-mono normal-case tracking-normal " : "tracking-[0.08em] uppercase ") +
+        "sticky top-0 z-10 h-[var(--bento-line)] border-b border-line bg-panel px-1.5 text-[length:var(--bento-fs-sm)] font-semibold whitespace-nowrap text-gold " +
         (right ? "text-right" : "text-left")
       }
     >
@@ -78,14 +81,16 @@ const metres = (m: number, lang: Lang, sign = false) =>
     signDisplay: sign ? "exceptZero" : "auto",
   });
 
-/** The file name without its extension: the column header has ~8ch. */
-const stem = (fileName: string) => fileName.replace(/\.(ifc|ifczip)$/i, "");
-
 const describe = (m: StoreyMatch, lang: Lang) =>
   `${m.storey.name ?? m.storey.guid} · ${m.elevationM === null ? "—" : metres(m.elevationM, lang)}`;
 
-const CELL = "h-6 w-[10ch] max-w-[10ch] border-b border-line p-0";
-const MARK = "flex h-6 items-center gap-1 px-1.5 font-mono text-[11px] whitespace-nowrap";
+// Rows and type ride the grid's list line, so the tile shows the same number
+// of floors at every size between breakpoints.
+const LINE = "h-[var(--bento-line)]";
+const CELL = `${LINE} w-px border-b border-line p-0`;
+const MARK = `flex ${LINE} items-center gap-1 px-1.5 font-mono text-[length:var(--bento-fs-sm)] whitespace-nowrap`;
+const NAME_TD = `${LINE} max-w-0 truncate border-b border-line px-1.5 text-[length:var(--bento-fs)] text-ink`;
+const KOTE_TD = `${LINE} w-px border-b border-line px-1.5 text-right font-mono text-[length:var(--bento-fs-sm)] tabular-nums whitespace-nowrap text-ink`;
 
 function Cell({
   found,
@@ -97,11 +102,17 @@ function Cell({
   lang: Lang;
 }) {
   if (found.length === 0) {
-    return <td className={`${CELL} px-1.5 font-mono text-[11px] text-muted`}>—</td>;
+    return (
+      <td className={`${CELL} px-1.5 font-mono text-[length:var(--bento-fs-sm)] text-muted`}>—</td>
+    );
   }
   const title = found.map((m) => describe(m, lang)).join(" | ");
   let fill: string;
   let text: string;
+  // A storey name found on a floor is the author's free text: it ellipsizes by
+  // design at 16ch, full name in the title. Every other mark is short and
+  // never cut, a kote delta above all.
+  let free = false;
   if (found.length > 1 || found[0].state === "duplicate") {
     fill = VERDICT_FILL.warn;
     text = `${VERDICT_GLYPH.warn} ×${Math.max(2, found.length)}`;
@@ -115,6 +126,7 @@ function Cell({
       case "name-mismatch":
         fill = VERDICT_FILL.warn;
         text = `${VERDICT_GLYPH.fail} ${m.storey.name ?? m.storey.guid}`;
+        free = true;
         break;
       case "elevation-mismatch":
         fill = VERDICT_FILL.warn;
@@ -134,8 +146,12 @@ function Cell({
   }
   return (
     <td className={CELL}>
-      <span title={title} className={`${MARK} max-w-[10ch] ${fill}`}>
-        <span className="truncate">{text}</span>
+      <span title={title} className={`${MARK} ${fill}`}>
+        {free ? (
+          <span className="max-w-[16ch] truncate">{text}</span>
+        ) : (
+          <span data-essential>{text}</span>
+        )}
       </span>
     </td>
   );
@@ -155,6 +171,7 @@ export function FloorSetupMatrix({
   const perModel = peers.map((peer) =>
     peer.unitResolved ? matchStoreys(peer.storeys, peer.unitScale, config) : [],
   );
+  const labels = shortModelLabels(peers.map((peer) => peer.fileName));
   const extras = perModel.flatMap((matches, col) =>
     matches.filter((m) => m.config === null).map((m) => ({ col, match: m })),
   );
@@ -166,9 +183,9 @@ export function FloorSetupMatrix({
           <tr>
             <Th>{t("col.name", lang)}</Th>
             <Th right>{t("col.elevation", lang)}</Th>
-            {peers.map((peer) => (
+            {peers.map((peer, col) => (
               <Th key={peer.id} title={peer.fileName} model>
-                {stem(peer.fileName)}
+                {labels[col]}
               </Th>
             ))}
           </tr>
@@ -176,13 +193,10 @@ export function FloorSetupMatrix({
         <tbody>
           {config.map((floor, row) => (
             <tr key={`cfg-${row}`}>
-              <td
-                title={floor.name}
-                className="h-6 w-full max-w-0 truncate border-b border-line px-1.5 text-[12px] text-ink"
-              >
+              <td data-essential title={floor.name} className={`${NAME_TD} w-full`}>
                 {floor.name}
               </td>
-              <td className="h-6 w-[9ch] border-b border-line px-1.5 text-right font-mono text-[11px] tabular-nums whitespace-nowrap text-ink">
+              <td className={KOTE_TD}>
                 {Number.isFinite(floor.elevation) ? metres(floor.elevation, lang) : "—"}
               </td>
               {perModel.map((matches, col) => (
@@ -199,18 +213,13 @@ export function FloorSetupMatrix({
             <tr key={`extra-${peers[col].id}-${match.storey.guid}`}>
               <td
                 title={match.storey.name ?? match.storey.guid}
-                className={
-                  "h-6 max-w-0 truncate border-b border-line px-1.5 text-[12px] text-ink " +
-                  (index === 0 ? "border-t-2 border-t-ink" : "")
-                }
+                data-essential
+                className={`${NAME_TD} ${index === 0 ? "border-t-2 border-t-ink" : ""}`}
               >
                 {match.storey.name ?? match.storey.guid}
               </td>
               <td
-                className={
-                  "h-6 border-b border-line px-1.5 text-right font-mono text-[11px] tabular-nums whitespace-nowrap text-ink " +
-                  (index === 0 ? "border-t-2 border-t-ink" : "")
-                }
+                className={`${KOTE_TD} ${index === 0 ? "border-t-2 border-t-ink" : ""}`}
               >
                 {match.elevationM === null ? "—" : metres(match.elevationM, lang)}
               </td>
@@ -261,14 +270,17 @@ export function StoreyList({
                 <td
                   onDoubleClick={copyOnDoubleClick(storey.name ?? storey.guid)}
                   title={storey.name ?? undefined}
+                  data-essential
                   className={
-                    "h-6 cursor-copy border-b border-line px-1.5 text-[12px] text-ink " +
-                    (storey.name === null ? "font-mono text-[11px]" : "max-w-0 truncate")
+                    `${LINE} cursor-copy border-b border-line px-1.5 text-ink ` +
+                    (storey.name === null
+                      ? "font-mono text-[length:var(--bento-fs-sm)]"
+                      : "w-full max-w-0 truncate text-[length:var(--bento-fs)]")
                   }
                 >
                   {storey.name ?? storey.guid}
                 </td>
-                <td className="h-6 w-[14ch] border-b border-line p-0 text-right">
+                <td className={`${LINE} w-px border-b border-line p-0 text-right whitespace-nowrap`}>
                   {storey.sharedWith > 1 ? (
                     <span
                       title={t("storey.shared", lang)}
@@ -279,7 +291,7 @@ export function StoreyList({
                       <span className="font-semibold">×{storey.sharedWith}</span>
                     </span>
                   ) : (
-                    <span className="block px-1.5 font-mono text-[11px] tabular-nums text-ink">
+                    <span className="block px-1.5 font-mono text-[length:var(--bento-fs-sm)] tabular-nums text-ink">
                       {kote}
                     </span>
                   )}
