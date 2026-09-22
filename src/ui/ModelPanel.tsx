@@ -18,7 +18,8 @@
  * The derivation band opens under the active tab, pinned to the bottom of the
  * scrolling page at 38.2 % of the screen, so it is in view wherever the number
  * was clicked. The board itself never shrinks for it: the board's height comes
- * from its width (2026-09-22), and the page scrolls.
+ * from its width and, where the composition allows, from the page height left
+ * under it (2026-09-22) — never from what the band takes. The page scrolls.
  *
  * ── Where the cross-filter is joined ─────────────────────────────────────
  * The same click that opens a derivation makes a chip. `onFocus` still does

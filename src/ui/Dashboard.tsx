@@ -119,7 +119,7 @@ export function Dashboard({
   peers,
   rules,
 }: DashboardProps) {
-  const { ref, cols } = useBentoCols();
+  const { ref, cols, space } = useBentoCols();
   const report = model.report;
   const profile = model.profile;
   const results = model.evaluation?.results;
@@ -152,10 +152,12 @@ export function Dashboard({
   return (
     // The bento canvas measures its own width (`container-type: inline-size`)
     // and takes its height from its rows; the page scrolls, the tiles do not
-    // shrink to fit the screen.
+    // shrink to fit the screen. `space` is the one thing measured in JS: how
+    // much page is left under this board, which the grid may spend on taller
+    // rows but never on shorter ones.
     <div ref={ref} className="w-full min-w-0">
       {tiles && cols ? (
-        <BentoGrid definition={cols === 21 ? LAYOUT_21 : LAYOUT_13} tiles={tiles} />
+        <BentoGrid definition={cols === 21 ? LAYOUT_21 : LAYOUT_13} tiles={tiles} space={space} />
       ) : null}
     </div>
   );
@@ -283,14 +285,16 @@ function buildTiles({
   return [
     ...classes,
     {
-      // A 1-row strip across the whole canvas, above the focal. `tellTales`
-      // is the registry's strip kind (13×1 / 21×1 upstream too); the grid has
-      // no KPI-row kind, and seven tiles cannot share one band (at most four
-      // band cuts per row), so the seven cards are cells of this one tile.
+      // A 1-row strip, 13 tracks on BOTH boards. `tellTales` is the registry's
+      // strip kind (13×1 upstream too); the grid has no KPI-row kind, and
+      // seven tiles cannot share one band (at most four band cuts per row), so
+      // the seven cards are cells of this one tile. On 21 tracks the strip
+      // gives up the other eight tracks of row 1 to the Etasjer tile, which is
+      // what buys that tile its third row — see `bento-layouts.ts`.
       id: "kpis",
       kind: "tellTales",
       priority: "P0",
-      span: { w: wide ? 21 : 13, h: 1 },
+      span: { w: 13, h: 1 },
       body: <KpiRow cards={kpiCards} selected={selected} onFocus={onFocus} />,
     },
     {
@@ -364,7 +368,7 @@ function buildTiles({
       id: "floors",
       kind: "roster",
       priority: wide ? "P1" : "P2",
-      span: wide ? { w: 8, h: 2 } : { w: 8, h: 3 },
+      span: { w: 8, h: 3 },
       label: t("tile.storeys", lang),
       sub: configured
         ? `${formatCount(floors!.length, lang)} × ${formatCount(peers.length, lang)}` +

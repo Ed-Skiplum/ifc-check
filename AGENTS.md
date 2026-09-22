@@ -363,12 +363,22 @@ deviation is reverted: the census left the board for the Innhold tab
 (2026-09-21), and `matrix` is back to upstream's 8×5 / 13×8.
 
 Tab-1 layouts: 13 tracks × 9 rows (`kpis` 13×1; `verify` 8×5 | `viewer` 5×5;
-`floors` 8×3 | `spatial` 5×3) and 21 tracks × 6 rows (`kpis` 21×1; `viewer`
-5×5 | `classes` 3×3 over `floors` 8×2 beside `spatial` 5×3 | `verify` 8×5).
-`node scripts/board-gate.mjs` validates both. Open upstream questions for
-sprucelab, not forked here: the 13-track board is 9 rows against an 8-row fold
-because of the KPI strip, which forces `floors` and `spatial` to P2 there;
-and whether a KPI-row kind should exist.
+`floors` 8×3 | `spatial` 5×3) and 21 tracks × 6 rows (`spatial` 5×3 | `classes`
+3×3 | `kpis` 13×1 over `viewer` 5×5 | `verify` 8×5, with `floors` 8×3 under
+the gauge). `node scripts/board-gate.mjs` validates both. Open upstream
+questions for sprucelab, not forked here: the 13-track board is 9 rows against
+an 8-row fold because of the KPI strip, which forces `floors` and `spatial` to
+P2 there; whether a KPI-row kind should exist; and whether the row unit's
+height flex (below) belongs upstream.
+
+**The KPI strip is 13×1 on BOTH boards** (2026-09-22). On 21 tracks it used to
+take the whole 21-track row, which left the Etasjer tile 8×2 — five floors of
+ten. Searched exhaustively (every span each kind admits, every seam-legal
+placement, 4–11 rows, one focal and one gauge): 21 tracks closes at six rows in
+exactly two ways, and the 13-wide strip is the one that leaves row 1's other
+eight tracks to `floors`, making it 8×3. The only other closed boards are nine
+rows with `viewer` at 3×3 — they would fill a tall screen, at the cost of the
+3D becoming the smallest tile. Not taken; edkjo's call.
 
 ### Size and the page (2026-09-22)
 
@@ -393,18 +403,53 @@ size easily as everything is proportional"*, *"bento box, not a matrix"*.
   Between breakpoints nothing reflows, it scales. Above 2530 px the canvas
   stops growing and the margins grow.
 - **Contents scale with the module.** `--bento-line` (a list row) =
-  `clamp(20px, 0.27 × track, 36px)`; `--bento-fs` = half a line,
+  `clamp(20px, 0.26 × track, 36px)`; `--bento-fs` = half a line,
   `--bento-fs-sm` = 0.4 of a line (both clamped). The focal, floor, gauge and
   class rows ride these, so a tile shows the same rows at every size: the
   focal seats all thirteen checks plus the rule section, the 8×3 floor tile
-  eight to nine floors, the 8×2 one five.
+  ten floors. The fraction was 0.27 until 2026-09-22, where the floor tile came
+  out exactly one row short of a ten-floor config at every size.
 - **Deviations from upstream** (registry only, named at the entry): `tellTales`
-  focal spans, `viewer` 5×5, and (new) `roster` aspect ceiling 2.9 → 4.1 so
-  the floor tile can be 8×2 on 21 tracks. The 21-track board carries the
-  Klasser distribution (3×3) because the four board tiles cannot close 21×5
-  (40 + 25 + 15 + 24 = 104 of 105 cells) and the 3-track gap read as a void.
-  Upstream question: should the height-bound track be dropped upstream too
-  (it never existed there), and should `roster` admit 8×2?
+  focal spans and `viewer` 5×5. The `roster` ceiling 2.9 → 4.1, raised the same
+  day to admit an 8×2 floor tile, is REVERTED — no layout asks for 8×2 now.
+  The 21-track board carries the Klasser distribution (3×3) because the other
+  tiles cannot close it without air.
+
+### The height: take a surplus, never squeeze (2026-09-22)
+
+edkjo on a 2112 × 1267 window: *"why the large band at the bottom and squished
+floor chart in the middle?"*
+
+- **The ROW unit travels, the track does not.** `bentoRowFactorRange` gives the
+  row a floor (the authored `BENTO_ROW_FACTOR`, so nothing is ever squeezed —
+  that was the "stunted" bug) and a ceiling DERIVED from the tiles actually
+  placed: a tile renders at `w / (h · f)` and must stay inside its kind's own
+  aspect, so the binding tile is whichever has the highest `aspect.min` per
+  cell, capped by `BENTO_CELL_ASPECT.min`. `BentoGrid` grows the row toward the
+  page height it is given (`space`) until the board covers it or `f` reaches
+  that ceiling. Bound-safe by construction: no tile can be grown out of its
+  usable range, and a shortfall is ignored rather than absorbed.
+- **What it is worth today.** 13 tracks: ceiling 1.11 (the 5×5 viewer), inert
+  in practice because nine rows already overflow a laptop. 21 tracks: ceiling
+  exactly 1.00, because the 3×3 `classes` tile is a `distribution` whose usable
+  aspect starts at 1.0. So on a 21-track board the surplus cannot be taken.
+- **That band is structural, not a sizing bug.** Six rows of a 21-track board
+  render ~3.4 : 1; a 2112 × 1267 window gives the board ~2080 × 1095, i.e.
+  ~1.9 : 1. The track is the width over a constant and the row is capped, so no
+  module closes the ~480 px left below. Only more ROWS OF CONTENT do: the
+  nine-row boards above (3×3 viewer), or tiles promoted from the Innhold tab.
+  The viewport gate prints the band at every viewport so it stays a number
+  someone can act on.
+- **Measurement.** The width ladder is still pure CSS and first-paint correct.
+  Only the surplus height is measured — `useBentoCols` reads `boardSpace` off
+  the scroller's content box less the panel chrome above the board, scroll-
+  independent, re-run by a `ResizeObserver` on the board, the scroller and the
+  panel. A missing measurement costs surplus height, never content: the board
+  renders at its authored row unit, exactly as before this existed.
+- Upstream questions: should the height-bound track be dropped upstream too (it
+  never existed there), should the row's height flex live upstream, and should
+  the layout breakpoint know the container's HEIGHT — a 21-track board is the
+  right call for a 2112-wide window and the wrong one for a 1267-tall one.
 
 ### The viewport gate
 
@@ -415,17 +460,22 @@ one headless Chrome, launched only with >= 4 GB free, fresh profile per run
 `examples/knm-floors.test.ruleset.json`, a TEST floor config, not the KNM
 BEP's) and at every target viewport, both tabs, asserts: no horizontal
 overflow of page or main; no `[data-essential]` element ellipsized or cut by
-a clipping ancestor; per-tile minimum fully visible rows (focal 13, floors 6
-on 3 rows / 5 on 2 rows, gauge 4, KPI 7); no `overflow: hidden` box hiding
-content and no sideways scroll inside a tile. Also the landing at 390×844 and
-1280×720. Screenshots to `tmp/viewports/` (`-full.png` = whole page at the
-same width). Exit 0 / 1 / 2.
+a clipping ancestor; per-tile minimum fully visible rows (focal 13, floors 10
+— every row of a ten-floor config — gauge 4, KPI 7); no `overflow: hidden` box
+hiding content and no sideways scroll inside a tile; and **fill** — a board
+shorter than the page height it was given must have its row unit already at
+the ceiling its own tiles allow, so a surplus is structural and never a module
+that declined to grow. The board's height, its space and the band between them
+print on every line, passing or not. Also the landing at 390×844 and 1280×720.
+Screenshots to `tmp/viewports/` (`-full.png` = whole page at the same width).
+Exit 0 / 1 / 2.
 
 Targets (CSS px): 1280×720, 1280×800, 1366×768, 1440×900, 1536×864,
-1680×1050, 1920×1080, 1920×1200, 2560×1440, 2048×1152 at dpr 1.25,
-3440×1440, and the skiplum.com iframe boxes 1100×800 and 1200×900 (emulated
-as the viewport: the app lays out against its own box). The board has no
-portrait layout (canon 2026-08-01).
+1680×1050, 1920×1080, 1920×1200, 2112×1267 (edkjo's own window, and the
+smallest 21-track target), 2560×1440, 2048×1152 at dpr 1.25, 3440×1440, and
+the skiplum.com iframe boxes 1100×800 and 1200×900 (emulated as the viewport:
+the app lays out against its own box). The board has no portrait layout (canon
+2026-08-01).
 
 Mark any new essential label or value `data-essential`; by-design ellipsis
 (type names, material lists, rule names, a found storey name, the program

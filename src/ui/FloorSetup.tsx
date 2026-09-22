@@ -65,7 +65,7 @@ function Th({
       data-essential={model ? "" : undefined}
       className={
         (model ? "w-px font-mono normal-case tracking-normal " : "tracking-[0.08em] uppercase ") +
-        "sticky top-0 z-10 h-[var(--bento-line)] border-b border-line bg-panel px-1.5 text-[length:var(--bento-fs-sm)] font-semibold whitespace-nowrap text-gold " +
+        "sticky top-0 z-10 h-[calc(var(--bento-line)-1px)] border-b border-line bg-panel px-1.5 text-[length:var(--bento-fs-sm)] font-semibold whitespace-nowrap text-gold " +
         (right ? "text-right" : "text-left")
       }
     >
@@ -86,7 +86,14 @@ const describe = (m: StoreyMatch, lang: Lang) =>
 
 // Rows and type ride the grid's list line, so the tile shows the same number
 // of floors at every size between breakpoints.
-const LINE = "h-[var(--bento-line)]";
+//
+// A row is a line MINUS ITS RULE: each cell carries `border-b`, and a table
+// cell's stated height is the box the border then sits under, so `h-line` on
+// a bordered row measures line + 1 px. Over eleven rows that is a whole floor
+// pushed out of the tile — measured 2026-09-22, 9 of 10 at every size. This
+// makes the row PITCH exactly one line, the same pitch the focal's check rows
+// keep, and the separator is part of it rather than an extra.
+const LINE = "h-[calc(var(--bento-line)-1px)]";
 const CELL = `${LINE} w-px border-b border-line p-0`;
 const MARK = `flex ${LINE} items-center gap-1 px-1.5 font-mono text-[length:var(--bento-fs-sm)] whitespace-nowrap`;
 const NAME_TD = `${LINE} max-w-0 truncate border-b border-line px-1.5 text-[length:var(--bento-fs)] text-ink`;

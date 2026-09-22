@@ -11,8 +11,12 @@
  *              deltas, KPI labels and numbers, gauge levels)
  *   rows       each tile shows at least its kind's minimum of list rows,
  *              fully, without scrolling (focal: every universal check; floors:
- *              six floors on a 3-row tile, five on a 2-row one, or all; gauge: all four levels; KPI strip:
- *              all seven cards)
+ *              every row of the config on the 8×3 tile both boards now carry;
+ *              gauge: all four levels; KPI strip: all seven cards)
+ *   fill       a board shorter than the page height it was given has its row
+ *              unit already at the ceiling its own placed tiles allow — a
+ *              surplus that is structural, never a module that declined to
+ *              grow. The band is printed either way, passing or not.
  *   hidden     no tile hides content below or beside its box unless the box
  *              scrolls (a scroll container IS the affordance); `overflow:
  *              hidden` with more content than box is a failure
@@ -70,6 +74,7 @@ const VIEWPORTS = [
   { w: 1680, h: 1050 },
   { w: 1920, h: 1080 },
   { w: 1920, h: 1200 },
+  { w: 2112, h: 1267 },
   { w: 2560, h: 1440 },
   { w: 2048, h: 1152, dpr: 1.25 },
   { w: 3440, h: 1440 },
@@ -83,8 +88,26 @@ const SCENARIOS = [
   { name: "three", files: ["KNM_ARK.ifc", "KNM_RIV.ifc", "KNM_RIB.ifc"], ruleset: floorsRuleset },
 ].filter((s) => !onlyScenario || s.name === onlyScenario);
 
-/** Minimum list rows fully visible per tile, by tile id. */
+/** Minimum list rows fully visible per tile, by tile id.
+ *
+ * `floors` is the one that is not constant. Both boards seat the Etasjer tile
+ * at 8×3 and the scenario's config is ten floors; five of ten behind an inner
+ * scrollbar is exactly what edkjo reported on 2026-09-22 ("squished floor
+ * chart"), so from 1440 px of viewport up the tile owes its WHOLE content.
+ * Below that the tile's box, minus a header that does not scale, cannot hold
+ * eleven lines without dropping the row under the 20 px legibility floor, so
+ * the requirement is the old six and the rest scrolls. The scenario's own row
+ * count caps both, so a smaller fixture cannot pass this vacuously.
+ *
+ * `10` is the fixture, not a constant of the tile: a fifteen-floor project
+ * scrolls, and that is the tile's honest capacity, not a defect. */
 const MIN_ROWS = { verify: 13, floors: 6, spatial: 4, kpis: 7 };
+const FLOORS_FULL_FROM_WIDTH = 1440;
+const FLOORS_FULL_ROWS = 10;
+const minRowsFor = (v) => ({
+  ...MIN_ROWS,
+  floors: v.w >= FLOORS_FULL_FROM_WIDTH ? FLOORS_FULL_ROWS : MIN_ROWS.floors,
+});
 
 /* ------------------------------------------------------------ processes */
 
@@ -320,6 +343,40 @@ const MEASURE = (minRows) => `(() => {
     }
   }
 
+  // fill — the board uses the page height it was given, or says why it cannot.
+  // A board shorter than its space is honest only when the row unit has
+  // already reached the ceiling its own placed tiles admit
+  // (\`bentoRowFactorRange\`): then the leftover is structural, the composition
+  // having no more rows to give. Any other short board is the dead cream band
+  // edkjo hit on 2026-09-22, and it fails here.
+  let board = null;
+  const canvas = panel?.querySelector('[data-bento-canvas]');
+  if (canvas) {
+    const box = canvas.getBoundingClientRect();
+    const space = Number(canvas.getAttribute('data-bento-space') || 0);
+    const cols = Number(canvas.getAttribute('data-bento-cols'));
+    const range = (canvas.getAttribute('data-bento-row-range') || '').split(':').map(Number);
+    // The track and the row unit are read back off the board itself: the KPI
+    // strip is exactly one row tall and the canvas is exactly \`cols\` tracks
+    // plus its gaps wide, so no CSS variable has to be resolved by hand.
+    const strip = canvas.querySelector('[data-tile-id=kpis]');
+    const track = box.width / (cols + (cols - 1) / 10);
+    const f = strip && track > 0 ? strip.getBoundingClientRect().height / track : null;
+    board = {
+      h: Math.round(box.height),
+      space,
+      band: space > 0 ? Math.round(space - box.height) : null,
+      f: f === null ? null : Number(f.toFixed(3)),
+      fmax: range[1] ?? null,
+    };
+    if (space > 0 && box.height < space - 24 && (f === null || f < range[1] - 0.02)) {
+      fails.push(
+        'fill: board ' + Math.round(box.height) + 'px of ' + space + 'px, row unit ' +
+        (f === null ? '?' : f.toFixed(3)) + ' still under its ' + range[1] + ' ceiling',
+      );
+    }
+  }
+
   // Tiles only exist on tab 1.
   const tiles = [...(panel?.querySelectorAll('[data-tile-id]') ?? [])].filter(visible);
   const stats = {};
@@ -367,14 +424,20 @@ const MEASURE = (minRows) => `(() => {
     else if (id === 'kpis') rows = [...tile.querySelectorAll(':scope > div > *')];
     const total = rows.length;
     const seen = rows.filter(inside).length;
-    // A 2-row floor tile (21 tracks, 8×2) carries five floors, a 3-row one six.
-    const span = Number((tile.style.gridRow || '').split(' / ')[1]) - Number((tile.style.gridRow || '').split(' / ')[0]);
-    const min = id === 'floors' && span < 3 ? 5 : (MIN[id] ?? 0);
-    const need = Math.min(min, total);
+    const need = Math.min(MIN[id] ?? 0, total);
     stats[id].rows = seen + '/' + total;
+    // The row budget in its own terms: what one list row really measures (the
+    // \`--bento-line\` ladder plus whatever the markup adds to it) against the
+    // scroll box it has to fit in. A tile one row short is otherwise a number
+    // with no cause attached.
+    if (rows.length > 0) {
+      const scroller = rows[0].closest('[class*=overflow-auto]') ?? tile;
+      stats[id].line = Math.round(rows[0].getBoundingClientRect().height * 10) / 10;
+      stats[id].list = Math.round(scroller.getBoundingClientRect().height);
+    }
     if (seen < need) fails.push('rows: ' + id + ' shows ' + seen + ' of ' + total + ', needs ' + need);
   }
-  return { fails, stats, tab: panel ? (panel.querySelector('[data-tile-id]') ? 'checks' : 'contents') : 'none' };
+  return { fails, stats, board, tab: panel ? (panel.querySelector('[data-tile-id]') ? 'checks' : 'contents') : 'none' };
 })()`;
 
 /** Open the app and empty it: the session a previous scenario left is
@@ -404,7 +467,7 @@ for (const v of [{ w: 390, h: 844 }, { w: 1280, h: 720 }]) {
   await viewport(v);
   await openEmpty();
   await settle();
-  const m = await evaluate(MEASURE(MIN_ROWS));
+  const m = await evaluate(MEASURE(minRowsFor(v)));
   const name = `landing-${v.w}x${v.h}`;
   const { data } = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(resolve(OUT, `${name}.png`), Buffer.from(data, "base64"));
@@ -442,16 +505,27 @@ for (const scenario of SCENARIOS) {
         return true;
       })()`);
       await settle();
-      const m = await evaluate(MEASURE(MIN_ROWS));
+      const m = await evaluate(MEASURE(minRowsFor(v)));
       const name = `${scenario.name}-${tab}-${v.w}x${v.h}${v.dpr ? `@${v.dpr}` : ""}${v.iframe ? "-iframe" : ""}`;
       await shot(name, v);
-      results.push({ state: name, fails: m.fails, tiles: m.stats });
+      results.push({ state: name, fails: m.fails, tiles: m.stats, board: m.board });
       if (m.fails.length) failed = true;
       const tiles = Object.entries(m.stats)
-        .map(([id, s]) => `${id} ${s.w}x${s.h}${s.rows ? ` ${s.rows}` : ""}`)
+        .map(
+          ([id, s]) =>
+            `${id} ${s.w}x${s.h}${s.rows ? ` ${s.rows}` : ""}${s.line ? ` @${s.line}/${s.list}` : ""}`,
+        )
         .join(" · ");
+      // The band is printed even when it passes: a surplus the composition
+      // cannot take is a real finding about the board, and a number nobody
+      // sees is how it goes back to being invisible.
+      const b = m.board;
+      const band =
+        b && b.band !== null
+          ? `  board ${b.h}/${b.space}px${b.band > 24 ? ` band ${b.band}px @ row ${b.f}/${b.fmax}` : ""}`
+          : "";
       console.log(
-        `${m.fails.length ? "FAIL" : "ok  "} ${name}${tiles ? `  [${tiles}]` : ""}` +
+        `${m.fails.length ? "FAIL" : "ok  "} ${name}${band}${tiles ? `  [${tiles}]` : ""}` +
           (m.fails.length ? "\n  " + m.fails.slice(0, 12).join("\n  ") : ""),
       );
     }

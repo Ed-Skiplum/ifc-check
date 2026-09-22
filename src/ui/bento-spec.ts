@@ -15,14 +15,14 @@
  * upstream they change here; this file is not a place to have opinions about
  * the grid.
  *
- * ── The deliberate deviations, all in the kind→span registry ─────────────
+ * ── The deliberate deviations, both in the kind→span registry ────────────
  * The registry is the one part of the spec that is CONTENT vocabulary rather
  * than grid structure, and upstream's entries encode which tile is the focal
  * on sprucelab's boards. On ifc-check the focal is a different tile and the
  * model tile needs a shape upstream lacks, so two kinds take spans upstream
- * does not give them: `tellTales` (the focal) and `viewer` (5×5). A third
- * raises the `roster` aspect ceiling so the floor tile can be 8×2. Each is
- * named at the entry.
+ * does not give them: `tellTales` (the focal) and `viewer` (5×5). Each is
+ * named at the entry. A third, a raised `roster` ceiling, existed for half a
+ * day and is reverted — see that entry.
  * Nothing structural moves: the span ladder, the bands, the seams, the fold
  * and the one-focal / one-gauge rules are untouched, and the focal here is
  * still exactly one 8×5.
@@ -50,7 +50,13 @@ export const PHI = 1.618;
 export const BENTO_GAP_DIVISOR = 10;
 
 /** Row unit = track width (square cells), compressed to 0.95× on 13 tracks so
- *  the 8-row fold budget closes at 800 px. Square is the ideal, not a rule. */
+ *  the 8-row fold budget closes at 800 px. Square is the ideal, not a rule.
+ *
+ *  This is the FLOOR of the row unit, not its only value: `bentoRowFactorRange`
+ *  turns it into a range whose ceiling is whatever the placed tiles' own aspect
+ *  bounds allow, and `BentoGrid` lets the row grow inside that range when the
+ *  viewport is taller than the board. It never goes below this number — a
+ *  shorter row is the squeeze that made the board "stunted" (2026-09-22). */
 export const BENTO_ROW_FACTOR: Record<BentoCols, number> = { 13: 0.95, 21: 1 };
 
 /** Tile aspect bounds, width : height of the rendered tile.
@@ -277,13 +283,15 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
     // refuses 8×2 (4.0:1 / 4.21:1), where a sticky header plus two visible
     // rows is genuinely too short to be a roster.
     //
-    // DEVIATION FROM UPSTREAM (3 of 3, 2026-09-22): 2.9 → 4.1, to admit 8×2
-    // (4.03:1 on 21 tracks). The 2.9 ceiling reasoned that 8×2 leaves "a
-    // sticky header plus two visible rows"; with the list line at 0.27 of the
-    // track a 2-row tile carries five to six floors whatever its width, and
-    // width is what the Etasjer tile needs: one column per loaded model. The
-    // 21-track board seats it as 8×2 so the board closes without air.
-    aspect: { min: 0.6, max: 4.1 },
+    // The 4.1 ceiling (2026-09-22) that admitted 8×2 is REVERTED the same day.
+    // It was raised so the 21-track board could close with the floor tile at
+    // 8×2, and edkjo's answer to that board was "squished floor chart": five
+    // floors of ten, the rest behind an inner scrollbar. Both boards now seat
+    // the tile at 8×3, no layout asks for 8×2, and a ceiling that exists only
+    // to permit a shape nothing uses is a bound that has stopped meaning
+    // anything. So this is back to upstream's own number and the registry
+    // carries two deviations, not three.
+    aspect: { min: 0.6, max: 2.9 },
     spans: [{ w: 5, h: 2 }, { w: 8, h: 2 }, { w: 8, h: 3 }],
   },
   pulse: {
@@ -347,6 +355,39 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
 
 export function kindAllowsSpan(kind: BentoKind, span: BentoSpan): boolean {
   return BENTO_KINDS[kind].spans.some((s) => s.w === span.w && s.h === span.h);
+}
+
+/**
+ * How far the ROW unit may travel, as a multiple of the track.
+ *
+ * The floor is the authored `BENTO_ROW_FACTOR`: the board is never squeezed to
+ * fit a screen, because that is what shrank every tile below its content
+ * (2026-09-22, "stunted"). The ceiling is the tallest cell the tiles ACTUALLY
+ * PLACED on this canvas can carry — a tile rendered at `w / (h · f)` must stay
+ * inside its kind's own usable aspect, so the binding tile is whichever has the
+ * highest `kind.aspect.min` per cell, and `BENTO_CELL_ASPECT.min` caps the cell
+ * itself on top of that. Derived from the layout rather than authored, so a
+ * board can never grow a tile out of the range its form needs; the height flex
+ * in `BentoGrid` is therefore bound-safe by construction.
+ *
+ * A ceiling equal to the floor is a real answer, not a bug: it says this
+ * composition has no room to give and its surplus height is structural.
+ */
+export function bentoRowFactorRange(
+  definition: BentoLayoutDefinition,
+  tiles: BentoTileSpec[],
+): { min: number; max: number } {
+  const min = BENTO_ROW_FACTOR[definition.cols];
+  const positions = generateGridPositions(definition.layout);
+  let max = 1 / BENTO_CELL_ASPECT.min;
+  for (const tile of tiles) {
+    const pos = positions[tile.id];
+    if (!pos) continue;
+    const bound = BENTO_KINDS[tile.kind].aspect.min;
+    if (bound <= 0) continue;
+    max = Math.min(max, pos.colSpan / (pos.rowSpan * bound));
+  }
+  return { min, max: Math.max(min, max) };
 }
 
 // ── The tile spec ─────────────────────────────────────────────────

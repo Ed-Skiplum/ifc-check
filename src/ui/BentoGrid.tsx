@@ -34,10 +34,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   BENTO_FOLD_ROWS,
+  BENTO_GAP_DIVISOR,
   BENTO_MAX_WIDTH,
-  BENTO_ROW_FACTOR,
   BENTO_KINDS,
   BENTO_STRIP_ASPECT_MAX,
+  bentoRowFactorRange,
   bentoSpanClass,
   PHI,
   bentoTrackDivisor,
@@ -71,11 +72,16 @@ const CQ_MESSAGE =
 export interface BentoGridProps {
   definition: BentoLayoutDefinition;
   tiles: BentoTileSpec[];
+  /** Px of page the board may occupy before the page has to scroll, or `null`
+   *  when it has not been measured yet. Surplus goes into the ROW unit, never
+   *  into the track; a shortfall is ignored, because shrinking to fit is the
+   *  squeeze this grid refuses. See `bentoRowFactorRange`. */
+  space?: number | null;
   /** Draw the fold line. Authoring aid; never on in a shipped board. */
   debug?: boolean;
 }
 
-export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) {
+export function BentoGrid({ definition, tiles, space = null, debug = false }: BentoGridProps) {
   const errors = validateBentoLayout(definition, tiles);
   const noContainerQueries = containerQueriesUnsupported();
 
@@ -100,7 +106,7 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
   const divisor = bentoTrackDivisor(definition.cols);
   const fold = BENTO_FOLD_ROWS[definition.cols];
 
-  // The track is derived from the WIDTH alone, as upstream does it
+  // The TRACK is derived from the WIDTH alone, as upstream does it
   // (2026-09-22, re-aligned). The local variant bounded it by the height too,
   // `min(100cqw / divisor, 100cqh / rows)`, so the board always fit one
   // screen. That is what made it "stunted" (edkjo): on a 16:9 or 16:10 laptop
@@ -113,7 +119,27 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
   // tracks; the page scrolls vertically when the board is taller than the
   // screen, and the composition changes only at the one breakpoint
   // (`BENTO_21_MIN_WIDTH`). Between breakpoints everything scales together.
-  const rowFactor = BENTO_ROW_FACTOR[definition.cols];
+  //
+  // The ROW unit is the track times a factor, and THAT is where a taller
+  // viewport is spent (2026-09-22, second pass). edkjo on the same board in a
+  // tall window: "why the large band at the bottom and squished floor chart in
+  // the middle?" — a width-derived board on a screen taller than itself left
+  // the surplus as dead cream, and a two-row tile could not reach it. So the
+  // row grows toward `space` until either the board covers it or the factor
+  // hits the ceiling the PLACED tiles allow (`bentoRowFactorRange`). It never
+  // goes below the authored factor, so nothing can be squeezed and no row can
+  // be clipped; the direction of travel is the whole difference between this
+  // and the rule that was reverted.
+  const rowRange = bentoRowFactorRange(definition, tiles);
+  const rowFactor = rowRange.min;
+  const gapUnits = (definition.rows - 1) * (PHI / BENTO_GAP_DIVISOR);
+  // Track-relative, so the whole ladder stays one calc chain off `100cqw`.
+  const rowFloor = `calc(var(--bento-track) * ${rowRange.min})`;
+  const rowCeiling = `calc(var(--bento-track) * ${rowRange.max})`;
+  const rowUnit =
+    space && space > 0 && rowRange.max > rowRange.min
+      ? `clamp(${rowFloor}, calc((${Math.round(space)}px - var(--bento-track) * ${gapUnits.toFixed(4)}) / ${definition.rows}), ${rowCeiling})`
+      : rowFloor;
 
   // A span that is legal on the ladder can still render as an unpleasant tile:
   // with a near-square cell a 13x1 is about 13:1. Report those in dev rather
@@ -122,7 +148,13 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
     for (const spec of tiles) {
       const pos = positions[spec.id];
       if (!pos) continue;
+      // The row unit travels inside `rowRange`, so a tile is widest-looking at
+      // the floor and tallest-looking at the ceiling. The ceiling is DERIVED
+      // from these same minima, so only the floor can break a max bound —
+      // checking both ends costs nothing and keeps the warning honest if the
+      // range ever gains another term.
       const aspect = pos.colSpan / (pos.rowSpan * rowFactor);
+      const aspectTall = pos.colSpan / (pos.rowSpan * rowRange.max);
       // The bound belongs to the KIND: a treemap degenerates into slivers
       // outside a squarish field, a viewer stops being navigable, a ladder is a
       // band by design. A global bound would have to admit all three and so
@@ -134,9 +166,11 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
         bentoSpanClass({ w: pos.colSpan, h: pos.rowSpan }) === "strip"
           ? BENTO_STRIP_ASPECT_MAX
           : BENTO_KINDS[spec.kind].aspect.max;
-      if (aspect > max || aspect < min) {
+      // The ceiling is computed FROM `min`, so the binding tile lands exactly
+      // on its own bound and only float noise can put it under: epsilon.
+      if (aspect > max + 1e-6 || aspectTall < min - 1e-6) {
         console.warn(
-          `[bento] tile "${spec.id}" (${spec.kind}) renders at ${aspect.toFixed(2)}:1 — ` +
+          `[bento] tile "${spec.id}" (${spec.kind}) renders at ${aspectTall.toFixed(2)}..${aspect.toFixed(2)}:1 — ` +
             `outside this kind's usable ${min}..${max}. Re-span it.`,
         );
       }
@@ -156,15 +190,25 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
     "--bento-label": "clamp(9px, calc(var(--bento-track) * 0.085), 12px)",
     "--bento-text": "clamp(11px, calc(var(--bento-track) * 0.105), 15px)",
     "--bento-value": "clamp(17px, calc(var(--bento-track) * 0.32), 42px)",
-    "--bento-row": `calc(var(--bento-track) * ${BENTO_ROW_FACTOR[definition.cols]})`,
+    "--bento-row": rowUnit,
     // The list line: one row of a tile's list (a check, a floor, a lamp) is a
     // fixed fraction of the track, so a tile shows the SAME number of rows at
     // every size between breakpoints and its contents keep their proportions
-    // instead of leaving a void under 24 px rows on a big screen. 0.27 is what
-    // seats the thirteen checks, the "Regler" rule and three rules in the 8×5
-    // focal; the floor tile (8×3) then carries nine floors. Clamped at both
-    // ends like the type below.
-    "--bento-line": "clamp(20px, calc(var(--bento-track) * 0.27), 36px)",
+    // instead of leaving a void under 24 px rows on a big screen. Clamped at
+    // both ends like the type below.
+    //
+    // 0.27 → 0.25 (2026-09-22). At 0.27 the 8×3 floor tile came out ONE row
+    // short of a ten-floor config at every size — 9 of 10, measured at 1440,
+    // 1920 and 2112 — and a row there is a whole storey. Measured, a tile's
+    // list gets its box less a header rule of about 36 px that does NOT scale
+    // with the track (the drill button's own box sets it), so eleven lines of
+    // 0.27 track overran by a few px at every size at once. 0.25 buys the row
+    // back with about a third of a line to spare at the tightest 13-track
+    // size, and it seats ten floors from 1280 px of viewport upward; below
+    // that the 20 px clamp floor holds the row legible and the rest scrolls.
+    // The 8×5 focal gains rows it does not need, which is the right direction
+    // for the tile that grows a "Regler" row per project rule.
+    "--bento-line": "clamp(20px, calc(var(--bento-track) * 0.25), 36px)",
     // List type rides the line: body text at half a line, small caps and mono
     // counts at four tenths.
     "--bento-fs": "clamp(11px, calc(var(--bento-line) * 0.5), 16px)",
@@ -182,6 +226,14 @@ export function BentoGrid({ definition, tiles, debug = false }: BentoGridProps) 
     // width". Without it the whole ladder silently measures the viewport.
     <div
       data-bento-canvas
+      // What the height flex was allowed to do, published for the viewport
+      // gate: it asserts that a board shorter than its space is a board whose
+      // row unit is already at its ceiling, never a board that left the height
+      // unused. Numbers, not a verdict — the gate does the judging.
+      data-bento-cols={definition.cols}
+      data-bento-rows={definition.rows}
+      data-bento-row-range={`${rowRange.min}:${rowRange.max.toFixed(4)}`}
+      data-bento-space={space && space > 0 ? Math.round(space) : ""}
       // `inline-size` containment: `100cqw` is this grid's width, and the
       // grid takes its height from its rows, never from its parent. The page
       // scrolls when the board is taller than the screen.
