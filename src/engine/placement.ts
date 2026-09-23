@@ -3,7 +3,7 @@
  * The spatial tree says which storey owns an element; the mesh says where the
  * element actually is. When the two part ways, every storey filter, floor
  * quantity and section that trusts the tree is wrong, silently. IDS cannot ask
- * this (no facet reaches geometry), and neither can the eleven fundamentals in
+ * this (no facet reaches geometry), and neither can the twelve fundamentals in
  * `fundamentals.ts`, which run on the graph alone. This one needs the streamed
  * meshes, so it is its own module and runs wherever geometry exists: the parse
  * worker, the restore worker (boxes rebuilt from the cached batches) and

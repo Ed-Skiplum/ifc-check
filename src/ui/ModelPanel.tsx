@@ -119,9 +119,14 @@ export function ModelPanel({
         ? aggregateTypes(profile, {
             mesh: meshIndex(model.meshBatches),
             meshCapped: model.meshBudget?.capped ?? false,
+            // The declared roster is the core's own count; the profile cannot
+            // hold it, because an unused type reaches no product row.
+            typeObjectsDeclared: model.report?.summary.tables?.type_objects?.loaded
+              ? model.report.summary.tables.type_objects.rows
+              : null,
           })
         : null,
-    [profile, model.meshBatches, model.meshBudget],
+    [profile, model.meshBatches, model.meshBudget, model.report],
   );
 
   // This model's column first on the floor tile, then the rest as loaded.

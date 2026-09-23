@@ -14,6 +14,9 @@
  *      never disagree
  *   4  a meshed count never exceeds its row's instance count
  *   5  a row with no type facts is reported as absent, never as "untyped"
+ *   6  the three "types" numbers reconcile — declared type objects, used type
+ *      objects and distinct type NAMES — and `type-unused` counts exactly the
+ *      gap between the first two
  *
  * Run:  node scripts/types-gate.mjs <model.ifc> [...]
  * Exit: 0 every assertion holds, 1 an assertion failed, 2 usage/internal.
@@ -74,6 +77,13 @@ for (const path of paths) {
   });
 
   const graph = JSON.parse(model.graphJson());
+  // The declared type roster, attached exactly as the parse worker attaches it.
+  // Without it `type-unused` reports "not supplied" and the ledger's foot has
+  // no denominator — a gate that drives a different model shape from the app
+  // proves the wrong thing.
+  graph.type_objects = JSON.parse(model.typeObjectsJson());
+  graph.psets = JSON.parse(model.psetsJson());
+  graph.classifications = JSON.parse(model.classificationsJson());
   model.free();
 
   const checks = runFundamentals(graph, summary);
@@ -82,11 +92,16 @@ for (const path of paths) {
   const ledger = aggregateTypes(profile, {
     mesh: meshIndex(batches),
     meshCapped: false,
+    typeObjectsDeclared: summary.tables?.type_objects?.rows ?? null,
   });
 
   console.log(
     `\n=== ${name} | ${summary.schema} | ${(bytes.length / 1e6).toFixed(1)} MB | ` +
       `${summary.products} products ===`,
+  );
+  console.log(
+    `   type objects ${ledger.typeObjectsUsed} used of ${ledger.typeObjectsDeclared} declared ` +
+      `· ${ledger.types} distinct names`,
   );
   console.log(
     `   types ${ledger.types} · single-instance ${ledger.singles} (${pct(
@@ -175,6 +190,36 @@ for (const path of paths) {
   check(
     single !== undefined && single.findings.length === ledger.singles,
     `check says ${single?.findings.length} single-instance types, ledger says ${ledger.singles}`,
+  );
+
+  // The THREE "types" numbers on one board must reconcile, because they are on
+  // one screen: the KPI prints used/declared, this table lists names, and
+  // `type-unused` counts the gap. They were derived independently before the
+  // roster was readable and could not be checked against each other at all.
+  const declaredRoster = graph.type_objects?.length ?? null;
+  const usedRoster = new Set(
+    graph.products.map((row) => row.type_guid).filter((guid) => guid != null),
+  ).size;
+  check(
+    ledger.typeObjectsDeclared === declaredRoster,
+    `ledger declares ${ledger.typeObjectsDeclared} type objects, the roster has ${declaredRoster}`,
+  );
+  check(
+    ledger.typeObjectsUsed === usedRoster,
+    `ledger says ${ledger.typeObjectsUsed} type objects used, the products point at ${usedRoster}`,
+  );
+  const unused = checks.find((c) => c.id === "type-unused");
+  const expectedUnused = declaredRoster === null ? null : declaredRoster - usedRoster;
+  check(
+    unused !== undefined &&
+      (declaredRoster === 0
+        ? unused.state === "not_applicable"
+        : unused.findings.length === expectedUnused),
+    `type-unused reports ${unused?.findings.length} unused, declared minus used is ${expectedUnused}`,
+  );
+  check(
+    ledger.types <= usedRoster,
+    `${ledger.types} distinct type names over ${usedRoster} used type objects — names cannot exceed objects`,
   );
 
   for (const row of ledger.rows) {

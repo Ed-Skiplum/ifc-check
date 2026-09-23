@@ -21,10 +21,44 @@ export interface ModelProduct {
   parent_guid: string | null;
   type_name: string | null;
   typed: boolean;
+  /** GlobalId of the `IfcTypeObject` this product is defined by. */
+  type_guid?: string | null;
   materials: string[];
   is_external: boolean | null;
   fire_rating: string | null;
   load_bearing: boolean | null;
+}
+
+/** One property, long format. `guid` is the OWNER, which may be a product, a
+ *  spatial structure element or the project — an evaluator that joins only
+ *  against products drops the rest. `source` is `instance` or `type`. */
+export interface ModelProperty {
+  guid: string;
+  pset_name: string;
+  prop_name: string;
+  value: string | null;
+  /** The IFC measure the value was written as, in ifcfast's title case
+   *  (`IfcText`). IDS writes `dataType` uppercase, so compare case-insensitively. */
+  value_type?: string | null;
+  source?: string;
+}
+
+/** One classification reference. `identification` is schema-normalised: IFC4's
+ *  `.Identification` and IFC2x3's `.ItemReference` both land there, so nothing
+ *  downstream branches on the schema. */
+export interface ModelClassification {
+  guid: string;
+  system_name: string | null;
+  identification: string | null;
+  name: string | null;
+}
+
+/** One declared `IfcTypeObject`. `entity` carries ifcfast's own spelling
+ *  (`IfcWalltype`, ifcfast#186) — compare it case-insensitively. */
+export interface ModelTypeObject {
+  guid: string;
+  entity: string;
+  name: string | null;
 }
 
 export interface ModelGraph {
@@ -38,6 +72,13 @@ export interface ModelGraph {
   sites: { guid: string; name: string | null }[];
   spaces: { guid: string; name: string | null }[];
   storey_building?: { storey_guid: string; building_guid: string }[];
+  /** The tables `graphJson()` does not carry, attached by whoever parsed the
+   *  file. `undefined` means the caller supplied none and every facet that
+   *  needs one is `not_evaluable` saying so; `[]` means the file declares none,
+   *  and a facet over it fails honestly. The two are never conflated. */
+  psets?: ModelProperty[];
+  classifications?: ModelClassification[];
+  type_objects?: ModelTypeObject[];
 }
 
 export interface ModelSummary {

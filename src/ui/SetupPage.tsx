@@ -360,14 +360,6 @@ function MappingCard({
             />
           </Field>
         ) : null}
-        {kind !== "attribute" ? (
-          // The evaluator's own state for these sources, named as the board
-          // names it, with the issue that gates it.
-          <span className="flex items-baseline gap-2 py-1 text-[12px] text-bad">
-            <span>{t("result.not_evaluable", lang)}</span>
-            <span className="font-mono">ifcfast#183</span>
-          </span>
-        ) : null}
       </div>
 
       {role !== "copy-object" ? (

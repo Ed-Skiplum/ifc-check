@@ -56,6 +56,13 @@ for (const path of args) {
 
   const summary = JSON.parse(model.summaryJson()) as IfcSummary;
   const graph = JSON.parse(model.graphJson()) as IfcGraph;
+  // The three mesh-free tables `graphJson()` does not carry, attached exactly
+  // as `src/ui/model-worker.ts` attaches them — `type-unused` reads the type
+  // roster off the graph and would otherwise report "not supplied" here while
+  // the board answers it.
+  graph.type_objects = JSON.parse(model.typeObjectsJson());
+  graph.psets = JSON.parse(model.psetsJson());
+  graph.classifications = JSON.parse(model.classificationsJson());
   const checks = [
     ...runFundamentals(graph, summary),
     checkStoreyConfig(graph, summary, floors),
@@ -67,7 +74,11 @@ for (const path of args) {
     checks,
     sizeBytes: bytes.length,
     storeys: graph.storeys.length,
-    products: graph.products.map((p) => ({ ...p, isOpening: openings.has(p.guid) })),
+    products: graph.products.map((p) => ({
+      ...p,
+      typeGuid: p.type_guid,
+      isOpening: openings.has(p.guid),
+    })),
   });
 
   console.log(
@@ -96,7 +107,8 @@ for (const path of args) {
   }
   const show = (v: number | null) => (v === null ? "n/a" : String(v));
   console.log(
-    `  KPI  types ${show(kpis.types)} · untyped ${show(kpis.untyped)} · floors ${kpis.floors} · ` +
+    `  KPI  types ${show(kpis.typesUsed)}/${show(kpis.typesDeclared)} used/declared · ` +
+      `untyped ${show(kpis.untyped)} · floors ${kpis.floors} · ` +
       `size ${(kpis.sizeBytes / 1e6).toFixed(1)} MB · materials ${kpis.materials} · ` +
       `orphans ${show(kpis.orphans)} · placement ${show(kpis.placement)}`,
   );

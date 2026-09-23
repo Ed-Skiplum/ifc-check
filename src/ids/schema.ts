@@ -470,8 +470,10 @@ export const RULESET_JSON_SCHEMA = {
             target: { enum: ["occurrence", "type"], default: "occurrence" },
             source: {
               description:
-                "Exactly one of attribute, property or classification. Property and " +
-                "classification are not evaluable until ifcfast#183.",
+                "Exactly one of attribute, property or classification. A property " +
+                "is identified by set plus name; a classification reads the " +
+                "schema-normalised identification (IFC4 Identification, IFC2x3 " +
+                "ItemReference). target 'type' takes an attribute source only.",
               oneOf: [
                 {
                   type: "object",

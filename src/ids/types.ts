@@ -223,10 +223,16 @@ export interface ModelMetadataCheck {
   value: IdsValue;
 }
 
-/** Where a code-lookup rule reads its value. Exactly one key. Property and
- *  classification sources are part of the format but are reported
- *  not_evaluable until the parser exposes psets and classifications
- *  (ifcfast#183). */
+/** Where a code-lookup rule reads its value. Exactly one key.
+ *
+ *  All three are evaluable. A property is identified by SET plus NAME — never
+ *  the name alone. A classification reads `identification`, which the parser
+ *  normalises across schemas (IFC4 `.Identification`, IFC2x3 `.ItemReference`),
+ *  and `system` narrows to one classification system when it is given.
+ *
+ *  An object carrying several values for the source (which only a
+ *  classification realistically does) contributes the FIRST in file order, and
+ *  the result carries a note counting the objects that had more. */
 export type CodeSource =
   | { attribute: string }
   | { property: { propertySet: string; name: string } }
@@ -237,9 +243,10 @@ export type CodeSource =
  *  of an extracted part would need the list enumerated into every pattern.
  *
  *  `target` "occurrence" (default) checks the elements `select` picks.
- *  "type" checks the types OF those elements, one per type Name: the parser
- *  exposes a type object only through the elements that use it, so a type no
- *  element uses is never checked, and only its Name is readable. */
+ *  "type" checks the types OF those elements, one per type Name: a type object
+ *  is reached through the elements that use it, so a type no element uses is
+ *  never a subject here (`type-unused` in the fundamentals counts those), only
+ *  its Name is readable, and the source must be an attribute. */
 export interface CodeLookupCheck {
   type: "code-lookup";
   /** A bundled code list. Exactly one of `list` and `values`. */

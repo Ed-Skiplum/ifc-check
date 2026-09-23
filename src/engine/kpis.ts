@@ -1,11 +1,19 @@
 /** The seven numbers on the board's KPI row, derived in ONE place so the
  *  screen and `scripts/check-cli.ts` cannot print two different answers.
  *
- *   types       type objects the file DECLARES (`summary.tables.type_objects`
- *               rows). The graph only reaches types through the elements that
- *               use them, but the core counts the declared table, so the
- *               declared number is available and is what "types in the file"
- *               means. null when the table did not load.
+ *   typesDeclared / typesUsed
+ *               type objects the file DECLARES, and how many of them an element
+ *               is actually defined by. Both, never one: "398 types" and "339
+ *               types" are both true of KNM_ARK and mean different things, and
+ *               the KPI printed the first while the type ledger counted a third
+ *               number (84 distinct type NAMES). The card now prints
+ *               `used / declared` and is labelled as that.
+ *
+ *               `typesDeclared` is `summary.tables.type_objects.rows`, the
+ *               core's own count of the declared table. `typesUsed` is the
+ *               distinct non-null `type_guid` over the products, which needs
+ *               ifcfast 0.5.3; null when no product row carries the column, and
+ *               null is printed as `—`, never as 0.
  *   untyped     findings of `element-typed`
  *   floors      IfcBuildingStorey count
  *   sizeBytes   the file's size
@@ -25,10 +33,14 @@ export interface KpiProduct {
   guid: string;
   materials?: readonly string[];
   isOpening?: boolean;
+  /** The type object this product is defined by. `undefined` on a profile that
+   *  predates the column — which is why `typesUsed` can be null. */
+  typeGuid?: string | null;
 }
 
 export interface ModelKpis {
-  types: number | null;
+  typesDeclared: number | null;
+  typesUsed: number | null;
   untyped: number | null;
   floors: number;
   sizeBytes: number;
@@ -60,8 +72,19 @@ export function modelKpis(args: {
     if (p.isOpening || excluded?.has(p.guid)) continue;
     for (const m of p.materials ?? []) if (m && m.trim()) names.add(m.trim());
   }
+  // A type used only by a copy/reference object is still a used type: the
+  // exclusion scopes ELEMENTS, and nothing about the file's type roster changes
+  // because a project marked some objects as duplicates.
+  const usedTypes = new Set<string>();
+  let sawTypeGuid = false;
+  for (const p of products) {
+    if (p.typeGuid === undefined) continue;
+    sawTypeGuid = true;
+    if (p.typeGuid !== null) usedTypes.add(p.typeGuid);
+  }
   return {
-    types: typeTable && typeTable.loaded ? typeTable.rows : null,
+    typesDeclared: typeTable && typeTable.loaded ? typeTable.rows : null,
+    typesUsed: sawTypeGuid ? usedTypes.size : null,
     untyped: findingsOf(checks, "element-typed"),
     floors: storeys,
     sizeBytes,

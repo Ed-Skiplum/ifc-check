@@ -94,6 +94,13 @@ for (const path of args) {
   const shift = JSON.parse(model.streamShiftJson()) as [number, number, number];
   unshiftBoxes(boxes, shift);
   const graph = JSON.parse(model.graphJson()) as IfcGraph;
+  // Same three mesh-free tables the parse worker attaches. Without them the
+  // export would run a different model shape from the board it exports FROM:
+  // `type-unused` would report "not supplied" and a property-sourced rule would
+  // be not_evaluable here while the screen answers it.
+  graph.type_objects = JSON.parse(model.typeObjectsJson());
+  graph.psets = JSON.parse(model.psetsJson());
+  graph.classifications = JSON.parse(model.classificationsJson());
   model.free();
 
   let checks = [

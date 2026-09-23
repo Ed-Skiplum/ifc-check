@@ -23,7 +23,17 @@ command -v wasm-bindgen >/dev/null \
 # Keep the path short: a deep Windows path overruns MAX_PATH and the host
 # build scripts fail to link with LNK1104.
 rm -rf "$work" && mkdir -p "$work" && cd "$work"
-gh api "repos/EdvardGK/ifcfast/tarball/$rev" > src.tar.gz
+# ifcfast is public, so the tarball needs no auth. Prefer `gh` when it is
+# present AND its token still works (a dead PAT gives 401, not a fallthrough),
+# otherwise fetch it unauthenticated. Either way the bytes are the same.
+repo="${IFCFAST_REPO:-EdvardGK/ifcfast}"
+if command -v gh >/dev/null && gh api "repos/$repo/tarball/$rev" > src.tar.gz 2>/dev/null \
+   && [ -s src.tar.gz ]; then
+  echo "fetched $repo@$rev via gh"
+else
+  echo "gh unavailable or unauthorized; fetching $repo@$rev unauthenticated"
+  curl -fsSL "https://api.github.com/repos/$repo/tarball/$rev" -o src.tar.gz
+fi
 tar xzf src.tar.gz && mv EdvardGK-ifcfast-* ifcfast && cd ifcfast
 
 cargo build -p ifcfast-wasm --target wasm32-unknown-unknown --release

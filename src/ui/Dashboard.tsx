@@ -247,7 +247,17 @@ function buildTiles({
     value,
   });
   const kpiCards: KpiCard[] = [
-    plain("types", "kpi.types", kpis.types === null ? "—" : formatCount(kpis.types, lang)),
+    // USED of DECLARED, and the label says which is which. One number here was
+    // the declared count while the type ledger counted distinct type NAMES, so
+    // the board carried two "types" figures that could not be reconciled from
+    // the screen. The ledger's foot now prints all three against each other.
+    plain(
+      "types",
+      "kpi.types",
+      kpis.typesDeclared === null
+        ? "—"
+        : `${kpis.typesUsed === null ? "—" : formatCount(kpis.typesUsed, lang)} / ${formatCount(kpis.typesDeclared, lang)}`,
+    ),
     counted("untyped", "kpi.untyped", "element-typed", kpis.untyped),
     plain("floors", "kpi.storeys", formatCount(kpis.floors, lang)),
     plain("size", "kpi.size", formatBytes(kpis.sizeBytes, lang)),

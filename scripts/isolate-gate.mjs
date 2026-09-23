@@ -21,7 +21,8 @@
  *   2  a class row      a Klasse chip · the bar reads that class's own count
  *                       over the products · the HUD shows fewer elements than
  *                       the model · the canvas changed · the object panel is
- *                       open in its empty state and states ifcfast#183
+ *                       open in its empty state, its pset and classification
+ *                       sections carrying the no-selection dash
  *   3  the same row     chips gone, the bar and the HUD back to the model, and
  *                       the canvas is PIXEL-IDENTICAL to 1 — which is the
  *                       camera assertion: a filter that had moved the eye
@@ -31,7 +32,13 @@
  *   4b the camera       it MOVED, the element's box projects inside the
  *                       viewport, and it fills the frame — not merely on
  *                       screen from a mile away
- *   4c the object panel it names that element and carries every attribute row
+ *   4c the object panel it names that element, carries every attribute row, and
+ *                       tells the three absences apart: KNM_ARK puts a real
+ *                       Uniformat reference on the element and NO property set
+ *                       (its two rows sit on IfcProject), so the classification
+ *                       section has a value row and the pset section reads
+ *                       `ingen` — never `ikke levert`, which would be a claim
+ *                       about the plumbing rather than about the file
  *   5  the same band row  the element chip alone goes; the class filter, its
  *                       chip and its count are exactly as in 2
  *   6  a canvas click   selects (Zoom til valg goes live), makes NO chip, and
@@ -306,7 +313,8 @@ const STATE = (panel_index = 0) => `(() => {
         fields[row.getAttribute('data-field')] = row.getAttribute('data-value') ?? '';
       }
       const state = [...box.querySelectorAll('[data-section-state]')].map((s) => s.textContent.trim());
-      return { fields, state };
+      const sections = [...box.querySelectorAll('[data-section]')].map((s) => s.getAttribute('data-section'));
+      return { fields, state, sections };
     })(),
   };
 })()`;
@@ -453,8 +461,11 @@ check(
   `2 the object panel is open and empty with no selection (${JSON.stringify(afterClass.panel?.fields.GlobalId)})`,
 );
 check(
-  afterClass.panel !== null && afterClass.panel.state.some((s) => s.includes("ifcfast#183")),
-  `2 the psets section states why it is empty (${JSON.stringify(afterClass.panel?.state)})`,
+  afterClass.panel !== null &&
+    afterClass.panel.state.length === 2 &&
+    afterClass.panel.state.every((s) => s === "\u2014"),
+  `2 the pset and classification sections carry the no-selection dash ` +
+    `(${JSON.stringify(afterClass.panel?.state)})`,
 );
 
 /* 3 — the same row clears it, and the scene comes back to the SAME IMAGE.
@@ -527,6 +538,25 @@ check(
     ["Navn", "ObjectType", "Tag", "PredefinedType", "Type", "Etasje", "Materialer",
      "IsExternal", "FireRating", "LoadBearing"].every((f) => f in one.panel.fields),
   `4c every attribute row is present (${Object.keys(one.panel?.fields ?? {}).join(", ")})`,
+);
+
+/* 4c (continued) — the property sets and the classifications, which ifcfast
+   0.5.3 made readable. The point of these two is that the panel keeps the three
+   absences apart: KNM_ARK carries a Uniformat reference on its elements and
+   both of its property rows on IfcProject, so one section has a value and the
+   other says the ELEMENT declares none. */
+check(
+  one.panel !== null && one.panel.sections.includes("Klassifikasjon"),
+  `4c the classification section is present (${JSON.stringify(one.panel?.sections)})`,
+);
+check(
+  one.panel !== null && (one.panel.fields["Uniformat"] ?? "") !== "",
+  `4c it carries the element's Uniformat reference (${JSON.stringify(one.panel?.fields["Uniformat"])})`,
+);
+check(
+  one.panel !== null && one.panel.state.includes("ingen"),
+  `4c the pset section says the ELEMENT declares none, not that nothing was ` +
+    `supplied (${JSON.stringify(one.panel?.state)})`,
 );
 
 /* 5 — the same row steps back out to the set it was drilled from. */

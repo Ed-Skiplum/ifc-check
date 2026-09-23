@@ -13,7 +13,7 @@ says so.
 src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   types.ts       ProductRow / IfcGraph / IfcSummary / CheckResult / Finding
                  + CheckSeverity / Verdict / DisplayValue
-  fundamentals.ts  the eleven structure-and-usability checks, their severities
+  fundamentals.ts  the twelve structure-and-usability checks, their severities
                    and `verdictOf`
   placement.ts   `mesh-placement`, the twelfth check: needs the streamed meshes,
                  so it runs beside `runFundamentals`, not inside it
@@ -106,7 +106,7 @@ stored: `not_applicable` → **N/A**, `pass` → **Bestått**, `review` → **Ad
 
 A structural work model with no materials is an Advarsel; a duplicate GlobalId
 is an Avvik. There is deliberately **no composite score and no grade** — one
-number hiding eleven answers is what the eleven answers exist to replace.
+number hiding twelve answers is what the twelve answers exist to replace.
 
 ### `displayValue` — the value the check found
 
@@ -120,7 +120,7 @@ The screen prints that value and colours it by the verdict: a red block reading
 delivered Skiplum reports (`skiplum-reports/projects/kistefos`, the Modell ×
 Krav matrix and `skiplum-automation/scripts/python/acc/requirements.py`).
 
-## The eleven fundamentals
+## The twelve fundamentals
 
 Project-agnostic: no property sets, no classification system, no delivery
 stage. Because they are universal they are judged with no ruleset loaded.
@@ -137,6 +137,7 @@ stage. Because they are universal they are judged with no ruleset loaded.
 | `element-typed` | advisory |
 | `type-name-placeholder` | advisory |
 | `single-instance-types` (review) | advisory |
+| `type-unused` — a declared type object no element uses | advisory |
 | `element-material` | advisory |
 
 A file the parser reports zero products for **fails** `parse-integrity`. ifcfast
@@ -151,6 +152,40 @@ excluded, exactly as it excludes them from every ruleset rule's own selection.
 `checks` on the model report is replaced with that re-run, not merged; parsing
 without a ruleset, or with one that carries no `copy-object` mapping, behaves
 exactly as before.
+
+## `type-unused` — declared type objects nothing uses
+
+ADVISORY, and the one fundamental that is not about the products at all: its
+subject is the file's type roster. `typeObjectsJson()` is every declared
+`IfcTypeObject` keyed by its own GlobalId; `graphJson().products[].type_guid`
+points into it; the unused types are the first minus the distinct non-null
+second. KNM_ARK declares 398, its elements use 339, so 59 are declared and
+unused.
+
+Before ifcfast 0.5.3 this could not be asked. The graph reached a type only
+through the elements using it, which is exactly the set an unused type is not
+in — so the question was not a check that failed, it was a check that could not
+exist. That is why it arrives now rather than having been an omission.
+
+Three states, and the first two are both `not_applicable` for different reasons
+that the row prints:
+
+- `graph.type_objects` is absent (a caller that read the graph alone) — "the
+  declared type roster was not supplied with this graph". Never a pass.
+- the file declares no type objects — "the file declares no type objects". A
+  model with no types has no unused ones, which is not a clean bill of health
+  about type structure. KNM_RIB in `KNM_Mottakskontroll/02_arbeid` is this
+  case: 851 products, 0 declared types.
+- the roster is there — `used of declared`, one finding per unused type, whose
+  `guid` is the TYPE's GlobalId and whose `entity` is the type's class.
+
+The copy-object scope filter is deliberately NOT applied: it scopes elements,
+and a type object is not an element. A type used only by excluded objects is
+still a used type, and the number stays independent of a project setting.
+
+`entity` arrives in ifcfast's own spelling — `IfcWalltype`, not `IfcWallType`
+([ifcfast#186](https://github.com/EdvardGK/ifcfast/issues/186)). Nothing
+compares it to a class name; if you ever do, compare case-insensitively.
 
 ## `mesh-placement` — geometry against the stated storey
 
@@ -223,8 +258,9 @@ KNM BEP §6.5 marks the elevations TBD ("working placeholders").
 ## The KPI row
 
 Seven cards, one number each, in a 13×1 / 21×1 `tellTales` strip on top of
-both layouts (`kpis.ts` + `KpiRow` in `forms.tsx`): Typer (declared type
-objects, `summary.tables.type_objects.rows`), Uten type (`element-typed`
+both layouts (`kpis.ts` + `KpiRow` in `forms.tsx`): **Typer brukt**
+(`339 / 398` — type objects an element is defined by, over the type objects the
+file declares; see "Three numbers about types" below), Uten type (`element-typed`
 findings), Etasjer, Filstørrelse, Materialer (distinct names over physical
 in-scope products), Uten etasje (`storey-containment` findings; the wasm graph
 sees storey containment only), Plassering (`mesh-placement` findings). The
@@ -235,6 +271,25 @@ KPI-row kind. Strip-class spans are aspect-checked against
 `BENTO_STRIP_ASPECT_MAX`, as the spec states, in both `BentoGrid` and
 `board-gate.mjs`.
 
+### Three numbers about types, and why they differ
+
+A board carries three counts that all answer to the word "types", and on a real
+model none of them equals another. KNM_ARK: the file DECLARES **398** type
+objects, its elements are defined by **339** of them, and those resolve to
+**84** distinct type NAMES.
+
+- The KPI prints `339 / 398`, used over declared, and is labelled Typer brukt.
+- The type ledger keys by NAME, so its roster is the 84 — that is what
+  `single-instance-types` counts against too, which is why the ledger keys that
+  way (see the type ledger's own note).
+- `type-unused` counts the gap between the first two: 59 findings.
+
+Until ifcfast 0.5.3 the KPI printed 398 and the ledger listed 84 with nothing on
+screen relating them. The ledger's foot now prints
+`Typeobjekter  339 brukt av 398 · 84 navn`, and `types-gate.mjs` asserts the
+three reconcile against the raw roster, so the surfaces cannot drift apart
+silently.
+
 ## The model panel: two tabs
 
 Per model (`ModelPanel.tsx`). The header line carries name · state · size and
@@ -244,7 +299,7 @@ filter bar, ABOVE the tab strip: chips belong to the model, so they persist
 across tabs. Then:
 
 1. **Kontroll** (`Dashboard.tsx`, bento): KPI strip, verification focal (the
-   eleven checks + `mesh-placement` + `storey-config`, then the ruleset's
+   twelve checks + `mesh-placement` + `storey-config`, then the ruleset's
    rules as rows under "Regler", `not_evaluable` included; this replaced the
    separate rule strip), the model tile, the spatial gauge (four lamps) and
    the Etasjer tile.
@@ -379,8 +434,13 @@ other three ellipsize by design and carry their full text in `title`.
   `none`, as a dim token beside the name) · Etasje · Materialer · IsExternal ·
   FireRating · LoadBearing. That is exactly `ProductRowLite`, i.e. the whole of
   what a product declares in the browser. Every value double-clicks to copy.
-- **Egenskapssett** — `utilgjengelig · ifcfast#183`, the same words the type
-  ledger's foot uses. Parsed, counted, no accessor. Never a blank section.
+- **Klassifikasjon** — one row per classification SYSTEM, value `code · name`,
+  read from `classificationsJson()`. The code is `identification`, which the
+  parser normalises across schemas (IFC4 `.Identification`, IFC2x3
+  `.ItemReference`), so the row is the same on either.
+- **one section per PROPERTY SET**, titled with the set's own name, rows being
+  its properties. The set name is kept because a property is identified by set
+  plus name: two sets both carrying `Status` are two different facts.
 
 Three selection states: **one** element shows its values; **several** (Shift or
 Ctrl down the band) show the SHARED values, and a field they disagree on reads
@@ -391,12 +451,29 @@ surface's dash for absent. Labels only — no prose, no help text.
 `tag` was added to `ProductRowLite` and to `withTypeFacts` for this; both the
 parse worker and the cache-restore worker already run that reduction.
 
-**When ifcfast#183 lands**, a pset becomes one more Section and nothing else
-moves. The shape this panel wants is, per product GlobalId,
-`psets: { name: string; properties: { name: string; value: string | number | boolean | null }[] }[]`
-— the set NAME kept, because a property is only identified by set plus name
-(the IDS evaluator matches on base name today and says so). Classifications
-want the same treatment as their own section.
+**The three absences are kept apart**, and the panel prints a different word
+for each, because they are answers about different things:
+
+| | |
+|---|---|
+| `ikke levert` | this profile carries no such table at all (`ModelProfile.psets` / `.classifications` are `undefined`). A fact about the plumbing. |
+| `—` | nothing is selected. This surface's own dash for absent. |
+| `ingen` | the selected object declares none. A fact about the FILE. |
+
+Collapsing the first into the third is the failure this shape exists to
+prevent: "this element has no property sets" and "nobody gave me the property
+sets" look identical on screen and mean opposite things.
+
+The data rides on `ModelProfile`, keyed by GlobalId, built in `profileOf`
+(`src/storage/rehydrate.ts`) so the parse worker and the cache-restore worker
+produce it from one function. The key set is NOT the product rows: a property
+set sits on a site, a building, a storey or the project as readily as on a wall
+— KNM_ARK carries both of its property rows on `IfcProject`, KNM_RIB 231 of its
+337 on spatial elements — so joining onto `rows` would silently drop them.
+
+`isolate-gate.mjs` asserts all three states against KNM_ARK, which happens to
+carry a Uniformat reference on its elements and no element-level property set:
+the classification section shows a value and the pset section reads `ingen`.
 
 ### `scripts/isolate-gate.mjs`
 
@@ -404,14 +481,17 @@ Real CDP mouse events against a real model in headless Chrome — a synthetic
 `click()` on a React handler would prove the handler, not the gesture.
 Assertions: the whole model · a class row isolates (the bar reads the class's
 own count, the HUD narrows) and the object panel opens in its empty state,
-stating ifcfast#183 · the same row restores, and the canvas is
+its pset and classification sections carrying the no-selection dash · the
+same row restores, and the canvas is
 **pixel-identical** to before, which is the set-does-not-move-the-camera
 assertion · a band row is one element · **that row FRAMED it** — the eye moved,
 the element's box projects inside the viewport, and it fills the frame, so
 "contains it from a mile away" fails · the object panel names that element and
 carries every attribute row · the same band row steps back to the set · a
 canvas click selects, makes no chip and **does not move the camera** ·
-`Tøm filter` · a storey row on the Etasjer tile · and, with three models and
+`Tøm filter` · the object panel's three absences told apart on a selected
+element (a Uniformat value, and the pset section reading `ingen` rather than
+`ikke levert`) · a storey row on the Etasjer tile · and, with three models and
 `examples/knm-floors.test.ruleset.json`, that only the own column of the matrix
 is a door and the other two panels do not move.
 
@@ -692,19 +772,59 @@ ifcfast is read-only to this project. `scripts/build-wasm.sh` downloads a source
 tarball into a scratch directory and builds there; it never modifies the ifcfast
 working tree.
 
-The crate is **in no tagged release** — v0.5.1 ships only `crates/core` — and
-there is no npm package or release asset, so the module must be built from
-source. `vendor/ifcfast-wasm/PROVENANCE.md` records the commit.
+The crate is **in no tagged release** — a release tarball ships `crates/core`
+only — and there is no npm package or release asset, so the module must be
+built from source. `vendor/ifcfast-wasm/PROVENANCE.md` records the commit, what
+that commit brings and what the new calls cost.
+
+**The vendored build is a BRANCH head, not ifcfast `main`.** `typeObjectsJson()`
+and the per-product `type_guid` live on `feat/wasm-type-objects-183` and have
+not been merged. Rebuilding from `main` would silently drop both and with them
+the `type-unused` fundamental and the Types KPI's used/declared split. Pin the
+commit:
+
+```bash
+IFCFAST_REV=6a16c16fe287f9e25a91190625e6e7b2922c6d1c bash scripts/build-wasm.sh
+```
+
+The script fetches the tarball through `gh` when that works and falls back to an
+unauthenticated `curl` against the same API when it does not — ifcfast is
+public, and a dead PAT returns 401 rather than falling through. `IFCFAST_REPO`
+overrides the repository.
 
 ### What the wasm build exposes
 
-`fromBytes` · `summaryJson` · `graphJson` · `qtoJson` · `typesJson` ·
-`statsJson` · `bySourceJson` · `streamMeshes` · `streamShiftJson` · `toGlb`
+`fromBytes` · `summaryJson` · `graphJson` · `qtoJson` · `psetsJson` ·
+`quantitiesJson` · `materialsJson` · `classificationsJson` · `typeObjectsJson` ·
+`typesJson` · `statsJson` · `bySourceJson` · `streamMeshes` ·
+`streamShiftJson` · `shiftJson` · `toGlb`
 
-`graphJson()` carries `products` (with `typed`, `materials`, `storey_guid`,
-`type_name`, `type_source`, `is_external`, `fire_rating`, `load_bearing`),
-`storeys` with elevations, `contained_in`, `aggregates`, `storey_building`,
-`sites`, `buildings`, `voids`.
+`graphJson()` carries `products` (with `typed`, `type_guid`, `materials`,
+`storey_guid`, `type_name`, `type_source`, `is_external`, `fire_rating`,
+`load_bearing`), `storeys` with elevations, `contained_in`, `aggregates`,
+`storey_building`, `sites`, `buildings`, `voids`.
+
+**Three tables do not come out of `graphJson()`, and every caller attaches
+them to the graph itself** — `graph.psets`, `graph.classifications`,
+`graph.type_objects`:
+
+| | |
+|---|---|
+| `psetsJson()` | `[{guid, pset_name, prop_name, value, value_type, source}]`. `guid` is the OWNER — product, spatial element or project. `value` is the STEP literal as a string, never coerced. `source` is `instance` or `type`; a type's own properties arrive keyed by the OCCURRENCE that inherits them, which is why a type object has no property rows of its own. |
+| `classificationsJson()` | `[{guid, system_name, edition, identification, name, location, source, assignment_source}]`. `identification` is schema-normalised. Mind the two provenance columns: `source` is the publishing body, `assignment_source` is the instance/type flag. |
+| `typeObjectsJson()` | `[{guid, entity, name, step_id}]`, the DECLARED roster keyed by the type's own GlobalId — what `type_guid` points at. |
+
+They are mesh-free (the extractors ran in `fromBytes`), so reading them costs a
+serialise: under 15 ms for all three on either KNM model. The payload is what to
+watch — `psetsJson` is 960 KiB on KNM_RIV and is the largest string this API
+hands out. `src/ui/model-worker.ts`, `src/storage/model-cache.ts`'s budget,
+`check-cli.ts`, `ids-cli.ts`, `bcf-cli.ts`, `types-gate.mjs` and `cache-gate.mjs`
+all attach them, so no surface runs a different model shape from the board.
+
+`undefined` and `[]` on those three are DIFFERENT answers everywhere they are
+read: absent means nobody supplied the table and the surface says so, empty
+means the file declares none. A facet over an absent table is `not_evaluable`
+naming the table, never a pass.
 
 **The JSON shapes differ from the Rust structs** published on GitHub. Read
 `src/engine/types.ts`, which is written against the actual payloads. In
@@ -716,21 +836,31 @@ not containment in any spatial element.
 
 | | |
 |---|---|
-| [#178](https://github.com/EdvardGK/ifcfast/issues/178) | `IfcGeographicElement` / `IfcCivilElement` silently produce an empty model |
 | [#179](https://github.com/EdvardGK/ifcfast/issues/179) | `mesh()`, `meshes()` and `iter_meshes()` use three different coordinate frames |
 | [#180](https://github.com/EdvardGK/ifcfast/issues/180) | `StoreyRow.elevation` is in file units while all geometry is metres |
-| [#183](https://github.com/EdvardGK/ifcfast/issues/183) | psets and classifications are parsed but have no JS accessor |
-
-**#183 gates IDS property and classification facets.** The rows exist —
-`summaryJson().tables` reports them loaded with counts — but nothing can read
-them out, so those facets cannot run in the browser until it lands. Two
-surfaces state it rather than rendering blank: the type ledger's foot and the
-object panel's Egenskapssett section (see "The object panel" above for the data
-shape they expect when it does land).
+| [#186](https://github.com/EdvardGK/ifcfast/issues/186) | a type object's `entity` is title-cased (`IfcWalltype`), not the IFC spelling |
 
 **#180 matters to any geometry check you write.** Storey elevation is in file
 units; mesh vertices are metres. Multiply by `summary.unit_scale` before
-comparing, or every millimetre model is wrong by 1000× and silently.
+comparing, or every millimetre model is wrong by 1000× and silently. (0.5.3 also
+offers `storeys[].elevation_m`; this code still reads `elevation` and scales.)
+
+**#186 matters wherever a type's class is compared.** `typeObjectsJson()`
+returns `IfcWalltype`. Nothing in this codebase matches it against a class name,
+and nothing should without folding case first.
+
+**Closed by the 0.5.3 build, and worth knowing because the numbers moved:**
+
+- **#183** — psets and classifications now have accessors. The IDS property and
+  classification facets, the code-lookup property and classification sources,
+  the copy-object scope filter over either, and the object panel's own sections
+  are all real as a result. Nothing anywhere still says `utilgjengelig ·
+  ifcfast#183`; if you find such a string, it is stale.
+- **#178** — `IfcGeographicElement` is parsed. KNM_RIV went from 652 products
+  to 653 between 0.5.1 and this build, and the extra product is an orphan with
+  no material that fails `mesh-placement`, so three of its counts moved by one
+  for reasons that have nothing to do with the file. Expect that on any model
+  that carries site objects. `IfcCivilElement` was not retested.
 
 
 ## Rulesets
@@ -781,8 +911,16 @@ built to avoid.
 - `extract` is a JavaScript regex (not XSD, not implicitly anchored) with
   exactly one capture group, the code. Lint rejects zero or several groups.
 - `source` is one of `{attribute}`, `{property: {propertySet, name}}`,
-  `{classification: {system?}}`. Property and classification sources are in
-  the format and return `not_evaluable` citing ifcfast#183.
+  `{classification: {system?}}`. **All three are evaluable.** A property is
+  read by SET plus NAME; a classification by `identification` — the
+  schema-normalised code — narrowed to `system` when one is given. An object
+  carrying several values for the source (realistically only a classification
+  can) contributes the FIRST in file order, and the result carries a note
+  counting the objects that had more, so nothing is picked silently.
+  `target: "type"` takes an ATTRIBUTE source only: a type object's own
+  properties are not keyed by the type in the parsed tables — ifcfast folds
+  them onto the occurrences that inherit them (`source: "type"`), and not one
+  property row of 7 157 in the KNM export is keyed by a type's GlobalId.
 - `target` `occurrence` (default) reads the elements `select` picks.
   `type` reads the TYPES of those elements, one subject per type Name, with
   the member elements in `finding.members` (the cross-filter uses them).
@@ -801,10 +939,10 @@ groups `elementType` / `typeProduct`) and any attribute other than Name are
 OCCURRENCE's GlobalId (KNM_ARK: roster `3DfJg_…` is an IFCWALL, the
 IFCWALLTYPE is `2AOaxJLUjBAuPEsPyzVzoE`), and it too lists used types only.
 
-**Empty types (declared, used by no element) are therefore not a check.** The
-core parses a `type_objects` table (`guid, entity, name, step_id`; KNM_ARK
-declares 398, elements use 84 names) and a `type_guid` column on products, but
-the wasm build exposes neither. Needs an ifcfast accessor first.
+**Empty types are a FUNDAMENTAL, not a rule** — see `type-unused` above. They
+were unanswerable while the wasm build exposed neither `typeObjectsJson()` nor
+`type_guid`; 0.5.3 exposes both, and the question is project-agnostic, so it
+belongs with the fundamentals rather than in anyone's ruleset.
 
 Verified headlessly (`ids-cli run`) on the KNM models: every finding kind,
 the pass path, the four `not_evaluable` reasons, and the lint errors for a bad
@@ -866,11 +1004,14 @@ constrains the shape, so `mapping-values` is the only lint code the mapping
 needs (the old `mapping-boolean` code that required exactly `true`, `false`
 is gone).
 
-If the source is not evaluable (property or classification, ifcfast#183), the
-filter cannot run: the mapping's own rule reports `not_evaluable` with the
-reason, carrying a note that reference objects could not be excluded from the
-rest of the ruleset. Every other rule then runs unfiltered, exactly as if the
-mapping were absent — **never** silently treated as "no reference objects".
+A property source is the shape POFIN actually specifies —
+`NONS_Process.DuplicateOwnedBy` — and it runs for real since 0.5.3. If a source
+cannot be reached at all (no property or classification table attached to the
+graph), the filter cannot run: the mapping's own rule reports `not_evaluable`
+with the reason, carrying a note that reference objects could not be excluded
+from the rest of the ruleset. Every other rule then runs unfiltered, exactly as
+if the mapping were absent — **never** silently treated as "no reference
+objects".
 
 The setup page (`#page=setup`, "Oppsett") has one card per role, laid out as
 the Etasjeoppsett card as a full first band (fixed viewport-derived height,
@@ -885,8 +1026,8 @@ creates its rule on first enable (id = the role, `select` physicalElement,
 the rule builder's blank source and extract), and turning it off sets
 `enabled: false`, keeping what was entered. Edits apply to the loaded models
 at once. Lint issues for a card's rule print on the card; a ruleset with lint
-errors cannot be downloaded. A property or classification source shows the
-board's own `Kan ikke vurderes` state with `ifcfast#183`. The `copy-object`
+errors cannot be downloaded. All three source kinds now evaluate, so the card
+no longer carries a state for the source it was given. The `copy-object`
 card additionally carries a boolean/codes toggle (`isBooleanValues` decides
 which is shown as active) and, in codes mode, the same allowed-values input
 `progress-code` uses. Built and type-checked; **not exercised in a browser.**
@@ -953,18 +1094,34 @@ attached.
 ObjectType, Tag, PredefinedType · materials · the relations
 `IFCRELCONTAINEDINSPATIALSTRUCTURE`, `IFCRELAGGREGATES`,
 `IFCRELVOIDSELEMENT IFCRELFILLSELEMENT` · type linkage · applicability
-occurrence bounds · the three flattened common properties IsExternal,
-FireRating, LoadBearing.
+occurrence bounds · **every property, by property set plus name** · **every
+classification reference, by system and code**.
 
-**Not evaluable, and reported as such:** classifications and any other property
-(both wait on [ifcfast#183](https://github.com/EdvardGK/ifcfast/issues/183)) ·
-attributes outside those five · `IFCRELNESTS` · `IFCRELASSIGNSTOGROUP` · a
-facet whose name is itself a restriction.
+**Not evaluable, and reported as such:** attributes outside those five ·
+`IFCRELNESTS` · `IFCRELASSIGNSTOGROUP` · a facet whose name is itself a
+restriction · a property or classification facet on a graph that carries no
+such table, which names the missing table rather than passing.
 
-Two caveats the output states for itself: a property rule matches on base name
-only, because the parser flattens those three and does not carry the property
-set name; and spatial structure elements are synthesized into the selection
-universe carrying GlobalId and Name only.
+**Property identity is (property set, property name).** The old caveat — "a
+property rule matches on base name only" — is gone, and so is the note that
+carried it: the evaluator reads `psetsJson()` rows and matches both halves,
+either of which may be a restriction (`Pset_.*Common` plus a literal name is a
+legal facet). `dataType` is honoured too, compared case-insensitively against
+the row's `value_type`, because ifcfast writes `IfcText` where IDS writes
+`IFCTEXT`. Three property states are kept apart in a finding: a value, `present
+but empty` (the row exists and carries `""`, which is the common state on a
+real export), and `absent`.
+
+**Classification facets read `identification`**, which the parser normalises —
+IFC4 `IfcClassificationReference.Identification` and IFC2x3 `.ItemReference`
+both land in that column — so nothing in the evaluator branches on the file's
+schema and a rule written once runs against both.
+
+One caveat the output still states for itself: spatial structure elements are
+synthesized into the selection universe carrying GlobalId and Name only. Their
+property sets and classifications ARE readable, though — those tables key by
+GlobalId, not by product row, which is how KNM_RIB's 231 storey- and
+building-level property rows stay reachable.
 
 XSD regex is a different dialect from JavaScript's. Patterns are anchored as
 XSD anchors them, but an exotic pattern can behave differently here than in a

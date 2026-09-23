@@ -43,6 +43,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { freemem } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runFundamentals } from "../src/engine/fundamentals.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const OUT = resolve(ROOT, "tmp/viewports");
@@ -95,13 +96,27 @@ const SCENARIOS = [
  * scrollbar is exactly what edkjo reported on 2026-09-22 ("squished floor
  * chart"), so from 1440 px of viewport up the tile owes its WHOLE content.
  * Below that the tile's box, minus a header that does not scale, cannot hold
- * eleven lines without dropping the row under the 20 px legibility floor, so
+ * every line without dropping the row under the 20 px legibility floor, so
  * the requirement is the old six and the rest scrolls. The scenario's own row
  * count caps both, so a smaller fixture cannot pass this vacuously.
  *
  * `10` is the fixture, not a constant of the tile: a fifteen-floor project
  * scrolls, and that is the tile's honest capacity, not a defect. */
-const MIN_ROWS = { verify: 13, floors: 6, spatial: 4, kpis: 7 };
+
+/** The rows the verification tile owes with no ruleset loaded: the twelve
+ *  fundamentals plus `mesh-placement` and `storey-config`. Derived from the
+ *  shipped list rather than typed, so adding a fundamental cannot leave this
+ *  gate measuring the old count and reporting a full tile. */
+const UNIVERSAL_CHECKS =
+  runFundamentals(
+    { products: [], storeys: [], sites: [], buildings: [], projects: [], spaces: [],
+      contained_in: [], aggregates: [], storey_building: [], voids: [], schema: "IFC4",
+      project_name: null },
+    { schema: "IFC4", path: "", size_bytes: 0, products: 0, storeys: 0, project_name: null,
+      authoring_app: null, length_unit: "METRE", unit_scale: 1, unit_resolved: true,
+      duplicate_step_ids: 0, parse_seconds: 0, warnings: [], tables: {} },
+  ).length + 2;
+const MIN_ROWS = { verify: UNIVERSAL_CHECKS, floors: 6, spatial: 4, kpis: 7 };
 const FLOORS_FULL_FROM_WIDTH = 1440;
 const FLOORS_FULL_ROWS = 10;
 const minRowsFor = (v) => ({
@@ -418,7 +433,7 @@ const MEASURE = (minRows) => `(() => {
       return r.height > 0 && r.top >= top - 1 && r.bottom <= bottom + 1;
     };
     let rows = [];
-    if (id === 'verify') rows = [...tile.querySelectorAll('button')].slice(0, 13);
+    if (id === 'verify') rows = [...tile.querySelectorAll('button')].slice(0, ${UNIVERSAL_CHECKS});
     else if (id === 'floors') rows = [...tile.querySelectorAll('tbody tr')];
     else if (id === 'spatial') rows = [...tile.querySelectorAll('[data-essential]')].filter((e) => e.classList.contains('truncate'));
     else if (id === 'kpis') rows = [...tile.querySelectorAll(':scope > div > *')];

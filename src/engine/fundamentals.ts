@@ -10,7 +10,7 @@
  * GlobalId is a defect on any project. That judgement is `severity` plus
  * `state`, rendered as one of four verdicts by `verdictOf`. What a judgement
  * is NOT is a score: there is no composite number here and no grade, because
- * one number hiding eleven answers is exactly what the eleven answers are for.
+ * one number hiding twelve answers is exactly what the twelve answers are for.
  *
  * Every check also carries `displayValue` — the value it actually found. The
  * screen prints that value and colours it by the verdict, so a red block reads
@@ -55,6 +55,7 @@ const REASON_EN: Record<ReasonCode, (p: Record<string, string | number>) => stri
   "no-type": () => "no type object",
   "placeholder-type-name": (p) => `placeholder type name "${p.typeName}"`,
   "single-instance-type": (p) => `type "${p.typeName}" is used by one element`,
+  "type-unused": () => "declared type object, used by no element",
   "no-material": () => "no material associated",
   "guid-duplicate": (p) => `GlobalId shared by ${p.count} elements`,
   "storey-mismatch": (p) =>
@@ -481,6 +482,74 @@ function checkSingleInstanceTypes(products: ProductRow[]): CheckResult {
   );
 }
 
+/** A type object the file DECLARES that no element is defined by.
+ *
+ * ADVISORY. An unused type is not a broken file: an authoring tool writes out
+ * the whole of its loaded template, and a type the project has not placed yet is
+ * a type waiting for its element. It is file weight, and it is what a reviewer
+ * counting "the model has 398 types" is actually being shown, so it is surfaced
+ * as its own number rather than folded into the type roster.
+ *
+ * It is a FUNDAMENTAL — the question is the same on every project and needs no
+ * property set, classification or delivery stage to ask. Until ifcfast 0.5.3
+ * exposed `typeObjectsJson()` and the products' `type_guid` it could not be
+ * asked at all: the graph reached a type only through the elements using it,
+ * which is exactly the set an unused type is not in.
+ *
+ * Three states, and the difference between the first two is the point:
+ *   - the roster was not supplied (an older cache, a caller that read the graph
+ *     alone)  ->  not_applicable, saying so. Never a pass.
+ *   - the file declares no type objects at all  ->  not_applicable, saying
+ *     THAT. A model with no types has no unused ones, which is not a clean
+ *     bill of health about type structure.
+ *   - the roster is there  ->  used of declared, one finding per unused type.
+ *
+ * `excluded` is not consulted: the copy-object filter scopes ELEMENTS, and a
+ * type object is not an element. A type used only by excluded objects is still
+ * a used type, and saying otherwise would make the number depend on a project
+ * setting this check is deliberately independent of.
+ */
+function checkUnusedTypes(graph: IfcGraph): CheckResult {
+  const declared = graph.type_objects;
+  if (declared === undefined) {
+    return {
+      id: "type-unused",
+      state: "not_applicable",
+      severity: "advisory",
+      displayValue: literal("—"),
+      reason:
+        "the declared type roster was not supplied with this graph " +
+        "(typeObjectsJson), so used and unused types cannot be separated",
+      applicable: 0,
+      findings: [],
+      detail: "no type roster",
+    };
+  }
+  // ifcfast spells a type class `IfcWalltype` (ifcfast#186), so nothing here
+  // compares `entity` to a class name; it is carried through for display only.
+  const used = new Set<string>();
+  for (const product of graph.products) {
+    if (product.type_guid) used.add(product.type_guid);
+  }
+  const findings = declared
+    .filter((type) => !used.has(type.guid))
+    .map((type) => finding({ guid: type.guid, entity: type.entity, name: type.name }, "type-unused"));
+  const result_ = result(
+    "type-unused",
+    "advisory",
+    declared.length,
+    findings,
+    share(declared.length - findings.length, declared.length),
+    `${declared.length - findings.length} of ${declared.length} declared type objects are used by an element`,
+    { naValue: count(0, "types") },
+  );
+  if (result_.state === "not_applicable") {
+    result_.reason = "the file declares no type objects";
+    result_.detail = "no type objects declared";
+  }
+  return result_;
+}
+
 /** ADVISORY. Materials arrive when a model is detailed for quantities or LCA;
  *  a structural work model without them is at an earlier stage, not broken.
  *  The gap is surfaced because someone downstream is waiting for it. */
@@ -520,6 +589,7 @@ export function runFundamentals(
     checkTyped(products),
     checkTypeNames(products),
     checkSingleInstanceTypes(products),
+    checkUnusedTypes(graph),
     checkMaterials(products),
   ];
 }

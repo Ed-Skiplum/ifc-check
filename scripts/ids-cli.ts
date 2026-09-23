@@ -196,6 +196,9 @@ async function cmdEmit(args: string[]): Promise<number> {
 interface WasmModel {
   summaryJson(): string;
   graphJson(): string;
+  psetsJson(): string;
+  classificationsJson(): string;
+  typeObjectsJson(): string;
   free(): void;
 }
 
@@ -238,6 +241,13 @@ async function cmdRun(args: string[]): Promise<number> {
       const parsed = IfcModel.fromBytes(new Uint8Array(bytes), name);
       const summary = JSON.parse(parsed.summaryJson()) as ModelSummary;
       const graph = JSON.parse(parsed.graphJson()) as ModelGraph;
+      // Property sets and classifications are not in `graphJson()`. Attaching
+      // them here is what makes a property or classification facet evaluable
+      // from the shell, exactly as the browser worker attaches them — one
+      // evaluator, one model shape, no second code path to drift.
+      graph.psets = JSON.parse(parsed.psetsJson());
+      graph.classifications = JSON.parse(parsed.classificationsJson());
+      graph.type_objects = JSON.parse(parsed.typeObjectsJson());
       parsed.free();
       models.push(evaluateRuleset(ruleset, graph, summary, name, { maxFindings }));
     } catch (error) {
@@ -436,7 +446,15 @@ async function cmdSelftest(): Promise<number> {
         .map((f) => (f.reason.endsWith("is empty") ? "empty" : f.reason.includes("is not in the allowed values") ? "not in values" : f.reason))
         .join(", ") + "]",
   );
-  record("property-sourced mapping is not_evaluable", "not_evaluable", copy.state);
+  // The synthetic graph above carries NO property table, which is the "caller
+  // supplied none" case and must stay not_evaluable rather than quietly
+  // reporting no reference objects. The reachable case is asserted below.
+  record("property-sourced mapping with no property table is not_evaluable", "not_evaluable", copy.state);
+  record(
+    "the not_evaluable reason names the missing property table",
+    "true",
+    String((copy.reason ?? "").includes("no property table was supplied")),
+  );
   record(
     "property-sourced mapping notes that exclusion did not run",
     "true",
@@ -501,6 +519,180 @@ async function cmdSelftest(): Promise<number> {
     "codes mode: reference object excluded from another rule's findings",
     "pass 2/0, excluded 1 of 3 objects excluded as reference objects",
     `${codesProgress.state} ${codesProgress.applicable}/${codesProgress.failed}, excluded ${codesCopy.detail}`,
+  );
+
+  /* ---- property and classification facets, on a graph that carries both ----
+   *
+   * Property identity is (SET, NAME). The first assertions are the ones that
+   * matter: `Other.Status` and `NONS_Process.Status` are different facts, and
+   * the evaluator used to match the base name alone and carry a note saying so.
+   * The note is gone, so the distinction has to be proved rather than promised.
+   *
+   * Classification reads `identification`, the column ifcfast normalises across
+   * schemas — IFC4 `.Identification` and IFC2x3 `.ItemReference` both land
+   * there, so nothing here (and nothing in evaluate.ts) branches on the schema.
+   */
+  const richGraph: ModelGraph = {
+    schema: "IFC4",
+    products: [wall("p1", null), wall("p2", null), wall("p3", null)],
+    contained_in: [], aggregates: [], voids: [], storeys: [], buildings: [], sites: [], spaces: [],
+    psets: [
+      { guid: "p1", pset_name: "NONS_Process", prop_name: "Status", value: "300" },
+      { guid: "p1", pset_name: "Other", prop_name: "Status", value: "999" },
+      { guid: "p2", pset_name: "NONS_Process", prop_name: "Status", value: "999" },
+      { guid: "p2", pset_name: "Pset_WallCommon", prop_name: "IsExternal", value: "true" },
+      // p3 declares nothing — a real state, and not the same as "not supplied".
+    ],
+    classifications: [
+      { guid: "p1", system_name: "NS 3451", identification: "234", name: "Yttervegger" },
+      { guid: "p2", system_name: "NS 3451", identification: "ZZZ", name: null },
+      { guid: "p2", system_name: "Uniformat", identification: "246", name: "Kledning" },
+    ],
+  };
+  const richSummary: ModelSummary = { ...summary, products: 3 };
+
+  const facetRuleset = withRules([
+    {
+      id: "prop-exact", kind: "ids", name: "Status in NONS_Process is 300",
+      applicability: { entity: { classes: ["IFCWALL"] } },
+      requirements: {
+        property: [{ propertySet: "NONS_Process", baseName: "Status", value: "300" }],
+      },
+    },
+    {
+      id: "prop-other-set", kind: "ids", name: "Status in Other is 999",
+      applicability: { entity: { classes: ["IFCWALL"] } },
+      requirements: { property: [{ propertySet: "Other", baseName: "Status", value: "999" }] },
+    },
+    {
+      id: "class-facet", kind: "ids", name: "Carries an NS 3451 code",
+      applicability: { entity: { classes: ["IFCWALL"] } },
+      requirements: { classification: [{ system: "NS 3451" }] },
+    },
+    {
+      id: "select-by-property", kind: "ids", name: "Only external walls",
+      applicability: {
+        entity: { classes: ["IFCWALL"] },
+        property: [{ propertySet: "Pset_WallCommon", baseName: "IsExternal", value: "true" }],
+      },
+      requirements: { attribute: [{ name: "Name" }] },
+    },
+  ]);
+  const facets = evaluateRuleset(facetRuleset, richGraph, richSummary, "facets");
+  const [propExact, propOther, classFacet, selectByProperty] = facets.results;
+  record(
+    "property facet matches on SET plus NAME, not base name",
+    "fail 3/2",
+    `${propExact.state} ${propExact.applicable}/${propExact.failed}`,
+  );
+  record(
+    "the same base name in another set is a different property",
+    "fail 3/2",
+    `${propOther.state} ${propOther.applicable}/${propOther.failed}`,
+  );
+  record(
+    "a property finding names the qualified property",
+    "true",
+    String((propExact.findings[0]?.reason ?? "").startsWith("NONS_Process.Status is")),
+  );
+  record(
+    "the base-name caveat is gone",
+    "no notes",
+    (propExact.notes ?? []).length === 0 ? "no notes" : (propExact.notes ?? []).join(" | "),
+  );
+  record(
+    "classification facet: present in the system passes, absent fails",
+    "fail 3/1",
+    `${classFacet.state} ${classFacet.applicable}/${classFacet.failed}`,
+  );
+  record(
+    "a property facet SELECTS as well as requires",
+    "pass 1/0",
+    `${selectByProperty.state} ${selectByProperty.applicable}/${selectByProperty.failed}`,
+  );
+
+  // Code lookups off the two new sources, both in `values` mode so the
+  // assertion is about the SOURCE and not about a bundled list.
+  const sourced = evaluateRuleset(
+    withRules([
+      { ...mappingRule("progress-code", { values: ["300"] }),
+        check: { type: "code-lookup", values: ["300"], extract: "^(.*)$",
+          source: { property: { propertySet: "NONS_Process", name: "Status" } } } },
+      { ...mappingRule("system-classification", { values: ["234"] }), id: "class-lookup",
+        check: { type: "code-lookup", values: ["234"], extract: "^(.*)$",
+          source: { classification: { system: "NS 3451" } } } },
+    ]),
+    richGraph,
+    richSummary,
+    "sourced",
+  );
+  const [propLookup, classLookup] = sourced.results;
+  record(
+    "code-lookup off a property source evaluates",
+    "fail 3/2 [not in values, empty]",
+    `${propLookup.state} ${propLookup.applicable}/${propLookup.failed} [` +
+      propLookup.findings
+        .map((f) => (f.reason.endsWith("is empty") ? "empty" : "not in values"))
+        .join(", ") + "]",
+  );
+  record(
+    "code-lookup off a classification source evaluates",
+    "fail 3/2 [not in values, empty]",
+    `${classLookup.state} ${classLookup.applicable}/${classLookup.failed} [` +
+      classLookup.findings
+        .map((f) => (f.reason.endsWith("is empty") ? "empty" : "not in values"))
+        .join(", ") + "]",
+  );
+
+  // The copy-object filter off a PROPERTY source. This is the shape POFIN
+  // actually specifies (`NONS_Process.DuplicateOwnedBy`), and until the
+  // property table was reachable the mapping could not run at all.
+  const propertyFilter = evaluateRuleset(
+    withRules([
+      mappingRule("progress-code", { source: { attribute: "Name" }, values: ["p1", "p3"] }),
+      { ...mappingRule("copy-object", { values: ["RIV"] }),
+        check: { type: "code-lookup", values: ["RIV"], extract: "^(.*)$",
+          source: { property: { propertySet: "NONS_Process", name: "DuplicateOwnedBy" } } } },
+    ]),
+    {
+      ...richGraph,
+      psets: [
+        ...(richGraph.psets ?? []),
+        { guid: "p2", pset_name: "NONS_Process", prop_name: "DuplicateOwnedBy", value: "RIV" },
+      ],
+    },
+    richSummary,
+    "property-filter",
+  );
+  const [filteredProgress, propertyCopy] = propertyFilter.results;
+  record(
+    "copy-object off a property source excludes the reference object",
+    "pass 2/0, excluded 1 of 3 objects excluded as reference objects",
+    `${filteredProgress.state} ${filteredProgress.applicable}/${filteredProgress.failed}, ` +
+      `excluded ${propertyCopy.detail}`,
+  );
+
+  // A graph with no classification table is not a graph with no
+  // classifications, and the two never collapse into one answer.
+  const noTable = evaluateRuleset(
+    withRules([
+      { id: "class-facet", kind: "ids", name: "Carries an NS 3451 code",
+        applicability: { entity: { classes: ["IFCWALL"] } },
+        requirements: { classification: [{ system: "NS 3451" }] } },
+    ]),
+    graph,
+    summary,
+    "no-classification-table",
+  );
+  record(
+    "a classification facet with no table supplied is not_evaluable",
+    "not_evaluable",
+    noTable.results[0].state,
+  );
+  record(
+    "the not_evaluable reason names the missing classification table",
+    "true",
+    String((noTable.results[0].reason ?? "").includes("no classification table was supplied")),
   );
 
   const result = exportRuleset(SAMPLE_RULESET);

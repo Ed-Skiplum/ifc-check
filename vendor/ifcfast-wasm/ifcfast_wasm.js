@@ -36,6 +36,31 @@ export class IfcModel {
         }
     }
     /**
+     * `[{guid, system_name, edition, identification, name, location,
+     * source, assignment_source}]` — `model.classifications` (GH #183).
+     *
+     * `identification` is the normalised code: IFC4
+     * `IfcClassificationReference.Identification` and IFC2x3
+     * `.ItemReference` both land here, so an NS 3451 lookup is one
+     * column regardless of schema. Watch the two provenance columns:
+     * `source` is `IfcClassification.Source` (the publishing body),
+     * `assignment_source` is the `"instance"` / `"type"` flag the other
+     * three layers call `source`.
+     * @returns {string}
+     */
+    classificationsJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.ifcmodel_classificationsJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * Parse from bytes — plain STEP or `.ifczip`, dispatched on magic
      * bytes exactly like the native `source::open`. Throws an `Error`
      * carrying the core's message (truncated file, no STEP trailer,
@@ -81,6 +106,60 @@ export class IfcModel {
         }
     }
     /**
+     * `[{guid, role, layer_index, material_name, layer_thickness_mm,
+     * category, fraction, source}]` — `model.materials` (GH #183).
+     *
+     * The long-format layer table. `graphJson()`'s per-product
+     * `materials` array is a name rollup of these rows; this is the
+     * rows themselves, with per-layer thickness in millimetres
+     * (unit-normalised by the extractor) and `layer_index` ordering
+     * them through the wall.
+     * @returns {string}
+     */
+    materialsJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.ifcmodel_materialsJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * `[{guid, pset_name, prop_name, value, value_type, source}]` —
+     * every property row, long format, exactly `model.psets` (GH #183).
+     *
+     * Mesh-free: the extractors already ran in `fromBytes`, so this is
+     * a serialise, not a computation.
+     *
+     * `value` is the STEP literal as a **string** (or `null`), with
+     * `value_type` naming the IFC type — the wheel does not coerce it
+     * either, and a browser that parsed `"3.0"` into `3.0` would
+     * disagree with the desktop for the same file. `source` is
+     * `"instance"` or `"type"`: type-inherited properties are included,
+     * with instance winning on a name collision.
+     *
+     * This is the payload an IDS `PropertyFacet` needs. On a large
+     * model it is also the biggest string this API hands out — one JSON
+     * document for every property of every product.
+     * @returns {string}
+     */
+    psetsJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.ifcmodel_psetsJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * `<prefix>.qto.json` — per-entity-class aggregates over the same
      * per-product mesh stats.
      * @returns {string}
@@ -90,6 +169,46 @@ export class IfcModel {
         let deferred1_1;
         try {
             const ret = wasm.ifcmodel_qtoJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * `[{guid, qto_name, quantity_name, value, quantity_type,
+     * unit_step_id, source}]` — `model.quantities` (GH #183).
+     *
+     * Authored quantities, i.e. what the exporter wrote into
+     * `Qto_*`. Not to be confused with `qtoJson()`, which is ifcfast's
+     * own per-class aggregate over the mesh pass. `value` is a string
+     * for the same reason as in `psetsJson`.
+     * @returns {string}
+     */
+    quantitiesJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.ifcmodel_quantitiesJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Frame-neutral alias for [`IfcModel::stream_shift_json`] — the
+     * same three metres, for callers that never streamed (`toGlb` /
+     * `qtoJson` pin it just as well). Both names stay.
+     * @returns {string}
+     */
+    shiftJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.ifcmodel_shiftJson(this.__wbg_ptr);
             deferred1_0 = ret[0];
             deferred1_1 = ret[1];
             return getStringFromWasm0(ret[0], ret[1]);
@@ -125,7 +244,9 @@ export class IfcModel {
      * builds instead of waiting for one baked GLB.
      *
      *   * `positions` — `Float32Array`, world METRES minus
-     *     [`IfcModel::stream_shift_json`]. A **copy** into JS memory,
+     *     [`IfcModel::stream_shift_json`], repositioned from the Local
+     *     bake in f64 so a georeferenced millimetre model keeps its
+     *     round MEP round (GH #188). A **copy** into JS memory,
      *     not a view: a view into the wasm heap would be detached by the
      *     next allocation the pass makes, and the callback is free to
      *     keep (or transfer) what it is handed.
@@ -162,11 +283,20 @@ export class IfcModel {
         }
     }
     /**
-     * `[sx, sy, sz]` in METRES — the model-wide global shift the
-     * streamed positions were reduced by. Add it back for absolute world
-     * coordinates. `[0, 0, 0]` before the stream starts and for every
-     * model within 10 km of the origin; same rule (and same value) as
-     * `_core.extract_meshes`' `global_shift`.
+     * `[sx, sy, sz]` in METRES — the model-wide global shift every
+     * position handed out was reduced by. Add it back for absolute world
+     * coordinates.
+     *
+     * Valid after **either** mesh pass: `streamMeshes()` positions and
+     * the `toGlb()` GLB share one value, and any surface that triggers
+     * the batch pass (`graphJson` / `qtoJson` / `statsJson` / `toGlb`)
+     * pins it too. `[0, 0, 0]` before any mesh pass has run and for
+     * every model within 10 km of the origin; same rule (and same
+     * value) as `_core.extract_meshes`' `global_shift` and
+     * `m.to_gltf()`'s `global_shift` stat.
+     *
+     * A near-origin model cannot exercise this — there the shift is
+     * zero and every frame agrees (GH #188).
      * @returns {string}
      */
     streamShiftJson() {
@@ -238,6 +368,36 @@ export class IfcModel {
         var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
+    }
+    /**
+     * `[{guid, entity, name, step_id}]` — every `IfcTypeObject` the
+     * file DECLARES, i.e. `model.type_objects`.
+     *
+     * Not the same roster as [`IfcModel::types_json`], and the
+     * difference is the point. `typesJson()` groups the types products
+     * actually point at, by NAME, and hands back a representative
+     * OCCURRENCE's GlobalId as `guid` — on a Revit export declaring 398
+     * type objects, 339 of them referenced under 84 distinct names, it
+     * has 84 entries and none of their `guid`s is a type's. This is the
+     * declared roster, one row per type object, keyed by the type's own
+     * GlobalId, which is what `graphJson()`'s per-product `type_guid`
+     * points at. Unused types = this minus the distinct non-null
+     * `type_guid` over the products.
+     *
+     * Mesh-free: built during `fromBytes`, so this is a serialise.
+     * @returns {string}
+     */
+    typeObjectsJson() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.ifcmodel_typeObjectsJson(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * `types/manifest.json` — the type roster. `glb` / `bytes` are empty

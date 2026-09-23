@@ -65,6 +65,10 @@ const REASONS: Record<ReasonCode, Record<Lang, Render>> = {
     nb: (p) => `typen «${p.typeName}» brukes av ett element`,
     en: (p) => `type "${p.typeName}" is used by one element`,
   },
+  "type-unused": {
+    nb: () => "deklarert typeobjekt, ikke brukt av noe element",
+    en: () => "declared type object, used by no element",
+  },
   "no-material": {
     nb: () => "ingen tilknyttet materiale",
     en: () => "no material associated",

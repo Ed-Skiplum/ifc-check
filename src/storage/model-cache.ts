@@ -47,8 +47,14 @@ import { ask, BOARD, DROPKEYS, META, MODELS, transact } from "./idb.ts";
  *
  * A record whose format does not match is never half-read: restoring something
  * this code only partly understands is worse than parsing the file again.
+ *
+ * 2 (2026-09-23): the graph carries `type_objects`, `psets` and
+ * `classifications`. A format-1 record has none of them, and restoring it would
+ * put a board on screen whose type roster, property sets and classifications
+ * read as absent — a fact about the cache wearing the clothes of a fact about
+ * the file. Re-parsing is cheap; that confusion is not.
  */
-export const CACHE_FORMAT = 1;
+export const CACHE_FORMAT = 2;
 
 /**
  * The ceiling, and why it is where it is.
@@ -202,6 +208,12 @@ export function estimateBytes(graph: IfcGraph, mesh: CachedMesh | null): number 
   bytes += graph.products.length * 600;
   bytes += graph.storeys.length * 200;
   bytes += (graph.contained_in.length + graph.aggregates.length + graph.voids.length) * 100;
+  // The long tables. Calibrated on KNM_RIV (960.5 KiB over 6 818 property rows,
+  // 144 B each) and KNM_ARK (383.0 KiB over 1 424 classification rows, 275 B
+  // each), rounded UP for the same reason the rest of this function is.
+  bytes += (graph.psets?.length ?? 0) * 160;
+  bytes += (graph.classifications?.length ?? 0) * 300;
+  bytes += (graph.type_objects?.length ?? 0) * 140;
   for (const batch of mesh?.batches ?? []) {
     bytes += batch.positions.byteLength + batch.indices.byteLength + batch.meta.length * 240;
   }

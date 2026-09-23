@@ -10,21 +10,33 @@
  * What the parser gives us, and therefore what is evaluable:
  *   entity + predefinedType, the attributes GlobalId / Name / ObjectType /
  *   Tag / PredefinedType, materials, storey containment, aggregation, voids,
- *   type linkage, and the three flattened common properties IsExternal /
- *   FireRating / LoadBearing.
- * Not evaluable here: classifications, arbitrary property sets, IFCRELNESTS,
- *   IFCRELASSIGNSTOGROUP, and any attribute outside the list above.
+ *   type linkage, every property set (by SET plus NAME, not base name), and
+ *   every classification reference.
+ * Not evaluable here: IFCRELNESTS, IFCRELASSIGNSTOGROUP, any attribute outside
+ *   the list above, and a facet whose own name is a restriction.
+ *
+ * Property sets and classifications do not come out of `graphJson()`: the
+ * caller attaches `psetsJson()` and `classificationsJson()` to the graph
+ * (`ModelGraph.psets` / `.classifications`). A caller that does not is told so
+ * — the facet is `not_evaluable` naming the missing table, never a pass.
  */
 
 import { entityNameValue } from "./emit.ts";
 import { isEnabled } from "./export.ts";
 import { isBooleanValues } from "./lint.ts";
 import { CODE_LISTS, CODE_LIST_IDS, type CodeList } from "../codelists/index.ts";
-import type { ModelGraph, ModelProduct, ModelSummary } from "./model.ts";
+import type {
+  ModelClassification,
+  ModelGraph,
+  ModelProduct,
+  ModelProperty,
+  ModelSummary,
+} from "./model.ts";
 import type {
   AttributeFacet,
   CodeLookupCheck,
   ClassificationFacet,
+  CodeSource,
   ExtendedRule,
   IdsValue,
   MaterialFacet,
@@ -178,23 +190,58 @@ function readAttribute(product: ModelProduct, name: string): string | null {
   }
 }
 
-const FLATTENED_PROPERTIES = ["IsExternal", "FireRating", "LoadBearing"] as const;
-
-function readProperty(product: ModelProduct, baseName: string): string | null {
-  if (product.source === "spatial") spatialOnly(product, "a property");
-  switch (baseName) {
-    case "IsExternal":
-      return product.is_external === null ? null : String(product.is_external);
-    case "FireRating":
-      return product.fire_rating;
-    case "LoadBearing":
-      return product.load_bearing === null ? null : String(product.load_bearing);
-    default:
-      throw new Unsupported(
-        `property "${baseName}" is not exposed by the parser; evaluable properties ` +
-          `are ${FLATTENED_PROPERTIES.join(", ")}`,
-      );
+/** The property rows of one object that satisfy a facet's SET and NAME.
+ *
+ * Identity is (property set, property name), never the name alone: two sets may
+ * both carry `Status` and mean different things, and matching the base name on
+ * its own is how a rule quietly reads the wrong one. Both halves are ordinary
+ * `IdsValue`s, so a restriction on either side works — `Pset_.*Common` and a
+ * literal name is a legal, and useful, facet.
+ *
+ * The table covers spatial structure elements and the project as readily as
+ * products, so nothing here refuses a `spatial` row: KNM_RIB carries 231 of its
+ * 337 property rows on the site, the building and the storeys.
+ */
+function propertyRows(
+  index: ModelIndex,
+  product: ModelProduct,
+  facet: PropertyFacet,
+): ModelProperty[] {
+  if (index.properties === null) {
+    throw new Unsupported(
+      "no property table was supplied with this graph; the caller must attach " +
+        "psetsJson() to it before a property facet can be evaluated",
+    );
   }
+  const rows = index.properties.get(product.guid) ?? [];
+  return rows.filter(
+    (row) =>
+      matchesValue(facet.propertySet, row.pset_name) && matchesValue(facet.baseName, row.prop_name),
+  );
+}
+
+/** The classification references of one object in the facet's system. */
+function classificationRows(
+  index: ModelIndex,
+  product: ModelProduct,
+  system: IdsValue | undefined,
+): ModelClassification[] {
+  if (index.classifications === null) {
+    throw new Unsupported(
+      "no classification table was supplied with this graph; the caller must " +
+        "attach classificationsJson() to it before a classification facet can be evaluated",
+    );
+  }
+  const rows = index.classifications.get(product.guid) ?? [];
+  if (system === undefined) return rows;
+  return rows.filter((row) => matchesValue(system, row.system_name));
+}
+
+/** A property row counts as PRESENT when it carries a non-empty value. A row
+ *  with `value: ""` exists in the file and says nothing, which is the state
+ *  `optional` cardinality is about. */
+function present(rows: ModelProperty[]): boolean {
+  return rows.some((row) => row.value !== null && row.value !== "");
 }
 
 function attributeName(facet: AttributeFacet): string {
@@ -207,23 +254,43 @@ function attributeName(facet: AttributeFacet): string {
   return facet.name;
 }
 
-function propertyBaseName(facet: PropertyFacet): string {
-  if (typeof facet.baseName !== "string") {
-    throw new Unsupported(
-      "a property facet whose baseName is a restriction cannot be evaluated here; " +
-        "name one property",
-    );
-  }
-  return facet.baseName;
+/** How a property facet reads on a finding: `Pset_WallCommon.IsExternal`, or
+ *  `<restriction>` on the side that is one. */
+function propertyLabel(facet: PropertyFacet): string {
+  return `${literal(facet.propertySet)}.${literal(facet.baseName)}`;
 }
 
 /* ------------------------------------------------------------ facet tests */
 
-interface Relations {
+/** Everything a facet test looks up that is not on the product row itself.
+ *
+ * The relation maps, plus the two long tables. Both tables are keyed by the
+ * OWNER's GlobalId, which may be a product, a spatial structure element or the
+ * project — joining them onto the product rows alone silently drops the rest,
+ * and a check whose subject vanished reports a clean pass over nothing.
+ *
+ * `null` on a table is "the caller supplied none", which is not the same claim
+ * as an empty map and never collapses into it: the first makes a facet
+ * `not_evaluable`, the second lets it fail honestly.
+ */
+interface ModelIndex {
   containedIn: Map<string, string>;
   aggregateParent: Map<string, string>;
   voidHost: Map<string, string>;
   spatialEntity: Map<string, string>;
+  properties: Map<string, ModelProperty[]> | null;
+  classifications: Map<string, ModelClassification[]> | null;
+}
+
+function groupByGuid<T extends { guid: string }>(rows: T[] | undefined): Map<string, T[]> | null {
+  if (rows === undefined) return null;
+  const byGuid = new Map<string, T[]>();
+  for (const row of rows) {
+    const bucket = byGuid.get(row.guid);
+    if (bucket) bucket.push(row);
+    else byGuid.set(row.guid, [row]);
+  }
+  return byGuid;
 }
 
 const SPATIAL_TABLES = [
@@ -268,7 +335,7 @@ export function selectableProducts(graph: ModelGraph): ModelProduct[] {
   return out;
 }
 
-function buildRelations(graph: ModelGraph): Relations {
+function buildIndex(graph: ModelGraph): ModelIndex {
   const spatialEntity = new Map<string, string>();
   for (const [table, entity] of SPATIAL_TABLES) {
     for (const row of graph[table] ?? []) spatialEntity.set(row.guid, entity);
@@ -287,38 +354,40 @@ function buildRelations(graph: ModelGraph): Relations {
     aggregateParent,
     voidHost: new Map((graph.voids ?? []).map((v) => [v.opening_guid, v.host_guid])),
     spatialEntity,
+    properties: groupByGuid(graph.psets),
+    classifications: groupByGuid(graph.classifications),
   };
 }
 
 function entityOfGuid(
   guid: string | undefined,
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
 ): string | null {
   if (guid === undefined) return null;
   const product = byGuid.get(guid);
   if (product) return product.entity.toUpperCase();
-  return relations.spatialEntity.get(guid) ?? null;
+  return index.spatialEntity.get(guid) ?? null;
 }
 
 function testPartOf(
   facet: PartOfFacet,
   product: ModelProduct,
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
   versions: Ruleset["ifcVersions"],
 ): boolean {
   let parentGuid: string | undefined;
   switch (facet.relation) {
     case undefined:
     case "IFCRELCONTAINEDINSPATIALSTRUCTURE":
-      parentGuid = relations.containedIn.get(product.guid);
+      parentGuid = index.containedIn.get(product.guid);
       break;
     case "IFCRELAGGREGATES":
-      parentGuid = relations.aggregateParent.get(product.guid) ?? product.parent_guid ?? undefined;
+      parentGuid = index.aggregateParent.get(product.guid) ?? product.parent_guid ?? undefined;
       break;
     case "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT":
-      parentGuid = relations.voidHost.get(product.guid);
+      parentGuid = index.voidHost.get(product.guid);
       break;
     default:
       throw new Unsupported(
@@ -327,16 +396,26 @@ function testPartOf(
           "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT are",
       );
   }
-  const parentEntity = entityOfGuid(parentGuid, byGuid, relations);
+  const parentEntity = entityOfGuid(parentGuid, byGuid, index);
   if (parentEntity === null) return false;
   return matchesValue(entityNameValue(facet.entity, versions), parentEntity);
 }
 
-function testClassification(_facet: ClassificationFacet): never {
-  throw new Unsupported(
-    "classifications are not exposed by the parser, so a classification facet " +
-      "cannot be evaluated here",
-  );
+/** A classification facet: the object must carry a reference in the named
+ *  SYSTEM, and — when the facet names one — a matching code.
+ *
+ *  The code compared is `identification`, which ifcfast normalises across
+ *  schemas: IFC4's `IfcClassificationReference.Identification` and IFC2x3's
+ *  `.ItemReference` both land in that one column, so nothing here branches on
+ *  the file's schema and a rule written once runs on both. */
+function testClassification(
+  facet: ClassificationFacet,
+  product: ModelProduct,
+  index: ModelIndex,
+): boolean {
+  const rows = classificationRows(index, product, facet.system);
+  if (facet.value === undefined) return rows.length > 0;
+  return rows.some((row) => matchesValue(facet.value as IdsValue, row.identification));
 }
 
 function testMaterial(facet: MaterialFacet, product: ModelProduct): boolean {
@@ -352,10 +431,17 @@ function testAttribute(facet: AttributeFacet, product: ModelProduct): boolean {
   return matchesValue(facet.value, value);
 }
 
-function testProperty(facet: PropertyFacet, product: ModelProduct): boolean {
-  const value = readProperty(product, propertyBaseName(facet));
-  if (facet.value === undefined) return value !== null && value !== "";
-  return matchesValue(facet.value, value);
+function testProperty(facet: PropertyFacet, product: ModelProduct, index: ModelIndex): boolean {
+  let rows = propertyRows(index, product, facet);
+  // `dataType` names the IFC measure the value must be written as. ifcfast
+  // reports it in its own title case (`IfcText`) and IDS writes it uppercase
+  // (`IFCTEXT`), so the comparison is case-insensitive — never a literal one.
+  if (facet.dataType !== undefined) {
+    const wanted = facet.dataType.toUpperCase();
+    rows = rows.filter((row) => (row.value_type ?? "").toUpperCase() === wanted);
+  }
+  if (facet.value === undefined) return present(rows);
+  return rows.some((row) => matchesValue(facet.value as IdsValue, row.value));
 }
 
 /** True when the element satisfies every facet in the selector. */
@@ -363,7 +449,7 @@ function selects(
   selector: Selector,
   product: ModelProduct,
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
   versions: Ruleset["ifcVersions"],
 ): boolean {
   if (selector.entity) {
@@ -377,14 +463,16 @@ function selects(
     }
   }
   for (const facet of selector.partOf ?? []) {
-    if (!testPartOf(facet, product, byGuid, relations, versions)) return false;
+    if (!testPartOf(facet, product, byGuid, index, versions)) return false;
   }
-  for (const facet of selector.classification ?? []) testClassification(facet);
+  for (const facet of selector.classification ?? []) {
+    if (!testClassification(facet, product, index)) return false;
+  }
   for (const facet of selector.attribute ?? []) {
     if (!testAttribute(facet, product)) return false;
   }
   for (const facet of selector.property ?? []) {
-    if (!testProperty(facet, product)) return false;
+    if (!testProperty(facet, product, index)) return false;
   }
   for (const facet of selector.material ?? []) {
     if (!testMaterial(facet, product)) return false;
@@ -416,7 +504,7 @@ function requirementFailures(
   req: Requirements,
   product: ModelProduct,
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
   versions: Ruleset["ifcVersions"],
 ): string[] {
   const reasons: string[] = [];
@@ -437,7 +525,7 @@ function requirementFailures(
   }
 
   for (const facet of req.partOf ?? []) {
-    const matched = testPartOf(facet, product, byGuid, relations, versions);
+    const matched = testPartOf(facet, product, byGuid, index, versions);
     if (!applyCardinality(matched, matched, facet.cardinality)) {
       reasons.push(
         `partOf ${facet.relation ?? "IFCRELCONTAINEDINSPATIALSTRUCTURE"} ` +
@@ -446,7 +534,21 @@ function requirementFailures(
     }
   }
 
-  for (const facet of req.classification ?? []) testClassification(facet);
+  for (const facet of req.classification ?? []) {
+    const rows = classificationRows(index, product, facet.system);
+    const matched = testClassification(facet, product, index);
+    if (!applyCardinality(matched, rows.length > 0, facet.cardinality)) {
+      const carried = rows.map((r) => r.identification ?? "(no code)").join(", ");
+      reasons.push(
+        facet.cardinality === "prohibited"
+          ? `classification ${literal(facet.system)} is present but prohibited`
+          : rows.length === 0
+            ? `no classification in ${literal(facet.system)}`
+            : `classification ${literal(facet.system)} is ${carried}` +
+              (facet.value ? `, required ${literal(facet.value)}` : ""),
+      );
+    }
+  }
 
   for (const facet of req.attribute ?? []) {
     const name = attributeName(facet);
@@ -464,15 +566,24 @@ function requirementFailures(
   }
 
   for (const facet of req.property ?? []) {
-    const baseName = propertyBaseName(facet);
-    const value = readProperty(product, baseName);
-    const present = value !== null && value !== "";
-    const matched = testProperty(facet, product);
-    if (!applyCardinality(matched, present, facet.cardinality)) {
+    const label = propertyLabel(facet);
+    const rows = propertyRows(index, product, facet);
+    const has = present(rows);
+    const matched = testProperty(facet, product, index);
+    if (!applyCardinality(matched, has, facet.cardinality)) {
+      const carried = rows
+        .filter((row) => row.value !== null && row.value !== "")
+        .map((row) => `"${row.value}"`)
+        .join(", ");
+      // A property row that EXISTS and carries "" is a third state, and it is
+      // the common one on a real export: the exporter wrote the property and
+      // left it blank. Calling that "absent" would send someone looking for a
+      // missing property set that is right there.
+      const state = has ? carried : rows.length > 0 ? "present but empty" : "absent";
       reasons.push(
         facet.cardinality === "prohibited"
-          ? `${baseName} is present but prohibited`
-          : `${baseName} is ${present ? `"${value}"` : "absent"}` +
+          ? `${label} is present but prohibited`
+          : `${label} is ${state}` +
             (facet.value ? `, required ${literal(facet.value)}` : ", required present"),
       );
     }
@@ -493,21 +604,11 @@ function requirementFailures(
   return reasons;
 }
 
-/** Does the ruleset touch a property facet? Then the propertySet name was not
- *  verified, and the result says so rather than implying it was. */
-function propertyNote(rule: Rule): string | null {
-  const bags: (Selector | Requirements | undefined)[] =
-    rule.kind === "ids" ? [rule.applicability, rule.requirements] : [rule.select];
-  for (const bag of bags) {
-    if (bag?.property?.length) {
-      return (
-        "property matched on base name only: the parser exposes IsExternal, " +
-        "FireRating and LoadBearing flattened, so the property set name was not verified"
-      );
-    }
-  }
-  return null;
-}
+/* The base-name caveat is gone. Until ifcfast 0.5.3 a property facet was matched
+ * against three flattened columns with the set name unverified, and every result
+ * carried a note saying so. `psetsJson()` now supplies (set, name, value) rows,
+ * so a facet is matched on the pair that actually identifies a property and
+ * there is nothing left to qualify. */
 
 /* ------------------------------------------------------------ code lookup */
 
@@ -556,11 +657,25 @@ const TYPE_CLASS = /(TYPE|STYLE)$/;
 function typeSubjects(
   select: Selector,
   products: ModelProduct[],
-  attribute: string,
+  source: CodeSource,
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
   versions: Ruleset["ifcVersions"],
 ): CodeSubject[] {
+  if (!("attribute" in source)) {
+    // A property or classification row is keyed by the object that CARRIES it,
+    // and ifcfast folds a type's own properties onto the occurrences that
+    // inherit them (`source: "type"`, the occurrence's guid). Measured on the
+    // KNM export: not one property row of 7 157 is keyed by a type object's
+    // GlobalId. So there is nothing to read per type, and saying so beats
+    // reading an occurrence's value and calling it the type's.
+    throw new Unsupported(
+      "a type object's own property sets and classifications are not keyed by " +
+        "the type in the parsed tables (they arrive on the occurrences that " +
+        "inherit them), so target 'type' reads an attribute",
+    );
+  }
+  const attribute = source.attribute;
   if (attribute !== "Name") {
     throw new Unsupported(
       `attribute ${attribute} is not exposed for type objects; the parser carries a ` +
@@ -582,7 +697,7 @@ function typeSubjects(
   const groups = new Map<string, ModelProduct[]>();
   for (const product of products) {
     if (product.source === "spatial" || !product.typed) continue;
-    if (!selects(select, product, byGuid, relations, versions)) continue;
+    if (!selects(select, product, byGuid, index, versions)) continue;
     const key = product.type_name ?? "";
     const bucket = groups.get(key);
     if (bucket) bucket.push(product);
@@ -595,6 +710,59 @@ function typeSubjects(
     value: typeName === "" ? null : typeName,
     members: members.map((m) => m.guid),
   }));
+}
+
+/** The value a code-lookup reads off ONE object, whatever the source is.
+ *
+ * All three sources answer with one value per object, because the check is
+ * "this object carries a code from that list" and a subject with two answers is
+ * a subject the finding cannot name. An attribute is single-valued by
+ * construction; a property is identified by (set, name) and so is single-valued
+ * in practice; a classification is not — an element may carry several
+ * references in one system.
+ *
+ * So `extra` counts the additional DISTINCT values that were not read. The rule
+ * reports it as a note over the whole selection rather than picking silently:
+ * the value used is the first in file order, and how many objects had more is
+ * on the result. A source that cannot be reached at all throws `Unsupported`
+ * and the rule is `not_evaluable`, never a pass.
+ */
+function codeValue(
+  source: CodeSource,
+  product: ModelProduct,
+  index: ModelIndex,
+): { value: string | null; extra: number } {
+  if ("attribute" in source) {
+    return { value: readAttribute(product, source.attribute), extra: 0 };
+  }
+  const values: string[] = [];
+  if ("property" in source) {
+    const rows = propertyRows(index, product, {
+      propertySet: source.property.propertySet,
+      baseName: source.property.name,
+    });
+    for (const row of rows) {
+      if (row.value !== null && row.value !== "" && !values.includes(row.value)) {
+        values.push(row.value);
+      }
+    }
+  } else {
+    const rows = classificationRows(index, product, source.classification.system);
+    for (const row of rows) {
+      const code = row.identification;
+      if (code !== null && code !== "" && !values.includes(code)) values.push(code);
+    }
+  }
+  return { value: values[0] ?? null, extra: Math.max(0, values.length - 1) };
+}
+
+/** How a code-lookup's source reads on a finding: the attribute name, the
+ *  qualified property, or the classification system. */
+function sourceLabel(source: CodeSource): string {
+  if ("attribute" in source) return source.attribute;
+  if ("property" in source) return `${source.property.propertySet}.${source.property.name}`;
+  const system = source.classification.system;
+  return system === undefined ? "classification" : `classification ${literal(system)}`;
 }
 
 /** What a code-lookup checks codes against: a bundled list, or the project's
@@ -622,47 +790,41 @@ function codeLookup(
   products: ModelProduct[],
   summary: ModelSummary,
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
   ruleset: Ruleset,
   notes: string[],
   maxFindings: number,
 ): Omit<RuleResult, "ruleId" | "ruleName" | "kind"> {
   const lookup = resolveLookup(check);
   const source = check.source;
-  if ("property" in source) {
-    throw new Unsupported(
-      "property values are parsed but have no accessor in the wasm build " +
-        "(ifcfast#183), so a property source cannot be evaluated here",
-    );
-  }
-  if ("classification" in source) {
-    throw new Unsupported(
-      "classification references are parsed but have no accessor in the wasm build " +
-        "(ifcfast#183), so a classification source cannot be evaluated here",
-    );
-  }
-  const attribute = source.attribute;
+  const label = sourceLabel(source);
   const regex = compileExtract(check.extract);
   const target = check.target ?? "occurrence";
 
   let subjects: CodeSubject[];
+  let extras = 0;
   if (target === "type") {
-    subjects = typeSubjects(select, products, attribute, byGuid, relations, ruleset.ifcVersions);
+    subjects = typeSubjects(select, products, source, byGuid, index, ruleset.ifcVersions);
     const declared = summary.tables?.type_objects?.rows;
     notes.push(
       `${subjects.length} type names reached through the selected elements` +
         (declared === undefined ? "" : `; the file declares ${declared} type objects`) +
-        ". A type no element uses is not exposed by the parser",
+        ". A type object's Name is reached through the elements that use it",
     );
   } else {
     subjects = products
-      .filter((p) => selects(select, p, byGuid, relations, ruleset.ifcVersions))
-      .map((p) => ({
-        guid: p.guid,
-        entity: p.entity,
-        name: p.name,
-        value: readAttribute(p, attribute),
-      }));
+      .filter((p) => selects(select, p, byGuid, index, ruleset.ifcVersions))
+      .map((p) => {
+        const read = codeValue(source, p, index);
+        if (read.extra > 0) extras += 1;
+        return { guid: p.guid, entity: p.entity, name: p.name, value: read.value };
+      });
+    if (extras > 0) {
+      notes.push(
+        `${extras} of ${subjects.length} objects carry more than one value for ${label}; ` +
+          "the first in file order was used",
+      );
+    }
   }
   const noun = target === "type" ? "types" : "elements";
 
@@ -677,7 +839,7 @@ function codeLookup(
     };
   }
 
-  const label = lookup.label;
+  const listLabel = lookup.label;
   let missing = 0;
   let noMatch = 0;
   let unknown = 0;
@@ -687,15 +849,15 @@ function codeLookup(
     let reason: string | null = null;
     if (value === null || value === "") {
       missing += 1;
-      reason = `${attribute} is empty`;
+      reason = `${label} is empty`;
     } else {
       const code = regex.exec(value)?.[1];
       if (code === undefined || code === "") {
         noMatch += 1;
-        reason = `${attribute} "${value}" does not match ${check.extract}`;
+        reason = `${label} "${value}" does not match ${check.extract}`;
       } else if (!lookup.has(code)) {
         unknown += 1;
-        reason = `code "${code}" from ${attribute} "${value}" is not in ${label}`;
+        reason = `code "${code}" from ${label} "${value}" is not in ${listLabel}`;
       }
     }
     if (reason === null) continue;
@@ -716,7 +878,7 @@ function codeLookup(
     findings: cap(findings, maxFindings),
     detail:
       `${subjects.length - findings.length} of ${subjects.length} ${noun} carry a code from ` +
-      `${label}; ${missing} empty, ${noMatch} no match, ${unknown} not in the list`,
+      `${listLabel}; ${missing} empty, ${noMatch} no match, ${unknown} not in the list`,
     notes: notes.length ? notes : undefined,
   };
 }
@@ -738,14 +900,18 @@ function codeLookup(
  *             `NONS_Process.DuplicateOwnedBy`). Any of them is a reference —
  *             there is no "opposite" value in this mode.
  *
- *  Only an attribute source is evaluable, same boundary as `codeLookup`
- *  (ifcfast#183); a property or classification source throws `Unsupported`,
- *  caught by the caller and turned into `not_evaluable`. */
+ *  All three sources are evaluable, same boundary as `codeLookup` — which is
+ *  the point of the mapping: POFIN's own `Duplikat objekt` lives at
+ *  `NONS_Process.DuplicateOwnedBy`, a PROPERTY, and until ifcfast 0.5.3 the
+ *  filter could only be driven off an attribute. A source that still cannot be
+ *  reached (no table supplied) throws `Unsupported`, which the caller turns
+ *  into `not_evaluable` plus the note that nothing was excluded — never a
+ *  silent "no reference objects". */
 function identifyReferenceObjects(
   rule: ExtendedRule,
   allProducts: ModelProduct[],
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
   ruleset: Ruleset,
 ): { excluded: Set<string>; candidates: number } {
   const check = rule.check;
@@ -760,19 +926,6 @@ function identifyReferenceObjects(
     );
   }
   const source = check.source;
-  if ("property" in source) {
-    throw new Unsupported(
-      "property values are parsed but have no accessor in the wasm build " +
-        "(ifcfast#183), so a property source cannot be evaluated here",
-    );
-  }
-  if ("classification" in source) {
-    throw new Unsupported(
-      "classification references are parsed but have no accessor in the wasm build " +
-        "(ifcfast#183), so a classification source cannot be evaluated here",
-    );
-  }
-  const attribute = source.attribute;
   const regex = compileExtract(check.extract);
   const values = check.values ?? [];
   // Boolean mode reads a Ja/Nei flag: "true" is a reference, "false" is an
@@ -783,11 +936,11 @@ function identifyReferenceObjects(
   const isReference = (code: string) => (boolMode ? code === "true" : allowed.has(code));
   const select = rule.select ?? {};
   const candidates = allProducts.filter((p) =>
-    selects(select, p, byGuid, relations, ruleset.ifcVersions),
+    selects(select, p, byGuid, index, ruleset.ifcVersions),
   );
   const excluded = new Set<string>();
   for (const product of candidates) {
-    const value = readAttribute(product, attribute);
+    const value = codeValue(source, product, index).value;
     if (value === null || value === "") continue;
     const code = regex.exec(value)?.[1];
     if (code === undefined || code === "") continue;
@@ -804,7 +957,7 @@ function copyObjectFilter(
   ruleset: Ruleset,
   allProducts: ModelProduct[],
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
 ): { rule: ExtendedRule; excluded: Set<string>; result: RuleResult } | null {
   const rule = ruleset.rules.find(
     (r): r is ExtendedRule => r.kind === "extended" && r.mapping === "copy-object",
@@ -817,7 +970,7 @@ function copyObjectFilter(
       rule,
       allProducts,
       byGuid,
-      relations,
+      index,
       ruleset,
     );
     return {
@@ -864,7 +1017,7 @@ function evaluateRule(
   products: ModelProduct[],
   summary: ModelSummary,
   byGuid: Map<string, ModelProduct>,
-  relations: Relations,
+  index: ModelIndex,
   ruleset: Ruleset,
   maxFindings: number,
 ): RuleResult {
@@ -874,8 +1027,6 @@ function evaluateRule(
     kind: rule.kind,
   } as const;
   const notes: string[] = [];
-  const note = propertyNote(rule);
-  if (note) notes.push(note);
 
   const notEvaluable = (reason: string): RuleResult => ({
     ...base,
@@ -922,7 +1073,7 @@ function evaluateRule(
           products,
           summary,
           byGuid,
-          relations,
+          index,
           ruleset,
           notes,
           maxFindings,
@@ -933,7 +1084,7 @@ function evaluateRule(
     const selector: Selector =
       rule.kind === "ids" ? rule.applicability : (rule.select ?? {});
     const applicable = products.filter((p) =>
-      selects(selector, p, byGuid, relations, ruleset.ifcVersions),
+      selects(selector, p, byGuid, index, ruleset.ifcVersions),
     );
 
     if (rule.kind === "ids") {
@@ -977,7 +1128,7 @@ function evaluateRule(
             rule.requirements,
             product,
             byGuid,
-            relations,
+            index,
             ruleset.ifcVersions,
           );
           if (reasons.length > 0) {
@@ -1134,9 +1285,9 @@ export function evaluateRuleset(
   // even when the other end is a reference object.
   const allProducts = selectableProducts(graph);
   const byGuid = new Map(allProducts.map((p) => [p.guid, p]));
-  const relations = buildRelations(graph);
+  const index = buildIndex(graph);
 
-  const filter = copyObjectFilter(ruleset, allProducts, byGuid, relations);
+  const filter = copyObjectFilter(ruleset, allProducts, byGuid, index);
   const products =
     filter && filter.excluded.size > 0
       ? allProducts.filter((p) => !filter.excluded.has(p.guid))
@@ -1147,7 +1298,7 @@ export function evaluateRuleset(
     .map((rule) =>
       filter && rule === filter.rule
         ? filter.result
-        : evaluateRule(rule, products, summary, byGuid, relations, ruleset, maxFindings),
+        : evaluateRule(rule, products, summary, byGuid, index, ruleset, maxFindings),
     );
   const counts: Record<ResultState, number> = {
     pass: 0,

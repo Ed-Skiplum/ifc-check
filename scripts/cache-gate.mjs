@@ -88,6 +88,12 @@ model.streamMeshes(250, (metaJson, positions, indices) => {
 });
 const shift = JSON.parse(model.streamShiftJson());
 const graph = JSON.parse(model.graphJson());
+// The record the app actually stores carries the three long tables too, and the
+// budget has to cover them: KNM_RIV's property table alone is 960 KiB. A gate
+// that measured a graph the app never stores would certify the wrong number.
+graph.type_objects = JSON.parse(model.typeObjectsJson());
+graph.psets = JSON.parse(model.psetsJson());
+graph.classifications = JSON.parse(model.classificationsJson());
 model.free();
 
 const elements = batches.reduce((sum, b) => sum + b.meta.length, 0);

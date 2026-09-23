@@ -8,15 +8,13 @@
  *
  * Pure. No wasm, no DOM, no storage.
  *
- * ── What "declares" can mean here, and where it stops ────────────────────
- * `materials` plus `is_external` / `fire_rating` / `load_bearing` is the WHOLE
- * of what an element declares in the browser. ifcfast parses arbitrary property
- * sets — `summaryJson().tables` reports them loaded, with counts — but exposes
- * no JS accessor for them ([ifcfast#183]). So this is not a subset chosen for
- * brevity; it is the reachable set, and the ledger says so on screen rather than
- * leaving a column that reads as "declared nothing".
- *
- * [ifcfast#183]: https://github.com/EdvardGK/ifcfast/issues/183
+ * ── What "declares" can mean here ────────────────────────────────────────
+ * `materials` plus `is_external` / `fire_rating` / `load_bearing` are the
+ * columns the LEDGER aggregates, one per row and no join. They are a choice,
+ * not the boundary: since ifcfast 0.5.3 the whole property table is readable
+ * and travels on the profile as `psets` (`profileOf`), which is what the object
+ * panel reads. A column here is a column the ledger compares across a type's
+ * instances, and those three are the ones that mean something at that grain.
  */
 
 import type { IfcGraph } from "../../engine/types";
@@ -43,6 +41,7 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
       typeName: product.type_name,
       typed: product.typed,
       typeSource: product.type_source,
+      typeGuid: product.type_guid ?? null,
       predefinedType: product.predefined_type,
       objectType: product.object_type,
       tag: product.tag,

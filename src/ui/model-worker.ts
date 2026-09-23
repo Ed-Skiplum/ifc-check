@@ -180,7 +180,21 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
       send({ kind: "mesh-error", message: err instanceof Error ? err.message : String(err) });
     }
 
+    // The three tables `graphJson()` does not carry. All three are MESH-FREE —
+    // the extractors ran inside `fromBytes`, so each call is a serialise, not a
+    // computation — and reading them before `graphJson()` therefore costs
+    // nothing and cannot trigger a second tessellation pass. They are attached
+    // to the graph so one object carries the whole model: the cache stores it,
+    // the restore worker gets them without a parser, and the evaluator reads
+    // the same rows the panel does.
+    const typeObjects = JSON.parse(model.typeObjectsJson()) as IfcGraph["type_objects"];
+    const psets = JSON.parse(model.psetsJson()) as IfcGraph["psets"];
+    const classifications = JSON.parse(model.classificationsJson()) as IfcGraph["classifications"];
+
     const graph = JSON.parse(model.graphJson()) as IfcGraph;
+    graph.type_objects = typeObjects;
+    graph.psets = psets;
+    graph.classifications = classifications;
     model.free();
 
     heldGraph = graph;

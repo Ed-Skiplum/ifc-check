@@ -256,7 +256,7 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
     // a column of rows, each carrying evidence — not a strip
     aspect: { min: 0.7, max: 2.2 },
     // DEVIATION FROM UPSTREAM (1 of 2). Upstream gives `tellTales` strip spans
-    // only — a row of lamps. Here it is the focal: eleven universal checks,
+    // only — a row of lamps. Here it is the focal: twelve universal checks,
     // each carrying the VALUE it found beside its verdict, which is a column
     // of evidence rather than a row of lamps and does not fit one row. Taking
     // a focal span is what makes it the canvas's single focal, so the

@@ -119,6 +119,17 @@ export interface TypeLedger {
   rows: TypeRow[];
   /** Distinct type names. The denominator. */
   types: number;
+  /** Type OBJECTS the elements are defined by, and type objects the file
+   *  DECLARES. Both null when the profile carries no `typeGuid` column.
+   *
+   *  Three numbers about "types" live on one board and none of them is wrong:
+   *  the file declares `typeObjectsDeclared`, elements use `typeObjectsUsed` of
+   *  them, and those resolve to `types` distinct NAMES — KNM_ARK is 398, 339
+   *  and 84. The ledger keys by name, the KPI prints used/declared, and the
+   *  foot prints all three together so the gap between them is readable
+   *  instead of looking like two surfaces disagreeing. */
+  typeObjectsUsed: number | null;
+  typeObjectsDeclared: number | null;
   /** Types carried by exactly one instance. The numerator. */
   singles: number;
   /** `singles / types`, or `null` when there are no types at all — a model
@@ -216,9 +227,26 @@ export type MeshIndex = Map<string, number> | null;
 export interface AggregateOptions {
   mesh: MeshIndex;
   meshCapped: boolean;
+  /** `summary.tables.type_objects.rows` — the file's own count of declared type
+   *  objects. The profile cannot know it: an unused type reaches no product
+   *  row, which is the whole point of the number. */
+  typeObjectsDeclared?: number | null;
 }
 
 const NO_MESH: AggregateOptions = { mesh: null, meshCapped: false };
+
+/** Distinct type objects the rows are defined by, or null when the profile
+ *  carries no `typeGuid` at all — which is "not supplied", never zero. */
+function usedTypeObjects(rows: ProductRowLite[]): number | null {
+  const used = new Set<string>();
+  let supplied = false;
+  for (const row of rows) {
+    if (row.typeGuid === undefined) continue;
+    supplied = true;
+    if (row.typeGuid !== null) used.add(row.typeGuid);
+  }
+  return supplied ? used.size : null;
+}
 
 export function aggregateTypes(
   profile: ModelProfile,
@@ -247,6 +275,8 @@ export function aggregateTypes(
     return {
       rows: [],
       types: 0,
+      typeObjectsUsed: null,
+      typeObjectsDeclared: options.typeObjectsDeclared ?? null,
       singles: 0,
       singleShare: null,
       health: null,
@@ -380,6 +410,8 @@ export function aggregateTypes(
   return {
     rows,
     types,
+    typeObjectsUsed: usedTypeObjects(physical),
+    typeObjectsDeclared: options.typeObjectsDeclared ?? null,
     singles,
     singleShare,
     health: singleShare === null ? null : healthOf(singleShare),

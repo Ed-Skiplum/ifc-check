@@ -7,17 +7,22 @@
  * own height rule is untouched.
  *
  * ── It shows what is REACHABLE, and says where that stops ─────────────────
- * The attributes here are the whole of what a product declares in the browser:
- * `ProductRowLite`, i.e. the columns `graphJson()` carries. Arbitrary property
- * sets ARE parsed by ifcfast — `summaryJson().tables` reports them loaded, with
- * counts — but the wasm build exposes no accessor
- * ([ifcfast#183](https://github.com/EdvardGK/ifcfast/issues/183)). That is a
- * labelled state on this panel, in the same words the type ledger's foot uses,
- * never an empty section and never a blank value that would read as "this
- * element declares nothing".
+ * The panel is a list of SECTIONS: the attributes `graphJson()` carries, the
+ * object's classification references, then ONE SECTION PER PROPERTY SET, titled
+ * with the set's own name. That last part is what ifcfast 0.5.3 made possible
+ * (`psetsJson()` / `classificationsJson()`); the shape was designed for it while
+ * the section still read `utilgjengelig · ifcfast#183`, and nothing else moved
+ * when the data arrived.
  *
- * The panel is a list of SECTIONS for exactly that reason: when #183 lands, a
- * pset becomes one more section with its own rows, and nothing else moves.
+ * The set NAME is kept, and is the section header, because a property is
+ * identified by set plus name: two sets both carrying `Status` are two
+ * different facts and a flat list of property names hides that.
+ *
+ * Three absences, kept apart, because they are answers about different things:
+ *   — no profile table at all   the board was built without one; the section
+ *                               says `ikke levert`, never "none".
+ *   — nothing selected          the panel's own `—`.
+ *   — selected, declares none   `ingen`, which is about the FILE.
  *
  * ── One element, several, none ───────────────────────────────────────────
  * One: its values. Several (Shift or Ctrl down the band): the SHARED values —
@@ -58,17 +63,21 @@ interface Section {
  *  first-seen order. An absent value is dropped rather than rendered as its own
  *  variant: "some of these have no Tag" is `—` plus the ones that do, and a
  *  selection where NONE has one is `—` alone. */
-function distinct(
-  rows: ProductRowLite[],
-  read: (row: ProductRowLite) => string | null,
-): string[] {
+function distinctOf<T>(items: T[], read: (item: T) => string | null): string[] {
   const seen: string[] = [];
-  for (const row of rows) {
-    const value = read(row);
+  for (const item of items) {
+    const value = read(item);
     if (value === null || value === "") continue;
     if (!seen.includes(value)) seen.push(value);
   }
   return seen;
+}
+
+function distinct(
+  rows: ProductRowLite[],
+  read: (row: ProductRowLite) => string | null,
+): string[] {
+  return distinctOf(rows, read);
 }
 
 function bool(value: boolean | null | undefined): string | null {
@@ -122,14 +131,91 @@ function objectSections(
         { label: "LoadBearing", values: distinct(rows, (r) => bool(r.loadBearing)) },
       ],
     },
-    {
-      // Parsed, counted, and with no JS accessor. Said the way the type
-      // ledger's foot says it, so one fact reads the same on both surfaces.
-      title: t("type.psets", lang),
-      fields: [],
-      state: `${t("type.unavailable", lang)} · ifcfast#183`,
-    },
+    classificationSection(rows, profile, lang),
+    ...psetSections(rows, profile, lang),
   ];
+}
+
+/** The absent-state word for a table, or null when there is something to show.
+ *
+ * Three different absences and one of them is not about the file at all, so
+ * they never share a rendering: a table the profile never carried says so, an
+ * empty selection uses this surface's own dash, and an object that genuinely
+ * declares nothing says `ingen`. */
+function absence<T>(
+  table: Map<string, T[]> | undefined,
+  rows: ProductRowLite[],
+  found: number,
+  lang: Lang,
+): string | null {
+  if (table === undefined) return t("type.notSupplied", lang);
+  if (rows.length === 0) return "—";
+  return found === 0 ? t("type.none", lang) : null;
+}
+
+/** One row per classification SYSTEM, value `code · name`. A selection whose
+ *  elements disagree gets the panel's own `Ulike verdier`, exactly as an
+ *  attribute does — the sections differ in where the data comes from, never in
+ *  how a disagreement reads. */
+function classificationSection(
+  rows: ProductRowLite[],
+  profile: ModelProfile | null,
+  lang: Lang,
+): Section {
+  const table = profile?.classifications;
+  const refs = rows.flatMap((row) => table?.get(row.guid) ?? []);
+  const state = absence(table, rows, refs.length, lang);
+  if (state !== null) return { title: t("type.classifications", lang), fields: [], state };
+
+  const systems: string[] = [];
+  for (const ref of refs) {
+    const system = ref.system ?? "—";
+    if (!systems.includes(system)) systems.push(system);
+  }
+  return {
+    title: t("type.classifications", lang),
+    fields: systems.map((system) => ({
+      label: system,
+      values: distinctOf(
+        refs.filter((ref) => (ref.system ?? "—") === system),
+        (ref) => [ref.code, ref.name].filter((part) => part).join(" · ") || null,
+      ),
+    })),
+  };
+}
+
+/** One section per property set, in the order the file wrote them. */
+function psetSections(
+  rows: ProductRowLite[],
+  profile: ModelProfile | null,
+  lang: Lang,
+): Section[] {
+  const table = profile?.psets;
+  const sets = rows.flatMap((row) => table?.get(row.guid) ?? []);
+  const state = absence(table, rows, sets.length, lang);
+  if (state !== null) return [{ title: t("type.psets", lang), fields: [], state }];
+
+  const names: string[] = [];
+  for (const set of sets) if (!names.includes(set.name)) names.push(set.name);
+
+  return names.map((name) => {
+    const mine = sets.filter((set) => set.name === name);
+    const properties = mine.flatMap((set) => set.properties);
+    const propertyNames: string[] = [];
+    for (const property of properties) {
+      if (!propertyNames.includes(property.name)) propertyNames.push(property.name);
+    }
+    return {
+      title: name,
+      fields: propertyNames.map((propertyName) => ({
+        label: propertyName,
+        values: distinctOf(
+          properties.filter((property) => property.name === propertyName),
+          (property) => property.value,
+        ),
+      })),
+    };
+  });
 }
 
 interface ObjectPanelProps {
@@ -165,7 +251,7 @@ export function ObjectPanel({ lang, profile, selection }: ObjectPanelProps) {
 
       <div className="min-h-0 flex-1 overflow-auto bg-input">
         {sections.map((section) => (
-          <div key={section.title}>
+          <div key={section.title} data-section={section.title}>
             <div className="border-b border-line bg-panel px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
               {section.title}
             </div>

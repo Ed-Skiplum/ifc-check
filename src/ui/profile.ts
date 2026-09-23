@@ -22,11 +22,10 @@
  * and never as "this model has no types" — the two are different answers and
  * only one of them is about the file.
  *
- * What the type facts can cover is bounded by the parser, not by this type:
- * arbitrary property sets are parsed by ifcfast but have no JS accessor
- * ([ifcfast#183](https://github.com/EdvardGK/ifcfast/issues/183)), so
- * `materials` plus the three flattened common properties below are the whole of
- * what an element DECLARES in the browser. Nothing downstream may imply more.
+ * The three flattened common properties below are a CONVENIENCE, not the
+ * boundary: since ifcfast 0.5.3 the whole property table is readable and rides
+ * on the profile as `psets` (see `ModelProfile`). They stay because the
+ * fundamentals and the type ledger read them per row without a join.
  */
 export interface ProductRowLite {
   guid: string;
@@ -39,6 +38,10 @@ export interface ProductRowLite {
   typed?: boolean;
   /** `ProductRow.type_source`, verbatim from the parser. */
   typeSource?: string;
+  /** `ProductRow.type_guid` — the GlobalId of the type object, null when the
+   *  element is untyped. It is what makes "declared but used by nothing"
+   *  answerable, so it is carried per row rather than derived from the name. */
+  typeGuid?: string | null;
   predefinedType?: string | null;
   objectType?: string | null;
   /** `ProductRow.tag` — the authoring tool's own element id, not a GlobalId. */
@@ -75,11 +78,40 @@ export interface SpatialCounts {
   storeys: number;
 }
 
-/** The raw payload the worker sends alongside the check results. */
+/** One property set as the object panel reads it: the set NAME kept, because a
+ *  property is identified by set plus name and not by name alone. */
+export interface PsetGroup {
+  name: string;
+  properties: { name: string; value: string | null }[];
+}
+
+/** One classification reference. `code` is the schema-normalised identification
+ *  — IFC4 `.Identification` and IFC2x3 `.ItemReference` both land there. */
+export interface ClassificationRef {
+  system: string | null;
+  code: string | null;
+  name: string | null;
+}
+
+/** The raw payload the worker sends alongside the check results.
+ *
+ * `psets` and `classifications` are keyed by GlobalId, and the key set is NOT
+ * the product rows: a property set sits on a site, a building, a storey or the
+ * project as readily as on a wall (KNM_ARK carries both of its property rows on
+ * `IfcProject`; KNM_RIB carries 231 of 337 on spatial elements). Keying by guid
+ * rather than joining onto `rows` is what keeps those reachable.
+ *
+ * Both are OPTIONAL, and absent is a different answer from empty: absent means
+ * this profile was built from a graph that carried no property table at all, and
+ * the panel says that instead of printing "none". A guid with no entry in a
+ * table that IS present declares nothing, which is the other answer.
+ */
 export interface ModelProfile {
   rows: ProductRowLite[];
   storeys: StoreyRowLite[];
   spatial: SpatialCounts;
+  psets?: Map<string, PsetGroup[]>;
+  classifications?: Map<string, ClassificationRef[]>;
 }
 
 export interface ClassCount {

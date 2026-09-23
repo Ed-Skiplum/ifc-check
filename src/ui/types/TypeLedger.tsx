@@ -16,14 +16,18 @@
  * own, and a type that disagrees with itself is marked in place, never dimmed
  * and never dropped.
  *
- * ── The property columns stop where the parser does ──────────────────────
+ * ── The property columns are a choice, not a boundary ────────────────────
  * `PredefinedType`, `Materials` and the three flattened common properties are
- * the whole of what is reachable. Arbitrary property sets are parsed by ifcfast
- * and have no JS accessor ([ifcfast#183]), so the foot of the tile says that
- * once, as a fact, rather than leaving a reader to read a blank column as "this
- * model declares nothing".
+ * the values worth COMPARING across a type's instances — the ones where a
+ * disagreement is a modelling fact. The full property table is reachable since
+ * ifcfast 0.5.3 and is what the object panel prints per element; widening this
+ * tile to it would make one column per property set on a model with hundreds.
  *
- * [ifcfast#183]: https://github.com/EdvardGK/ifcfast/issues/183
+ * ── The foot reconciles the three "types" numbers ─────────────────────────
+ * This table keys by type NAME. The file declares type OBJECTS, and elements
+ * use a subset of those. All three differ on a real model (KNM_ARK: 398
+ * declared, 339 used, 84 names), so the foot prints them together instead of
+ * leaving the KPI row and this tile looking like they disagree.
  */
 
 import type { ReactNode } from "react";
@@ -439,14 +443,24 @@ function LedgerRow({
   );
 }
 
-/** What this surface could not see, said once and factually. */
+/** The three "types" numbers against each other, then what could not be seen.
+ *
+ * `339 brukt av 398 · 84 navn` is the whole reconciliation: the file DECLARES
+ * 398 type objects, elements are defined by 339 of them, and those 339 carry 84
+ * distinct names — which is the row count of this table. Before the roster was
+ * readable the KPI printed 398, this table listed 84, and nothing on screen
+ * said why. A number that cannot be told from the two others is left out rather
+ * than guessed: `typeObjectsUsed`/`Declared` are null when not supplied. */
 function Foot({ lang, ledger }: { lang: Lang; ledger: TypeLedgerData }) {
+  const objects =
+    ledger.typeObjectsUsed !== null && ledger.typeObjectsDeclared !== null
+      ? `${formatCount(ledger.typeObjectsUsed, lang)} ${t("type.usedOfDeclared", lang)} ` +
+        `${formatCount(ledger.typeObjectsDeclared, lang)} · ` +
+        `${formatCount(ledger.types, lang)} ${t("type.names", lang)}`
+      : null;
   return (
     <div className="flex shrink-0 flex-wrap items-baseline gap-x-3 border-t border-line bg-panel px-[var(--bento-pad)] py-1">
-      <Pair
-        label={t("type.psets", lang)}
-        value={`${t("type.unavailable", lang)} · ifcfast#183`}
-      />
+      {objects ? <Pair label={t("type.objects", lang)} value={objects} /> : null}
       {ledger.meshUnknown ? (
         <Pair label={t("col.geometry", lang)} value={t("type.geometryUnread", lang)} />
       ) : null}
