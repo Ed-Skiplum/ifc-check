@@ -463,6 +463,56 @@ export class ModelScene {
     return url;
   }
 
+  /**
+   * Read the camera back, and where a set of elements projects under it.
+   *
+   * The only way a headless gate can assert "the camera MOVED and the object
+   * landed inside the viewport" — the two claims framing makes — without a
+   * second copy of the projection arithmetic living in the gate. Read-only: it
+   * touches no state and renders nothing.
+   *
+   * `box` is the NDC bounding box of the eight corners of those elements' world
+   * box, i.e. the very box `zoomToSelection` framed. Inside the viewport means
+   * every component within [-1, 1]. `null` when none of them has geometry in
+   * this scene, which is also when framing declines to move.
+   */
+  probe(guids: string[]): {
+    eye: [number, number, number];
+    target: [number, number, number];
+    radius: number;
+    box: { x0: number; y0: number; x1: number; y1: number } | null;
+  } {
+    const eye = this.turntable.eye();
+    const target = this.turntable.target;
+    const bounds = guids.length > 0 ? this.bounds(guids) : null;
+    let box: { x0: number; y0: number; x1: number; y1: number } | null = null;
+    if (bounds) {
+      const { min, max } = bounds;
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (const x of [min.x, max.x]) {
+        for (const y of [min.y, max.y]) {
+          for (const z of [min.z, max.z]) {
+            const ndc = new Vector3(x, y, z).project(this.camera);
+            x0 = Math.min(x0, ndc.x);
+            y0 = Math.min(y0, ndc.y);
+            x1 = Math.max(x1, ndc.x);
+            y1 = Math.max(y1, ndc.y);
+          }
+        }
+      }
+      box = { x0, y0, x1, y1 };
+    }
+    return {
+      eye: [eye.x, eye.y, eye.z],
+      target: [target.x, target.y, target.z],
+      radius: this.turntable.radius,
+      box,
+    };
+  }
+
   /** Dispose and give the WebGL context back at once, for a hidden scene. */
   disposeContext(): void {
     this.dispose();

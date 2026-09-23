@@ -141,6 +141,17 @@ const STRINGS = {
   "col.verdict": { nb: "Vurdering", en: "Verdict" },
   "col.found": { nb: "Funnet verdi", en: "Found value" },
 
+  "col.storey": { nb: "Etasje", en: "Storey" },
+  // IFC ATTRIBUTE NAMES stay verbatim in both languages, as in the type
+  // ledger's column heads: a header is a name, not a translation.
+  "col.objectType": { nb: "ObjectType", en: "ObjectType" },
+  "col.tag": { nb: "Tag", en: "Tag" },
+  "col.predefinedType": { nb: "PredefinedType", en: "PredefinedType" },
+
+  /* --------------------------------------------------------- object panel */
+  "tile.object": { nb: "Objekt", en: "Object" },
+  "object.attributes": { nb: "Attributter", en: "Attributes" },
+
   "matrix.noStorey": { nb: "Uten etasje", en: "No storey" },
   "storey.shared": { nb: "Delt kote", en: "Shared elevation" },
 

@@ -12,22 +12,31 @@
  * synthetic `click()` on a React handler would prove the handler, not the
  * gesture.
  *
+ * The one camera move a click DOES make, added 2026-09-23: a row of the
+ * derivation band frames its element. A canvas pick still moves nothing.
+ *
  * Asserted, in order, on one model:
  *   1  no filter        no chips · the HUD reads the whole model · Zoom til
- *                       valg is disabled
+ *                       valg is disabled · no band, so no object panel
  *   2  a class row      a Klasse chip · the bar reads that class's own count
  *                       over the products · the HUD shows fewer elements than
- *                       the model · the canvas changed
+ *                       the model · the canvas changed · the object panel is
+ *                       open in its empty state and states ifcfast#183
  *   3  the same row     chips gone, the bar and the HUD back to the model, and
  *                       the canvas is PIXEL-IDENTICAL to 1 — which is the
  *                       camera assertion: a filter that had moved the eye
  *                       could not come back to the same image
  *   4  a band row       an Element chip beside the class chip · the bar reads
  *                       1 · the HUD shows at most 1 · Zoom til valg is live
+ *   4b the camera       it MOVED, the element's box projects inside the
+ *                       viewport, and it fills the frame — not merely on
+ *                       screen from a mile away
+ *   4c the object panel it names that element and carries every attribute row
  *   5  the same band row  the element chip alone goes; the class filter, its
  *                       chip and its count are exactly as in 2
- *   6  a canvas click   selects (Zoom til valg goes live) and makes NO chip:
- *                       the filter and the HUD are untouched
+ *   6  a canvas click   selects (Zoom til valg goes live), makes NO chip, and
+ *                       does NOT move the camera: filter, HUD and pose are
+ *                       untouched
  *   7  Tøm filter       back to the whole model
  *   8  a storey row    the Etasjer tile isolates that floor, and clears it
  *  9-10 three models   only the panel's OWN column in the floor matrix is a
@@ -289,8 +298,59 @@ const STATE = (panel_index = 0) => `(() => {
     hudTotal: hudNums.length > 1 ? hudNums[1] : hudNums[0] ?? null,
     zoomDisabled: buttons.length > 1 ? buttons[1].disabled : null,
     bandRows: root.querySelectorAll('[data-guid]').length,
+    panel: (() => {
+      const box = root.querySelector('[data-object-panel]');
+      if (!box) return null;
+      const fields = {};
+      for (const row of box.querySelectorAll('[data-field]')) {
+        fields[row.getAttribute('data-field')] = row.getAttribute('data-value') ?? '';
+      }
+      const state = [...box.querySelectorAll('[data-section-state]')].map((s) => s.textContent.trim());
+      return { fields, state };
+    })(),
   };
 })()`;
+
+/** The CAMERA, read off the live scene, and where `guids` project under it.
+ *
+ * There is no honest way to recover a camera pose from rendered pixels, so the
+ * viewer registers its scenes on `window.__ifcCheckScenes` and this calls the
+ * scene's own read-only `probe`. The projection is therefore the shipped
+ * arithmetic, not a copy living here — the same rule `pivot-gate.mjs` follows. */
+const POSE = (panel_index, guids) => `(() => {
+  const scene = (window.__ifcCheckScenes ?? [])[${panel_index}];
+  if (!scene) return null;
+  return scene.probe(${JSON.stringify(guids)});
+})()`;
+
+/** Did the eye move? In metres, against the scene's own radius, so the number
+ *  means the same thing on a millimetre model and on a site. */
+function moved(before, after) {
+  const d = Math.hypot(
+    after.eye[0] - before.eye[0],
+    after.eye[1] - before.eye[1],
+    after.eye[2] - before.eye[2],
+  );
+  return d / Math.max(1e-6, before.radius);
+}
+
+/** Every corner of the element's box inside the viewport. */
+function inView(box) {
+  return box !== null && box.x0 >= -1 && box.x1 <= 1 && box.y0 >= -1 && box.y1 <= 1;
+}
+
+/** The whole band — rows and object panel — so the split is something a person
+ *  can look at rather than only a set of assertions. */
+async function bandShot(name) {
+  const rect = await evaluate(
+    `(() => { const p = document.querySelector('[data-object-panel]'); if (!p) return null;
+      const band = p.parentElement.closest('section'); const r = band.getBoundingClientRect();
+      return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height), scale: 1 }; })()`,
+  );
+  if (!rect) return;
+  const { data } = await send("Page.captureScreenshot", { format: "png", clip: rect });
+  writeFileSync(resolve(OUT, `${name}.png`), Buffer.from(data, "base64"));
+}
 
 /** The canvas alone, so the comparison is the 3D and not the page around it. */
 async function canvasShot(name) {
@@ -349,6 +409,10 @@ check(
   `1 HUD reads the whole model (${base0.hud})`,
 );
 check(base0.zoomDisabled === true, `1 Zoom til valg disabled with no selection`);
+check(
+  base0.panel === null,
+  `1 no band, so no object panel yet (${base0.panel ? "present" : "absent"})`,
+);
 
 /* 2 — a class row isolates. A class big enough to matter and small enough to
    be a real narrowing: the first under half the model. */
@@ -382,6 +446,16 @@ check(
 );
 check(shotClass !== shot0, `2 the canvas changed`);
 check(afterClass.bandRows > 0, `2 the derivation lists the instances (${afterClass.bandRows} rows)`);
+/* The band is open and nothing is selected: the panel is there, in its empty
+   state, and it says where the psets stop rather than leaving that blank. */
+check(
+  afterClass.panel !== null && afterClass.panel.fields.GlobalId === "",
+  `2 the object panel is open and empty with no selection (${JSON.stringify(afterClass.panel?.fields.GlobalId)})`,
+);
+check(
+  afterClass.panel !== null && afterClass.panel.state.some((s) => s.includes("ifcfast#183")),
+  `2 the psets section states why it is empty (${JSON.stringify(afterClass.panel?.state)})`,
+);
 
 /* 3 — the same row clears it, and the scene comes back to the SAME IMAGE.
    That is the camera assertion: nothing about isolating moved the eye. */
@@ -392,17 +466,68 @@ check(cleared.chips.length === 0, `3 the chip is gone (${JSON.stringify(cleared.
 check(cleared.hudShown === base0.hudTotal, `3 HUD back to the whole model (${cleared.hud})`);
 check(shotBack === shot0, `3 the canvas is pixel-identical to 1 — the camera never moved`);
 
-/* 4 — the second step: a row of the derivation is ONE element. */
+/* 4 — the second step: a row of the derivation is ONE element, the camera
+   FRAMES it, and the object panel says what the engine has for it. */
 await clickAt(...Object.values(await centre(`document.querySelector('[data-gate-pick]')`)));
+const rowGuid = await evaluate(
+  `document.querySelectorAll('[data-guid]')[0].getAttribute('data-guid')`,
+);
 const rowAt = await centre(`document.querySelectorAll('[data-guid]')[0]`);
+const poseBefore = await evaluate(POSE(0, [rowGuid]));
 await clickAt(rowAt.x, rowAt.y);
 const one = await evaluate(STATE());
+const poseFramed = await evaluate(POSE(0, [rowGuid]));
 const shotOne = await canvasShot("4-one-element");
+await bandShot("4-band-and-object-panel");
 check(one.chips.length === 2, `4 the element chip joins the class chip (${JSON.stringify(one.chips)})`);
 check(one.matched === 1, `4 the bar reads one element (${one.matched})`);
 check(one.hudShown !== null && one.hudShown <= 1, `4 the HUD shows at most one element (${one.hud})`);
 check(one.zoomDisabled === false, `4 Zoom til valg is live on the picked element`);
 check(shotOne !== shotClass, `4 the canvas changed again`);
+
+/* 4b — the camera. It has to MOVE, and the element has to land inside the
+   viewport: "the camera changed" alone would pass on a camera that flew
+   somewhere else entirely. Skipped, loudly, if the element carries no mesh in
+   this scene — framing declines there by design and the gate says so rather
+   than asserting a move that was never owed. */
+if (poseBefore === null || poseFramed === null) {
+  check(false, `4b no scene handle — window.__ifcCheckScenes is not registered`);
+} else if (poseBefore.box === null) {
+  console.log(`skip 4b — ${rowGuid} has no geometry in this scene; framing declines by design`);
+} else {
+  check(
+    moved(poseBefore, poseFramed) > 0.01,
+    `4b the camera moved to the element (${moved(poseBefore, poseFramed).toFixed(3)} of the radius)`,
+  );
+  check(
+    inView(poseFramed.box),
+    `4b the element projects inside the viewport (${JSON.stringify(poseFramed.box)})`,
+  );
+  /* And it is FRAMED, not merely on screen: the same fit window Zoom til valg
+     aims at, less the HUD insets, so a camera that happened to contain the
+     element from a mile away fails here. */
+  const fill = Math.max(
+    poseFramed.box.x1 - poseFramed.box.x0,
+    poseFramed.box.y1 - poseFramed.box.y0,
+  );
+  check(fill > 1.2, `4b the element fills the frame (${fill.toFixed(2)} of 2 NDC)`);
+}
+
+/* 4c — the object panel carries that element's attributes, not the set's. */
+check(
+  one.panel !== null && one.panel.fields.GlobalId === rowGuid,
+  `4c the object panel names the picked element (${one.panel?.fields.GlobalId} = ${rowGuid})`,
+);
+check(
+  one.panel !== null && /^Ifc/.test(one.panel.fields["IFC-klasse"] ?? ""),
+  `4c it carries the IFC class (${one.panel?.fields["IFC-klasse"]})`,
+);
+check(
+  one.panel !== null &&
+    ["Navn", "ObjectType", "Tag", "PredefinedType", "Type", "Etasje", "Materialer",
+     "IsExternal", "FireRating", "LoadBearing"].every((f) => f in one.panel.fields),
+  `4c every attribute row is present (${Object.keys(one.panel?.fields ?? {}).join(", ")})`,
+);
 
 /* 5 — the same row steps back out to the set it was drilled from. */
 await clickAt(rowAt.x, rowAt.y);
@@ -418,6 +543,7 @@ await evaluate(
 await sleep(600);
 await park();
 const beforePick = await evaluate(STATE());
+const posePreClick = await evaluate(POSE(0, []));
 const canvasBox = await evaluate(
   `(() => { const c = document.querySelector('[role=tabpanel]:not([hidden]) [data-tile-id=viewer] canvas'); const r = c.getBoundingClientRect();
     return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`,
@@ -445,6 +571,17 @@ check(
   `6 the scene still shows everything it did (${picked.hud})`,
 );
 check(picked.zoomDisabled === false, `6 the canvas click DID select — it highlights, it does not hide`);
+/* And it does NOT frame. A table row now moves the camera; a pick in the 3D
+   still must not, or a click would take away the very view it was made in. */
+const posePostClick = await evaluate(POSE(0, []));
+check(
+  posePreClick !== null &&
+    posePostClick !== null &&
+    moved(posePreClick, posePostClick) < 1e-9,
+  `6 the canvas click did not move the camera (${
+    posePreClick && posePostClick ? moved(posePreClick, posePostClick).toExponential(1) : "no handle"
+  })`,
+);
 
 /* 7 — and the bar is still the way back. */
 const end = await evaluate(STATE());

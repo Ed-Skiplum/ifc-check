@@ -43,16 +43,26 @@ import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
+import { ObjectPanel } from "./ObjectPanel";
+import type { ModelProfile } from "./profile";
 import { reasonText } from "./reasons";
 import { RESULT_FILL, RESULT_GLYPH, VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 
 const ROW_HEIGHT = 26;
 const OVERSCAN = 12;
-const COLUMNS = "23ch 26ch minmax(16ch, 1fr) minmax(28ch, 2fr)";
+/** The GUID column stays 23ch — a GUID is an identifier and half of one
+ *  identifies nothing. The other three were cut when the object panel took
+ *  38.2 % of the band (2026-09-23), so the four columns still fit the narrowest
+ *  box the app ships in (the 1100 px skiplum.com iframe) without the row list
+ *  acquiring a sideways scroll. All three ellipsize by design and carry their
+ *  full text in `title`. */
+const COLUMNS = "23ch 22ch minmax(12ch, 1fr) minmax(20ch, 2fr)";
 
 interface TraceBandProps {
   lang: Lang;
   trace: Trace;
+  /** This model's profile, for the object panel beside the table. */
+  profile: ModelProfile | null;
   /** GUIDs selected in this model, whichever side selected them. */
   selection: string[];
   hover: string | null;
@@ -65,6 +75,7 @@ interface TraceBandProps {
 export function TraceBand({
   lang,
   trace,
+  profile,
   selection,
   hover,
   onPick,
@@ -210,8 +221,15 @@ export function TraceBand({
         </div>
       ) : null}
 
+      {/* The golden split: the rows keep 61.8 %, the object panel takes the
+          38.2 % the band was wasting. The band's own height is unchanged — this
+          costs table WIDTH, which the four columns had to spare, never rows. */}
+      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-col" style={{ width: "61.8%" }}>
       <div
-        className="grid shrink-0 items-center border-y border-line bg-panel px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase"
+        // The same `gap-x-2` the rows carry, or every header after the first
+        // sits left of the column it names by the accumulated gaps.
+        className="grid shrink-0 items-center gap-x-2 border-y border-line bg-panel px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase"
         style={{ gridTemplateColumns: COLUMNS }}
       >
         <span>{t("col.guid", lang)}</span>
@@ -262,6 +280,7 @@ export function TraceBand({
                 </span>
                 <span
                   onDoubleClick={copyOnDoubleClick(row.entity)}
+                  title={row.entity}
                   className={"cursor-copy truncate font-mono text-[12px] " + (picked ? "" : "text-green")}
                 >
                   {row.entity}
@@ -284,6 +303,12 @@ export function TraceBand({
             );
           })}
         </div>
+      </div>
+      </div>
+
+      <div className="min-h-0 min-w-0" style={{ width: "38.2%" }}>
+        <ObjectPanel lang={lang} profile={profile} selection={selection} />
+      </div>
       </div>
     </section>
   );

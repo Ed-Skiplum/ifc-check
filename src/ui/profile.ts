@@ -41,6 +41,8 @@ export interface ProductRowLite {
   typeSource?: string;
   predefinedType?: string | null;
   objectType?: string | null;
+  /** `ProductRow.tag` — the authoring tool's own element id, not a GlobalId. */
+  tag?: string | null;
   materials?: string[];
   isExternal?: boolean | null;
   fireRating?: string | null;

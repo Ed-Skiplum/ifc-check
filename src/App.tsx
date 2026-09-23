@@ -272,6 +272,7 @@ export default function App() {
                       key={`${trace.modelId}:${trace.focus}`}
                       lang={view.lang}
                       trace={trace}
+                      profile={model.profile ?? null}
                       selection={cross.view(trace.modelId).selection}
                       hover={cross.view(trace.modelId).hover}
                       // A band row is the second step of the drill: it

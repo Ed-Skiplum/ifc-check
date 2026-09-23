@@ -45,6 +45,7 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
       typeSource: product.type_source,
       predefinedType: product.predefined_type,
       objectType: product.object_type,
+      tag: product.tag,
       materials: product.materials ?? [],
       isExternal: product.is_external,
       fireRating: product.fire_rating,

@@ -34,6 +34,13 @@ import {
 } from "./mesh-stream";
 import { ModelScene, type Mode } from "./scene";
 
+declare global {
+  interface Window {
+    /** Live scenes, in mount order. Written here, read only by the gates. */
+    __ifcCheckScenes?: ModelScene[];
+  }
+}
+
 /** The HUD chips sit over the top of the canvas and the camera buttons over
  *  its bottom-right, so a fit that filled the raw canvas would push content
  *  behind them. These are the usable-viewport insets the fit solver is given. */
@@ -63,6 +70,11 @@ interface ViewerTileProps {
   mode: Mode;
   selection: string[];
   hover: string | null;
+  /** Bumped by a TABLE selection that wants the camera on what it chose — a
+   *  row of the derivation band. Never by a canvas pick, so the rule that a
+   *  click in the 3D does not move the camera is kept by the prop not arriving
+   *  rather than by a check here. Zero means nothing has asked yet. */
+  frameSeq: number;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
 }
@@ -77,6 +89,7 @@ export function ViewerTile({
   mode,
   selection,
   hover,
+  frameSeq,
   onPick,
   onHover,
 }: ViewerTileProps) {
@@ -126,6 +139,12 @@ export function ViewerTile({
     // them, in the same order, after the cleanup — so the rebuilt scene is
     // re-hydrated by the very effects that fed the first one.
     scene.current = instance;
+    // A handle for the headless gates, in mount order — which is panel order.
+    // `isolate-gate.mjs` asserts what the CAMERA did after a click, and there
+    // is no way to read a pose out of rendered pixels that is not archaeology.
+    // Read-only: the gates call `probe` and nothing else.
+    const registry = (window.__ifcCheckScenes ??= []);
+    registry.push(instance);
 
     const observer = new ResizeObserver(() => {
       const rect = box.getBoundingClientRect();
@@ -139,6 +158,8 @@ export function ViewerTile({
       observer.disconnect();
       instance.dispose();
       scene.current = null;
+      const at = registry.indexOf(instance);
+      if (at >= 0) registry.splice(at, 1);
     };
   }, []);
 
@@ -162,6 +183,29 @@ export function ViewerTile({
   useEffect(() => {
     scene.current?.setHover(hover);
   }, [hover]);
+
+  /* Frame what a table just selected.
+   *
+   * Declared AFTER the selection effect on purpose: React runs a component's
+   * effects in declaration order within a commit, so the scene already holds
+   * the new selection when this runs and `zoomToSelection` frames it rather
+   * than the previous one. It is the SAME call `Zoom til valg` makes — one
+   * framing rule, one piece of arithmetic, so the button and the row cannot
+   * land the camera in two different places.
+   *
+   * The counter is remembered in a ref so a re-render at the same value never
+   * re-frames: a camera that snapped back on an unrelated state change would
+   * take the view away from someone who had just orbited it.
+   *
+   * An element with no mesh in this scene (budget capped, or no geometry at
+   * all) leaves the camera alone — `zoomToSelection` finds no bounds and
+   * returns. The HUD already says how much of the filter has geometry. */
+  const framedSeq = useRef(0);
+  useEffect(() => {
+    if (frameSeq === 0 || frameSeq === framedSeq.current) return;
+    framedSeq.current = frameSeq;
+    scene.current?.zoomToSelection();
+  }, [frameSeq]);
 
   const fit = useCallback(() => scene.current?.fit(INSETS), []);
   const zoom = useCallback(() => scene.current?.zoomToSelection(), []);

@@ -34,6 +34,9 @@ src/ui/          the screen, and the worker that drives the engine
                    project rules under "Regler" when a ruleset is loaded
   FloorSetup.tsx   the Etasjer tile: config floors × loaded models, or the
                    file's own storeys with no config
+  TraceBand.tsx    the derivation band: the rows behind the open number (61.8 %)
+                   beside the object panel (38.2 %)
+  ObjectPanel.tsx  what the engine has for the selected element
   Contents.tsx     tab 2 (Innhold): classes, Etasje × klasse
                    (StoreyClassCensus.tsx), type ledger
   forms.tsx        gauge, distribution, KPI row, readouts
@@ -257,7 +260,8 @@ the inactive one is `hidden`, so the 3D scene and its camera survive a tab
 switch. The derivation band opens INSIDE the panel of the model it belongs to,
 under the active tab, pinned to the bottom of the scrolling page
 (`sticky bottom-0`) at 38.2 % of the screen, so a number clicked at the top of
-a tall board opens its derivation in view.
+a tall board opens its derivation in view. Within it the rows take 61.8 % and
+the object panel 38.2 % (below).
 
 Checked 2026-09-21 in headless Chrome against a LOCAL preview build, not the
 deployed site: both tabs at 1440 and 1100 with KNM_ARK, ARK+RIV+RIB + knm
@@ -332,23 +336,92 @@ matrix — the first, `ownFirst` — is clickable: a cell under another file's
 column names a storey this panel's viewer does not contain. Every such storey
 is one click away in its own model's panel.
 
-**No click moves the camera.** Isolating does not fit, frame or zoom; the
-pivot re-targets without moving the eye (`pivot-gate.mjs` assertion 8).
-`Zoom til valg` is the named button that moves it, and it takes the accent the
-moment a selection exists, because an isolated element can be small or off
-screen and that is the next click.
+**A SET never moves the camera; the one ELEMENT does** (2026-09-23). Isolating
+a set does not fit, frame or zoom — the pivot re-targets without moving the eye
+(`pivot-gate.mjs` assertion 8). The second step is the exception edkjo asked
+for: *"It should also frame the object and show the properties and
+attributes."* So a row of the derivation band frames what it picked, through
+the SAME `ModelScene.zoomToSelection` the button runs — one framing rule, one
+piece of arithmetic, so a row and `Zoom til valg` cannot land the camera in two
+places. Instant, like the button; nothing is animated.
+
+- The request travels as `ModelView.frameSeq`, a counter bumped only by
+  `pickElement` (`cross-filter.ts`) and read by `ViewerTile` in an effect
+  declared AFTER the selection effect, so the scene already holds the new
+  selection. A counter rather than a flag: the same element picked twice is two
+  requests. `ViewerTile` remembers the last value it acted on, so a re-render
+  never re-frames a camera the user has since orbited.
+- **A canvas pick still moves nothing.** `pick` does not touch `frameSeq`, so
+  the rule holds by the request never being made rather than by a check.
+- Shift/Ctrl down the band frames the accumulated selection. Stepping back OUT
+  (the same row again, an empty selection) leaves the camera where it is.
+- An element with no mesh in the scene — budget capped, or no geometry — leaves
+  the camera alone: `zoomToSelection` finds no bounds and returns. The HUD
+  already carries how much of the filter has geometry.
+- `Zoom til valg` stays, and still takes the accent the moment a selection
+  exists: a canvas pick and a restored selection both need it.
+
+### The object panel — what the engine has for the selected element
+
+The band is full width and its four columns never needed all of it, so it
+splits at the golden section (2026-09-23): the rows keep **61.8 %**, an object
+panel takes the **38.2 %** on the right. The band's height rule is unchanged —
+this costs table WIDTH, never rows — and the four columns were re-cut to
+`23ch 22ch minmax(12ch,1fr) minmax(20ch,2fr)` so they still fit the narrowest
+box the app ships in, the 1100 px skiplum.com iframe, without the list
+acquiring a sideways scroll. GUID stays 23ch and is still never truncated; the
+other three ellipsize by design and carry their full text in `title`.
+
+`src/ui/ObjectPanel.tsx`, a list of SECTIONS:
+
+- **Attributter** — GlobalId · IFC-klasse · Navn · ObjectType · Tag ·
+  PredefinedType · Type (with the parser's own `type_source`, `ifctype` or
+  `none`, as a dim token beside the name) · Etasje · Materialer · IsExternal ·
+  FireRating · LoadBearing. That is exactly `ProductRowLite`, i.e. the whole of
+  what a product declares in the browser. Every value double-clicks to copy.
+- **Egenskapssett** — `utilgjengelig · ifcfast#183`, the same words the type
+  ledger's foot uses. Parsed, counted, no accessor. Never a blank section.
+
+Three selection states: **one** element shows its values; **several** (Shift or
+Ctrl down the band) show the SHARED values, and a field they disagree on reads
+`Ulike verdier`, the mark the type ledger already uses for that fact, with
+every variant in the `title`; **none** shows the labels with `—`, this
+surface's dash for absent. Labels only — no prose, no help text.
+
+`tag` was added to `ProductRowLite` and to `withTypeFacts` for this; both the
+parse worker and the cache-restore worker already run that reduction.
+
+**When ifcfast#183 lands**, a pset becomes one more Section and nothing else
+moves. The shape this panel wants is, per product GlobalId,
+`psets: { name: string; properties: { name: string; value: string | number | boolean | null }[] }[]`
+— the set NAME kept, because a property is only identified by set plus name
+(the IDS evaluator matches on base name today and says so). Classifications
+want the same treatment as their own section.
 
 ### `scripts/isolate-gate.mjs`
 
 Real CDP mouse events against a real model in headless Chrome — a synthetic
-`click()` on a React handler would prove the handler, not the gesture. Ten
-assertions: the whole model · a class row isolates (the bar reads the class's
-own count, the HUD narrows) · the same row restores, and the canvas is
-**pixel-identical** to before, which is the camera assertion · a band row is
-one element · the same band row steps back to the set · a canvas click selects
-and makes no chip · `Tøm filter` · a storey row on the Etasjer tile · and,
-with three models and `examples/knm-floors.test.ruleset.json`, that only the
-own column of the matrix is a door and the other two panels do not move.
+`click()` on a React handler would prove the handler, not the gesture.
+Assertions: the whole model · a class row isolates (the bar reads the class's
+own count, the HUD narrows) and the object panel opens in its empty state,
+stating ifcfast#183 · the same row restores, and the canvas is
+**pixel-identical** to before, which is the set-does-not-move-the-camera
+assertion · a band row is one element · **that row FRAMED it** — the eye moved,
+the element's box projects inside the viewport, and it fills the frame, so
+"contains it from a mile away" fails · the object panel names that element and
+carries every attribute row · the same band row steps back to the set · a
+canvas click selects, makes no chip and **does not move the camera** ·
+`Tøm filter` · a storey row on the Etasjer tile · and, with three models and
+`examples/knm-floors.test.ruleset.json`, that only the own column of the matrix
+is a door and the other two panels do not move.
+
+The camera assertions read the pose off the live scene: `ViewerTile` registers
+its instances on `window.__ifcCheckScenes` in mount order, and the gate calls
+`ModelScene.probe(guids)` — read-only, returning eye, target, radius and the
+NDC box of those elements under the current camera. The projection is therefore
+the shipped arithmetic; no copy of it lives in the gate, the same rule
+`pivot-gate.mjs` follows. There is no honest way to recover a camera pose from
+rendered pixels.
 
 ```bash
 npm run build && node scripts/isolate-gate.mjs        # or --url <deployed>
@@ -356,10 +429,11 @@ node scripts/isolate-gate.mjs --url http://localhost:5174/   # vite dev
 ```
 
 Verified 2026-09-23 on KNM_Void-demo `export_2026-09-14` (ARK alone, then
-ARK+RIV+RIB with the test floor config), all ten passing — against a **`vite
-dev` server**, not a production build: the memory gate refused `vite build`
-at 3.3 GB commit headroom. Re-run it against `npm run build` + preview, and
-run `viewport-gate.mjs`, when the box has the headroom.
+ARK+RIV+RIB with the test floor config), **all assertions passing against
+`npm run build` + `vite preview`** — the production bundle, not a dev server.
+The framing numbers that run measured, on the first `IfcWall` of the class
+drill: the eye moved 0.967 of its radius and the element's box came out
+1.40 of 2 NDC across.
 
 ## BCF export
 
@@ -649,7 +723,10 @@ not containment in any spatial element.
 
 **#183 gates IDS property and classification facets.** The rows exist —
 `summaryJson().tables` reports them loaded with counts — but nothing can read
-them out, so those facets cannot run in the browser until it lands.
+them out, so those facets cannot run in the browser until it lands. Two
+surfaces state it rather than rendering blank: the type ledger's foot and the
+object panel's Egenskapssett section (see "The object panel" above for the data
+shape they expect when it does land).
 
 **#180 matters to any geometry check you write.** Storey elevation is in file
 units; mesh vertices are metres. Multiply by `summary.unit_scale` before
