@@ -375,9 +375,21 @@ function buildTiles({
           (extra > 0 ? ` · +${formatCount(extra, lang)}` : "")
         : formatCount(census.storeys.length, lang),
       body: configured ? (
-        <FloorSetupMatrix lang={lang} config={floors!} peers={peers} />
+        <FloorSetupMatrix
+          lang={lang}
+          config={floors!}
+          peers={peers}
+          selected={selected}
+          onFocus={onFocus}
+        />
       ) : (
-        <StoreyList lang={lang} storeys={census.storeys} summary={summary} />
+        <StoreyList
+          lang={lang}
+          storeys={census.storeys}
+          summary={summary}
+          selected={selected}
+          onFocus={onFocus}
+        />
       ),
       click: {
         drill: {

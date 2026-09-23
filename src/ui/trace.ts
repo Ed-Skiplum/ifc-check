@@ -15,7 +15,7 @@ import { verdictOf } from "../engine/fundamentals";
 import type { ResultState } from "../ids/evaluate.ts";
 import type { StringKey } from "./i18n";
 import type { ModelEntry } from "./useModels";
-import { cellRows } from "./profile";
+import { cellRows, storeyNames, storeyRows } from "./profile";
 import { typeGuids } from "./types/aggregate";
 
 /** The two census numbers that have rows behind them but no check of their
@@ -31,6 +31,12 @@ export type Focus =
    *  which is a target like any other — it is the one set a reviewer most often
    *  wants in the scene. */
   | { kind: "type"; typeName: string | null }
+  /** One or more STOREYS, as a set of elements: everything the graph places in
+   *  them. Several at once because a floor-matrix cell can hold several file
+   *  storeys (the `×2` duplicate-match mark), and splitting that into two
+   *  clicks would isolate half of what the cell says. `null` is the orphan
+   *  bucket — elements in no storey — the same bucket the census row carries. */
+  | { kind: "storey"; storeyGuids: (string | null)[] }
   | { kind: "cell"; storeyGuid: string | null; entity: string };
 
 const KPIS: KpiFocus[] = ["products", "storeys"];
@@ -44,6 +50,11 @@ export function serialiseFocus(focus: Focus): string {
   // actually CALLED "-" round-trips as `type:=-` and collides with nothing.
   if (focus.kind === "type") {
     return focus.typeName === null ? "type:-" : `type:=${focus.typeName}`;
+  }
+  // `+` is outside the IFC GlobalId alphabet (0-9 A-Z a-z _ $), so it can
+  // separate guids without escaping, and `-` is the orphan bucket.
+  if (focus.kind === "storey") {
+    return `storey:${focus.storeyGuids.map((g) => g ?? "-").join("+")}`;
   }
   return `cell:${focus.storeyGuid ?? "-"}|${focus.entity}`;
 }
@@ -64,6 +75,12 @@ export function parseFocus(raw: string | null): Focus | null {
     if (rest === "-") return { kind: "type", typeName: null };
     return rest.startsWith("=") && rest.length > 1
       ? { kind: "type", typeName: rest.slice(1) }
+      : null;
+  }
+  if (kind === "storey") {
+    const guids = rest.split("+").map((g) => (g === "-" ? null : g));
+    return guids.length > 0 && guids.every((g) => g === null || g.length > 0)
+      ? { kind: "storey", storeyGuids: guids }
       : null;
   }
   if (kind === "cell") {
@@ -244,6 +261,20 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
       ...base,
       titleKey: focus.typeName === null ? "type.untyped" : "col.type",
       titleText: focus.typeName ?? undefined,
+      notes: [],
+      stats: [{ label: "trace.elements", value: rows.length }],
+      rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),
+      rowsComplete: true,
+    };
+  }
+
+  if (focus.kind === "storey") {
+    const rows = storeyRows(profile, focus.storeyGuids);
+    const orphanOnly = focus.storeyGuids.length === 1 && focus.storeyGuids[0] === null;
+    return {
+      ...base,
+      titleKey: orphanOnly ? "matrix.noStorey" : "tile.storeys",
+      titleText: orphanOnly ? undefined : storeyNames(profile, focus.storeyGuids, "—"),
       notes: [],
       stats: [{ label: "trace.elements", value: rows.length }],
       rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),

@@ -18,7 +18,7 @@ import { AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
 import { t } from "./ui/i18n";
 import { SetupPage } from "./ui/SetupPage";
 import { kpiClaims } from "./ui/claims";
-import { useCrossFilter } from "./ui/cross-filter";
+import { elementChip, useCrossFilter } from "./ui/cross-filter";
 import { Landing } from "./ui/Landing";
 import { ModelPanel } from "./ui/ModelPanel";
 import { TraceBand } from "./ui/TraceBand";
@@ -257,6 +257,7 @@ export default function App() {
                 onAddChip={(chip) => cross.addChip(model.id, chip)}
                 onRemoveChip={(key) => cross.removeChip(model.id, key)}
                 onClearChips={() => cross.clearChips(model.id)}
+                onClearElements={() => cross.clearElements(model.id)}
                 onPick={(guid, additive) => cross.pick(model.id, guid, additive)}
                 onHover={(guid) => cross.setHover(model.id, guid)}
                 floors={ruleset?.storeys?.length ? ruleset.storeys : null}
@@ -273,7 +274,11 @@ export default function App() {
                       trace={trace}
                       selection={cross.view(trace.modelId).selection}
                       hover={cross.view(trace.modelId).hover}
-                      onPick={(guid, additive) => cross.pick(trace.modelId, guid, additive)}
+                      // A band row is the second step of the drill: it
+                      // selects the element AND narrows the filter to it.
+                      onPick={(guid, name, additive) =>
+                        cross.pickElement(trace.modelId, elementChip(guid, name), additive)
+                      }
                       onHover={(guid) => cross.setHover(trace.modelId, guid)}
                       onClose={() => setView({ model: null, focus: null })}
                     />

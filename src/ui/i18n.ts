@@ -126,6 +126,8 @@ const STRINGS = {
   // Ready for the `type` facet in `cross-filter.ts`: `FilterBar` renders
   // `filter.kind.<chip.kind>`, so the string has to exist before the chip can.
   "filter.kind.type": { nb: "Type", en: "Type" },
+  "filter.kind.storey": { nb: "Etasje", en: "Storey" },
+  "filter.kind.element": { nb: "Element", en: "Element" },
 
   /* -------------------------------------------------------------- columns */
   "col.class": { nb: "IFC-klasse", en: "IFC class" },

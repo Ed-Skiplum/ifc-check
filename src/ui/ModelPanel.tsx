@@ -66,6 +66,8 @@ interface ModelPanelProps {
   onAddChip: (chip: FilterChip) => void;
   onRemoveChip: (key: string) => void;
   onClearChips: () => void;
+  /** Drop the element refinement when a different set is chosen. */
+  onClearElements: () => void;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
   /** The ruleset's floor config, or null when none is loaded. */
@@ -91,6 +93,7 @@ export function ModelPanel({
   onAddChip,
   onRemoveChip,
   onClearChips,
+  onClearElements,
   onPick,
   onHover,
   floors,
@@ -138,6 +141,10 @@ export function ModelPanel({
   const focus = useCallback(
     (next: Focus) => {
       onFocus(next);
+      // A NUMBER was clicked, so the drill starts over: the element chip from
+      // the last one refines a set that is no longer the one on screen, and
+      // carried across it would AND to nothing. See `clearElements`.
+      onClearElements();
       const chip = chipOf(next, model, lang);
       if (!chip) return;
       // Decide from the CHIPS, not from the open derivation. `selected` is the
@@ -149,7 +156,7 @@ export function ModelPanel({
       if (view.chips.some((c) => c.key === chip.key)) onRemoveChip(chip.key);
       else onAddChip(chip);
     },
-    [lang, model, onAddChip, onFocus, onRemoveChip, view.chips],
+    [lang, model, onAddChip, onClearElements, onFocus, onRemoveChip, view.chips],
   );
 
   // The file's own facts, on the header line beside name · state · size. They

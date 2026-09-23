@@ -45,6 +45,10 @@ interface StoreyClassCensusProps {
   peak: number;
   selected: string | null;
   onOpen: (storeyGuid: string | null, entity: string) => void;
+  /** The storey ROW: every element on that floor, whatever its class. The
+   *  total column is the number, so the number is the door — a row with no
+   *  elements has no set and stays inert, as an empty cell does. */
+  onStorey: (storeyGuid: string | null) => void;
 }
 
 export function StoreyClassCensus({
@@ -55,6 +59,7 @@ export function StoreyClassCensus({
   peak,
   selected,
   onOpen,
+  onStorey,
 }: StoreyClassCensusProps) {
   const names = new Map(storeys.map((s) => [s.guid, s.name]));
 
@@ -88,17 +93,25 @@ export function StoreyClassCensus({
           </tr>
         </thead>
         <tbody>
-          {matrix.map((row) => (
+          {matrix.map((row) => {
+            const live = row.total > 0;
+            const rowKey = `storey:${row.storeyGuid ?? "-"}`;
+            const openRow = live ? () => onStorey(row.storeyGuid) : undefined;
+            const lit = selected === rowKey ? " outline-2 -outline-offset-2 outline-ink" : "";
+            return (
             <tr key={row.storeyGuid ?? "-"}>
               <th
                 scope="row"
+                onClick={openRow}
                 // A storey with no name falls back to its GlobalId. That is
                 // never truncated, so it renders mono and full width.
                 className={
                   "sticky left-0 z-10 h-7 w-36 min-w-36 overflow-hidden border-r border-b border-line bg-panel px-2 text-left font-medium text-ink " +
                   (row.storeyGuid !== null && !names.get(row.storeyGuid)
                     ? "font-mono text-[11px]"
-                    : "truncate text-[12px]")
+                    : "truncate text-[12px]") +
+                  (live ? " cursor-pointer hover:bg-palegreen" : "") +
+                  lit
                 }
                 title={row.storeyGuid === null ? undefined : (names.get(row.storeyGuid) ?? "")}
               >
@@ -106,7 +119,14 @@ export function StoreyClassCensus({
                   ? t("matrix.noStorey", lang)
                   : (names.get(row.storeyGuid) ?? row.storeyGuid)}
               </th>
-              <td className="sticky left-36 z-10 h-7 border-r-2 border-b border-line bg-panel px-1 text-right font-mono text-[11px] tabular-nums text-ink">
+              <td
+                onClick={openRow}
+                className={
+                  "sticky left-36 z-10 h-7 border-r-2 border-b border-line bg-panel px-1 text-right font-mono text-[11px] tabular-nums text-ink" +
+                  (live ? " cursor-pointer hover:bg-palegreen" : "") +
+                  lit
+                }
+              >
                 {formatCount(row.total, lang)}
               </td>
               {classes.map((klass) => {
@@ -137,7 +157,8 @@ export function StoreyClassCensus({
                 );
               })}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -178,6 +178,40 @@ export function census(profile: ModelProfile): Census {
   return { classes, storeys, matrix, matrixPeak };
 }
 
+/** Products the graph places in any of these storeys, in graph order.
+ *
+ * `null` in the list is the orphan bucket, and a storey guid the file does not
+ * declare falls into it exactly as `census` and `cellRows` fold it — one
+ * normalisation, so a storey row, a census cell and the floor matrix cannot
+ * disagree about which elements are "on" a floor. */
+export function storeyRows(
+  profile: ModelProfile,
+  storeyGuids: readonly (string | null)[],
+): ProductRowLite[] {
+  const known = new Set(profile.storeys.map((s) => s.guid));
+  const wanted = new Set(storeyGuids);
+  return profile.rows.filter((row) => {
+    const key = row.storeyGuid !== null && known.has(row.storeyGuid) ? row.storeyGuid : null;
+    return wanted.has(key);
+  });
+}
+
+/** How a set of storeys is named on a chip or a derivation header. A storey
+ *  with no name falls back to its GlobalId, which identifies it; `orphan` is
+ *  the caller's word for the no-storey bucket, because this module does not
+ *  localise. */
+export function storeyNames(
+  profile: ModelProfile,
+  storeyGuids: readonly (string | null)[],
+  orphan: string,
+): string {
+  return storeyGuids
+    .map((guid) =>
+      guid === null ? orphan : (profile.storeys.find((s) => s.guid === guid)?.name ?? guid),
+    )
+    .join(" · ");
+}
+
 /** Products in one matrix cell, in graph order. */
 export function cellRows(
   profile: ModelProfile,

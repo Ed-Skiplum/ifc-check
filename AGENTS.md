@@ -48,6 +48,7 @@ scripts/
   ids-cli.ts     author, lint, emit and run rulesets headlessly
   bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
   viewport-gate.mjs  real models in headless Chrome at every target viewport
+  isolate-gate.mjs   what a CLICK does, driven with real mouse events
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
@@ -268,6 +269,97 @@ past the right edge).
 The app bar wraps at narrow widths, so BCF, the ruleset, Oppsett and NB/EN
 stay reachable at 390 px. The board itself has no portrait layout (canon
 2026-08-01); that is out of scope, not a defect.
+
+## Clicking: the UI isolates, the viewer highlights
+
+edkjo's rule, settled on the ifcfast-site work and restated here 2026-09-23:
+*"When clicking an item from the table I want that to isolate in the model"*,
+and the drill is two steps — *"so you click to see rejected instances, then
+select an instance and see that."*
+
+**A click on a row or a cell makes a CHIP** (`src/ui/cross-filter.ts`), which
+is what narrows the 3D. Nothing navigates and no tile learns a second gesture:
+the same click that opens the derivation band adds the chip. Chips OR within a
+facet and AND across facets. The bar above the tabs is the only way back —
+each chip's ✕, or `Tøm filter`; clicking the same row again removes its chip,
+so the gesture is its own undo.
+
+The surfaces whose rows are a set of elements, and all of them are doors:
+
+| surface | chip | the set |
+|---|---|---|
+| Verifikasjon check row | Kontroll | the check's findings |
+| Regler rule row | Regel | the rule's findings (a type finding's `members`) |
+| KPI card (Uten type · Uten etasje · Plassering) | Kontroll | the same |
+| Klasser bar | Klasse | every element of that IFC class |
+| Etasjer row (no config) | Etasje | everything the graph places on that floor |
+| Etasjer matrix cell, OWN column | Etasje | that file storey, both storeys on a `×2` cell |
+| Etasje × klasse storey row / total | Etasje | that floor, every class |
+| Etasje × klasse cell | Celle | that floor × that class |
+| Typer ledger row | Type | that type's instances (the untyped row too) |
+| a row of the derivation band | Element | that one element (below) |
+
+**The second step is an `element` chip.** A row of the open derivation selects
+its element — as it always did — and now also narrows the filter to it, so
+under `Vis kun` the scene IS that element. It ANDs with the set chip above it,
+the same row again steps back out to the set, and choosing a different NUMBER
+drops it (`clearElements`): carried onto another set it would AND to nothing
+and draw an empty scene. It is the one path where a single element narrows the
+scene — a pick in the 3D tile still only highlights, because a click that hid
+what the pointer was over would make the tile useless for what it is for.
+
+**`Vis kun / Uthev` is unchanged, and it is not what makes a click isolate.**
+It says how the cross-filter is EXPRESSED in the scene: `Vis kun` (the
+default) draws the matched set alone, `Uthev` keeps the model and dims the
+rest. Both modes narrow the same set; only the drawing differs.
+
+**Rows that stand for no element set are not doors**, and each says so the way
+that surface already did rather than by a chip reading `0 / 851`:
+
+- a `not_applicable` check or a `not_evaluable` / `not_applicable` rule makes
+  NO chip (`chipOf` returns null). The row still opens its derivation, which
+  prints the reason. An empty scene there would report "was not answered" as
+  "no elements", the same conflation `not_applicable` exists to prevent.
+- a census cell of 0 is an empty `td`, a storey with no elements is an inert
+  row, a `—` matrix cell is not a storey — all as before.
+- a `kpi:products` / `kpi:storeys` click still makes no chip: one is every
+  product, the other is not a product set.
+
+**Cross-model: a click narrows its own panel only.** The filter is per model
+(`useCrossFilter` keys every view by model id), so the other panels and their
+viewers are untouched. That is why only the panel's OWN column in the floor
+matrix — the first, `ownFirst` — is clickable: a cell under another file's
+column names a storey this panel's viewer does not contain. Every such storey
+is one click away in its own model's panel.
+
+**No click moves the camera.** Isolating does not fit, frame or zoom; the
+pivot re-targets without moving the eye (`pivot-gate.mjs` assertion 8).
+`Zoom til valg` is the named button that moves it, and it takes the accent the
+moment a selection exists, because an isolated element can be small or off
+screen and that is the next click.
+
+### `scripts/isolate-gate.mjs`
+
+Real CDP mouse events against a real model in headless Chrome — a synthetic
+`click()` on a React handler would prove the handler, not the gesture. Ten
+assertions: the whole model · a class row isolates (the bar reads the class's
+own count, the HUD narrows) · the same row restores, and the canvas is
+**pixel-identical** to before, which is the camera assertion · a band row is
+one element · the same band row steps back to the set · a canvas click selects
+and makes no chip · `Tøm filter` · a storey row on the Etasjer tile · and,
+with three models and `examples/knm-floors.test.ruleset.json`, that only the
+own column of the matrix is a door and the other two panels do not move.
+
+```bash
+npm run build && node scripts/isolate-gate.mjs        # or --url <deployed>
+node scripts/isolate-gate.mjs --url http://localhost:5174/   # vite dev
+```
+
+Verified 2026-09-23 on KNM_Void-demo `export_2026-09-14` (ARK alone, then
+ARK+RIV+RIB with the test floor config), all ten passing — against a **`vite
+dev` server**, not a production build: the memory gate refused `vite build`
+at 3.3 GB commit headroom. Re-run it against `npm run build` + preview, and
+run `viewport-gate.mjs`, when the box has the headroom.
 
 ## BCF export
 

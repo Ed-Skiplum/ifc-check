@@ -22,28 +22,54 @@
  * `kpi:products` is every product and `kpi:storeys` is not a product set at
  * all. Neither narrows anything, so neither makes a chip. A chip that silently
  * means "no constraint" is worse than no chip.
+ *
+ * Nor is a row whose check NEVER RAN: a `not_applicable` check and a
+ * `not_evaluable` rule have no element set, and an empty scene under a `0 /
+ * 851` chip would state "these elements" where the honest answer is "this was
+ * not answered". Same rule the engine keeps (`not_applicable` is never folded
+ * into `pass`), at the filter. The derivation still opens and prints the
+ * reason — the row is not dead, it just does not pretend to be a set.
+ *
+ * ── Two steps, one gesture ───────────────────────────────────────────────
+ * edkjo: *"so you click to see rejected instances, then select an instance and
+ * see that."* Step one is the chip above. Step two is an ELEMENT chip, made by
+ * a row inside the derivation band: it carries its own guid rather than a
+ * board number, and because facets AND, `check ∧ element` is that one element.
+ * It rides the same bar, the same ✕ and the same Tøm filter as every other
+ * chip, so stepping back out is the gesture the user already knows.
  */
 
 import { useCallback, useState } from "react";
 import type { Mode } from "../viewer/scene";
 import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
-import { cellRows } from "./profile";
+import { cellRows, storeyNames, storeyRows } from "./profile";
 import { serialiseFocus, type Focus } from "./trace";
 import { typeGuids } from "./types/aggregate";
 import type { ModelEntry } from "./useModels";
 
 export type { Mode };
 
-export type ChipKind = "class" | "cell" | "check" | "rule" | "type";
+export type ChipKind = "class" | "cell" | "check" | "rule" | "type" | "storey" | "element";
 
 export interface FilterChip {
   /** `serialiseFocus(focus)` — the same key the hash view uses, so a chip and
-   *  an open derivation are recognisably the same thing. */
+   *  an open derivation are recognisably the same thing. An element chip has
+   *  no focus, so its key is `element:<guid>`. */
   key: string;
   kind: ChipKind;
   label: string;
-  focus: Focus;
+  /** The board number this chip was made from. Absent on an element chip: it
+   *  comes from a row INSIDE a derivation, and re-targeting the band to that
+   *  row would destroy the very list being drilled. */
+  focus?: Focus;
+  /** The elements this chip stands for, when it carries them itself. */
+  guids?: string[];
+}
+
+/** One element, from a row of the open derivation. */
+export function elementChip(guid: string, label: string | null): FilterChip {
+  return { key: `element:${guid}`, kind: "element", label: label || guid, guids: [guid] };
 }
 
 /** A focus that narrows nothing returns `null` rather than an empty chip. */
@@ -60,12 +86,26 @@ export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip 
         : (storey?.name ?? focus.storeyGuid);
     return { key, kind: "cell", label: `${where} · ${focus.entity}`, focus };
   }
+  if (focus.kind === "storey") {
+    if (!model.profile) return null;
+    return {
+      key,
+      kind: "storey",
+      label: storeyNames(model.profile, focus.storeyGuids, t("matrix.noStorey", lang)),
+      focus,
+    };
+  }
   if (focus.kind === "check") {
+    // A check that could not run stands for no elements — see the header.
+    const check = model.report?.checks.find((c) => c.id === focus.checkId);
+    if (!check || check.state === "not_applicable") return null;
     return { key, kind: "check", label: t(`check.${focus.checkId}` as StringKey, lang), focus };
   }
   if (focus.kind === "rule") {
     const rule = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
-    return { key, kind: "rule", label: rule?.ruleName ?? focus.ruleId, focus };
+    if (!rule) return null;
+    if (rule.state === "not_evaluable" || rule.state === "not_applicable") return null;
+    return { key, kind: "rule", label: rule.ruleName ?? focus.ruleId, focus };
   }
   if (focus.kind === "type") {
     return { key, kind: "type", label: focus.typeName ?? t("type.untyped", lang), focus };
@@ -78,8 +118,10 @@ export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip 
  *  "matches everything" — a filter that quietly stops constraining is the same
  *  failure as a check that quietly stops matching. */
 function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
+  if (chip.guids) return new Set(chip.guids);
   const focus = chip.focus;
   const profile = model.profile;
+  if (!focus) return null;
 
   if (focus.kind === "class") {
     if (!profile) return null;
@@ -104,6 +146,10 @@ function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
   if (focus.kind === "type") {
     if (!profile) return null;
     return typeGuids(profile, focus.typeName);
+  }
+  if (focus.kind === "storey") {
+    if (!profile) return null;
+    return new Set(storeyRows(profile, focus.storeyGuids).map((r) => r.guid));
   }
   // `kpi` never reaches here — `chipOf` refuses to make a chip out of it — and
   // the exhaustive fallthrough is what keeps that true if a focus kind is added.
@@ -176,6 +222,18 @@ export interface CrossFilterApi {
   setSelection: (modelId: string, guids: string[]) => void;
   /** Plain click replaces; Shift or Ctrl adds/toggles; `null` clears. */
   pick: (modelId: string, guid: string | null, additive: boolean) => void;
+  /** A row of the derivation: select the element AND narrow the filter to it.
+   *  Plain click on the element already isolated steps back out to the set it
+   *  was drilled from; Shift or Ctrl builds a set of them. This is the ONE
+   *  path that narrows on a single element — a pick in the SCENE only ever
+   *  highlights, and must not start hiding what the pointer is over. */
+  pickElement: (modelId: string, chip: FilterChip | null, additive: boolean) => void;
+  /** Drop the element refinement, because a different SET was just chosen. An
+   *  element chip narrows the set it was drilled from; carried onto the next
+   *  set it would AND with a set that does not contain it and draw an empty
+   *  scene. The selection goes with it only when it IS the drill's own — a
+   *  selection made in the 3D tile is the user's and is left alone. */
+  clearElements: (modelId: string) => void;
   setHover: (modelId: string, guid: string | null) => void;
 }
 
@@ -228,6 +286,44 @@ export function useCrossFilter(): CrossFilterApi {
           return v.selection.includes(guid)
             ? { ...v, selection: v.selection.filter((g) => g !== guid) }
             : { ...v, selection: [...v.selection, guid] };
+        }),
+      [patch],
+    ),
+    pickElement: useCallback(
+      (modelId, chip, additive) =>
+        patch(modelId, (v) => {
+          const others = v.chips.filter((c) => c.kind !== "element");
+          if (chip === null) return { ...v, chips: others, selection: [] };
+          const guid = chip.guids![0];
+          const mine = v.chips.filter((c) => c.kind === "element");
+          const already = mine.some((c) => c.key === chip.key);
+          if (!additive) {
+            // Toggle: the same row twice steps back to the set it drilled from.
+            const single = already && mine.length === 1;
+            return single
+              ? { ...v, chips: others, selection: [] }
+              : { ...v, chips: [...others, chip], selection: [guid] };
+          }
+          const next = already ? mine.filter((c) => c.key !== chip.key) : [...mine, chip];
+          return {
+            ...v,
+            chips: [...others, ...next],
+            selection: next.map((c) => c.guids![0]),
+          };
+        }),
+      [patch],
+    ),
+    clearElements: useCallback(
+      (modelId) =>
+        patch(modelId, (v) => {
+          const mine = v.chips.filter((c) => c.kind === "element");
+          if (mine.length === 0) return v;
+          const guids = new Set(mine.map((c) => c.guids![0]));
+          return {
+            ...v,
+            chips: v.chips.filter((c) => c.kind !== "element"),
+            selection: v.selection.every((g) => guids.has(g)) ? [] : v.selection,
+          };
         }),
       [patch],
     ),

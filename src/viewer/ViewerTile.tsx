@@ -271,6 +271,7 @@ export function ViewerTile({
           label={t("viewer.zoomSelection", lang)}
           onClick={zoom}
           disabled={selection.length === 0}
+          live={selection.length > 0}
         />
       </span>
     </div>
@@ -278,22 +279,34 @@ export function ViewerTile({
 }
 
 /** Camera moves are an explicit opt-in. Selecting a row never flies the
- *  camera, so the two that DO move it are buttons with names. */
+ *  camera, so the two that DO move it are buttons with names.
+ *
+ *  `live` is availability, not state: the moment an element is picked, zoom is
+ *  the next click — the element may be small or behind the eye — so the button
+ *  says it can be pressed instead of sitting in the same grey as when it
+ *  cannot. It is not the whole-surface fill, which means ACTIVE. */
 function TileButton({
   label,
   onClick,
   disabled,
+  live,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  live?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="pointer-events-auto border border-line bg-input px-1.5 text-ink hover:bg-palegreen disabled:opacity-40 [font-size:var(--bento-label,10px)]"
+      className={
+        "pointer-events-auto border px-1.5 disabled:opacity-40 [font-size:var(--bento-label,10px)] " +
+        (live
+          ? "border-green bg-input font-semibold text-green hover:bg-green hover:text-cream"
+          : "border-line bg-input text-ink hover:bg-palegreen")
+      }
     >
       {label}
     </button>

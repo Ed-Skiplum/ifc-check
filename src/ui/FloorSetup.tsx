@@ -25,12 +25,26 @@
  *
  * With no config loaded the tile keeps its place and lists the file's own
  * storeys (name · kote · shared-kote marker), with no verdict columns.
+ *
+ * ── Clicking a floor isolates it ─────────────────────────────────────────
+ * A row here, or a cell in THIS panel's own model column, is a set of
+ * elements: everything the graph places in that storey. It opens the
+ * derivation and makes a `storey` chip, exactly as a class bar or a census
+ * cell does, so the 3D narrows to that floor.
+ *
+ * ONLY the own column. The filter is per model — the chips belong to the
+ * panel's model — so a cell under another file's column describes a storey
+ * this panel's viewer does not contain, and there is nothing honest for a
+ * click to isolate. Every one of those storeys is one click away in its own
+ * model's panel, where its column comes first. A `—` cell is not a storey at
+ * all and stays inert.
  */
 
 import type { ReactNode } from "react";
 import { matchStoreys, type FloorConfig, type StoreyMatch } from "../engine/storey-config";
 import type { StoreyFact, StoreyRowLite } from "./profile";
 import type { IfcSummary } from "../engine/types";
+import { serialiseFocus, type Focus } from "./trace";
 import type { Lang } from "./i18n";
 import { locale, t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
@@ -103,10 +117,15 @@ function Cell({
   found,
   floor,
   lang,
+  onOpen,
+  chosen,
 }: {
   found: StoreyMatch[];
   floor: FloorConfig | null;
   lang: Lang;
+  /** Set on this panel's own model column only; see the header. */
+  onOpen?: (storeyGuids: string[]) => void;
+  chosen?: boolean;
 }) {
   if (found.length === 0) {
     return (
@@ -151,15 +170,30 @@ function Cell({
         text = VERDICT_GLYPH.fail;
     }
   }
+  const body = free ? (
+    <span className="max-w-[16ch] truncate">{text}</span>
+  ) : (
+    <span data-essential>{text}</span>
+  );
   return (
     <td className={CELL}>
-      <span title={title} className={`${MARK} ${fill}`}>
-        {free ? (
-          <span className="max-w-[16ch] truncate">{text}</span>
-        ) : (
-          <span data-essential>{text}</span>
-        )}
-      </span>
+      {onOpen ? (
+        <button
+          type="button"
+          title={title}
+          onClick={() => onOpen(found.map((m) => m.storey.guid))}
+          className={
+            `${MARK} w-full ${fill} hover:brightness-110 ` +
+            (chosen ? "outline-2 -outline-offset-2 outline-ink" : "")
+          }
+        >
+          {body}
+        </button>
+      ) : (
+        <span title={title} className={`${MARK} ${fill}`}>
+          {body}
+        </span>
+      )}
     </td>
   );
 }
@@ -169,12 +203,18 @@ export function FloorSetupMatrix({
   lang,
   config,
   peers,
+  selected,
+  onFocus,
 }: {
   lang: Lang;
   config: FloorConfig[];
   /** This panel's model first. */
   peers: FloorPeer[];
+  selected: string | null;
+  onFocus: (focus: Focus) => void;
 }) {
+  const open = (guids: string[]) => onFocus({ kind: "storey", storeyGuids: guids });
+  const isOpen = (guids: string[]) => selected === serialiseFocus({ kind: "storey", storeyGuids: guids });
   const perModel = peers.map((peer) =>
     peer.unitResolved ? matchStoreys(peer.storeys, peer.unitScale, config) : [],
   );
@@ -206,14 +246,20 @@ export function FloorSetupMatrix({
               <td className={KOTE_TD}>
                 {Number.isFinite(floor.elevation) ? metres(floor.elevation, lang) : "—"}
               </td>
-              {perModel.map((matches, col) => (
-                <Cell
-                  key={peers[col].id}
-                  lang={lang}
-                  floor={floor}
-                  found={matches.filter((m) => m.config === row)}
-                />
-              ))}
+              {perModel.map((matches, col) => {
+                const found = matches.filter((m) => m.config === row);
+                const guids = found.map((m) => m.storey.guid);
+                return (
+                  <Cell
+                    key={peers[col].id}
+                    lang={lang}
+                    floor={floor}
+                    found={found}
+                    onOpen={col === 0 ? open : undefined}
+                    chosen={col === 0 && guids.length > 0 && isOpen(guids)}
+                  />
+                );
+              })}
             </tr>
           ))}
           {extras.map(({ col, match }, index) => (
@@ -231,7 +277,14 @@ export function FloorSetupMatrix({
                 {match.elevationM === null ? "—" : metres(match.elevationM, lang)}
               </td>
               {peers.map((peer, c) => (
-                <Cell key={peer.id} lang={lang} floor={null} found={c === col ? [match] : []} />
+                <Cell
+                  key={peer.id}
+                  lang={lang}
+                  floor={null}
+                  found={c === col ? [match] : []}
+                  onOpen={c === 0 && c === col ? open : undefined}
+                  chosen={c === 0 && c === col && isOpen([match.storey.guid])}
+                />
               ))}
             </tr>
           ))}
@@ -248,10 +301,14 @@ export function StoreyList({
   lang,
   storeys,
   summary,
+  selected,
+  onFocus,
 }: {
   lang: Lang;
   storeys: StoreyFact[];
   summary: IfcSummary;
+  selected: string | null;
+  onFocus: (focus: Focus) => void;
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-input">
@@ -270,8 +327,22 @@ export function StoreyList({
               summary.unit_resolved,
               lang,
             );
+            // A storey the graph places nothing in is not a set. It keeps its
+            // row — it is a real storey and its kote is the point — and simply
+            // does not open one.
+            const live = storey.elements > 0;
+            const key = serialiseFocus({ kind: "storey", storeyGuids: [storey.guid] });
             return (
-              <tr key={storey.guid}>
+              <tr
+                key={storey.guid}
+                onClick={
+                  live ? () => onFocus({ kind: "storey", storeyGuids: [storey.guid] }) : undefined
+                }
+                className={
+                  (live ? "cursor-pointer hover:bg-palegreen " : "") +
+                  (selected === key ? "outline-2 -outline-offset-2 outline-ink" : "")
+                }
+              >
                 {/* A storey with no name falls back to its GlobalId, which is
                     never truncated — so it renders mono and full. */}
                 <td

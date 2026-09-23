@@ -96,6 +96,7 @@ export function Contents({
             peak={census.matrixPeak}
             selected={selected}
             onOpen={(storeyGuid, entity) => onFocus({ kind: "cell", storeyGuid, entity })}
+            onStorey={(storeyGuid) => onFocus({ kind: "storey", storeyGuids: [storeyGuid] })}
           />
         </Card>
       </div>

@@ -14,12 +14,27 @@
  *
  * ── The rows are the other half of the selection ─────────────────────────
  * This list and the 3D tile show one selection from two sides. Clicking a row
- * highlights its mesh; picking a mesh scrolls this list to that row and fills
- * it. Hovering either lights the other, because shared identity alone is not a
+ * selects its mesh; picking a mesh scrolls this list to that row and fills it.
+ * Hovering either lights the other, because shared identity alone is not a
  * visible link — you have to be able to SEE which one it is.
  *
+ * ── And the second step of the drill ─────────────────────────────────────
+ * edkjo: *"so you click to see rejected instances, then select an instance and
+ * see that."* So a row click is not only a selection: it also narrows the
+ * cross-filter to that one element, through an `element` chip on the model's
+ * own filter bar. Under "Vis kun" the scene is then that element alone, which
+ * is the "see that" half. Clicking the same row again drops the chip and the
+ * scene is the set the row was drilled from; the chip's ✕ and Tøm filter do
+ * what they always did.
+ *
+ * This is the one place a single element narrows the scene. A pick in the 3D
+ * tile still only highlights — a click that hid what the pointer was over
+ * would make the scene unusable for the thing it is for.
+ *
  * A row click NEVER moves the camera. That is a stated rule, and the two
- * controls that do move it are named buttons on the tile.
+ * controls that do move it are named buttons on the tile — `Zoom til valg`
+ * lights up the moment a row is picked, because an isolated element can be
+ * small or off screen and that is the next click.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -41,7 +56,8 @@ interface TraceBandProps {
   /** GUIDs selected in this model, whichever side selected them. */
   selection: string[];
   hover: string | null;
-  onPick: (guid: string | null, additive: boolean) => void;
+  /** Select AND isolate this row's element; same row again steps back out. */
+  onPick: (guid: string, name: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
   onClose: () => void;
 }
@@ -217,7 +233,9 @@ export function TraceBand({
               <div
                 key={`${row.guid}-${at}`}
                 data-guid={row.guid}
-                onClick={(event) => onPick(row.guid, event.shiftKey || event.ctrlKey || event.metaKey)}
+                onClick={(event) =>
+                  onPick(row.guid, row.name, event.shiftKey || event.ctrlKey || event.metaKey)
+                }
                 onMouseEnter={() => onHover(row.guid)}
                 onMouseLeave={() => onHover(null)}
                 // Whole-surface colour, never an edge stripe: ink for the
