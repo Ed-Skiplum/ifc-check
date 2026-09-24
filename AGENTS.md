@@ -136,7 +136,7 @@ stage. Because they are universal they are judged with no ruleset loaded.
 |---|---|
 | `parse-integrity` | deviation |
 | `spatial-chain` — Project → Site → Building → Storey all present | deviation |
-| `storey-containment` | deviation |
+| `storey-containment` — reads `storey_guid`, which follows IfcRelAggregates parents and spaces aggregated to a storey; not `contained_in` alone (#4) | deviation |
 | `storey-in-building` | deviation |
 | `storey-elevation` — storeys must sit at distinct elevations | deviation |
 | `guid-unique` | deviation |

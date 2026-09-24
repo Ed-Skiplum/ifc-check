@@ -251,18 +251,22 @@ function fundamentalRow(
     }
 
     case "storey-containment": {
-      // Same test as the check (a `contained_in` row), so null here = its findings.
-      const containedIn = new Map(graph.contained_in.map((c) => [c.product_guid, c.storey_guid]));
+      // Same test as the check (`storey_guid`, resolved through aggregate
+      // parents), so null here = its findings. kilder splits direct rows
+      // from those reached through IfcRelAggregates.
+      const direct = new Set(graph.contained_in.map((c) => c.product_guid));
       const byStorey = new Map(graph.storeys.map((s) => [s.guid, s.name ?? s.guid]));
       const counts = new Map<string, number>();
       for (const s of graph.storeys) counts.set(s.name ?? s.guid, 0);
       let none = 0;
+      let viaDirect = 0;
       for (const p of inScope) {
-        const at = containedIn.get(p.guid);
-        if (at === undefined) {
+        const at = p.storey_guid;
+        if (at == null) {
           none += 1;
           continue;
         }
+        if (direct.has(p.guid)) viaDirect += 1;
         const storey = byStorey.get(at) ?? at;
         counts.set(storey, (counts.get(storey) ?? 0) + 1);
       }
@@ -270,7 +274,13 @@ function fundamentalRow(
       if (none > 0) fordeling.push({ verdi: null, n: none, flagg: "mangler" });
       return {
         ...base,
-        dekning: products(a - f, 0, f, source("IfcRelContainedInSpatialStructure", a - f)),
+        dekning: {
+          ...products(a - f, 0, f, source("IfcRelContainedInSpatialStructure", viaDirect)),
+          kilder: [
+            source("IfcRelContainedInSpatialStructure", viaDirect),
+            { ...source("IfcRelAggregates", a - f - viaDirect), foretrukket: false },
+          ],
+        },
         fordeling,
       };
     }

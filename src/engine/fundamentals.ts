@@ -271,10 +271,13 @@ function checkSpatialChain(graph: IfcGraph): CheckResult {
   );
 }
 
-function checkContained(graph: IfcGraph, products: ProductRow[]): CheckResult {
-  const contained = new Set(graph.contained_in.map((c) => c.product_guid));
+function checkContained(products: ProductRow[]): CheckResult {
+  // `storey_guid`, not `contained_in`: the engine resolves it through
+  // IfcRelAggregates parents (curtain-wall and railing parts, stair flights)
+  // and through a space aggregated to its storey. `contained_in` holds only
+  // direct IfcRelContainedInSpatialStructure rows (#4: HI90_ARK 1222 vs 2889).
   const findings = products
-    .filter((p) => !contained.has(p.guid))
+    .filter((p) => p.storey_guid == null)
     .map((p) => finding(p, "not-in-storey"));
   return result(
     // DEVIATION. An element outside the spatial hierarchy is invisible to
@@ -581,7 +584,7 @@ export function runFundamentals(
   return [
     checkParseIntegrity(summary),
     checkSpatialChain(graph),
-    checkContained(graph, products),
+    checkContained(products),
     checkStoreyInBuilding(graph),
     checkStoreyElevation(graph, summary),
     checkGuidUnique(graph, excluded),
