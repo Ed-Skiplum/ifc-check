@@ -38,6 +38,7 @@ import { basename, join } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
 import { validateXML } from "xmllint-wasm";
 
+import { CODE_LISTS } from "../src/codelists/index.ts";
 import { evaluateRuleset } from "../src/ids/evaluate.ts";
 import { exportRuleset, partitionRules } from "../src/ids/export.ts";
 import { BOOLEAN_VALUES, hasErrors, lintRuleset } from "../src/ids/lint.ts";
@@ -610,6 +611,45 @@ async function cmdSelftest(): Promise<number> {
         .map((f) => (f.reason.endsWith("is empty") ? "empty" : f.reason.includes("is not in the allowed values") ? "not in values" : f.reason))
         .join(", ") + "]",
   );
+  // NS 3451: known codes, a reserved code, an unknown code, and a table free
+  // of the damage the earlier extraction left (mojibake, "overflåte").
+  const ns3451 = CODE_LISTS.ns3451;
+  record(
+    "ns3451: known codes by name",
+    "Bygning|Kledning og overflate|Utendørs tilknytning til eksterne nett for vannforsyning, avløp og fjernvarme|Armaturer for brannslokking med vanntåke",
+    ["2", "226", "783", "3334"].map((c) => ns3451.codes[c]).join("|"),
+  );
+  record("ns3451: 813 codes, 125 reserved", "813 125", `${Object.keys(ns3451.codes).length} ${ns3451.reserved?.length}`);
+  record("ns3451: meta count matches", "813 125", `${ns3451.meta.count} ${ns3451.meta.reservedCount}`);
+  record("ns3451: nothing left unverified", "0", String(ns3451.meta.unverified?.length));
+  const damage = /Ã|â€|Â|\(cid:|overflåte|fjernvårme|åmfier|tåblåer|småvåre|trånsport|behåndling|vanntåk ke|Oppforet/;
+  record(
+    "ns3451: no mojibake or known-damaged spelling in any name",
+    "none",
+    Object.entries(ns3451.codes).filter(([, n]) => damage.test(n)).map(([c]) => c).join(",") || "none",
+  );
+  const nsGraph: ModelGraph = {
+    ...graph,
+    products: [wall("n1", "226"), wall("n2", "227"), wall("n3", "999"), wall("n4", "2344")],
+  };
+  const nsResult = evaluateRuleset(withRules([
+    mappingRule("system-classification", { list: "ns3451", extract: "^(\\d{2,4})$" }),
+  ]), nsGraph, { ...summary, products: 4 }, "ns3451").results[0];
+  record("lint accepts: system-classification on ns3451", "none", lintCodes(withRules([
+    mappingRule("system-classification", { list: "ns3451", extract: "^(\\d{2,4})$" }),
+  ])));
+  record(
+    "ns3451 lookup: known passes, reserved and unknown are kinds of their own",
+    "fail 4/2 [n2:reserved, n3:not-in-list]",
+    `${nsResult.state} ${nsResult.applicable}/${nsResult.failed} [` +
+      nsResult.findings.map((f) => `${f.guid}:${f.code}`).join(", ") + "]",
+  );
+  record(
+    "ns3451 lookup: the detail line counts reserved apart from unknown",
+    "true",
+    String(nsResult.detail.endsWith("1 not in the list, 1 reserved")),
+  );
+
   // The synthetic graph above carries NO property table, which is the "caller
   // supplied none" case and must stay not_evaluable rather than quietly
   // reporting no reference objects. The reachable case is asserted below.

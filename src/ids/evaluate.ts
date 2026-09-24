@@ -61,7 +61,7 @@ export interface Finding {
    *  elements that use it, so a filter on the finding reaches the model. */
   members?: string[];
   /** Stable key for why it failed, so a consumer branches on it rather than
-   *  on `reason`: `empty` · `no-match` · `not-in-list` (code-lookup),
+   *  on `reason`: `empty` · `no-match` · `not-in-list` · `reserved` (code-lookup),
    *  `no-type`, `duplicate`, `type-usage`, `value` (model-metadata),
    *  `requirement` (an ids rule), `occurrence-bounds`. */
   code?: string;
@@ -828,10 +828,14 @@ function sourceLabel(source: CodeSource): string {
 
 /** What a code-lookup checks codes against: a bundled list, or the project's
  *  own `values`. One code path for both, so the findings read the same. */
-function resolveLookup(check: CodeLookupCheck): { label: string; has: (code: string) => boolean } {
+function resolveLookup(check: CodeLookupCheck): {
+  label: string;
+  has: (code: string) => boolean;
+  reserved: (code: string) => boolean;
+} {
   if (check.values !== undefined) {
     const allowed = new Set(check.values);
-    return { label: `the allowed values (${check.values.join(", ")})`, has: (c) => allowed.has(c) };
+    return { label: `the allowed values (${check.values.join(", ")})`, has: (c) => allowed.has(c), reserved: () => false };
   }
   const list =
     check.list === undefined
@@ -842,7 +846,8 @@ function resolveLookup(check: CodeLookupCheck): { label: string; has: (code: str
       `code list "${String(check.list)}" is not bundled; bundled lists are ${CODE_LIST_IDS.join(", ")}`,
     );
   }
-  return { label: list.meta.label, has: (c) => Object.hasOwn(list.codes, c) };
+  const reserved = new Set(list.reserved ?? []);
+  return { label: list.meta.label, has: (c) => Object.hasOwn(list.codes, c), reserved: (c) => reserved.has(c) };
 }
 
 function codeLookup(
@@ -904,6 +909,7 @@ function codeLookup(
   let missing = 0;
   let noMatch = 0;
   let unknown = 0;
+  let reservedHits = 0;
   const findings: Finding[] = [];
   const tally = new Map<string | null, ValueCount>();
   for (const subject of subjects) {
@@ -924,6 +930,10 @@ function codeLookup(
         unknown += 1;
         reason = `code "${code}" from ${label} "${value}" is not in ${listLabel}`;
         why = "not-in-list";
+      } else if (lookup.reserved(code)) {
+        reservedHits += 1;
+        reason = `code "${code}" from ${label} "${value}" is reserved in ${listLabel}`;
+        why = "reserved";
       }
     }
     countValue(
@@ -944,6 +954,16 @@ function codeLookup(
     findings.push(finding);
   }
 
+  if (reservedHits > 0) {
+    // Kept apart from "not in the list": the code exists in the standard, which
+    // reserves it. Whether a project accepts it is the project's ruling; until
+    // a ruleset can say so, it is a finding of its own kind.
+    notes.push(
+      `${reservedHits} of ${subjects.length} ${noun} carry a code ${listLabel} reserves ` +
+        "(reported as reserved, not as unknown)",
+    );
+  }
+
   return {
     state: findings.length === 0 ? "pass" : "fail",
     applicable: subjects.length,
@@ -951,11 +971,12 @@ function codeLookup(
     findings: cap(findings, maxFindings),
     detail:
       `${subjects.length - findings.length} of ${subjects.length} ${noun} carry a code from ` +
-      `${listLabel}; ${missing} empty, ${noMatch} no match, ${unknown} not in the list`,
+      `${listLabel}; ${missing} empty, ${noMatch} no match, ${unknown} not in the list` +
+      (reservedHits > 0 ? `, ${reservedHits} reserved` : ""),
     notes: notes.length ? notes : undefined,
     coverage: {
       met: subjects.length - findings.length,
-      deviating: noMatch + unknown,
+      deviating: noMatch + unknown + reservedHits,
       missing,
       sourceHits: subjects.length - missing,
     },
