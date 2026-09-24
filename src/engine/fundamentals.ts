@@ -553,12 +553,56 @@ function checkUnusedTypes(graph: IfcGraph): CheckResult {
   return result_;
 }
 
+/** The material names each element carries, the union of the layer-set column
+ *  (`ProductRow.materials`) and every NAMED row of `materialsJson()`, trimmed
+ *  and distinct, layer column first. Only elements with at least one name are
+ *  keys. Null when the material table was not supplied: the caller must say so,
+ *  not fall back to layer sets alone. `element-material` and its report row
+ *  both read this, so the count and the value tally cannot disagree. */
+export function elementMaterialNames(graph: IfcGraph): Map<string, string[]> | null {
+  if (graph.materials === undefined) return null;
+  const names = new Map<string, string[]>();
+  const add = (guid: string, name: string | null | undefined) => {
+    const v = name?.trim();
+    if (!v) return;
+    const list = names.get(guid);
+    if (!list) names.set(guid, [v]);
+    else if (!list.includes(v)) list.push(v);
+  };
+  for (const p of graph.products) for (const m of p.materials ?? []) add(p.guid, m);
+  for (const row of graph.materials) add(row.guid, row.material_name);
+  return names;
+}
+
 /** ADVISORY. Materials arrive when a model is detailed for quantities or LCA;
  *  a structural work model without them is at an earlier stage, not broken.
- *  The gap is surfaced because someone downstream is waiting for it. */
-function checkMaterials(products: ProductRow[]): CheckResult {
+ *  The gap is surfaced because someone downstream is waiting for it.
+ *
+ *  An element carries a material when `ProductRow.materials` (layer-set
+ *  materials only) names one OR `materialsJson()` has a row with a name for it
+ *  (a direct IfcMaterial, a list entry, a layer; instance or type). Without the
+ *  second table the direct materials are invisible (#5: 1 553 elements on
+ *  HI90_ARK 22.09), so an absent table is not_applicable saying so, never a
+ *  count that silently reads layer sets only. A row with no name (`unknown`, a
+ *  set ifcfast does not resolve) is not counted: there is no material to show. */
+function checkMaterials(products: ProductRow[], graph: IfcGraph): CheckResult {
+  if (graph.materials === undefined) {
+    return {
+      id: "element-material",
+      state: "not_applicable",
+      severity: "advisory",
+      displayValue: literal("—"),
+      reason:
+        "the material table was not supplied with this graph (materialsJson), " +
+        "so directly associated materials cannot be counted",
+      applicable: 0,
+      findings: [],
+      detail: "no material table",
+    };
+  }
+  const names = elementMaterialNames(graph)!;
   const findings = products
-    .filter((p) => !p.materials || p.materials.length === 0)
+    .filter((p) => !names.has(p.guid))
     .map((p) => finding(p, "no-material"));
   return result(
     "element-material",
@@ -593,6 +637,6 @@ export function runFundamentals(
     checkTypeNames(products),
     checkSingleInstanceTypes(products),
     checkUnusedTypes(graph),
-    checkMaterials(products),
+    checkMaterials(products, graph),
   ];
 }

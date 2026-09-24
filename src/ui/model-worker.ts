@@ -180,7 +180,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
       send({ kind: "mesh-error", message: err instanceof Error ? err.message : String(err) });
     }
 
-    // The three tables `graphJson()` does not carry. All three are MESH-FREE —
+    // The tables `graphJson()` does not carry. All of them are MESH-FREE —
     // the extractors ran inside `fromBytes`, so each call is a serialise, not a
     // computation — and reading them before `graphJson()` therefore costs
     // nothing and cannot trigger a second tessellation pass. They are attached
@@ -191,12 +191,14 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     const psets = JSON.parse(model.psetsJson()) as IfcGraph["psets"];
     const classifications = JSON.parse(model.classificationsJson()) as IfcGraph["classifications"];
     const quantities = JSON.parse(model.quantitiesJson()) as IfcGraph["quantities"];
+    const materials = JSON.parse(model.materialsJson()) as IfcGraph["materials"];
 
     const graph = JSON.parse(model.graphJson()) as IfcGraph;
     graph.type_objects = typeObjects;
     graph.psets = psets;
     graph.classifications = classifications;
     graph.quantities = quantities;
+    graph.materials = materials;
     model.free();
 
     heldGraph = graph;

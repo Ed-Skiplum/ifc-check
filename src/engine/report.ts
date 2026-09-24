@@ -26,7 +26,7 @@
  * not about the file.
  */
 
-import { physicalProducts, verdictOf } from "./fundamentals.ts";
+import { elementMaterialNames, physicalProducts, verdictOf } from "./fundamentals.ts";
 import { standardLayerRows } from "./standard-layer.ts";
 import type { CheckResult, Finding, IfcGraph, IfcSummary } from "./types";
 import type { ModelResult, RuleResult, ValueCount, Finding as RuleFinding } from "../ids/evaluate.ts";
@@ -464,16 +464,20 @@ function fundamentalRow(
       };
     }
 
-    case "element-material":
+    case "element-material": {
+      // Layer sets and direct materials alike (#5), read the way the check reads them.
+      const names = elementMaterialNames(graph);
+      if (names === null) return base;
       return {
         ...base,
         dekning: products(a - f, 0, f, source("IfcRelAssociatesMaterial", a - f)),
         // An object with several materials counts once under each.
         fordeling: tallyValues(
-          inScope.flatMap((p) => (p.materials && p.materials.length ? p.materials : [null])),
+          inScope.flatMap((p) => names.get(p.guid) ?? [null]),
           (v) => (v === null ? "mangler" : ""),
         ),
       };
+    }
 
     case "storey-config": {
       if (check.state === "not_applicable" && check.reason === "no floor config loaded") {

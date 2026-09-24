@@ -20,7 +20,8 @@
  *   4  file name, size and parse time come back as stored
  *   5  a file hashed before any parse finds its own record — the re-drop path
  *   6  the board record round-trips in order, with ids
- *   7  a record whose format integer is not this build's is a MISS, not a
+ *   7  a record whose format integer is not this build's, or whose graph has
+ *      no material table, is a MISS, not a
  *      half-understood restore
  *   8  the entry cap evicts oldest-first, and takes the dangling pre-parse key
  *      with it
@@ -95,6 +96,7 @@ graph.type_objects = JSON.parse(model.typeObjectsJson());
 graph.psets = JSON.parse(model.psetsJson());
 graph.classifications = JSON.parse(model.classificationsJson());
 graph.quantities = JSON.parse(model.quantitiesJson());
+graph.materials = JSON.parse(model.materialsJson());
 model.free();
 
 const elements = batches.reduce((sum, b) => sum + b.meta.length, 0);
@@ -207,13 +209,25 @@ check((await readModel("not-in-the-store")) === null, "a board entry with no rec
 
 /* ------------------------------------------------- a format this build changed */
 
+let rawRecord = null;
 await transact([MODELS], "readwrite", async (tx) => {
   const raw = await ask(tx.objectStore(MODELS).get(cacheKey));
+  rawRecord = raw;
   tx.objectStore(MODELS).put({ ...raw, format: CACHE_FORMAT + 1 });
   return true;
 });
 check((await readModel(cacheKey)) === null, "a record from another format is a miss");
 check((await readModel(cacheKey)) === null, "and is dropped rather than left to be read again");
+
+// Format 3 added the material table (#5). A record carrying this build's
+// integer but no table is refused too, never restored as "not supplied".
+check(Array.isArray(rawRecord?.graph?.materials), "the stored graph carries the material table");
+await transact([MODELS], "readwrite", async (tx) => {
+  const { materials: _dropped, ...graphWithout } = rawRecord.graph;
+  tx.objectStore(MODELS).put({ ...rawRecord, graph: graphWithout });
+  return true;
+});
+check((await readModel(cacheKey)) === null, "a record without the material table is a miss");
 
 /* ------------------------------------------------------------- the bounds */
 
@@ -229,6 +243,8 @@ const emptyGraph = {
   aggregates: [],
   storey_building: [],
   voids: [],
+  // Every record this build writes carries the table; `validate` refuses one without.
+  materials: [],
 };
 
 // Re-store the real record so there is something with a known age to evict.

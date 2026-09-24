@@ -53,8 +53,14 @@ import { ask, BOARD, DROPKEYS, META, MODELS, transact } from "./idb.ts";
  * put a board on screen whose type roster, property sets and classifications
  * read as absent — a fact about the cache wearing the clothes of a fact about
  * the file. Re-parsing is cheap; that confusion is not.
+ *
+ * 3 (2026-09-24): the graph carries `materials` (`materialsJson()`), which
+ * `element-material` reads for directly associated materials (#5). A format-2
+ * record has none, and restoring it would turn that check into "not supplied"
+ * for a file the parse path answers in full. `validate` also refuses a record
+ * without the table.
  */
-export const CACHE_FORMAT = 2;
+export const CACHE_FORMAT = 3;
 
 /**
  * The ceiling, and why it is where it is.
@@ -216,6 +222,8 @@ export function estimateBytes(graph: IfcGraph, mesh: CachedMesh | null): number 
   bytes += (graph.type_objects?.length ?? 0) * 140;
   // Quantities are the same long shape as properties, one column narrower.
   bytes += (graph.quantities?.length ?? 0) * 160;
+  // Material rows: calibrated on HI90_ARK (431 KiB over 2 529 rows, 175 B each), rounded UP.
+  bytes += (graph.materials?.length ?? 0) * 200;
   for (const batch of mesh?.batches ?? []) {
     bytes += batch.positions.byteLength + batch.indices.byteLength + batch.meta.length * 240;
   }
@@ -257,6 +265,7 @@ function validate(raw: unknown): CachedModel | null {
   if (record.summary === null || typeof record.summary !== "object") return null;
   if (record.graph === null || typeof record.graph !== "object") return null;
   if (!Array.isArray(record.graph.products) || !Array.isArray(record.graph.storeys)) return null;
+  if (!Array.isArray(record.graph.materials)) return null;
   if (record.mesh !== null && !validMesh(record.mesh)) return null;
   return record;
 }

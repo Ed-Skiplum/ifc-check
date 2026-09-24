@@ -155,9 +155,10 @@ export interface IfcGraph {
   psets?: PropertyRow[];
   classifications?: ClassificationRow[];
   quantities?: QuantityRow[];
-  /** `materialsJson()`, attached by the `report` CLI only (the Materiale /
-   *  Produkt row reads it; no screen does). Absent = not supplied, and the row
-   *  that needs it says so. */
+  /** `materialsJson()`, attached wherever the four tables above are (the
+   *  parse worker, the cache, every CLI and gate). `element-material` and the
+   *  Materiale / Produkt report row read it. Absent = not supplied, and both
+   *  say so rather than count layer-set materials alone (#5). */
   materials?: MaterialRow[];
 }
 

@@ -85,6 +85,7 @@ for (const path of paths) {
   graph.psets = JSON.parse(model.psetsJson());
   graph.classifications = JSON.parse(model.classificationsJson());
   graph.quantities = JSON.parse(model.quantitiesJson());
+  graph.materials = JSON.parse(model.materialsJson());
   model.free();
 
   const checks = runFundamentals(graph, summary);

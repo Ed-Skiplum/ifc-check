@@ -150,7 +150,7 @@ stage. Because they are universal they are judged with no ruleset loaded.
 | `type-name-placeholder` | advisory |
 | `single-instance-types` (review) | advisory |
 | `type-unused` — a declared type object no element uses | advisory |
-| `element-material` | advisory |
+| `element-material` — the layer-set column OR a named `materialsJson()` row (a direct IfcMaterial counts, #5); not_applicable when that table was not supplied | advisory |
 
 A file the parser reports zero products for **fails** `parse-integrity`. ifcfast
 drops IFC classes its whitelist does not carry — `IfcGeographicElement` among
@@ -531,8 +531,10 @@ IFC term IS the label (`IfcMaterialLayerSet`).
 
 edkjo: *"I prefer each pset as a tab rather than a sorting group."* One tab per
 `IfcPropertySet` and one per `IfcElementQuantity` (`Qto_*`, ifcfast's
-`quantitiesJson()`, new on the profile as `quantities` and the reason
-`CACHE_FORMAT` went to 3). The strip **scrolls sideways and never wraps**; a tab
+`quantitiesJson()`, new on the profile as `quantities`. This note used to say
+`CACHE_FORMAT` went to 3 for it; the code stayed at 2, so a format-2 record
+could restore without quantities. Format 3 shipped with #5, see the wasm
+section). The strip **scrolls sideways and never wraps**; a tab
 is sized to its own name, so no label is ever cut.
 
 Measured 2026-09-23 (`tmp/pset-census.mjs`), because "many psets" needed to be
@@ -1215,15 +1217,16 @@ overrides the repository.
 `load_bearing`), `storeys` with elevations, `contained_in`, `aggregates`,
 `storey_building`, `sites`, `buildings`, `voids`.
 
-**Four tables do not come out of `graphJson()`, and every caller attaches
+**Five tables do not come out of `graphJson()`, and every caller attaches
 them to the graph itself** — `graph.psets`, `graph.classifications`,
-`graph.type_objects`, `graph.quantities`:
+`graph.type_objects`, `graph.quantities`, `graph.materials`:
 
 | | |
 |---|---|
 | `psetsJson()` | `[{guid, pset_name, prop_name, value, value_type, source}]`. `guid` is the OWNER — product, spatial element or project. `value` is the STEP literal as a string, never coerced. `source` is `instance` or `type`; a type's own properties arrive keyed by the OCCURRENCE that inherits them, which is why a type object has no property rows of its own. |
 | `classificationsJson()` | `[{guid, system_name, edition, identification, name, location, source, assignment_source}]`. `identification` is schema-normalised. Mind the two provenance columns: `source` is the publishing body, `assignment_source` is the instance/type flag. |
 | `typeObjectsJson()` | `[{guid, entity, name, step_id}]`, the DECLARED roster keyed by the type's own GlobalId — what `type_guid` points at. |
+| `materialsJson()` | `[{guid, role, layer_index, material_name, layer_thickness_mm, category, fraction, source}]`, one row per `IfcRelAssociatesMaterial` assignment: `direct` IfcMaterial, `list` entry, `layer` of a set, `unknown` (a constituent or profile set ifcfast does not resolve, name null). `ProductRow.materials` carries the layer sets only. HI90_ARK 22.09: 2 529 rows, 431 KiB. |
 | `quantitiesJson()` | `[{guid, qto_name, quantity_name, value, quantity_type, unit_step_id, source}]` — `IfcElementQuantity` as the EXPORTER wrote it (`Qto_*`), not `qtoJson()`'s computed take-off. Same owner/verbatim-value/source rules as `psetsJson`. `unit_step_id` is a STEP id with no accessor to resolve it, so the object panel carries it and does not render it. |
 
 They are mesh-free (the extractors ran in `fromBytes`), so reading them costs a
@@ -1233,7 +1236,13 @@ hands out. `src/ui/model-worker.ts`, `src/storage/model-cache.ts`'s budget,
 `check-cli.ts`, `ids-cli.ts`, `bcf-cli.ts`, `types-gate.mjs` and `cache-gate.mjs`
 all attach them, so no surface runs a different model shape from the board.
 
-`undefined` and `[]` on those four are DIFFERENT answers everywhere they are
+**`CACHE_FORMAT` is 3 (2026-09-24, #5)** because the stored graph now carries
+`materials`. A format-2 record is a miss and the file is parsed again, and
+`validate` also refuses a record whose graph has no `materials` array, so a
+restore never answers `element-material` from a graph without the table.
+`cache-gate.mjs` asserts both.
+
+`undefined` and `[]` on those five are DIFFERENT answers everywhere they are
 read: absent means nobody supplied the table and the surface says so, empty
 means the file declares none. A facet over an absent table is `not_evaluable`
 naming the table, never a pass.
@@ -1813,11 +1822,15 @@ marker). HI90 says `bad` where this says `warn`.
   a changed row count, an unknown mengdetype or ledeenhet, or a ruling naming
   a class the table lacks.
 
-  **`materialsJson()`** is attached as `graph.materials` by `ids-cli report`
-  only. `ProductRow.materials` carries layer-set materials only (HI90_ARK:
-  none on its 29 IfcCovering and 1 148 IfcFurnishingElement, which carry a
-  direct IfcMaterial); `element-material` reads that column, so it undercounts
-  direct materials. Not changed here.
+  **`materialsJson()`** is attached as `graph.materials` everywhere the other
+  tables are (#5). `ProductRow.materials` carries layer-set materials only;
+  `element-material` and its report row now read both through
+  `elementMaterialNames` (fundamentals.ts), so a direct IfcMaterial counts.
+  HI90_ARK 22.09: 802 of 2980 before, 2355 after (+1 553: 1 148
+  IfcFurnishingElement, 332 IfcBuildingElementPart, 44
+  IfcBuildingElementProxy, 29 IfcCovering, all direct instance rows). The
+  issue's 1 177 counted the covering and furnishing only. This row's
+  counts did not move (697 / 134 / 1586).
 
   **Not expressible in the project layer:** HI90's pattern sources (a pset
   matching `^MagiCAD Pset_`, property `^product ?code$`), and HI90's

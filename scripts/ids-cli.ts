@@ -350,7 +350,7 @@ async function cmdReport(args: string[]): Promise<number> {
       graph.psets = JSON.parse(parsed.psetsJson());
       graph.classifications = JSON.parse(parsed.classificationsJson());
       graph.quantities = JSON.parse(parsed.quantitiesJson());
-      // Read by the material-product row only; no screen reads it.
+      // Read by the material-product row and by `element-material` (#5).
       graph.materials = JSON.parse(parsed.materialsJson());
       parsed.free();
 
@@ -1127,6 +1127,42 @@ async function cmdSelftest(): Promise<number> {
     "material-product: no material table is not_evaluable, never mangler",
     "not_evaluable",
     mpRowFor(undefined, noMaterials).state,
+  );
+  // element-material (#5): a layer-set column, a direct IfcMaterial row, a row
+  // ifcfast could not name, and nothing. Only the first two carry a material.
+  const emGraph = {
+    ...(graph as unknown as IfcGraph),
+    projects: [], storey_building: [],
+    products: [{ ...wall("L", null), materials: ["Betong"] }, wall("D", null), wall("U", null), wall("N", null)],
+    materials: [
+      mat("D", "direct", "Eik", null),
+      { ...mat("U", "unknown", "", null), material_name: null },
+    ],
+  } as unknown as IfcGraph;
+  const emCheck = (g: IfcGraph) =>
+    runFundamentals(g, summary as unknown as IfcSummary).find((c) => c.id === "element-material")!;
+  const em = emCheck(emGraph);
+  record(
+    "element-material: a direct IfcMaterial counts, an unnamed row does not",
+    "fail 2/4 U,N",
+    `${em.state} ${em.applicable - em.findings.length}/${em.applicable} ${em.findings.map((f) => f.guid).join(",")}`,
+  );
+  const emRow = reportRows({
+    model: { file: "m.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+    graph: emGraph,
+    summary: summary as unknown as IfcSummary,
+    checks: [em],
+    ruleset: null,
+  }).find((r) => r.id === "element-material")!;
+  record(
+    "element-material: the report row tallies the direct material too",
+    "null:2,Betong:1,Eik:1",
+    (emRow.fordeling ?? []).map((v) => `${v.verdi}:${v.n}`).join(","),
+  );
+  record(
+    "element-material: no material table is not_applicable, never layer sets alone",
+    "not_applicable",
+    emCheck({ ...emGraph, materials: undefined }).state,
   );
   record(
     "material-product: the bundled tables carry their provenance",
