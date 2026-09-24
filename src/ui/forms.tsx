@@ -37,19 +37,26 @@ export function SpatialGauge({
   lang: Lang;
   levels: { level: string; size: number }[];
 }) {
+  // Each level is a row in the focal's grammar: a small filled lamp carrying
+  // the glyph, then the name and the count on the tile's own ground. The fill
+  // used to be the whole row, which put four large saturated blocks of the
+  // PASS colour on a board where colour is how a failure is found; the lamp
+  // keeps the verdict and gives the area back to the ground (2026-09-24).
   return (
-    <div className={`flex min-h-0 flex-1 flex-col gap-1 overflow-hidden pb-[var(--bento-pad)] ${PAD}`}>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-input">
       {levels.map((level) => {
         const present = level.size > 0;
         return (
           <span
             key={level.level}
-            className={
-              "flex min-h-0 flex-1 items-center gap-2 px-2 " +
-              (present ? VERDICT_FILL.pass : VERDICT_FILL.fail)
-            }
+            className={`flex min-h-0 flex-1 items-center gap-2 border-b border-line ${PAD}`}
           >
-            <span className="font-mono text-[length:var(--bento-fs)] font-bold">
+            <span
+              className={
+                "flex h-[calc(var(--bento-line)-4px)] w-[2.2em] shrink-0 items-center justify-center font-mono text-[length:var(--bento-fs)] font-bold " +
+                (present ? VERDICT_FILL.pass : VERDICT_FILL.fail)
+              }
+            >
               {present ? VERDICT_GLYPH.pass : VERDICT_GLYPH.fail}
             </span>
             <span data-essential className="truncate font-mono text-[length:var(--bento-fs)]">
@@ -212,22 +219,67 @@ export interface KpiCard {
   findings?: number;
 }
 
-/** One number per card, the board's top strip. The cards share the strip's
- *  row, so they are cells of one tile rather than seven tiles: the grid's band
- *  arithmetic cannot seat seven tiles in one row (see `bento-layouts.ts`). */
+/** One number per card. Two placements since 2026-09-24:
+ *
+ *  - `stacked` — the three VERDICT counts, one above the other in the focal's
+ *    right-hand section, beside the check rows they count. They are the only
+ *    large coloured numerals on the board, so a failure is found by one
+ *    channel in one place.
+ *  - `quiet` — the four NEUTRAL counts as label·value pairs on one line in the
+ *    last-row strip, at list-text size: reference, read after the verdicts,
+ *    never competing with them.
+ *
+ *  Without either it is the old strip of equal cards. */
 export function KpiRow({
   cards,
   selected,
   onFocus,
+  stacked = false,
+  quiet = false,
 }: {
   cards: KpiCard[];
   selected: string | null;
   onFocus: (focus: Focus) => void;
+  stacked?: boolean;
+  quiet?: boolean;
 }) {
+  if (quiet) {
+    return (
+      <div className="flex h-full min-w-0 flex-1 items-center gap-x-[calc(var(--bento-pad)*3)]">
+        {cards.map((card) => (
+          <span key={card.key} className="flex min-w-0 items-baseline gap-2">
+            <span
+              data-essential
+              className="shrink-0 leading-tight font-semibold tracking-[0.12em] text-gold uppercase"
+              style={{ fontSize: "var(--bento-label)" }}
+            >
+              {card.label}
+            </span>
+            <span
+              data-essential
+              className="shrink-0 font-mono leading-tight font-semibold whitespace-nowrap tabular-nums text-ink"
+              style={{ fontSize: "calc(var(--bento-fs) * 1.35)" }}
+              title={card.value}
+            >
+              {card.value}
+            </span>
+          </span>
+        ))}
+      </div>
+    );
+  }
   return (
     <div
-      className="-mx-[var(--bento-pad)] grid h-full min-w-0 flex-1 gap-px bg-line"
-      style={{ gridTemplateColumns: `repeat(${cards.length}, minmax(0, 1fr))` }}
+      className={
+        stacked
+          ? "grid h-full min-h-0 min-w-0 flex-1 gap-px bg-line"
+          : "-mx-[var(--bento-pad)] grid h-full min-w-0 flex-1 gap-px bg-line"
+      }
+      style={
+        stacked
+          ? { gridTemplateRows: `repeat(${cards.length}, minmax(0, 1fr))` }
+          : { gridTemplateColumns: `repeat(${cards.length}, minmax(0, 1fr))` }
+      }
     >
       {cards.map((card) => {
         const fill = card.verdict ? VERDICT_FILL[card.verdict] : "bg-panel text-ink";
@@ -249,7 +301,11 @@ export function KpiRow({
             <span
               data-essential
               className="truncate font-mono leading-tight font-semibold tabular-nums"
-              style={{ fontSize: "min(var(--bento-value), calc(var(--bento-row) * 0.45))" }}
+              style={{
+                fontSize: stacked
+                  ? "var(--bento-value)"
+                  : "min(var(--bento-value), calc(var(--bento-row) * 0.45))",
+              }}
               title={card.value}
             >
               {card.value}

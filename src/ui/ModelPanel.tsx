@@ -11,7 +11,7 @@
  * dash, then more nitty gritty on other tabs." Kontroll is the bento board;
  * Innhold is the census and the type ledger; Graf is the selected element's
  * relationships as a node-link diagram (`GraphTab.tsx`). The tab is in the URL
- * hash, so Back/Forward walk it. The filter bar sits ABOVE the strip because a
+ * hash, so Back/Forward walk it. The filter bar sits on the strip's line, outside the tab panels, because a
  * chip belongs to the model, not to a tab: chips persist across tabs. Every
  * tab stays mounted and the inactive ones are hidden, so the 3D scene and its
  * camera survive a trip to Innhold or Graf and back.
@@ -26,7 +26,7 @@
  * The same click that opens a derivation makes a chip. `onFocus` still does
  * what it did — open the band for that number — and the chip is added beside
  * it, so the board narrows IN PLACE and nothing navigates. The bar sits here,
- * above the tabs and always rendered, because the filter belongs to the model
+ * on the tab line and always rendered, because the filter belongs to the model
  * rather than to any one tile, and because a bar that appears only when a
  * filter is on cannot answer "what am I filtered to?".
  */
@@ -198,6 +198,19 @@ export function ModelPanel({
       ]
     : [];
 
+  // The filter bar, on the tab strip's line (see there).
+  const filterProps = {
+    lang,
+    mode: view.mode,
+    chips: view.chips,
+    unresolved: filter.unresolved,
+    matchedCount: filter.matched?.size ?? null,
+    total: profile?.rows.length ?? 0,
+    onMode,
+    onRemove: onRemoveChip,
+    onClear: onClearChips,
+  };
+
   const rules = hasRuleset
     ? {
         evaluation: model.evaluation,
@@ -256,22 +269,14 @@ export function ModelPanel({
         </pre>
       ) : null}
 
-      {ready ? (
-        <FilterBar
-          lang={lang}
-          mode={view.mode}
-          chips={view.chips}
-          unresolved={filter.unresolved}
-          matchedCount={filter.matched?.size ?? null}
-          total={profile?.rows.length ?? 0}
-          onMode={onMode}
-          onRemove={onRemoveChip}
-          onClear={onClearChips}
-        />
-      ) : null}
 
       {ready && facts && ledger ? (
         <>
+          {/* The filter bar shares the tab strip's line, right-aligned over its
+              empty end: it belongs to the model, not to a tab, so it sits
+              outside the tab panels, and it no longer costs a line of its own
+              above the board (2026-09-24). */}
+          <div className="relative shrink-0">
           <div role="tablist" className="flex shrink-0 items-end gap-px border-b border-line">
             {TABS.map((id) => (
               <button
@@ -290,6 +295,10 @@ export function ModelPanel({
                 {t(TAB_LABEL[id], lang)}
               </button>
             ))}
+          </div>
+            <div className="absolute inset-y-0 right-0 flex max-w-[calc(100%-16rem)] items-center overflow-x-auto">
+              <FilterBar {...filterProps} />
+            </div>
           </div>
 
           <div className="flex flex-col gap-2">

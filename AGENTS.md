@@ -36,8 +36,8 @@ src/ui/          the screen, and the worker that drives the engine
                    project rules under "Regler" when a ruleset is loaded
   FloorSetup.tsx   the Etasjer tile: config floors × loaded models, or the
                    file's own storeys with no config
-  TraceBand.tsx    the derivation band: the rows behind the open number (61.8 %)
-                   beside the object panel (38.2 %)
+  TraceBand.tsx    the derivation band: the rows behind the open number
+                   (50–61.8 %, by content) beside the object panel
   ObjectPanel.tsx  everything the engine has for the selected element:
                    lead cards + Attributter / Relasjoner / Egenskaper (tabs)
                    / Beregnet
@@ -288,8 +288,14 @@ KNM BEP §6.5 marks the elevations TBD ("working placeholders").
 
 ## The KPI row
 
-Seven cards, one number each, in a 13×1 / 21×1 `tellTales` strip on top of
-both layouts (`kpis.ts` + `KpiRow` in `forms.tsx`): **Typer brukt**
+Seven numbers, one each (`kpis.ts` + `KpiRow` in `forms.tsx`), in two places
+since the 2026-09-24 layout pass. The three FINDING counts (Uten etasje ·
+Uten type · Plassering, in the focal's own row order) sit inside the
+verification focal, stacked in the section to the right of the check rows:
+the board's only large coloured numerals. The four NEUTRAL counts (Typer
+brukt · Etasjer · Filstørrelse · Materialer) are label·value pairs at list
+size in a quiet 13×1 `tellTales` strip on the LAST row of both boards (P2).
+The numbers: **Typer brukt**
 (`339 / 398` — type objects an element is defined by, over the type objects the
 file declares; see "Three numbers about types" below), Uten type (`element-typed`
 findings), Etasjer, Filstørrelse, Materialer (distinct names over physical
@@ -326,14 +332,21 @@ silently.
 Per model (`ModelPanel.tsx`). The header line carries name · state · size and
 the file's own facts as a `ReadoutStrip` (schema · unit · products · parse
 time · project · application; products opens its derivation). Under it the
-filter bar, ABOVE the tab strip: chips belong to the model, so they persist
-across tabs. Then:
+tab strip, and the filter bar on the SAME line, right-aligned over the strip's
+empty end (2026-09-24; it used to be a line of its own above the tabs). It is
+outside the tab panels, so chips still belong to the model and persist across
+tabs. It never wraps: a chip appearing moves nothing, so the row just clicked
+is still under the pointer for the click that undoes it; more chips than fit
+scroll sideways in the bar. `isolate-gate` finds it by `[data-filter-bar]`.
+"Åpne IFC" is the filled primary only on the empty landing; with a model
+loaded it drops to the outlined style of the other bar controls. Then:
 
-1. **Kontroll** (`Dashboard.tsx`, bento): KPI strip, verification focal (the
-   twelve checks + `mesh-placement` + `storey-config`, then the ruleset's
-   rules as rows under "Regler", `not_evaluable` included; this replaced the
-   separate rule strip), the model tile, the spatial gauge (four lamps) and
-   the Etasjer tile.
+1. **Kontroll** (`Dashboard.tsx`, bento): verification focal (the twelve
+   checks + `mesh-placement` + `storey-config`, then the ruleset's rules as
+   rows under "Regler", `not_evaluable` included; this replaced the separate
+   rule strip; the three finding counts beside the rows), the model tile, the
+   spatial gauge (four lamps), the Etasjer tile, and the quiet strip of
+   neutral counts.
 2. **Innhold** (`Contents.tsx`, flow surface, not bento): band 1 is Klasser
    (38.2 %) | Etasje × klasse (61.8 %, `Ifc` prefix dropped, headers wrap to
    two lines, total column = elements per storey); band 2 is the type ledger,
@@ -349,8 +362,8 @@ the inactive one is `hidden`, so the 3D scene and its camera survive a tab
 switch. The derivation band opens INSIDE the panel of the model it belongs to,
 under the active tab, pinned to the bottom of the scrolling page
 (`sticky bottom-0`) at 38.2 % of the screen, so a number clicked at the top of
-a tall board opens its derivation in view. Within it the rows take 61.8 % and
-the object panel 38.2 % (below).
+a tall board opens its derivation in view. Within it the rows take 50–61.8 %
+by their content and the object panel the rest (below).
 
 Checked 2026-09-21 in headless Chrome against a LOCAL preview build, not the
 deployed site: both tabs at 1440 and 1100 with KNM_ARK, ARK+RIV+RIB + knm
@@ -460,6 +473,16 @@ this costs table WIDTH, never rows — and the four columns were re-cut to
 box the app ships in, the 1100 px skiplum.com iframe, without the list
 acquiring a sideways scroll. GUID stays 23ch and is still never truncated; the
 other three ellipsize by design and carry their full text in `title`.
+
+**Since 2026-09-24 the split follows the rows** (`columnsFor` in
+`TraceBand.tsx`): the class column is the longest class name, name and reason
+share the rest in proportion to their longest text, and the list takes what
+that needs, clamped to 50–61.8 %; the object panel gets the remainder (38.2 to
+50 %). A class drill carries no reason, so the panel gets half and its lead
+cards stop ellipsizing type names. GUID is 25ch: its 22 mono characters are
+wider than 23 sans `ch` and ran into the class column. A row that carries a
+reason is a finding of the open check or rule, so its reason is drawn in the
+focal's verdict cell (fill + glyph), the same grammar as the row above it.
 
 `src/ui/ObjectPanel.tsx`. Four instructions from edkjo fix its shape, and they
 pull in one direction: *"keep psets and BIM data separate"* · *"I hate
@@ -924,14 +947,17 @@ viewer span meets the kind's own aspect bound). The former `matrix` full-band
 deviation is reverted: the census left the board for the Innhold tab
 (2026-09-21), and `matrix` is back to upstream's 8×5 / 13×8.
 
-Tab-1 layouts: 13 tracks × 9 rows (`kpis` 13×1; `verify` 8×5 | `viewer` 5×5;
-`floors` 8×3 | `spatial` 5×3) and 21 tracks × 6 rows (`spatial` 5×3 | `classes`
-3×3 | `kpis` 13×1 over `viewer` 5×5 | `verify` 8×5, with `floors` 8×3 under
-the gauge). `node scripts/board-gate.mjs` validates both. Open upstream
-questions for sprucelab, not forked here: the 13-track board is 9 rows against
-an 8-row fold because of the KPI strip, which forces `floors` and `spatial` to
-P2 there; whether a KPI-row kind should exist; and whether the row unit's
-height flex (below) belongs upstream.
+Tab-1 layouts (2026-09-24): 13 tracks × 9 rows (`verify` 8×5 | `viewer` 5×5;
+`floors` 8×3 | `spatial` 5×3; the quiet `kpis` 13×1 last, P2) and 21 tracks ×
+6 rows (`floors` 8×3 over `spatial` 5×3 | `classes` 3×3, then `viewer` 5×5
+and `verify` 8×5 from row 1, `kpis` 13×1 under them on row 6). On 21 tracks the
+focal CANNOT be top-left: an exhaustive search (every span, every seam-legal
+placement, 5–11 rows, focal at 8×5 or 13×8) finds no closed board with a 5×5
+viewer and the one 5×3 gauge that puts the focal in column 1, because the
+5-wide tiles only start on track 1 or 9. `node scripts/board-gate.mjs`
+validates both. Open upstream questions for sprucelab, not forked here:
+whether a KPI-row kind should exist, and whether the row unit's height flex
+(below) belongs upstream.
 
 **The KPI strip is 13×1 on BOTH boards** (2026-09-22). On 21 tracks it used to
 take the whole 21-track row, which left the Etasjer tile 8×2 — five floors of
@@ -1023,7 +1049,7 @@ one headless Chrome, launched only with >= 4 GB free, fresh profile per run
 BEP's) and at every target viewport, both tabs, asserts: no horizontal
 overflow of page or main; no `[data-essential]` element ellipsized or cut by
 a clipping ancestor; per-tile minimum fully visible rows (focal 13, floors 10
-— every row of a ten-floor config — gauge 4, KPI 7); no `overflow: hidden` box
+— every row of a ten-floor config — gauge 4, the quiet KPI strip 4); no `overflow: hidden` box
 hiding content and no sideways scroll inside a tile; and **fill** — a board
 shorter than the page height it was given must have its row unit already at
 the ceiling its own tiles allow, so a surplus is structural and never a module

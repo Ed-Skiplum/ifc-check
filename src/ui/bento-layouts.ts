@@ -16,19 +16,48 @@
  * surface, not a bento. The file's own facts moved to the panel header.
  *
  *   13 tracks × 9 rows               21 tracks × 6 rows
- *   K K K K K K K K K K K K K        G G G G G C C C K K K K K K K K K K K K K
+ *   V V V V V V V V M M M M M        E E E E E E E E M M M M M V V V V V V V V
+ *   V V V V V V V V M M M M M        E E E E E E E E M M M M M V V V V V V V V
+ *   V V V V V V V V M M M M M        E E E E E E E E M M M M M V V V V V V V V
  *   V V V V V V V V M M M M M        G G G G G C C C M M M M M V V V V V V V V
  *   V V V V V V V V M M M M M        G G G G G C C C M M M M M V V V V V V V V
- *   V V V V V V V V M M M M M        E E E E E E E E M M M M M V V V V V V V V
- *   V V V V V V V V M M M M M        E E E E E E E E M M M M M V V V V V V V V
- *   V V V V V V V V M M M M M        E E E E E E E E M M M M M V V V V V V V V
+ *   E E E E E E E E G G G G G        G G G G G C C C K K K K K K K K K K K K K
  *   E E E E E E E E G G G G G
- *   E E E E E E E E G G G G G        K kpis 13×1          V verify 8×5
- *   E E E E E E E E G G G G G        M viewer 5×5         G spatial 5×3
- *                                    E floors 8×3         C classes 3×3 (21 only)
+ *   E E E E E E E E G G G G G        V verify 8×5 (the checks, and the three
+ *   K K K K K K K K K K K K K          verdict readouts beside them)
+ *                                    M viewer 5×5          E floors 8×3
+ *                                    G spatial 5×3         C classes 3×3 (21 only)
+ *                                    K kpis 13×1: the four NEUTRAL counts
  *
- * Bands: 13 → 13, 8+5; 21 → 5|3|13 (the cuts of 5+8+8 and 8+5+8 meeting the
- * 13 of 13+8), 5|3|5|8 and 8|5|8.
+ * ── Placement by importance (2026-09-24 layout pass) ────────────────
+ * edkjo: "the layout isnt good enough and efficient in terms of what goes
+ * where vs importance". The verdicts lead and the counts recede:
+ *
+ * - The three finding counts (Uten type · Uten etasje · Plassering) are no
+ *   longer cards in a strip beside four neutral counts at the same size. They
+ *   sit INSIDE the focal, to the right of the check rows they count, as the
+ *   only large coloured numerals on the board. The strip keeps the four
+ *   neutral counts, quiet, and goes to the LAST row: it is P2 now.
+ * - On 13 tracks the focal is top-left (row 1), and the floor tile and the
+ *   gauge are rows 6–8, inside the 8-row fold, so both are P1. Only the quiet
+ *   strip sits past the fold.
+ * - On 21 tracks the focal cannot be top-left. Searched exhaustively (every
+ *   span each kind admits, every seam-legal placement, 5 to 11 rows, the
+ *   strip at every strip span, with and without the class tile, the focal at
+ *   8×5 and 13×8): with a 5×5 viewer and the one 5×3 gauge, no closed board
+ *   puts the focal in column 1. The 5-wide tiles can only start on track 1
+ *   or 9, so the 8-wide focal ends up on 14–21. What moved instead: the
+ *   focal starts on row 1 (top-right, beside the viewer), and the top-left
+ *   is the Etasjer tile rather than the always-green gauge.
+ * - Etasje × klasse was NOT promoted onto the 21-track board to close the
+ *   band below it. Its registry spans (8×5 / 13×8) are both focal-class, and a
+ *   canvas has one focal; at 8×3 (a third registry deviation) the table's own
+ *   minimum width (a 9rem storey column, a count column and one ≥ 2.5rem
+ *   column per class, eighteen on KNM_ARK) exceeds eight tracks at 2112 px,
+ *   which is a sideways scroll inside a tile. It stays on Innhold.
+ *
+ * Bands: 13 → 8+5, 8+5, 13; 21 → 8+5+8 (rows 1–3), 5|3|5|8 (rows 4–5; the
+ * cuts of 5+8+8 and 8+5+8), 5|3|13 (row 6).
  *
  * ── Size: one module, the page scrolls (2026-09-22) ─────────────────
  * The track is derived from the grid's WIDTH only (see `BentoGrid`), so the
@@ -56,11 +85,10 @@
  * visible number rather than a thing nobody wrote down.
  *
  * ── The fold ──────────────────────────────────────────────────────
- * 13 tracks is 9 rows against an 8-row fold, so the floor tile and the gauge
- * end past it and are P2 there, the same concession the KPI strip forced on
- * the previous board. Whether a KPI strip should count against the fold is
- * an upstream question for sprucelab, not something to fork here. The
- * 21-track board sits inside its 10-row fold at every priority.
+ * 13 tracks is 9 rows against an 8-row fold; the ninth is the quiet strip,
+ * which is P2 there. Everything that carries a verdict or the file's own
+ * structure ends inside the fold. The 21-track board sits inside its 10-row
+ * fold at every priority.
  *
  * ── No air, and why the KPI strip is 13 wide on 21 tracks ──────────
  * Beside a 5-wide viewer the only legal starts are 6 and 9, so the four
@@ -68,17 +96,12 @@
  * class bars (3×3) close it. The four tiles cannot on their own: 40 + 25 +
  * 15 + 24 = 104 of 105 cells.
  *
- * The strip's width is what pays for the floor tile's third row. Searched
- * exhaustively (every span each kind admits, every seam-legal placement, 4
- * to 11 rows, one focal and one gauge): on 21 tracks with THESE tiles the
- * board closes at six rows two ways and at nine rows only with a 3×3 viewer.
- * Of the two six-row boards, a 21×1 strip forces the floor tile to 8×2 —
- * five floors of ten, which is what edkjo saw as the "squished floor chart"
- * — and a 13×1 strip leaves the other eight tracks of row 1 to the floor
- * tile, making it 8×3 and seating ten. So the strip gives up the full width
- * and the Etasjer matrix gets the row. Band 13+8 is a sanctioned 21-track
- * decomposition, and the seven KPI cards still share ONE tile; they are
- * simply laid over 13 tracks rather than 21.
+ * The strip is 13 wide on 21 tracks so the floor tile keeps 8×3 and seats
+ * ten floors (a 21×1 strip forces it to 8×2, five of ten, the "squished floor
+ * chart" of 2026-09-22). Since 2026-09-24 the strip sits on the LAST row under
+ * the viewer and the focal, and the floor tile takes the first three rows of
+ * the left column; the four neutral counts it carries are the least
+ * decision-relevant numbers on the board, so they read last.
  *
  * The nine-row boards are real and are NOT taken: each needs `viewer` at
  * 3×3 (the only span that lets a 13×8 focal close 21 tracks), which shrinks
@@ -109,9 +132,9 @@ export const LAYOUT_13: BentoLayoutDefinition = {
   cols: 13,
   rows: 9,
   layout: [
-    ...rows(1, [["kpis", 13]]),
     ...rows(5, [["verify", 8], ["viewer", 5]]),
     ...rows(3, [["floors", 8], ["spatial", 5]]),
+    ...rows(1, [["kpis", 13]]),
   ],
 };
 
@@ -119,8 +142,8 @@ export const LAYOUT_21: BentoLayoutDefinition = {
   cols: 21,
   rows: 6,
   layout: [
-    ...rows(1, [["spatial", 5], ["classes", 3], ["kpis", 13]]),
-    ...rows(2, [["spatial", 5], ["classes", 3], ["viewer", 5], ["verify", 8]]),
     ...rows(3, [["floors", 8], ["viewer", 5], ["verify", 8]]),
+    ...rows(2, [["spatial", 5], ["classes", 3], ["viewer", 5], ["verify", 8]]),
+    ...rows(1, [["spatial", 5], ["classes", 3], ["kpis", 13]]),
   ],
 };

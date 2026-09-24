@@ -32,13 +32,13 @@ import { LAYOUT_13, LAYOUT_21 } from "../src/ui/bento-layouts.ts";
  *  Everything else about a tile is read off the layout. Air (".") is not a
  *  tile. */
 const TILES = {
-  kpis: ["tellTales", "P0"],
+  // The quiet strip of neutral counts, on the last row of both boards; on 13
+  // tracks it is the one row past the fold (see `bento-layouts.ts`).
+  kpis: ["tellTales", "P2"],
   verify: ["tellTales", "P0"],
   viewer: ["viewer", "P0"],
-  // On 13 tracks the board is 9 rows against an 8-row fold, so the two tiles
-  // in the last band are P2 there (see `bento-layouts.ts`). Keyed per canvas.
-  spatial: ["gauge", { 13: "P2", 21: "P0" }],
-  floors: ["roster", { 13: "P2", 21: "P1" }],
+  spatial: ["gauge", "P1"],
+  floors: ["roster", "P1"],
   // 21 tracks only.
   classes: ["distribution", "P1"],
 };

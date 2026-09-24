@@ -294,7 +294,7 @@ const STATE = (panel_index = 0) => `(() => {
   const root = document.querySelectorAll('main > section')[${panel_index}];
   if (!root) return null;
   const panel = root.querySelector('[role=tabpanel]:not([hidden])');
-  const bar = root.querySelector(':scope > div.flex.flex-wrap');
+  const bar = root.querySelector('[data-filter-bar]');
   const chips = bar ? [...bar.querySelectorAll(':scope > span.border')]
     .map((s) => s.textContent.replace(/✕$/, '').trim()) : [];
   const barText = bar ? bar.textContent : '';

@@ -50,13 +50,46 @@ import { RESULT_FILL, RESULT_GLYPH, VERDICT_FILL, VERDICT_GLYPH } from "./state-
 
 const ROW_HEIGHT = 26;
 const OVERSCAN = 12;
-/** The GUID column stays 23ch — a GUID is an identifier and half of one
+/** The GUID column is never cut: a GUID is an identifier and half of one
  *  identifies nothing. The other three were cut when the object panel took
  *  38.2 % of the band (2026-09-23), so the four columns still fit the narrowest
  *  box the app ships in (the 1100 px skiplum.com iframe) without the row list
  *  acquiring a sideways scroll. All three ellipsize by design and carry their
- *  full text in `title`. */
-const COLUMNS = "23ch 22ch minmax(12ch, 1fr) minmax(20ch, 2fr)";
+ *  full text in `title`. The columns themselves are built per derivation by
+ *  `columnsFor` below. */
+
+/** The list's share of the band, from what its rows actually carry
+ *  (2026-09-24). It was a fixed 61.8 %, which at 2000 px left half of every
+ *  row empty while the object panel beside it ellipsized its type names. Now
+ *  the class column is as wide as the longest class (12–22ch), name and reason
+ *  split what remains in proportion to their longest text, and the list takes
+ *  what those need, never less than 50 % and never more than the 61.8 % it
+ *  had. The object panel takes the rest: 38.2 % to 50 %. The floor is what
+ *  keeps the four columns legal in the 1100 px skiplum.com iframe; the
+ *  ceiling is the old split, so no box gets a narrower list than before. */
+function columnsFor(rows: { entity: string; name: string | null }[], reasons: string[]) {
+  let entity = 0;
+  let name = 0;
+  let reason = 0;
+  rows.forEach((row, i) => {
+    entity = Math.max(entity, row.entity.length);
+    name = Math.max(name, row.name?.length ?? 0);
+    reason = Math.max(reason, reasons[i].length);
+  });
+  // GUID and class are set in mono and the grid's `ch` is the 12 px SANS
+  // digit, which is narrower: a mono character is about 1.1 sans `ch`. The
+  // GUID column was 23ch and its 22 mono characters ran into the class column
+  // with no gap; it is 25ch now, and the class column is its longest name
+  // scaled the same way.
+  const classCh = Math.min(24, Math.max(12, Math.ceil(entity * 1.12) + 1));
+  const nameCh = Math.min(64, Math.max(12, name));
+  const reasonCh = Math.min(96, Math.max(20, reason));
+  return {
+    columns: `25ch ${classCh}ch minmax(12ch, ${nameCh}fr) minmax(20ch, ${reasonCh}fr)`,
+    // four columns, three 0.5rem gaps and the px-3 either side
+    width: `clamp(50%, calc(${25 + classCh + nameCh + reasonCh}ch + 3rem), 61.8%)`,
+  };
+}
 
 interface TraceBandProps {
   lang: Lang;
@@ -102,6 +135,27 @@ export function TraceBand({
   }, []);
 
   const rows = trace.rows;
+  const reasons = useMemo(
+    () =>
+      rows.map((row) =>
+        row.code ? reasonText({ ...row, code: row.code, reason: row.reason ?? "" }, lang) : (row.reason ?? ""),
+      ),
+    [rows, lang],
+  );
+  const { columns, width } = useMemo(() => columnsFor(rows, reasons), [rows, reasons]);
+  // A row that carries a reason IS a finding of the open check or rule, so its
+  // reason is drawn in the focal's verdict cell: the same fill and glyph the
+  // row above had, read the same way down here (2026-09-24).
+  const findingFill = trace.verdict
+    ? VERDICT_FILL[trace.verdict]
+    : trace.state
+      ? RESULT_FILL[trace.state]
+      : null;
+  const findingGlyph = trace.verdict
+    ? VERDICT_GLYPH[trace.verdict]
+    : trace.state
+      ? RESULT_GLYPH[trace.state]
+      : null;
 
   /* Scroll the most recently selected row into view — the "pick in scene ⇄
      scroll + highlight the row" half of the link. Computed as an OFFSET rather
@@ -222,30 +276,30 @@ export function TraceBand({
         </div>
       ) : null}
 
-      {/* The golden split: the rows keep 61.8 %, the object panel takes the
-          38.2 % the band was wasting. The band's own height is unchanged — this
-          costs table WIDTH, which the four columns had to spare, never rows. */}
+      {/* The split follows the rows' content (`columnsFor`): the list takes
+          50 % to 61.8 %, the object panel the rest. The band's own height is
+          unchanged; this costs table WIDTH, never rows. */}
       <div className="flex min-h-0 flex-1">
-      <div className="flex min-h-0 min-w-0 flex-col" style={{ width: "61.8%" }}>
+      <div className="flex min-h-0 min-w-0 shrink-0 flex-col text-[12px]" style={{ width }}>
       <div
         // The same `gap-x-2` the rows carry, or every header after the first
-        // sits left of the column it names by the accumulated gaps.
-        className="grid shrink-0 items-center gap-x-2 border-y border-line bg-panel px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase"
-        style={{ gridTemplateColumns: COLUMNS }}
+        // sits left of the column it names by the accumulated gaps. And the
+        // rows' 12 px type on the grid itself, so its `ch` columns are the
+        // rows' `ch` columns; the labels are set small inside them.
+        className="grid shrink-0 items-center gap-x-2 border-y border-line bg-panel px-3 py-1 text-[12px] font-semibold tracking-[0.12em] text-gold uppercase"
+        style={{ gridTemplateColumns: columns }}
       >
-        <span>{t("col.guid", lang)}</span>
-        <span>{t("col.class", lang)}</span>
-        <span>{t("col.name", lang)}</span>
-        <span>{t("col.reason", lang)}</span>
+        <span className="text-[10px]">{t("col.guid", lang)}</span>
+        <span className="text-[10px]">{t("col.class", lang)}</span>
+        <span className="text-[10px]">{t("col.name", lang)}</span>
+        <span className="text-[10px]">{t("col.reason", lang)}</span>
       </div>
 
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto bg-input">
         <div style={{ height: rows.length * ROW_HEIGHT, position: "relative" }}>
           {visible.map((row, index) => {
             const at = first + index;
-            const reason = row.code
-              ? reasonText({ ...row, code: row.code, reason: row.reason ?? "" }, lang)
-              : (row.reason ?? "");
+            const reason = reasons[at];
             const picked = chosen.has(row.guid);
             const lit = hover === row.guid;
             return (
@@ -268,7 +322,7 @@ export function TraceBand({
                 style={{
                   top: at * ROW_HEIGHT,
                   height: ROW_HEIGHT,
-                  gridTemplateColumns: COLUMNS,
+                  gridTemplateColumns: columns,
                 }}
               >
                 {/* Never truncated. A GUID is an identifier, and half of one
@@ -293,13 +347,24 @@ export function TraceBand({
                 >
                   {row.name}
                 </span>
-                <span
-                  onDoubleClick={copyOnDoubleClick(reason)}
-                  className={"cursor-copy truncate " + (picked ? "" : "text-muted")}
-                  title={reason}
-                >
-                  {reason}
-                </span>
+                {reason && findingFill ? (
+                  <span
+                    onDoubleClick={copyOnDoubleClick(reason)}
+                    className={`flex h-[${ROW_HEIGHT - 6}px] min-w-0 cursor-copy items-center gap-1.5 px-2 ${findingFill}`}
+                    title={reason}
+                  >
+                    <span className="shrink-0 font-mono font-bold">{findingGlyph}</span>
+                    <span className="truncate">{reason}</span>
+                  </span>
+                ) : (
+                  <span
+                    onDoubleClick={copyOnDoubleClick(reason)}
+                    className={"cursor-copy truncate " + (picked ? "" : "text-muted")}
+                    title={reason}
+                  >
+                    {reason}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -307,7 +372,7 @@ export function TraceBand({
       </div>
       </div>
 
-      <div className="min-h-0 min-w-0" style={{ width: "38.2%" }}>
+      <div className="min-h-0 min-w-0 flex-1">
         <ObjectPanel lang={lang} model={model} selection={selection} />
       </div>
       </div>

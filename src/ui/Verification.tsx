@@ -21,6 +21,7 @@
  * the drill-in.
  */
 
+import type { ReactNode } from "react";
 import type { CheckResult } from "../engine/types";
 import type { ModelResult, RuleResult } from "../ids/evaluate.ts";
 import type { Focus } from "./trace";
@@ -41,8 +42,18 @@ import {
  *  fixed column so every block starts on the same line and the colour reads as
  *  one stack rather than a ragged edge. In `em` of the row's own type, so it
  *  scales with the list line: 18em seats glyph · ADVARSEL · "12 345 av
- *  123 456" without cutting the value, which is never truncated. */
-const COLUMNS = "minmax(0, 1fr) 18em 4.5em";
+ *  123 456" without cutting the value, which is never truncated.
+ *
+ *  The NAME column is `max-content` across every row (2026-09-24). It was
+ *  `1fr`, which at 1920 px left about 500 px of nothing between a check's name
+ *  and its verdict, so each row needed a sweep across the tile to pair them.
+ *  One grid carries the header, the check rows and the rule rows (each a
+ *  `subgrid`), so the column is as wide as the longest CHECK name and every
+ *  verdict cell starts directly after it. Rule names are the author's free
+ *  text: they are laid out with `contain: inline-size`, so a long one takes
+ *  the column's width and ellipsizes (by design, full name in `title`) rather
+ *  than widening the column for everything. */
+const COLUMNS = "max-content 18em 4.5em";
 
 interface VerificationProps {
   lang: Lang;
@@ -60,13 +71,16 @@ interface VerificationProps {
     evaluating?: boolean;
     error?: string;
   };
+  /** The three verdict counts, drawn in the section to the right of the rows:
+   *  the width the rows do not need, given to the numbers they summarise. */
+  readouts?: ReactNode;
 }
 
 // Row and type ride the grid's list line (`--bento-line`, a fixed fraction of
 // the track), so the focal shows the same rows at every size between
 // breakpoints instead of 24 px rows and a void on a big screen.
 const ROW =
-  "grid h-[var(--bento-line)] w-full text-[length:var(--bento-fs)] items-center gap-x-2 border-b border-line px-[var(--bento-pad)] text-left";
+  "col-span-full grid grid-cols-subgrid h-[var(--bento-line)] text-[length:var(--bento-fs)] items-center border-b border-line px-[var(--bento-pad)] text-left";
 const CELL =
   "flex h-[calc(var(--bento-line)-4px)] items-center gap-2 px-2 text-[length:var(--bento-fs-sm)]";
 const NAME = "truncate text-[length:var(--bento-fs)] text-ink";
@@ -76,7 +90,7 @@ const VALUE =
   "ml-auto shrink-0 font-mono text-[length:var(--bento-fs)] font-semibold whitespace-nowrap tabular-nums";
 const SHARE = "text-right font-mono text-[length:var(--bento-fs-sm)] whitespace-nowrap tabular-nums text-muted";
 const SECTION =
-  "flex h-[var(--bento-line)] items-center gap-2 border-line bg-panel px-[var(--bento-pad)] text-[length:var(--bento-fs-sm)] font-semibold tracking-[0.12em] text-gold uppercase";
+  "col-span-full flex h-[var(--bento-line)] items-center gap-2 border-line bg-panel px-[var(--bento-pad)] text-[length:var(--bento-fs-sm)] font-semibold tracking-[0.12em] text-gold uppercase";
 
 /** The proportion behind the value, when the value has one. A share and a
  *  uniqueness count do; a length unit does not, and an invented percentage
@@ -95,19 +109,23 @@ export function Verification({
   selected,
   onFocus,
   rules,
+  readouts,
 }: VerificationProps) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-input">
+    <div className="flex min-h-0 flex-1 overflow-hidden bg-input">
       <div
-        className="grid h-[var(--bento-line)] shrink-0 items-center gap-x-2 border-b border-line bg-panel px-[var(--bento-pad)] text-[length:var(--bento-fs)] font-semibold tracking-[0.12em] text-gold uppercase"
-        style={{ gridTemplateColumns: COLUMNS }}
+        className={
+          "grid min-h-0 content-start gap-x-2 overflow-x-hidden overflow-y-auto text-[length:var(--bento-fs)] [scrollbar-gutter:stable] " +
+          (readouts ? "flex-none" : "flex-1")
+        }
+        style={{ gridTemplateColumns: COLUMNS, gridAutoRows: "max-content" }}
       >
-        <span className="truncate text-[length:var(--bento-fs-sm)]">{t("col.check", lang)}</span>
-        <span className="truncate text-[length:var(--bento-fs-sm)]">{t("col.found", lang)}</span>
-        <span className="text-right text-[length:var(--bento-fs-sm)]">%</span>
-      </div>
+        <div className="sticky top-0 z-10 col-span-full grid h-[var(--bento-line)] grid-cols-subgrid items-center border-b border-line bg-panel px-[var(--bento-pad)] font-semibold tracking-[0.12em] text-gold uppercase">
+          <span className="truncate text-[length:var(--bento-fs-sm)]">{t("col.check", lang)}</span>
+          <span className="truncate text-[length:var(--bento-fs-sm)]">{t("col.found", lang)}</span>
+          <span className="text-right text-[length:var(--bento-fs-sm)]">%</span>
+        </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
         {checks.map((check) => {
           const rule = claimed.get(check.id);
           const verdict = rule ? VERDICT_OF_RESULT[rule.state] : verdictOf(check);
@@ -132,7 +150,6 @@ export function Verification({
                 `${ROW} hover:bg-palegreen ` +
                 (selected === key ? "outline-2 -outline-offset-2 outline-ink" : "")
               }
-              style={{ gridTemplateColumns: COLUMNS }}
             >
               <span data-essential className={NAME}>
                 {t(`check.${check.id}` as StringKey, lang)}
@@ -160,6 +177,10 @@ export function Verification({
 
         {rules ? <RuleRows lang={lang} rules={rules} selected={selected} onFocus={onFocus} /> : null}
       </div>
+
+      {readouts ? (
+        <div className="flex min-h-0 min-w-0 flex-1 border-l border-line">{readouts}</div>
+      ) : null}
     </div>
   );
 }
@@ -183,7 +204,7 @@ function RuleRows({
   return (
     <>
       <div
-        className={`sticky top-0 z-10 border-y ${SECTION}`}
+        className={`sticky top-[var(--bento-line)] z-10 border-y ${SECTION}`}
       >
         <span>{t("label.rules", lang)}</span>
         {results ? (
@@ -194,7 +215,7 @@ function RuleRows({
       </div>
 
       {rules.error ? (
-        <pre className="m-0 bg-bad px-[var(--bento-pad)] py-1 font-mono text-[length:var(--bento-fs-sm)] leading-snug whitespace-pre-wrap text-cream">
+        <pre className="col-span-full m-0 bg-bad [contain:inline-size] px-[var(--bento-pad)] py-1 font-mono text-[length:var(--bento-fs-sm)] leading-snug whitespace-pre-wrap text-cream">
           {t("error.ruleset", lang)}: {rules.error}
         </pre>
       ) : !results ? (
@@ -217,11 +238,10 @@ function RuleRows({
                 `${ROW} hover:bg-palegreen ` +
                 (selected === key ? "outline-2 -outline-offset-2 outline-ink" : "")
               }
-              style={{ gridTemplateColumns: COLUMNS }}
             >
               {/* A rule name is the author's free text and can be a sentence:
                   it ellipsizes by design, full name in the row's title. */}
-              <span className={NAME}>{result.ruleName}</span>
+              <span className={`${NAME} [contain:inline-size]`}>{result.ruleName}</span>
               <span className={`${CELL} ${RESULT_FILL[result.state]}`}>
                 <span className={GLYPH}>{RESULT_GLYPH[result.state]}</span>
                 <span data-essential className={WORD}>
