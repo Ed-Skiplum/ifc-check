@@ -190,11 +190,13 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     const typeObjects = JSON.parse(model.typeObjectsJson()) as IfcGraph["type_objects"];
     const psets = JSON.parse(model.psetsJson()) as IfcGraph["psets"];
     const classifications = JSON.parse(model.classificationsJson()) as IfcGraph["classifications"];
+    const quantities = JSON.parse(model.quantitiesJson()) as IfcGraph["quantities"];
 
     const graph = JSON.parse(model.graphJson()) as IfcGraph;
     graph.type_objects = typeObjects;
     graph.psets = psets;
     graph.classifications = classifications;
+    graph.quantities = quantities;
     model.free();
 
     heldGraph = graph;

@@ -63,6 +63,17 @@ const MIN_RADIUS_FRACTION = 0.002;
 const WHEEL_K = 0.0016;
 const WHEEL_CLAMP = 180;
 
+/** How far inside and outside a DELIBERATE frame the wheel may still travel.
+ *
+ * The radius window is scaled to the MODEL (`setExtent`), which is the right
+ * scale for a model-wide view and the wrong one the moment the camera is
+ * framed on a single element — see `allow`. A frame therefore widens the
+ * window to admit its own subject: down to a fiftieth of the framed radius,
+ * so a framed object can still be closed on, and out to four times it, so the
+ * frame itself is never truncated by the ceiling. */
+const FRAMED_MIN_FRACTION = 0.02;
+const FRAMED_MAX_FACTOR = 4;
+
 /** Chrome that overlays the canvas, in CSS px. A fit must CONTAIN the model
  *  inside what is left, not inside the raw canvas: "fills 90 % of the canvas"
  *  is the wrong success metric when a HUD sits on top of the first 24 px. */
@@ -224,11 +235,15 @@ export class Turntable {
    */
   zoom(pixels: number, focus: Vector3): void {
     const before = this.radius;
-    const after = MathUtils.clamp(
-      before * Math.exp(pixels * WHEEL_K),
-      this.minRadius,
-      this.maxRadius,
-    );
+    // The stops ABSORB; they never reflect. A camera already outside the
+    // window — framed closer than the model's own floor, or out past its
+    // ceiling — must still be able to move AWAY from the stop. Clamping to
+    // [min, max] alone answered a zoom-IN from inside the floor with a jump
+    // OUTWARD, and then refused every tick after it: the wheel went dead with
+    // the picture in the wrong place, which is the saturation the owner hit.
+    const lo = Math.min(this.minRadius, before);
+    const hi = Math.max(this.maxRadius, before);
+    const after = MathUtils.clamp(before * Math.exp(pixels * WHEEL_K), lo, hi);
     if (after === before) return;
     const advance = MathUtils.clamp(1 - after / before, -1, 1);
     this.target.lerp(focus, advance);
@@ -282,6 +297,34 @@ export class Turntable {
   setExtent(extent: number): void {
     this.minRadius = Math.max(extent * MIN_RADIUS_FRACTION, 1e-3);
     this.maxRadius = Math.max(extent * 50, 10);
+  }
+
+  /**
+   * Admit a radius the camera is deliberately being placed at.
+   *
+   * `setExtent` derives the window from the model, and on a model-wide view
+   * that is right. It is wrong the moment a frame lands on ONE element:
+   * measured on KNM_ARK the model floor is metres, so framing a small object
+   * puts the camera AT the floor and the next wheel tick in is refused —
+   * nothing moves, however hard the wheel is turned. The same window from the
+   * other end truncated `zoomToSelection` on a stray element: the ceiling is
+   * 50x the robust framing box, and the KNM_RIB beams sit thousands of
+   * kilometres outside it, so the frame was clamped to a camera that showed
+   * nothing and could not zoom out either.
+   *
+   * So every explicit frame widens the window around what it framed. Limits
+   * only ever widen — a frame grants reach, it never takes it away.
+   */
+  allow(radius: number): void {
+    if (!Number.isFinite(radius) || radius <= 0) return;
+    this.minRadius = Math.min(this.minRadius, Math.max(radius * FRAMED_MIN_FRACTION, 1e-4));
+    this.maxRadius = Math.max(this.maxRadius, radius * FRAMED_MAX_FACTOR);
+  }
+
+  /** The window the wheel may travel in, for a gate that has to report what
+   *  the stops actually are rather than recompute them. */
+  limits(): { min: number; max: number } {
+    return { min: this.minRadius, max: this.maxRadius };
   }
 }
 

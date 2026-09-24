@@ -12,7 +12,7 @@
  * dashboard calls a model wrong against a requirement nobody stated.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Ruleset } from "./ids/types.ts";
 import { AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
 import { t } from "./ui/i18n";
@@ -155,6 +155,60 @@ export default function App() {
     [setView, view.focus, view.model],
   );
 
+  /* ── A SELECTION opens the band (2026-09-23) ──────────────────────────────
+   *
+   * edkjo: *"where is the properties panel?"* — it lived only behind a drill,
+   * so selecting an element in the 3D tile showed nothing. The rule, exactly:
+   *
+   *   A model's selection opens the band on that model, on an `element` focus
+   *   naming the selected GUIDs, WHEN no derivation is open for that model or
+   *   when the one that is open is that model's own `element` focus. A real
+   *   drill — a check, rule, class, type, storey, cell or KPI — is never
+   *   re-targeted by a selection, so clicking down a list of findings keeps
+   *   the list. An emptied selection closes the band only when what is open is
+   *   that element focus.
+   *
+   * Driven off the selection rather than off each call site, so every path
+   * reaches it: a canvas pick, a band row, Escape, and a shift-click that
+   * grows the set. The ref holds the last selection this effect acted on, so
+   * re-renders from the hash change it makes do not re-enter, and the FIRST
+   * pass only records — a hash restored with an `element` focus rebuilds its
+   * selection instead of being closed by an effect that has seen nothing yet.
+   */
+  const actedOn = useRef<Record<string, string> | null>(null);
+  useEffect(() => {
+    const first = actedOn.current === null;
+    const seen = actedOn.current ?? {};
+    actedOn.current = seen;
+    for (const model of models) {
+      const view_ = cross.views[model.id];
+      const selection = view_?.selection ?? [];
+      // The GESTURE, not only the set: picking the same element again after
+      // closing the band is a request to open it again, and the set did not
+      // change. `selectSeq` is what makes that visible here.
+      const key = `${view_?.selectSeq ?? 0}|${selection.join("+")}`;
+      if (seen[model.id] === key) continue;
+      seen[model.id] = key;
+      if (first) continue;
+      const open = view.model === model.id ? parseFocus(view.focus) : null;
+      // A drill in progress owns the band.
+      if (open !== null && open.kind !== "element") continue;
+      if (selection.length > 0) {
+        setView({ model: model.id, focus: `element:${selection.join("+")}` });
+      }
+      else if (open?.kind === "element") setView({ model: null, focus: null });
+    }
+    if (!first) return;
+    // First pass: a restored `element` focus puts its selection back, so the
+    // object panel is filled rather than showing a list of rows nothing is
+    // selected in.
+    const restored = parseFocus(view.focus);
+    if (restored?.kind === "element" && view.model) {
+      seen[view.model] = `${cross.views[view.model]?.selectSeq ?? 0}|${restored.guids.join("+")}`;
+      cross.setSelection(view.model, restored.guids);
+    }
+  }, [cross, models, setView, view.focus, view.model]);
+
   const onRemove = useCallback(
     (id: string) => {
       if (view.model === id) setView({ model: null, focus: null });
@@ -272,7 +326,7 @@ export default function App() {
                       key={`${trace.modelId}:${trace.focus}`}
                       lang={view.lang}
                       trace={trace}
-                      profile={model.profile ?? null}
+                      model={model}
                       selection={cross.view(trace.modelId).selection}
                       hover={cross.view(trace.modelId).hover}
                       // A band row is the second step of the drill: it

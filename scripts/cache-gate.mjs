@@ -94,6 +94,7 @@ const graph = JSON.parse(model.graphJson());
 graph.type_objects = JSON.parse(model.typeObjectsJson());
 graph.psets = JSON.parse(model.psetsJson());
 graph.classifications = JSON.parse(model.classificationsJson());
+graph.quantities = JSON.parse(model.quantitiesJson());
 model.free();
 
 const elements = batches.reduce((sum, b) => sum + b.meta.length, 0);

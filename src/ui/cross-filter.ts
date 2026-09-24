@@ -110,6 +110,7 @@ export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip 
   if (focus.kind === "type") {
     return { key, kind: "type", label: focus.typeName ?? t("type.untyped", lang), focus };
   }
+  // `kpi` and `element`: neither is a set to narrow to. See `guidsOf`.
   return null;
 }
 
@@ -151,8 +152,10 @@ function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
     if (!profile) return null;
     return new Set(storeyRows(profile, focus.storeyGuids).map((r) => r.guid));
   }
-  // `kpi` never reaches here — `chipOf` refuses to make a chip out of it — and
-  // the exhaustive fallthrough is what keeps that true if a focus kind is added.
+  // `kpi` and `element` never reach here. `chipOf` refuses both: a KPI focus
+  // narrows nothing, and an `element` focus is the SELECTION — it opens the
+  // band, and a canvas pick must never isolate what the pointer is over. The
+  // exhaustive fallthrough keeps that true if a focus kind is added.
   return null;
 }
 
@@ -214,6 +217,14 @@ export interface ModelView {
    *  band. `pick` — the canvas — never touches it, which is the "a viewer click
    *  does not move the camera" rule expressed as data rather than as care. */
   frameSeq: number;
+  /** How many times a SELECTION GESTURE has landed on a non-empty selection.
+   *
+   * The band opens on a selection (`App`), and that has to fire for the same
+   * element picked twice: a user who closed the band and clicked the object
+   * again is asking for it back, and a watcher keyed on the selection alone
+   * cannot see that — the set did not change. So the gesture is counted.
+   * `setSelection` (a restore) deliberately does NOT bump it. */
+  selectSeq: number;
 }
 
 export const EMPTY_VIEW: ModelView = {
@@ -222,10 +233,15 @@ export const EMPTY_VIEW: ModelView = {
   selection: [],
   hover: null,
   frameSeq: 0,
+  selectSeq: 0,
 };
 
 export interface CrossFilterApi {
   view: (modelId: string) => ModelView;
+  /** Every model's view at once. `App` watches this to decide whether a
+   *  SELECTION should open the derivation band; a per-model getter cannot be a
+   *  dependency of one effect that has to see them all. */
+  views: Record<string, ModelView>;
   setMode: (modelId: string, mode: Mode) => void;
   /** Idempotent. The caller decides whether a click is opening or closing —
    *  see `ModelPanel` — so that a chip is present exactly when its derivation
@@ -269,6 +285,7 @@ export function useCrossFilter(): CrossFilterApi {
 
   return {
     view,
+    views,
     setMode: useCallback(
       (modelId, mode) => patch(modelId, (v) => ({ ...v, mode })),
       [patch],
@@ -296,11 +313,12 @@ export function useCrossFilter(): CrossFilterApi {
     pick: useCallback(
       (modelId, guid, additive) =>
         patch(modelId, (v) => {
-          if (guid === null) return { ...v, selection: [] };
-          if (!additive) return { ...v, selection: [guid] };
+          const bump = v.selectSeq + 1;
+          if (guid === null) return { ...v, selection: [], selectSeq: bump };
+          if (!additive) return { ...v, selection: [guid], selectSeq: bump };
           return v.selection.includes(guid)
-            ? { ...v, selection: v.selection.filter((g) => g !== guid) }
-            : { ...v, selection: [...v.selection, guid] };
+            ? { ...v, selection: v.selection.filter((g) => g !== guid), selectSeq: bump }
+            : { ...v, selection: [...v.selection, guid], selectSeq: bump };
         }),
       [patch],
     ),
@@ -308,6 +326,7 @@ export function useCrossFilter(): CrossFilterApi {
       (modelId, chip, additive) =>
         patch(modelId, (v) => {
           const others = v.chips.filter((c) => c.kind !== "element");
+          v = { ...v, selectSeq: v.selectSeq + 1 };
           if (chip === null) return { ...v, chips: others, selection: [] };
           const guid = chip.guids![0];
           const mine = v.chips.filter((c) => c.kind === "element");

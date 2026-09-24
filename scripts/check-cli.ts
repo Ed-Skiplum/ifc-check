@@ -63,6 +63,7 @@ for (const path of args) {
   graph.type_objects = JSON.parse(model.typeObjectsJson());
   graph.psets = JSON.parse(model.psetsJson());
   graph.classifications = JSON.parse(model.classificationsJson());
+  graph.quantities = JSON.parse(model.quantitiesJson());
   const checks = [
     ...runFundamentals(graph, summary),
     checkStoreyConfig(graph, summary, floors),

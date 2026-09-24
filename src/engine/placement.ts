@@ -170,6 +170,7 @@ export function bulkOutliers(
 interface Level {
   guid: string;
   name: string | null;
+  /** METRES — `unit_scale` already applied (ifcfast#180). */
   elevation: number;
 }
 
@@ -185,6 +186,201 @@ function expectedLevel(levels: Level[], bottom: number): Level | null {
 }
 
 const round = (v: number, d = 2) => Number(v.toFixed(d));
+
+/** What `placementContext` needs, named rather than taken as a whole graph.
+ *
+ * The check builds it from `IfcGraph`; the object panel builds it from the
+ * UI's reduced profile. Neither owns the arithmetic — that is the point: one
+ * hub, one cutoff, one storey band, one tolerance, whoever is asking. */
+export interface PlacementInput {
+  /** Already scope-filtered: openings and copy-object exclusions dropped. */
+  products: readonly { guid: string; storeyGuid: string | null }[];
+  /** `elevation` in FILE units, exactly as the parser reports it. */
+  storeys: readonly { guid: string; name: string | null; elevation: number | null }[];
+  unitScale: number;
+  unitResolved: boolean;
+}
+
+/**
+ * Everything the placement question needs that is a property of the MODEL
+ * rather than of one element: the main body's hub and cutoff, which elements
+ * are strays, the storey band, and whether the band can be compared at all.
+ *
+ * Built once per model. `checkMeshPlacement` runs off it and so does the
+ * object panel's derived group, so a value shown beside one element and the
+ * check's verdict on the same element cannot come from two different rules.
+ */
+export interface PlacementContext {
+  boxes: ReadonlyMap<string, ElementBox>;
+  /** In-scope products that have geometry, in input order. */
+  meshed: readonly { guid: string; storeyGuid: string | null }[];
+  hub: [number, number, number];
+  cutoff: number;
+  far: ReadonlySet<string>;
+  /** Lowest first, metres. */
+  levels: Level[];
+  storeyByGuid: ReadonlyMap<string, Level>;
+  /** Null when the storey band CAN be compared; otherwise the reason it
+   *  cannot, in the engine's own words. */
+  storeyReason: string | null;
+  /** Elements the band was compared for. */
+  compared: number;
+  /** Products with no geometry at all. */
+  unmeshed: number;
+  /** guid -> index into `meshed`, so a per-element lookup is not a scan. */
+  at: ReadonlyMap<string, number>;
+}
+
+export function placementContext(
+  input: PlacementInput,
+  boxes: ReadonlyMap<string, ElementBox>,
+): PlacementContext {
+  const meshed = input.products.filter((p) => boxes.has(p.guid));
+  const at = new Map(meshed.map((p, i) => [p.guid, i]));
+
+  const centres = meshed.map((p) => {
+    const b = boxes.get(p.guid)!;
+    return [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2] as const;
+  });
+  const halves = meshed.map((p) => {
+    const b = boxes.get(p.guid)!;
+    return Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
+  });
+  const { outlier, cutoff } = bulkOutliers(centres, halves);
+  const hub = meshed.length ? bulkHub(centres) : ([0, 0, 0] as [number, number, number]);
+  const far = new Set<string>();
+  meshed.forEach((p, i) => {
+    if (outlier[i]) far.add(p.guid);
+  });
+
+  const levels: Level[] = input.storeys
+    .filter((s) => s.elevation !== null)
+    .map((s) => ({ guid: s.guid, name: s.name, elevation: (s.elevation as number) * input.unitScale }))
+    .sort((a, b) => a.elevation - b.elevation);
+  const storeyByGuid = new Map(levels.map((l) => [l.guid, l]));
+  const distinct: number[] = [];
+  for (const l of levels) {
+    if (!distinct.length || Math.abs(l.elevation - distinct[distinct.length - 1]) > LEVEL_EPSILON_M) {
+      distinct.push(l.elevation);
+    }
+  }
+
+  let storeyReason: string | null = null;
+  let compared = 0;
+  if (!input.unitResolved) {
+    storeyReason = "storey comparison not run: length unit unresolved";
+  } else if (distinct.length < 2) {
+    storeyReason =
+      `storey comparison not run: ${levels.length} storey elevation(s) are not distinguishable` +
+      (distinct.length === 1 ? ` (all at ${distinct[0].toFixed(3)} m)` : "");
+  } else {
+    let elevLo = Infinity;
+    let elevHi = -Infinity;
+    let bottomLo = Infinity;
+    let bottomHi = -Infinity;
+    for (const p of meshed) {
+      if (far.has(p.guid) || !p.storeyGuid) continue;
+      const stated = storeyByGuid.get(p.storeyGuid);
+      if (!stated) continue;
+      compared += 1;
+      elevLo = Math.min(elevLo, stated.elevation);
+      elevHi = Math.max(elevHi, stated.elevation);
+      const bottom = boxes.get(p.guid)!.min[2];
+      bottomLo = Math.min(bottomLo, bottom);
+      bottomHi = Math.max(bottomHi, bottom);
+    }
+    const band = STOREY_TOLERANCE_M;
+    if (compared > 0 && (bottomHi < elevLo - band || bottomLo > elevHi + band)) {
+      storeyReason =
+        `storey comparison not run: mesh bottoms ${bottomLo.toFixed(2)}..${bottomHi.toFixed(2)} m ` +
+        `and storey elevations ${elevLo.toFixed(2)}..${elevHi.toFixed(2)} m do not overlap, ` +
+        "so they are not in one frame";
+    }
+  }
+
+  return {
+    boxes,
+    meshed,
+    hub,
+    cutoff,
+    far,
+    levels,
+    storeyByGuid,
+    storeyReason,
+    compared,
+    unmeshed: input.products.length - meshed.length,
+    at,
+  };
+}
+
+/** One element's placement facts, as the check would judge them.
+ *
+ * Every field is what was MEASURED and nothing more. `null` is never a zero:
+ * an element with no mesh has no box, no bottom and no distance, and an
+ * element whose model cannot have its storey band compared has no `expected`
+ * — `storeyReason` says which of those it is. */
+export interface ElementPlacement {
+  box: ElementBox | null;
+  centre: [number, number, number] | null;
+  /** Euclidean distance from the model's main-body hub, metres. */
+  distance: number | null;
+  cutoff: number;
+  far: boolean;
+  /** Mesh bottom, metres (world Z). */
+  bottom: number | null;
+  /** The storey the file says contains it, elevation in metres. */
+  stated: Level | null;
+  /** The storey the mesh bottom falls in. */
+  expected: Level | null;
+  /** bottom - stated elevation, metres, signed. */
+  delta: number | null;
+  /** Why `expected` could not be computed, in the engine's own words. */
+  storeyReason: string | null;
+}
+
+export function placementOf(guid: string, ctx: PlacementContext): ElementPlacement {
+  const box = ctx.boxes.get(guid) ?? null;
+  const index = ctx.at.get(guid);
+  const statedGuid = index === undefined ? null : ctx.meshed[index].storeyGuid;
+  const statedLevel = statedGuid === null ? null : (ctx.storeyByGuid.get(statedGuid) ?? null);
+  if (!box) {
+    return {
+      box: null,
+      centre: null,
+      distance: null,
+      cutoff: ctx.cutoff,
+      far: false,
+      bottom: null,
+      stated: statedLevel,
+      expected: null,
+      delta: null,
+      storeyReason: ctx.storeyReason,
+    };
+  }
+  const centre: [number, number, number] = [
+    (box.min[0] + box.max[0]) / 2,
+    (box.min[1] + box.max[1]) / 2,
+    (box.min[2] + box.max[2]) / 2,
+  ];
+  const bottom = box.min[2];
+  const far = ctx.far.has(guid);
+  // Far wins: a mesh kilometres away has no meaningful storey band, which is
+  // exactly the precedence `checkMeshPlacement` applies to its findings.
+  const canBand = ctx.storeyReason === null && !far;
+  const expected = canBand ? expectedLevel(ctx.levels, bottom) : null;
+  return {
+    box,
+    centre,
+    distance: Math.hypot(centre[0] - ctx.hub[0], centre[1] - ctx.hub[1], centre[2] - ctx.hub[2]),
+    cutoff: ctx.cutoff,
+    far,
+    bottom,
+    stated: statedLevel,
+    expected,
+    delta: statedLevel ? bottom - statedLevel.elevation : null,
+    storeyReason: far ? "far from the model" : ctx.storeyReason,
+  };
+}
 
 /**
  * `boxes` null = no geometry in this session (the restore path): the check
@@ -208,96 +404,61 @@ export function checkMeshPlacement(
   const products: ProductRow[] = graph.products.filter(
     (p) => !openings.has(p.guid) && !excluded?.has(p.guid),
   );
-  const meshed = products.filter((p) => boxes.has(p.guid));
+  const byGuid = new Map(products.map((p) => [p.guid, p]));
+  const ctx = placementContext(
+    {
+      products: products.map((p) => ({ guid: p.guid, storeyGuid: p.storey_guid })),
+      storeys: graph.storeys,
+      unitScale: summary.unit_scale,
+      unitResolved: summary.unit_resolved,
+    },
+    boxes,
+  );
 
-  // ── far from the main body
-  const centres = meshed.map((p) => {
-    const b = boxes.get(p.guid)!;
-    return [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2] as const;
-  });
-  const halves = meshed.map((p) => {
-    const b = boxes.get(p.guid)!;
-    return Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
-  });
-  const { outlier, cutoff } = bulkOutliers(centres, halves);
   const findings: Finding[] = [];
-  const far = new Set<string>();
-  const hub = meshed.length ? bulkHub(centres) : [0, 0, 0];
-  meshed.forEach((p, i) => {
-    if (!outlier[i]) return;
-    far.add(p.guid);
-    const c = centres[i];
-    const distance = Math.hypot(c[0] - hub[0], c[1] - hub[1], c[2] - hub[2]);
-    findings.push(finding(p, "far-from-model", { distance: round(distance, 0), cutoff: round(cutoff, 1) }));
-  });
-
-  // ── storey band
-  const byGuid = new Map(graph.storeys.map((s) => [s.guid, s]));
-  const levels: Level[] = graph.storeys
-    .filter((s) => s.elevation !== null)
-    .map((s) => ({ guid: s.guid, name: s.name, elevation: (s.elevation as number) * summary.unit_scale }))
-    .sort((a, b) => a.elevation - b.elevation);
-  const distinct: number[] = [];
-  for (const l of levels) {
-    if (!distinct.length || Math.abs(l.elevation - distinct[distinct.length - 1]) > LEVEL_EPSILON_M) {
-      distinct.push(l.elevation);
-    }
+  for (const p of ctx.meshed) {
+    if (!ctx.far.has(p.guid)) continue;
+    const place = placementOf(p.guid, ctx);
+    findings.push(
+      finding(byGuid.get(p.guid)!, "far-from-model", {
+        distance: round(place.distance ?? 0, 0),
+        cutoff: round(ctx.cutoff, 1),
+      }),
+    );
   }
 
   let storeyNote: string;
-  let compared = 0;
-  let elevLo = Infinity, elevHi = -Infinity, bottomLo = Infinity, bottomHi = -Infinity;
-  const storeyFindings: Finding[] = [];
-  if (!summary.unit_resolved) {
-    storeyNote = "storey comparison not run: length unit unresolved";
-  } else if (distinct.length < 2) {
-    storeyNote =
-      `storey comparison not run: ${levels.length} storey elevation(s) are not distinguishable` +
-      (distinct.length === 1 ? ` (all at ${distinct[0].toFixed(3)} m)` : "");
+  if (ctx.storeyReason !== null) {
+    storeyNote = ctx.storeyReason;
   } else {
-    for (const p of meshed) {
-      if (far.has(p.guid) || !p.storey_guid) continue;
-      const stated = byGuid.get(p.storey_guid);
-      if (!stated || stated.elevation === null) continue;
-      compared += 1;
-      const statedElevation = stated.elevation * summary.unit_scale;
-      const bottom = boxes.get(p.guid)!.min[2];
-      elevLo = Math.min(elevLo, statedElevation);
-      elevHi = Math.max(elevHi, statedElevation);
-      bottomLo = Math.min(bottomLo, bottom);
-      bottomHi = Math.max(bottomHi, bottom);
-      const expected = expectedLevel(levels, bottom);
-      if (expected && Math.abs(expected.elevation - statedElevation) <= LEVEL_EPSILON_M) continue;
-      storeyFindings.push(
-        finding(p, "storey-mismatch", {
-          bottom: round(bottom),
+    let off = 0;
+    for (const p of ctx.meshed) {
+      if (ctx.far.has(p.guid) || !p.storeyGuid) continue;
+      const stated = ctx.storeyByGuid.get(p.storeyGuid);
+      if (!stated) continue;
+      const place = placementOf(p.guid, ctx);
+      const expected = place.expected;
+      if (expected && Math.abs(expected.elevation - stated.elevation) <= LEVEL_EPSILON_M) continue;
+      off += 1;
+      findings.push(
+        finding(byGuid.get(p.guid)!, "storey-mismatch", {
+          bottom: round(place.bottom ?? 0),
           storey: stated.name ?? stated.guid,
-          elevation: round(statedElevation),
+          elevation: round(stated.elevation),
           expected: expected ? (expected.name ?? expected.guid) : "-",
         }),
       );
     }
-    const band = STOREY_TOLERANCE_M;
-    if (compared > 0 && (bottomHi < elevLo - band || bottomLo > elevHi + band)) {
-      storeyNote =
-        `storey comparison not run: mesh bottoms ${bottomLo.toFixed(2)}..${bottomHi.toFixed(2)} m ` +
-        `and storey elevations ${elevLo.toFixed(2)}..${elevHi.toFixed(2)} m do not overlap, ` +
-        "so they are not in one frame";
-      storeyFindings.length = 0;
-    } else {
-      storeyNote = `${storeyFindings.length} of ${compared} off their storey (tolerance ${STOREY_TOLERANCE_M} m)`;
-    }
+    storeyNote = `${off} of ${ctx.compared} off their storey (tolerance ${STOREY_TOLERANCE_M} m)`;
   }
-  findings.push(...storeyFindings);
 
-  const unmeshed = products.length - meshed.length;
   return result(
     id,
     "deviation",
-    meshed.length,
+    ctx.meshed.length,
     findings,
-    share(meshed.length - findings.length, meshed.length),
-    `${far.size} of ${meshed.length} far from the model (cutoff ${round(cutoff, 1)} m); ` +
-      `${storeyNote}; ${unmeshed} without geometry`,
+    share(ctx.meshed.length - findings.length, ctx.meshed.length),
+    `${ctx.far.size} of ${ctx.meshed.length} far from the model (cutoff ${round(ctx.cutoff, 1)} m); ` +
+      `${storeyNote}; ${ctx.unmeshed} without geometry`,
   );
 }

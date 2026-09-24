@@ -6,14 +6,15 @@
  * name and its progress and nothing else; a file that failed shows its error in
  * full, named, never folded away.
  *
- * ── Tabs (2026-09-21) ────────────────────────────────────────────────────
+ * ── Tabs (2026-09-21, Graf added 2026-09-23) ─────────────────────────────
  * edkjo: "a tabbed experience with the lead values and outputs on the first
  * dash, then more nitty gritty on other tabs." Kontroll is the bento board;
- * Innhold is the census and the type ledger. The tab is in the URL hash, so
- * Back/Forward walk it. The filter bar sits ABOVE the strip because a chip
- * belongs to the model, not to a tab: chips persist across tabs. Both tabs
- * stay mounted and the inactive one is hidden, so the 3D scene and its camera
- * survive a trip to Innhold and back.
+ * Innhold is the census and the type ledger; Graf is the selected element's
+ * relationships as a node-link diagram (`GraphTab.tsx`). The tab is in the URL
+ * hash, so Back/Forward walk it. The filter bar sits ABOVE the strip because a
+ * chip belongs to the model, not to a tab: chips persist across tabs. Every
+ * tab stays mounted and the inactive ones are hidden, so the 3D scene and its
+ * camera survive a trip to Innhold or Graf and back.
  *
  * The derivation band opens under the active tab, pinned to the bottom of the
  * scrolling page at 38.2 % of the screen, so it is in view wherever the number
@@ -34,7 +35,7 @@ import { useCallback, useMemo, type ReactNode } from "react";
 import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
 import type { Focus } from "./trace";
-import type { Lang } from "./i18n";
+import type { Lang, StringKey } from "./i18n";
 import type { FilterChip, Mode, ModelView } from "./cross-filter";
 import { chipOf, resolveFilter } from "./cross-filter";
 import { t } from "./i18n";
@@ -43,6 +44,7 @@ import { formatBytes, formatCount, formatMs } from "./format";
 import { census } from "./profile";
 import { Contents } from "./Contents";
 import { Dashboard } from "./Dashboard";
+import { GraphTab } from "./GraphTab";
 import { FilterBar } from "./FilterBar";
 import { ReadoutStrip, type Readout } from "./forms";
 import { BENTO_MAX_WIDTH } from "./bento-spec";
@@ -50,8 +52,13 @@ import { aggregateTypes, meshIndex } from "./types";
 import type { FloorConfig } from "../engine/storey-config";
 import type { FloorPeer } from "./FloorSetup";
 
-export type Tab = "checks" | "contents";
-const TABS: readonly Tab[] = ["checks", "contents"];
+export type Tab = "checks" | "contents" | "graph";
+const TABS: readonly Tab[] = ["checks", "contents", "graph"];
+const TAB_LABEL: Record<Tab, StringKey> = {
+  checks: "tab.checks",
+  contents: "tab.contents",
+  graph: "tab.graph",
+};
 
 interface ModelPanelProps {
   lang: Lang;
@@ -275,7 +282,7 @@ export function ModelPanel({
                     : "border-transparent text-muted hover:text-green")
                 }
               >
-                {t(id === "checks" ? "tab.checks" : "tab.contents", lang)}
+                {t(TAB_LABEL[id], lang)}
               </button>
             ))}
           </div>
@@ -305,6 +312,16 @@ export function ModelPanel({
                 ledger={ledger}
                 selected={selected}
                 onFocus={focus}
+              />
+            </div>
+            {/* Same mounted-and-hidden pattern as the other two: the 3D scene
+                on Kontroll must survive a trip here and back. */}
+            <div role="tabpanel" hidden={tab !== "graph"} className="flex flex-col">
+              <GraphTab
+                lang={lang}
+                profile={profile ?? null}
+                selection={view.selection}
+                onPick={onPick}
               />
             </div>
             {/* Pinned to the bottom of the scrolling page while this panel

@@ -214,6 +214,8 @@ export function estimateBytes(graph: IfcGraph, mesh: CachedMesh | null): number 
   bytes += (graph.psets?.length ?? 0) * 160;
   bytes += (graph.classifications?.length ?? 0) * 300;
   bytes += (graph.type_objects?.length ?? 0) * 140;
+  // Quantities are the same long shape as properties, one column narrower.
+  bytes += (graph.quantities?.length ?? 0) * 160;
   for (const batch of mesh?.batches ?? []) {
     bytes += batch.positions.byteLength + batch.indices.byteLength + batch.meta.length * 240;
   }

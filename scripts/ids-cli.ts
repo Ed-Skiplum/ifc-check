@@ -198,6 +198,7 @@ interface WasmModel {
   graphJson(): string;
   psetsJson(): string;
   classificationsJson(): string;
+  quantitiesJson(): string;
   typeObjectsJson(): string;
   free(): void;
 }
@@ -247,6 +248,7 @@ async function cmdRun(args: string[]): Promise<number> {
       // evaluator, one model shape, no second code path to drift.
       graph.psets = JSON.parse(parsed.psetsJson());
       graph.classifications = JSON.parse(parsed.classificationsJson());
+      graph.quantities = JSON.parse(parsed.quantitiesJson());
       graph.type_objects = JSON.parse(parsed.typeObjectsJson());
       parsed.free();
       models.push(evaluateRuleset(ruleset, graph, summary, name, { maxFindings }));

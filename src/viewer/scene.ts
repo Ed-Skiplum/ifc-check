@@ -481,6 +481,15 @@ export class ModelScene {
     target: [number, number, number];
     radius: number;
     box: { x0: number; y0: number; x1: number; y1: number } | null;
+    /** The wheel's own stops, so a gate reports the limits the viewer HAS
+     *  rather than a second copy of the arithmetic that derives them. */
+    limits: { min: number; max: number };
+    near: number;
+    far: number;
+    /** The same elements' WORLD box. A gate that wants to follow one fixed
+     *  point through a zoom needs a world coordinate; the NDC box's centre is
+     *  not one — which corner is extreme changes as the camera moves. */
+    world: { min: [number, number, number]; max: [number, number, number] } | null;
   } {
     const eye = this.turntable.eye();
     const target = this.turntable.target;
@@ -510,7 +519,31 @@ export class ModelScene {
       target: [target.x, target.y, target.z],
       radius: this.turntable.radius,
       box,
+      limits: this.turntable.limits(),
+      near: this.camera.near,
+      far: this.camera.far,
+      world: bounds
+        ? {
+            min: [bounds.min.x, bounds.min.y, bounds.min.z],
+            max: [bounds.max.x, bounds.max.y, bounds.max.z],
+          }
+        : null,
     };
+  }
+
+  /**
+   * Where world points land in NDC under the CURRENT camera. Read-only.
+   *
+   * The only honest way to assert "the point under the cursor stayed under the
+   * cursor": zoom-to-cursor is a claim about ONE world point, and the NDC
+   * bounding box of an element is not that point. The projection is the
+   * shipped camera, never a copy living in a gate.
+   */
+  project(points: [number, number, number][]): { x: number; y: number }[] {
+    return points.map((p) => {
+      const ndc = new Vector3(p[0], p[1], p[2]).project(this.camera);
+      return { x: ndc.x, y: ndc.y };
+    });
   }
 
   /** Dispose and give the WebGL context back at once, for a hidden scene. */
@@ -722,6 +755,10 @@ export class ModelScene {
       this.viewport,
       this.insets,
     );
+    // Widen the wheel's window around what is being framed BEFORE the radius
+    // is written, or `apply` clamps the frame back to the model's own limits
+    // and the camera lands somewhere the caller never asked for.
+    this.turntable.allow(radius);
     this.turntable.target.copy(centre);
     this.turntable.radius = radius;
     this.turntable.clearPivot();

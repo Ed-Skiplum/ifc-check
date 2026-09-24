@@ -47,6 +47,17 @@ export interface ProductRowLite {
   /** `ProductRow.tag` — the authoring tool's own element id, not a GlobalId. */
   tag?: string | null;
   materials?: string[];
+  /** `ProductRow.layer_set` — the material layer set's own name, when the
+   *  material association is an `IfcMaterialLayerSetUsage`. */
+  layerSet?: string | null;
+  /** `IfcRelAggregates` / `IfcRelNests`: what this element is a part of, and
+   *  what the parser calls that parent. */
+  parentGuid?: string | null;
+  parentKind?: string | null;
+  /** `IfcRelVoidsElement` seen from the element the opening sits in. */
+  openingGuids?: string[];
+  /** `IfcRelVoidsElement` seen from the opening: the element it voids. */
+  hostGuid?: string | null;
   isExternal?: boolean | null;
   fireRating?: string | null;
   loadBearing?: boolean | null;
@@ -62,6 +73,8 @@ export interface StoreyRowLite {
   name: string | null;
   /** In FILE units — scale by `unitScale` before reading it as metres. */
   elevation: number | null;
+  /** `IfcRelAggregates`, storey -> building (`graph.storey_building`). */
+  buildingGuid?: string | null;
 }
 
 /** How many entities the graph holds at each level of the spatial chain.
@@ -82,7 +95,21 @@ export interface SpatialCounts {
  *  property is identified by set plus name and not by name alone. */
 export interface PsetGroup {
   name: string;
-  properties: { name: string; value: string | null }[];
+  properties: PropertyLite[];
+  /** `IfcElementQuantity` rather than `IfcPropertySet`. The two are different
+   *  entities in the standard and the panel says which it is showing. */
+  quantity?: boolean;
+}
+
+/** One property or quantity as the panel reads it. `source` is ifcfast's own
+ *  `instance` / `type` flag: a set inherited from the type object is a real
+ *  distinction in the standard, not a detail. `valueType` is the STEP value
+ *  type (`IfcLabel`, `IfcAreaMeasure`, ...), kept verbatim. */
+export interface PropertyLite {
+  name: string;
+  value: string | null;
+  valueType?: string | null;
+  source?: string;
 }
 
 /** One classification reference. `code` is the schema-normalised identification
@@ -91,6 +118,12 @@ export interface ClassificationRef {
   system: string | null;
   code: string | null;
   name: string | null;
+  edition?: string | null;
+  location?: string | null;
+  /** `IfcClassification.Source` — the publishing body. */
+  publisher?: string | null;
+  /** `instance` / `type`, the same flag the property rows call `source`. */
+  assignmentSource?: string;
 }
 
 /** The raw payload the worker sends alongside the check results.
@@ -112,6 +145,12 @@ export interface ModelProfile {
   spatial: SpatialCounts;
   psets?: Map<string, PsetGroup[]>;
   classifications?: Map<string, ClassificationRef[]>;
+  /** `IfcElementQuantity` (`Qto_*`), the same absent-vs-empty rule as `psets`. */
+  quantities?: Map<string, PsetGroup[]>;
+  /** Named spatial containers, so a relationship row can print a NAME rather
+   *  than only the GlobalId it points at. */
+  buildings?: { guid: string; name: string | null }[];
+  sites?: { guid: string; name: string | null }[];
 }
 
 export interface ClassCount {

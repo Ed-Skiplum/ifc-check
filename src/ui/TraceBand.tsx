@@ -44,7 +44,7 @@ import { t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
 import { ObjectPanel } from "./ObjectPanel";
-import type { ModelProfile } from "./profile";
+import type { ModelEntry } from "./useModels";
 import { reasonText } from "./reasons";
 import { RESULT_FILL, RESULT_GLYPH, VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 
@@ -61,8 +61,9 @@ const COLUMNS = "23ch 22ch minmax(12ch, 1fr) minmax(20ch, 2fr)";
 interface TraceBandProps {
   lang: Lang;
   trace: Trace;
-  /** This model's profile, for the object panel beside the table. */
-  profile: ModelProfile | null;
+  /** The whole model entry: the object panel beside the table reads the file's
+   *  profile AND the streamed mesh (its derived group measures geometry). */
+  model: ModelEntry;
   /** GUIDs selected in this model, whichever side selected them. */
   selection: string[];
   hover: string | null;
@@ -75,7 +76,7 @@ interface TraceBandProps {
 export function TraceBand({
   lang,
   trace,
-  profile,
+  model,
   selection,
   hover,
   onPick,
@@ -307,7 +308,7 @@ export function TraceBand({
       </div>
 
       <div className="min-h-0 min-w-0" style={{ width: "38.2%" }}>
-        <ObjectPanel lang={lang} profile={profile} selection={selection} />
+        <ObjectPanel lang={lang} model={model} selection={selection} />
       </div>
       </div>
     </section>

@@ -20,7 +20,7 @@ export interface ViewState {
   page: "setup" | null;
   /** The model panel's tab. null is the first tab, Kontroll; it is left out
    *  of the hash so a bare URL and a board link stay short. */
-  tab: "contents" | null;
+  tab: "contents" | "graph" | null;
 }
 
 function isLang(value: string | null): value is Lang {
@@ -64,7 +64,10 @@ function readPage(hash: URLSearchParams): ViewState["page"] {
 }
 
 function readTab(hash: URLSearchParams): ViewState["tab"] {
-  return hash.get("tab") === "contents" ? "contents" : null;
+  const tab = hash.get("tab");
+  if (tab === "contents") return "contents";
+  if (tab === "graph") return "graph";
+  return null;
 }
 
 function serialise(view: ViewState): string {

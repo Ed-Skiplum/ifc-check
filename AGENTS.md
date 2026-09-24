@@ -36,7 +36,9 @@ src/ui/          the screen, and the worker that drives the engine
                    file's own storeys with no config
   TraceBand.tsx    the derivation band: the rows behind the open number (61.8 %)
                    beside the object panel (38.2 %)
-  ObjectPanel.tsx  what the engine has for the selected element
+  ObjectPanel.tsx  everything the engine has for the selected element:
+                   lead cards + Attributter / Relasjoner / Egenskaper (tabs)
+                   / Beregnet
   Contents.tsx     tab 2 (Innhold): classes, Etasje × klasse
                    (StoreyClassCensus.tsx), type ledger
   forms.tsx        gauge, distribution, KPI row, readouts
@@ -52,6 +54,7 @@ scripts/
   bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
   viewport-gate.mjs  real models in headless Chrome at every target viewport
   isolate-gate.mjs   what a CLICK does, driven with real mouse events
+  zoom-gate.mjs      what the WHEEL does, driven with real CDP wheel events
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
@@ -199,9 +202,15 @@ reason. Copy-object exclusions and openings are dropped exactly as in
   beyond 5 × the 98th percentile of centre distances from the median centre
   (Chebyshev per axis), floored at 1 m. This is `bulkOutliers`, the SAME
   function the viewer's entry camera uses to decide what not to frame, so
-  "Utenfor ramme" and this check always name the same elements. On
-  `KNM_Mottakskontroll/02_arbeid/KNM_RIB.ifc` it flags the five ifcfast#190
-  beams and nothing else.
+  "Utenfor ramme" and this check always name the same elements.
+  **Corrected 2026-09-23:** this used to say it flags the five ifcfast#190
+  beams on `KNM_Mottakskontroll/02_arbeid/KNM_RIB.ifc`. It does not, and on the
+  evidence it has not for some time — `check-cli.ts` on that file reports
+  **0 of 851 far from the model (cutoff 295.8 m)**, measured both before and
+  after the `placementContext` refactor, so the note was stale rather than
+  broken by a change. The models that DO carry a stray today are the Void-demo
+  exports: `KNM_ARK` 1 of 1 335 (cutoff 290.3 m) and `KNM_RIB` 1 of 3 (cutoff
+  4.1 m). `zoom-gate.mjs` uses the first.
 - `storey-mismatch` — the storey the mesh BOTTOM falls in (greatest elevation
   <= bottom + 0.1 m) is not the stated storey. Method and tolerance from
   `KNM_Mottakskontroll/02_arbeid/ids/storey_check.py`. Elevation is scaled by
@@ -290,7 +299,7 @@ screen relating them. The ledger's foot now prints
 three reconcile against the raw roster, so the surfaces cannot drift apart
 silently.
 
-## The model panel: two tabs
+## The model panel: three tabs
 
 Per model (`ModelPanel.tsx`). The header line carries name · state · size and
 the file's own facts as a `ReadoutStrip` (schema · unit · products · parse
@@ -309,8 +318,11 @@ across tabs. Then:
    full width, sticky header, its disproportion band as the head. Both bands
    are fixed, viewport-derived heights; their tables scroll inside.
 
-The tab is `tab=contents` in the URL hash (absent = Kontroll), one for all
-panels, pushed to history so Back/Forward walk it. Both tabs stay mounted and
+3. **Graf** (`GraphTab.tsx`): the selected element's relationship graph, every
+   `IfcRel*` edge the engine carries, drawn around it (below).
+
+The tab is `tab=contents` / `tab=graph` in the URL hash (absent = Kontroll), one
+for all panels, pushed to history so Back/Forward walk it. Both tabs stay mounted and
 the inactive one is `hidden`, so the 3D scene and its camera survive a tab
 switch. The derivation band opens INSIDE the panel of the model it belongs to,
 under the active tab, pinned to the bottom of the scrolling page
@@ -416,7 +428,7 @@ places. Instant, like the button; nothing is animated.
 - `Zoom til valg` stays, and still takes the accent the moment a selection
   exists: a canvas pick and a restored selection both need it.
 
-### The object panel — what the engine has for the selected element
+### The object panel — everything the engine has, in IFC's own order
 
 The band is full width and its four columns never needed all of it, so it
 splits at the golden section (2026-09-23): the rows keep **61.8 %**, an object
@@ -427,42 +439,124 @@ box the app ships in, the 1100 px skiplum.com iframe, without the list
 acquiring a sideways scroll. GUID stays 23ch and is still never truncated; the
 other three ellipsize by design and carry their full text in `title`.
 
-`src/ui/ObjectPanel.tsx`, a list of SECTIONS:
+`src/ui/ObjectPanel.tsx`. Four instructions from edkjo fix its shape, and they
+pull in one direction: *"keep psets and BIM data separate"* · *"I hate
+opinionated viewers that hide data"* · *"reveal and express what the IFC is
+saying to non-technical users"* · *"I'd treat the core IFC attributes as KPIs,
+so an opinionated strong display vs getting drowned"*. So: **hierarchy, never
+curation**. Nothing the engine holds is left out; what identifies the object is
+displayed strongly and the rest is a calm list under it.
 
-- **Attributter** — GlobalId · IFC-klasse · Navn · ObjectType · Tag ·
-  PredefinedType · Type (with the parser's own `type_source`, `ifctype` or
-  `none`, as a dim token beside the name) · Etasje · Materialer · IsExternal ·
-  FireRating · LoadBearing. That is exactly `ProductRowLite`, i.e. the whole of
-  what a product declares in the browser. Every value double-clicks to copy.
-- **Klassifikasjon** — one row per classification SYSTEM, value `code · name`,
-  read from `classificationsJson()`. The code is `identification`, which the
-  parser normalises across schemas (IFC4 `.Identification`, IFC2x3
-  `.ItemReference`), so the row is the same on either.
-- **one section per PROPERTY SET**, titled with the set's own name, rows being
-  its properties. The set name is kept because a property is identified by set
-  plus name: two sets both carrying `Status` are two different facts.
+**Lead cards.** Five, in the board's own KPI vocabulary (micro gold label, big
+mono value, cells of a line-coloured grid): IFC-klasse · Type · Navn · Etasje,
+two up, then GlobalId full width. Every one of them is ALSO a row in the list
+below — the cards are emphasis, not a subset. Each card carries its IFC term as
+a dim third line, because that pairing is what teaches the standard over a
+hundred selections.
 
-Three selection states: **one** element shows its values; **several** (Shift or
-Ctrl down the band) show the SHARED values, and a field they disagree on reads
-`Ulike verdier`, the mark the type ledger already uses for that fact, with
-every variant in the `title`; **none** shows the labels with `—`, this
-surface's dash for absent. Labels only — no prose, no help text.
+**Four groups, in the order the standard is built:**
 
-`tag` was added to `ProductRowLite` and to `withTypeFacts` for this; both the
-parse worker and the cache-restore worker already run that reduction.
+| group | IFC | what |
+|---|---|---|
+| **Attributter** | `IfcRoot` · `IfcObject` | GlobalId · IFC-klasse · Navn · ObjectType · Tag · PredefinedType, then the three `Pset_*Common` values the parser flattens onto the row (IsExternal · FireRating · LoadBearing), labelled with the set family they come from |
+| **Relasjoner** | `IfcRelationship` | the objectified relations: Tomt (`IfcSite`) · Bygning · Etasje (`IfcRelContainedInSpatialStructure`) · Type + Typeobjekt (`IfcRelDefinesByType`) · Del av (`IfcRelAggregates` / `IfcRelNests`) · Åpninger and Åpning (`IfcRelVoidsElement`, both ends) · Materialer (`IfcRelAssociatesMaterial`) · `IfcMaterialLayerSet` · one row per classification SYSTEM (`IfcRelAssociatesClassification`) |
+| **Egenskaper** | `IfcRelDefinesByProperties` | one TAB per `IfcPropertySet` and per `IfcElementQuantity`, plus the profile tab |
+| **Beregnet** | — | what THIS TOOL measured. Separated and labelled, never mixed in |
 
-**The three absences are kept apart**, and the panel prints a different word
-for each, because they are answers about different things:
+**Classification is an ASSOCIATION, not added data.** By the standard it
+arrives through `IfcRelAssociatesClassification`, the same mechanism as
+material, so it sits in Relasjoner and not with the property sets. Each row is
+one system and carries everything the reference holds — code · name · edition ·
+location · publisher — with the instance/type flag as the dim note.
+
+**Each row is a plain label with the IFC term under it.** "Etasje" over
+`IfcRelContainedInSpatialStructure`, "Type" over `IfcRelDefinesByType`. Labels
+only: no sentences, no help text, no prose in a tooltip. The plain labels come
+from the app's own i18n (Etasje, Materialer, Egenskaper, Klassifikasjon,
+Geometri, Trekanter were already there); "Del av", "Består av" and "Åpning" are
+plain Norwegian rather than coinages, and where no term of art was confirmed the
+IFC term IS the label (`IfcMaterialLayerSet`).
+
+#### The property and quantity tabs
+
+edkjo: *"I prefer each pset as a tab rather than a sorting group."* One tab per
+`IfcPropertySet` and one per `IfcElementQuantity` (`Qto_*`, ifcfast's
+`quantitiesJson()`, new on the profile as `quantities` and the reason
+`CACHE_FORMAT` went to 3). The strip **scrolls sideways and never wraps**; a tab
+is sized to its own name, so no label is ever cut.
+
+Measured 2026-09-23 (`tmp/pset-census.mjs`), because "many psets" needed to be
+a number: KNM_RIV's 6 818 property rows are **2 sets per element** — every
+element carries `NONS_Process` and `RIV` and nothing else — so the strip does
+not scroll there at all. The case that needs it is Void-demo **KNM_RIB**: 337
+property rows and 10 quantity rows over 13 owners, **up to 14 sets on one
+object**, 25 distinct set names, the longest
+`Pset_ReinforcementBarPitchOfColumn` at 34 characters. Fourteen tabs at that
+width are several times the 38.2 % panel, which is exactly why the strip
+scrolls rather than wrapping or truncating. KNM_ARK carries both of its
+property rows on `IfcProject`, so its elements show `ingen`.
+
+- **Order marks standard from project** — `Pset_*` / `Qto_*` first, then the
+  project's own sets after a gold rule in the strip. An ORDERING, never a
+  filter: no set is hidden for having an unexpected name.
+- **Occurrence vs type** is a real distinction in the standard, so ifcfast's own
+  `source` (`instance` / `type`) rides each property row as its dim note, and
+  the value type (`IfcLabel`, `IfcAreaMeasure`, …) sits under the property name.
+- **The selected tab is remembered by NAME across selections**, so stepping down
+  a list of walls keeps `Pset_WallCommon` open. A name the next element does not
+  carry falls back to the first tab.
+- **The profile tab states its own absence.** The wasm build exposes **no**
+  `IfcProfileDef` accessor of any kind, so there is no honest profile drawing to
+  make. The tab is present and reads `ikke levert`: leaving it out would say
+  "this element has no profile", which is a claim about the FILE made out of a
+  gap in the plumbing. A mesh-derived section was explicitly ruled out by edkjo
+  — *"if there is a defined profile"* — so nothing is sliced to fabricate one.
+
+#### Beregnet — derived, and kept apart
+
+edkjo: *"let's add some analytical properties too: for instance what floor the
+lowest point of the mesh sits in."* Every value here comes from
+`src/engine/placement.ts` and `src/bcf/spaces.ts` — the SAME functions with the
+SAME thresholds that `mesh-placement` and the BCF space split run, so a number
+beside an element and the check's verdict on that element cannot disagree.
+`placementContext` / `placementOf` were extracted from `checkMeshPlacement` for
+this and the check now runs off them, so there is one hub, one cutoff, one
+storey band and one tolerance in the codebase rather than two that agree today.
+The extraction is behaviour-identical, checked rather than assumed: `check-cli`
+on `KNM_Mottakskontroll/KNM_RIB` and on Void-demo `KNM_ARK` prints the same
+counts, cutoffs and detail lines before and after it.
+
+| row | from |
+|---|---|
+| Etasje etter geometri | `placementOf().expected` — the storey the mesh BOTTOM falls in, `STOREY_TOLERANCE_M` 0.1 m |
+| Laveste punkt · Over etasjekote | mesh bottom, and its signed offset from the stated storey's elevation |
+| Dimensjoner · Min · Maks · Senter | `collectBoxes` + `unshiftBoxes`, absolute world metres |
+| Fra hovedmassen | `bulkHub` / `bulkOutliers` distance, with the cutoff as the note |
+| Trekanter | the streamed `meta.tri`, with `begrenset` when the budget capped |
+| Rom | `buildSpaceLocator().discreteSpace`, the BCF rule's own thresholds |
+
+When a value cannot be computed the row says so in the engine's own words
+(`storeyReason`: unit unresolved, elevations not distinguishable, the frames do
+not overlap, or `far from the model`), never a blank that reads as zero.
+
+Two drawings, both inline SVG, both from data the engine really has: the
+**elevation strip** (the file's storey bands with the element's mesh extents
+marked against them — what makes "its lowest point is on another floor" a
+picture rather than a comparison of two numbers) and the **spatial path**
+(`IfcSite → IfcBuilding → IfcBuildingStorey → element`, with a link the engine
+cannot supply drawn dashed and empty rather than omitted).
+
+#### Three absences, and three selection states
 
 | | |
 |---|---|
-| `ikke levert` | this profile carries no such table at all (`ModelProfile.psets` / `.classifications` are `undefined`). A fact about the plumbing. |
+| `ikke levert` | the engine carries no such table at all. A fact about the plumbing — and the reason a category ifcfast does not expose still gets a section rather than being left out: a missing section reads as "the object has none". |
 | `—` | nothing is selected. This surface's own dash for absent. |
 | `ingen` | the selected object declares none. A fact about the FILE. |
 
-Collapsing the first into the third is the failure this shape exists to
-prevent: "this element has no property sets" and "nobody gave me the property
-sets" look identical on screen and mean opposite things.
+**one** element shows its values; **several** (Shift or Ctrl down the band) show
+the SHARED values, and a field they disagree on reads `Ulike verdier` with every
+variant in the `title`; **none** shows the labels with `—`.
 
 The data rides on `ModelProfile`, keyed by GlobalId, built in `profileOf`
 (`src/storage/rehydrate.ts`) so the parse worker and the cache-restore worker
@@ -470,10 +564,140 @@ produce it from one function. The key set is NOT the product rows: a property
 set sits on a site, a building, a storey or the project as readily as on a wall
 — KNM_ARK carries both of its property rows on `IfcProject`, KNM_RIB 231 of its
 337 on spatial elements — so joining onto `rows` would silently drop them.
+`withTypeFacts` now also carries `layer_set`, the aggregation parent and both
+ends of `IfcRelVoidsElement`; `profileOf` carries the storey's building, the
+building and site rosters, the classification reference's full column set, and
+the quantity table.
 
-`isolate-gate.mjs` asserts all three states against KNM_ARK, which happens to
-carry a Uniformat reference on its elements and no element-level property set:
-the classification section shows a value and the pset section reads `ingen`.
+#### What ifcfast does NOT expose, per category
+
+Chase these upstream rather than living with them silently:
+
+| category | missing |
+|---|---|
+| attributes | `Description` and `OwnerHistory` on any entity — `ProductRow` carries neither column |
+| relationships | `IfcRelFillsElement` (only `voids` is carried, opening → host) · element containment in a site, building or space (`contained_in` is storey-only) · building → site · `IfcRelAssignsToGroup` · `IfcRelConnects*` |
+| profile | the whole `IfcProfileDef` family, and representation access of any kind — no accessor exists |
+| quantities | the unit: `quantitiesJson()` gives `unit_step_id`, a STEP id with nothing to resolve it |
+| properties | no unit per property either |
+| materials | layer THICKNESSES — only the layer set's NAME reaches the graph, so a to-scale layer drawing cannot be honest |
+| placement | `ObjectPlacement`, and the core's `drift_distance_m` (row count only) |
+| types | a type object's own property rows — ifcfast folds them onto the occurrences that inherit them |
+
+## The band opens on a SELECTION (2026-09-23)
+
+edkjo: *"where is the properties panel?"* The object panel lived only inside the
+derivation band, and the band only opened when a NUMBER was clicked, so
+selecting an element in the 3D tile showed nothing at all.
+
+**The rule, exactly as implemented** (`App.tsx`, one effect over
+`cross.views`):
+
+> A model's selection opens the band on that model, on an `element` focus naming
+> the selected GUIDs, WHEN no derivation is open for that model **or** when the
+> one that is open is that model's own `element` focus. A real drill — a check,
+> rule, class, type, storey, cell or KPI — is never re-targeted by a selection.
+> An emptied selection closes the band only when what is open is that element
+> focus.
+
+So clicking down a list of findings keeps the list, a canvas pick with nothing
+open opens the panel on what was picked, and a canvas pick while an element view
+is open re-targets it.
+
+- `Focus` gains `{ kind: "element", guids }`, serialised `element:<g>+<g>`, so
+  the selection rides the URL hash like every other derivation and Back walks
+  it. `buildTrace` lists those rows.
+- **It makes no chip.** `chipOf` returns null for it, so a canvas pick still
+  only highlights: a click that hid what the pointer was over would make the
+  tile useless for what it is for.
+- **It does not move the camera.** `frameSeq` is still bumped only by
+  `pickElement`, so nothing about opening the band frames anything.
+- The effect is driven off the SELECTION rather than off each call site, so
+  every path reaches it — canvas pick, band row, Escape, a shift-click that
+  grows the set. A ref holds the last selection it acted on, so the hash change
+  it makes does not re-enter; on the FIRST pass it only records, and a hash
+  restored with an `element` focus puts its selection back instead of being
+  closed by an effect that has seen nothing yet.
+
+## Zoom: the window, not the step (2026-09-23)
+
+edkjo on the deployed site: *"we get zoom saturated hard"*.
+
+**Diagnosis, measured** on KNM_ARK (`KNM_Void-demo/export_2026-09-14`, 1 696
+products) at 2112×1267 through `scripts/zoom-gate.mjs`, with real CDP
+`mouseWheel` events and the pose read off `ModelScene.probe`:
+
+- **the wheel STEP was never the problem.** `deltaY` 100 →
+  `exp(-100 × 0.0016)` = **0.8521 per tick in**, 1.1735 out, and the gate
+  measures exactly that on every tick of a six-tick run.
+- **zoom-to-cursor is exact**, and always was. `zoom()` lerps the target toward
+  the focus by `1 − after/before`, which works out to
+  `eye' = k·eye + (1−k)·focus`: the eye slides along the eye→focus line and the
+  view direction never changes, so every point on that line keeps its screen
+  position. (A first version of the assertion tracked the NDC bounding box's
+  centre and "failed" at 0.14 NDC — that was the measurement, not the camera:
+  which corner of a box is extreme changes with perspective. `ModelScene.project`
+  exists so the gate can follow a real world point instead.)
+- **the RADIUS WINDOW was the fault.** `Turntable.setExtent` derives it from the
+  MODEL: `[extent × 0.002, extent × 50]`. On KNM_ARK that is **0.3584 m to
+  8 961 m** around a 259.91 m entry radius. A camera framed on ONE element can
+  land outside it at either end, and the old `zoom()` clamped to `[min, max]`
+  unconditionally:
+  - **below the floor** — framing a small element puts the radius under
+    0.3584 m, so the next tick IN clamped UP: a zoom-in answered with a jump
+    outward, and every tick after it refused (`after === before` → early
+    return). The wheel went dead with the picture in the wrong place.
+  - **above the ceiling** — `zoomToSelection` on a stray element (the
+    Mottakskontroll KNM_RIB beams, ±31 847 402 m) computes a fit radius far past
+    8 961 m, `apply()` clamped it back, and the camera was left somewhere that
+    showed nothing and could not zoom out either. This is the
+    "zoomToSelection cannot reach the outlier beams (radius clamp)" note, and it
+    was real.
+
+**Two changes, both in `src/viewer/camera.ts`:**
+
+1. **`Turntable.allow(radius)`** — every explicit frame widens the window around
+   what it framed: down to `radius × 0.02`, out to `radius × 4`. Limits only
+   ever widen; a frame grants reach, it never takes it away. `frameBox`
+   (`scene.ts`) calls it BEFORE writing the radius, or `apply` would clamp the
+   frame straight back. Measured: framing an `IfcWall` at 12.42 m lowers the
+   floor from 0.3584 m to **0.2485 m**, so the wheel has somewhere to go.
+2. **The stops ABSORB, they never reflect.** `zoom()` clamps to
+   `[min(minRadius, before), max(maxRadius, before)]`, so a camera already
+   outside the window can always move away from the stop, and a tick into it is
+   a no-op rather than a jump.
+
+`setExtent` is unchanged and the model-wide view behaves exactly as before: the
+entry fit already sits inside the window, so `allow` at the entry radius widens
+nothing. Near and far are also untouched (`radius / 2000` and `radius × 50`, the
+~100 000 : 1 the viewer has always run): they are a depth-precision question,
+not the saturation, and the gate prints both on every run so a claim about them
+can be made from numbers.
+
+### `scripts/zoom-gate.mjs`
+
+Real CDP `mouseWheel` against a production build in headless Chrome. Asserts, on
+KNM_ARK: the entry radius sits inside the window · a band row frames an element
+closer than the model AND inside the window · six ticks in are strictly
+decreasing at the predicted step, and a fixed world point under the cursor stays
+under the cursor (< 0.02 NDC) · 60 ticks in never once raise the radius (the
+absorbing-stop rule — the old clamp failed this on the first tick from a small
+framed element) · the way out is monotone and REACHES the whole-model view in a
+number of ticks a hand can turn. Then, on the Mottakskontroll KNM_RIB, that
+framing a `far-from-model` element reaches it (its box projects inside the
+viewport), that the frame is under the ceiling, and that the wheel still moves
+the radius out there.
+
+Measured 2026-09-23 on `npm run build` + `vite preview`: model radius 259.91 m,
+window 0.3584 – 8 961 m, near 0.130 m far 13 000 m; framed wall 12.4247 m with
+the window floor dropped to 0.2485 m; zoom in 12.4247 → 4.7573 m over six ticks
+at 0.8521 each; the floor reached at about tick 25 and held for the remaining 35
+ticks without ever rising; 44 ticks from the floor back to 283.63 m, past the
+259.91 m model view.
+
+```bash
+npm run build && node scripts/zoom-gate.mjs        # or --url <deployed>
+```
 
 ### `scripts/isolate-gate.mjs`
 
@@ -489,9 +713,11 @@ the element's box projects inside the viewport, and it fills the frame, so
 "contains it from a mile away" fails · the object panel names that element and
 carries every attribute row · the same band row steps back to the set · a
 canvas click selects, makes no chip and **does not move the camera** ·
-`Tøm filter` · the object panel's three absences told apart on a selected
-element (a Uniformat value, and the pset section reading `ingen` rather than
-`ikke levert`) · a storey row on the Etasjer tile · and, with three models and
+`Tøm filter` · the object panel's four groups and its three absences told apart
+on a selected element (a Uniformat value, the pset group reading `ingen` rather
+than `ikke levert`, and the profile tab reading `ikke levert` because the ENGINE
+does not carry it) · a SELECTION opening the band, and a tab switch keeping the
+selection · a storey row on the Etasjer tile · and, with three models and
 `examples/knm-floors.test.ruleset.json`, that only the own column of the matrix
 is a door and the other two panels do not move.
 
@@ -571,6 +797,46 @@ its viewpoints are byte-identical to `bcf-cli.ts`. Dalux and Solibri import
 are NOT verified. Discrete split (same day, `bcf-cli.ts` only, not re-driven
 in the browser): HI90 topics 285 → 89 at N=500 and 461 → 259 at N=100; KNM
 unchanged, same GUIDs.
+
+## Graf — the element's relationship graph (2026-09-23)
+
+edkjo: *"showing the full edge graph is totally ok to do"*, then *"it should be
+its own tabbed view"*. So it is a third model-panel tab, not a card in the
+object panel: it needs the width, and it matches the MODEL | GRAPH tabs on his
+ifcfast-site.
+
+`src/ui/GraphTab.tsx`, inline SVG, **no dependency** — a spring embedder written
+inline (FNV-1a seed per node id, pairwise repulsion + Hooke springs + a weak
+centre pull, 360 fixed iterations, cooling step). Deterministic: the same
+element lays out identically every time. The selected element is pinned at the
+origin, and the result is scaled to fit the measured container. Caps: 12 members
+per relationship group then a `+N` node, 180 nodes total.
+
+Edges, each labelled with the relationship it IS, and drawn only where the
+engine really carries it: `IfcRelContainedInSpatialStructure` (element →
+storey), `IfcRelAggregates` (storey → building), `IfcRelDefinesByType` (→ the
+type object, and a count node for the siblings sharing it),
+`IfcRelAggregates`/`IfcRelNests` (parent and children), `IfcRelVoidsElement`
+(both ends), `IfcRelAssociatesMaterial`, `IfcRelAssociatesClassification`, and
+`IfcRelDefinesByProperties` (a node per property set and per quantity set, each
+behind its own toggle). With nothing selected it draws the model's spatial
+structure with element counts.
+
+**Not drawn, because the engine does not carry it:** building → site (the graph
+has flat site/building rosters and `storey_building` is the only spatial
+aggregation edge), element containment in a site, building or space
+(`contained_in` is storey-only), and `IfcProject` (a count, no guids). A
+category whose table is absent gets ONE node reading `ikke levert`, so "nobody
+supplied this" never wears the clothes of "this element has none".
+
+**Clicking an element node selects it**, through the panel's own `onPick` — the
+same semantics as every other UI click. Non-element nodes (a material, a pset, a
+storey) carry no handler at all: they are not elements, and a faked selection
+would be worse than none.
+
+Not verified in a browser at the time of writing: the layout numbers in the
+implementation notes are a measurement of the embedder, not of the rendered
+page.
 
 ## The dashboard grid — binding, not advisory
 
@@ -804,15 +1070,16 @@ overrides the repository.
 `load_bearing`), `storeys` with elevations, `contained_in`, `aggregates`,
 `storey_building`, `sites`, `buildings`, `voids`.
 
-**Three tables do not come out of `graphJson()`, and every caller attaches
+**Four tables do not come out of `graphJson()`, and every caller attaches
 them to the graph itself** — `graph.psets`, `graph.classifications`,
-`graph.type_objects`:
+`graph.type_objects`, `graph.quantities`:
 
 | | |
 |---|---|
 | `psetsJson()` | `[{guid, pset_name, prop_name, value, value_type, source}]`. `guid` is the OWNER — product, spatial element or project. `value` is the STEP literal as a string, never coerced. `source` is `instance` or `type`; a type's own properties arrive keyed by the OCCURRENCE that inherits them, which is why a type object has no property rows of its own. |
 | `classificationsJson()` | `[{guid, system_name, edition, identification, name, location, source, assignment_source}]`. `identification` is schema-normalised. Mind the two provenance columns: `source` is the publishing body, `assignment_source` is the instance/type flag. |
 | `typeObjectsJson()` | `[{guid, entity, name, step_id}]`, the DECLARED roster keyed by the type's own GlobalId — what `type_guid` points at. |
+| `quantitiesJson()` | `[{guid, qto_name, quantity_name, value, quantity_type, unit_step_id, source}]` — `IfcElementQuantity` as the EXPORTER wrote it (`Qto_*`), not `qtoJson()`'s computed take-off. Same owner/verbatim-value/source rules as `psetsJson`. `unit_step_id` is a STEP id with no accessor to resolve it, so the object panel carries it and does not render it. |
 
 They are mesh-free (the extractors ran in `fromBytes`), so reading them costs a
 serialise: under 15 ms for all three on either KNM model. The payload is what to
@@ -821,7 +1088,7 @@ hands out. `src/ui/model-worker.ts`, `src/storage/model-cache.ts`'s budget,
 `check-cli.ts`, `ids-cli.ts`, `bcf-cli.ts`, `types-gate.mjs` and `cache-gate.mjs`
 all attach them, so no surface runs a different model shape from the board.
 
-`undefined` and `[]` on those three are DIFFERENT answers everywhere they are
+`undefined` and `[]` on those four are DIFFERENT answers everywhere they are
 read: absent means nobody supplied the table and the surface says so, empty
 means the file declares none. A facet over an absent table is `not_evaluable`
 naming the table, never a pass.

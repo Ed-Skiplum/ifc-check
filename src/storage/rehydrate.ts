@@ -9,7 +9,7 @@
  * Pure. No storage, no DOM, no wasm.
  */
 
-import type { ClassificationRow, IfcGraph, PropertyRow } from "../engine/types";
+import type { ClassificationRow, IfcGraph, PropertyRow, QuantityRow } from "../engine/types";
 import type { ClassificationRef, ModelProfile, PsetGroup } from "../ui/profile";
 
 /** The long property table grouped for reading: guid -> set -> properties.
@@ -34,7 +34,45 @@ export function groupPsets(rows: PropertyRow[] | undefined): Map<string, PsetGro
       set = { name: row.pset_name, properties: [] };
       sets.push(set);
     }
-    set.properties.push({ name: row.prop_name, value: row.value });
+    set.properties.push({
+      name: row.prop_name,
+      value: row.value,
+      valueType: row.value_type,
+      source: row.source,
+    });
+  }
+  return byGuid;
+}
+
+/** `IfcElementQuantity` grouped exactly as the property sets are — same shape,
+ *  same absent-vs-empty rule, and the group flagged `quantity` so the panel can
+ *  name the entity it is showing rather than calling every set a property set.
+ *
+ *  `unit_step_id` is carried by the parser and deliberately NOT surfaced: it is
+ *  a STEP id with no accessor to resolve it, and a raw entity number printed
+ *  where a unit belongs would read as a measurement. */
+export function groupQuantities(
+  rows: QuantityRow[] | undefined,
+): Map<string, PsetGroup[]> | undefined {
+  if (rows === undefined) return undefined;
+  const byGuid = new Map<string, PsetGroup[]>();
+  for (const row of rows) {
+    let sets = byGuid.get(row.guid);
+    if (!sets) {
+      sets = [];
+      byGuid.set(row.guid, sets);
+    }
+    let set = sets.find((s) => s.name === row.qto_name);
+    if (!set) {
+      set = { name: row.qto_name, properties: [], quantity: true };
+      sets.push(set);
+    }
+    set.properties.push({
+      name: row.quantity_name,
+      value: row.value,
+      valueType: row.quantity_type,
+      source: row.source,
+    });
   }
   return byGuid;
 }
@@ -51,6 +89,10 @@ export function groupClassifications(
       system: row.system_name,
       code: row.identification,
       name: row.name,
+      edition: row.edition,
+      location: row.location,
+      publisher: row.source,
+      assignmentSource: row.assignment_source,
     };
     if (refs) refs.push(ref);
     else byGuid.set(row.guid, [ref]);
@@ -70,7 +112,10 @@ export function profileOf(graph: IfcGraph): ModelProfile {
       guid: s.guid,
       name: s.name,
       elevation: s.elevation,
+      buildingGuid: s.building_guid,
     })),
+    buildings: graph.buildings.map((b) => ({ guid: b.guid, name: b.name })),
+    sites: graph.sites.map((b) => ({ guid: b.guid, name: b.name })),
     spatial: {
       projects: graph.projects.length,
       sites: graph.sites.length,
@@ -84,5 +129,7 @@ export function profileOf(graph: IfcGraph): ModelProfile {
   if (psets) profile.psets = psets;
   const classifications = groupClassifications(graph.classifications);
   if (classifications) profile.classifications = classifications;
+  const quantities = groupQuantities(graph.quantities);
+  if (quantities) profile.quantities = quantities;
   return profile;
 }

@@ -68,6 +68,27 @@ export interface PropertyRow {
   source: string;
 }
 
+/** One authored quantity, long format — `quantitiesJson()`.
+ *
+ * `IfcElementQuantity` as the exporter wrote it (`Qto_*`), not ifcfast's own
+ * computed take-off (`qtoJson()`). Same shape and the same rules as
+ * `PropertyRow`: `guid` is the owner, `value` is the STEP literal as a string,
+ * `source` is `instance` or `type`.
+ *
+ * `unit_step_id` is the STEP id of the quantity's own unit entity. Nothing in
+ * the wasm API resolves it to a unit, so it is carried and not rendered — a
+ * number printed as if it were a unit would be worse than the absence.
+ */
+export interface QuantityRow {
+  guid: string;
+  qto_name: string;
+  quantity_name: string;
+  value: string | null;
+  quantity_type: string | null;
+  unit_step_id: number | null;
+  source: string;
+}
+
 /** One classification reference — `classificationsJson()`.
  *
  * `identification` is the normalised code: IFC4's
@@ -119,10 +140,11 @@ export interface IfcGraph {
   aggregates: { child_guid: string; parent_guid: string; parent_kind: string }[];
   storey_building: { storey_guid: string; building_guid: string }[];
   voids: { opening_guid: string; host_guid: string }[];
-  /** The three tables that do NOT come out of `graphJson()`: the worker calls
-   *  `typeObjectsJson()`, `psetsJson()` and `classificationsJson()` and attaches
-   *  them here, so one object carries the whole model and the cache, the restore
-   *  worker and the evaluator all read the same thing.
+  /** The four tables that do NOT come out of `graphJson()`: the worker calls
+   *  `typeObjectsJson()`, `psetsJson()`, `classificationsJson()` and
+   *  `quantitiesJson()` and attaches them here, so one object carries the whole
+   *  model and the cache, the restore worker and the evaluator all read the
+   *  same thing.
    *
    *  `undefined` and `[]` are DIFFERENT answers and every consumer keeps them
    *  apart: absent means nobody supplied the table (an older cache, a caller
@@ -132,6 +154,7 @@ export interface IfcGraph {
   type_objects?: TypeObjectRow[];
   psets?: PropertyRow[];
   classifications?: ClassificationRow[];
+  quantities?: QuantityRow[];
 }
 
 export interface IfcSummary {

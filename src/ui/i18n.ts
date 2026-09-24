@@ -152,6 +152,35 @@ const STRINGS = {
   /* --------------------------------------------------------- object panel */
   "tile.object": { nb: "Objekt", en: "Object" },
   "object.attributes": { nb: "Attributter", en: "Attributes" },
+  // The object panel's groups. Plain domain label first, the IFC term beside it
+  // as a dim token (rendered by the panel, not baked into these strings): the
+  // pairing is what teaches the standard over a hundred selections.
+  "object.relations": { nb: "Relasjoner", en: "Relationships" },
+  "object.data": { nb: "Egenskaper", en: "Properties" },
+  "object.derived": { nb: "Beregnet", en: "Derived" },
+  "object.profile": { nb: "Profil", en: "Profile" },
+  "object.typeObject": { nb: "Typeobjekt", en: "Type object" },
+  "object.partOf": { nb: "Del av", en: "Part of" },
+  "object.composedOf": { nb: "Består av", en: "Composed of" },
+  "object.opening": { nb: "Åpning", en: "Opening" },
+  "object.openings": { nb: "Åpninger", en: "Openings" },
+  "object.building": { nb: "Bygning", en: "Building" },
+  "object.site": { nb: "Tomt", en: "Site" },
+  "object.siblings": { nb: "Søsken", en: "Siblings" },
+  "object.standardSets": { nb: "Standard", en: "Standard" },
+  "object.customSets": { nb: "Prosjekt", en: "Project" },
+  "object.dimensions": { nb: "Dimensjoner", en: "Dimensions" },
+  "object.centre": { nb: "Senter", en: "Centre" },
+  "object.min": { nb: "Min", en: "Min" },
+  "object.max": { nb: "Maks", en: "Max" },
+  "object.bottom": { nb: "Laveste punkt", en: "Lowest point" },
+  "object.storeyByMesh": { nb: "Etasje etter geometri", en: "Storey by geometry" },
+  "object.overStorey": { nb: "Over etasjekote", en: "Above storey elevation" },
+  "object.fromBody": { nb: "Fra hovedmassen", en: "From the main body" },
+  "object.cutoff": { nb: "Grense", en: "Cutoff" },
+  "object.room": { nb: "Rom", en: "Room" },
+  "object.notComputed": { nb: "ikke beregnet", en: "not computed" },
+  "object.noGeometry": { nb: "ingen geometri", en: "no geometry" },
 
   "matrix.noStorey": { nb: "Uten etasje", en: "No storey" },
   "storey.shared": { nb: "Delt kote", en: "Shared elevation" },
@@ -264,6 +293,10 @@ const STRINGS = {
   "bcf.spaces": { nb: "Rom fra", en: "Spaces from" },
   "bcf.noSpaces": { nb: "Ingen rom", en: "No spaces" },
   "bcf.noCamera": { nb: "Uten kamera", en: "No camera" },
+
+  /* ----------------------------------------------------------------- graph */
+  "tab.graph": { nb: "Graf", en: "Graph" },
+  "graph.quantitySets": { nb: "Mengdesett", en: "Quantity sets" },
 
   /* ---------------------------------------------------------------- errors */
   "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },

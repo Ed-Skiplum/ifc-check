@@ -21,8 +21,9 @@
  *   2  a class row      a Klasse chip · the bar reads that class's own count
  *                       over the products · the HUD shows fewer elements than
  *                       the model · the canvas changed · the object panel is
- *                       open in its empty state, its pset and classification
- *                       sections carrying the no-selection dash
+ *                       open in its empty state, the Egenskaper group carrying
+ *                       the no-selection dash and the profile tab saying the
+ *                       ENGINE does not carry IfcProfileDef
  *   3  the same row     chips gone, the bar and the HUD back to the model, and
  *                       the canvas is PIXEL-IDENTICAL to 1 — which is the
  *                       camera assertion: a filter that had moved the eye
@@ -44,6 +45,13 @@
  *   6  a canvas click   selects (Zoom til valg goes live), makes NO chip, and
  *                       does NOT move the camera: filter, HUD and pose are
  *                       untouched
+ *   6b a SELECTION      closing the band and picking in the canvas OPENS it
+ *                       again on that element, with the object panel filled,
+ *                       the hash carrying `focus=element:`, still no chip and
+ *                       still no camera move
+ *   6c the tab strip    the property group IS a strip of tabs, and switching
+ *                       tab keeps the selection — a tab is a view of the same
+ *                       element, never a re-selection
  *   7  Tøm filter       back to the whole model
  *   8  a storey row    the Etasjer tile isolates that floor, and clears it
  *  9-10 three models   only the panel's OWN column in the floor matrix is a
@@ -461,10 +469,17 @@ check(
   `2 the object panel is open and empty with no selection (${JSON.stringify(afterClass.panel?.fields.GlobalId)})`,
 );
 check(
-  afterClass.panel !== null &&
-    afterClass.panel.state.length === 2 &&
-    afterClass.panel.state.every((s) => s === "\u2014"),
-  `2 the pset and classification sections carry the no-selection dash ` +
+  afterClass.panel !== null && afterClass.panel.state.includes("\u2014"),
+  `2 the Egenskaper group carries the no-selection dash ` +
+    `(${JSON.stringify(afterClass.panel?.state)})`,
+);
+/* The profile tab exists to STATE its own absence: ifcfast exposes no
+   IfcProfileDef accessor of any kind, and a tab left out would read as "this
+   element has no profile" \u2014 a claim about the FILE made out of a gap in the
+   plumbing. */
+check(
+  afterClass.panel !== null && afterClass.panel.state.includes("ikke levert"),
+  `2 the profile tab says the ENGINE does not carry it ` +
     `(${JSON.stringify(afterClass.panel?.state)})`,
 );
 
@@ -536,7 +551,10 @@ check(
 check(
   one.panel !== null &&
     ["Navn", "ObjectType", "Tag", "PredefinedType", "Type", "Etasje", "Materialer",
-     "IsExternal", "FireRating", "LoadBearing"].every((f) => f in one.panel.fields),
+     "IsExternal", "FireRating", "LoadBearing", "Typeobjekt", "Del av", "Åpninger",
+     "Laveste punkt", "Etasje etter geometri", "Dimensjoner", "Trekanter"].every(
+       (f) => f in one.panel.fields,
+     ),
   `4c every attribute row is present (${Object.keys(one.panel?.fields ?? {}).join(", ")})`,
 );
 
@@ -545,9 +563,15 @@ check(
    absences apart: KNM_ARK carries a Uniformat reference on its elements and
    both of its property rows on IfcProject, so one section has a value and the
    other says the ELEMENT declares none. */
+/* The four groups, in IFC's own order. Classification is an ASSOCIATION
+   (IfcRelAssociatesClassification), so it is a row of Relasjoner, not one of
+   the added-data tabs. */
 check(
-  one.panel !== null && one.panel.sections.includes("Klassifikasjon"),
-  `4c the classification section is present (${JSON.stringify(one.panel?.sections)})`,
+  one.panel !== null &&
+    ["Attributter", "Relasjoner", "Egenskaper", "Beregnet"].every((g) =>
+      one.panel.sections.includes(g),
+    ),
+  `4c all four groups are present (${JSON.stringify(one.panel?.sections)})`,
 );
 check(
   one.panel !== null && (one.panel.fields["Uniformat"] ?? "") !== "",
@@ -612,6 +636,81 @@ check(
     posePreClick && posePostClick ? moved(posePreClick, posePostClick).toExponential(1) : "no handle"
   })`,
 );
+
+/* 6b — and a SELECTION OPENS THE BAND. edkjo: *"where is the properties
+   panel?"* — it used to exist only behind a drill, so a pick in the 3D showed
+   nothing. Close the band, pick in the canvas, and it comes back with that
+   element in it — without the camera moving, which is the rule a pick must
+   never break. */
+await evaluate(
+  `(() => { const b = [...document.querySelectorAll('button')].find((x) => /^(Lukk|Close)$/.test(x.textContent.trim())); b && b.click(); return true; })()`,
+);
+await sleep(600);
+const closed = await evaluate(STATE());
+check(closed.panel === null, `6b the band closes, taking the object panel with it`);
+const poseClosed = await evaluate(POSE(0, []));
+let reopened = null;
+for (const [dx, dy] of [
+  [0.5, 0.5],
+  [0.45, 0.55],
+  [0.55, 0.45],
+  [0.5, 0.6],
+  [0.4, 0.5],
+]) {
+  await clickAt(canvasBox.x + canvasBox.w * dx, canvasBox.y + canvasBox.h * dy);
+  reopened = await evaluate(STATE());
+  if (reopened.panel !== null) break;
+}
+const poseReopened = await evaluate(POSE(0, []));
+check(
+  reopened !== null && reopened.panel !== null,
+  `6b a canvas pick with no derivation open OPENS the band on that element`,
+);
+check(
+  reopened !== null && (reopened.panel?.fields.GlobalId ?? "") !== "",
+  `6b the object panel is filled with the picked element ` +
+    `(${JSON.stringify(reopened?.panel?.fields.GlobalId)})`,
+);
+check(
+  reopened !== null && reopened.chips.length === 0,
+  `6b and it still makes NO chip — a pick highlights, it does not isolate ` +
+    `(${JSON.stringify(reopened?.chips)})`,
+);
+check(
+  await evaluate(`/focus=element%3A|focus=element:/.test(location.hash)`),
+  `6b the selection rides the URL hash like every other derivation`,
+);
+check(
+  poseClosed !== null && poseReopened !== null && moved(poseClosed, poseReopened) < 1e-9,
+  `6b opening the band on a pick still did not move the camera`,
+);
+/* 6c — the tab strip. Switching set keeps the selection: the tab is a view of
+   the SAME element, never a re-selection. */
+const tabs = await evaluate(`(() => {
+  const strip = document.querySelector('[data-pset-tabs]');
+  if (!strip) return null;
+  const all = [...strip.querySelectorAll('[data-pset-tab]')];
+  const last = all[all.length - 1];
+  last.setAttribute('data-gate-tab', '');
+  return { count: all.length, names: all.map((b) => b.getAttribute('data-pset-tab')), last: last.getAttribute('data-pset-tab') };
+})()`);
+check(tabs !== null && tabs.count >= 1, `6c the property group is a TAB STRIP (${JSON.stringify(tabs?.names)})`);
+if (tabs && tabs.count >= 1) {
+  const guidBefore = (await evaluate(STATE())).panel?.fields.GlobalId ?? "";
+  const tabAt = await centre(`document.querySelector('[data-gate-tab]')`);
+  await clickAt(tabAt.x, tabAt.y);
+  const afterTab = await evaluate(STATE());
+  check(
+    (afterTab.panel?.fields.GlobalId ?? "") === guidBefore && guidBefore !== "",
+    `6c switching tab kept the selection (${afterTab.panel?.fields.GlobalId} = ${guidBefore})`,
+  );
+  check(
+    await evaluate(
+      `document.querySelector('[data-gate-tab]')?.getAttribute('aria-selected') === 'true'`,
+    ),
+    `6c the clicked tab is the active one (${tabs.last})`,
+  );
+}
 
 /* 7 — and the bar is still the way back. */
 const end = await evaluate(STATE());

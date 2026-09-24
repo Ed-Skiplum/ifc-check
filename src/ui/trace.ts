@@ -37,7 +37,16 @@ export type Focus =
    *  clicks would isolate half of what the cell says. `null` is the orphan
    *  bucket — elements in no storey — the same bucket the census row carries. */
   | { kind: "storey"; storeyGuids: (string | null)[] }
-  | { kind: "cell"; storeyGuid: string | null; entity: string };
+  | { kind: "cell"; storeyGuid: string | null; entity: string }
+  /** The SELECTION itself, as a derivation.
+   *
+   * Not a drill: nothing on the board produces it. It is what a selection with
+   * no derivation open opens — a canvas pick, or a restored one — so that
+   * choosing an element shows what the engine has for it instead of leaving the
+   * object panel unreachable behind a number nobody clicked (edkjo,
+   * 2026-09-23: *"where is the properties panel?"*). A real drill is never
+   * re-targeted by a selection; see `App`. */
+  | { kind: "element"; guids: string[] };
 
 const KPIS: KpiFocus[] = ["products", "storeys"];
 
@@ -56,6 +65,9 @@ export function serialiseFocus(focus: Focus): string {
   if (focus.kind === "storey") {
     return `storey:${focus.storeyGuids.map((g) => g ?? "-").join("+")}`;
   }
+  // `+` is outside the GlobalId alphabet, the same separator the storey focus
+  // uses, so a selection round-trips through the hash without escaping.
+  if (focus.kind === "element") return `element:${focus.guids.join("+")}`;
   return `cell:${focus.storeyGuid ?? "-"}|${focus.entity}`;
 }
 
@@ -82,6 +94,10 @@ export function parseFocus(raw: string | null): Focus | null {
     return guids.length > 0 && guids.every((g) => g === null || g.length > 0)
       ? { kind: "storey", storeyGuids: guids }
       : null;
+  }
+  if (kind === "element") {
+    const guids = rest.split("+").filter((g) => g.length > 0);
+    return guids.length > 0 ? { kind: "element", guids } : null;
   }
   if (kind === "cell") {
     const bar = rest.lastIndexOf("|");
@@ -241,6 +257,21 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
   }
 
   if (!profile) return null;
+
+  if (focus.kind === "element") {
+    const chosen = new Set(focus.guids);
+    const rows = profile.rows.filter((r) => chosen.has(r.guid));
+    if (rows.length === 0) return null;
+    return {
+      ...base,
+      titleKey: "tile.object",
+      titleText: rows.length === 1 ? (rows[0].name ?? rows[0].entity) : undefined,
+      notes: [],
+      stats: [{ label: "trace.elements", value: rows.length }],
+      rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),
+      rowsComplete: true,
+    };
+  }
 
   if (focus.kind === "class") {
     const rows = profile.rows.filter((r) => r.entity === focus.entity);
