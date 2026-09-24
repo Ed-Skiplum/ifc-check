@@ -20,7 +20,7 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   kpis.ts        the seven numbers on the board's KPI row
   report.ts      the report contract: one row per requirement × model
                  (see "Report contract")
-  standard-layer.ts  the `ifc-schema` and `phase` report rows, with the
+  standard-layer.ts  the `ifc-schema`, `phase` and `material-product` report rows, with the
                  ruleset's `projectLayer` on top (see "The standard layer")
   storey-config.ts  `storey-config`: file storeys against the ruleset's floor
                  config (`storeys`)
@@ -1286,8 +1286,8 @@ copy has not drifted from `src/ids/schema.ts`.
 
 Besides `rules` and `storeys`, a ruleset may carry `projectLayer`: the
 project's additions to the standard-layer requirements (`ifc-schema`,
-`phase`), read by the report only. See "The standard layer" under "Report
-contract". The builder UI neither shows nor edits it; the setup page keeps
+`phase`, `material-product`), read by the report only. See "The standard
+layer" under "Report contract". The builder UI neither shows nor edits it; the setup page keeps
 it when it rewrites the ruleset.
 
 ### Two kinds of rule
@@ -1568,6 +1568,7 @@ python scripts/gen-ifc-classes.py                              # needs ifcopensh
 node scripts/ids-cli.ts schema > src/ids/ruleset.schema.json   # selftest asserts this is current
 PYTHONUTF8=1 python scripts/gen-codelists.py                   # src/codelists/*.ts from the workspace standards tables
 PYTHONUTF8=1 python scripts/gen-ifc-psets.py                   # src/engine/ifc-pset-names.ts, needs ifcopenshell
+PYTHONUTF8=1 python scripts/gen-codelists.py mengdetype        # only the named ids (ns3457-8, mengdetype); needs PyYAML
 ```
 
 `gen-codelists.py` fails rather than writing a partial list, and cross-checks
@@ -1618,12 +1619,15 @@ copy-object exclusions reach the fundamentals as in the browser worker.
   0 hits included; `lag` is `standard` for an IFC attribute, relationship,
   `IfcClassificationReference` or a `Pset_*` / `Qto_*` property, else
   `prosjekt`. The first source is `foretrukket`, the rest are not. Only
-  `phase` has a cascade longer than one source today (see "The standard
-  layer" below); every other row's `kilder` has one entry.
+  `phase` and `material-product` have a cascade longer than one source today
+  (see "The standard layer" below); every other row's `kilder` has one entry.
+  `gren` (`mengdetype` / `telleobjekt` / `mengdeobjekt`) is set on
+  `material-product` only, and `foretrukket` is then per branch.
 - `godtatte`: on `ifc-schema` and `phase` only, the accepted values the row
   judged against (the standard's, or the project layer's replacement).
 - `fordeling`: every distinct value, uncollapsed, most frequent first.
-  `verdi: null` = no value; `flagg` is `""`, `avvik` or `mangler`. Per check:
+  `verdi: null` = no value; `flagg` is `""`, `avvik` or `mangler` (or `åpen`,
+  on `material-product` only, below). Per check:
   storeys (incl. 0-count) for `storey-containment`; building for
   `storey-in-building`; elevation in m (3 decimals) for `storey-elevation`;
   GlobalId multiplicity in objects for `guid-unique` (`"1"`, `"2"`...);
@@ -1636,7 +1640,9 @@ copy-object exclusions reach the fundamentals as in the browser worker.
   engine's ReasonCode (yellow and red split into `storey-mismatch-yellow` /
   `-red`), or the rule finding's code (`empty`, `no-match`, `not-in-list`,
   `no-type`, `duplicate`, `type-usage`, `value`, `requirement`,
-  `occurrence-bounds`).
+  `occurrence-bounds`), or `material-product`'s (`product-missing`,
+  `material-missing`, `material-unusable`, `mengdetype-undecided`).
+- `aapne`: on `material-product` only, the open mengdetype rulings (below).
 
 **Null, because the engine does not compute it:** `parse-integrity` has no
 coverage (every `dekning` count null, `kilder` and `fordeling` empty/null);
@@ -1649,7 +1655,7 @@ rule selects several classes, `physicalElement`/`builtElement`, or no entity;
 a rule's `gjelder_ikke` is null when the copy-object filter excluded
 anything, since which of those the rule would have selected is not recorded.
 
-### The standard layer: `ifc-schema` and `phase`
+### The standard layer: `ifc-schema`, `phase` and `material-product`
 
 `src/engine/standard-layer.ts`. Requirements whose home the IFC standard
 names, shipped with the tool, with the ruleset's `projectLayer` on top. The
@@ -1662,7 +1668,12 @@ screen.
 ```json
 "projectLayer": {
   "ifc-schema": { "accepted": ["IFC4"] },
-  "phase": { "sources": [ { "property": { "propertySet": "HI90_TFM", "name": "Fase" } } ] }
+  "phase": { "sources": [ { "property": { "propertySet": "HI90_TFM", "name": "Fase" } } ] },
+  "material-product": {
+    "mengdetype": [ { "property": { "propertySet": "NOSKI_Mengde", "name": "Mengdetype" } } ],
+    "product": [ { "property": { "propertySet": "Identity Data", "name": "MC Product Code" } } ],
+    "material": [ { "property": { "propertySet": "HI90_Prosjektinfo", "name": "HI90_Material" } } ]
+  }
 }
 ```
 
@@ -1714,10 +1725,90 @@ as the fundamentals rows do, while HI90 counts IfcProduct with 3D geometry
 (2730 meshed elements here, plus IfcSite, which carries ARK's coordination
 marker). HI90 says `bad` where this says `warn`.
 
-Not in the contract yet (#1 gaps 3, 5, 6): the materiale/produkt switch, the
-pset inventory, and a standard-layer cascade for the classification mappings
-(with no mapping configured, NS 3451 and NS 3457 produce no row). A
-code-lookup rule still reads one source.
+- **`material-product`** (Materiale / Produkt, #1 gap 3; HI90 begreper.md
+  §6 and blokkdata «6»). Same population as `phase`. Per object, the
+  mengdetype first: the IFC class table, then the NS 3457 code
+  (`IfcClassificationReference` whose system name contains `3457`, looked up
+  whole, then its first three, then two characters), then the project's
+  `mengdetype` sources (value `telleobjekt` / `mengdeobjekt`, any case). The
+  first DECISIVE answer wins (`telleobjekt`, `mengdeobjekt`,
+  `ikke_relevant`), so the class wins where both tables answer; with none,
+  the class row's own value stands (`avhenger`, or `ukjent` for a class the
+  table lacks). Then: `ikke_relevant` is gjelder_ikke. A telleobjekt needs a
+  product: `Pset_ManufacturerTypeInformation.ModelReference`, then
+  `ArticleNumber`, then the project's `product` sources; none is mangler
+  (`product-missing`). A mengdeobjekt needs a material: `IfcMaterial`, then
+  `IfcMaterialLayerSet` (a layer thicker than 0; a set of zero-thickness
+  layers counts as IfcMaterial, as HI90 reads it), then the project's
+  `material` sources. A usable name is oppfylt; only names matching
+  `NOT_A_MATERIAL` (HI90 standard.yaml `ikke_materiale`: RAL, NCS, element
+  words like «Innervegg», bare numbers, placeholders) is avvik
+  (`material-unusable`, verdi the names joined by ` + `); none is mangler
+  (`material-missing`). `avhenger` / `ukjent` has neither reading: mangler
+  (`mengdetype-undecided`, verdi the mengdetype). `kilder[i].n` = objects
+  that source decided, as for `phase`; the mengdetype sources count
+  `ikke_relevant` decisions too. `fordeling`: products and material names
+  (an object with several usable materials counts under each), null for
+  mangler, then one entry per open ruling that touches objects, `flagg`
+  `åpen`, verdi its title, n its objects (these count objects, not values).
+  `not_evaluable` when psets, classifications or `materialsJson()` were not
+  supplied; `not_applicable` when every in-scope object is ikke_relevant;
+  `pass` only with no finding AND no object under an open ruling, else
+  `warn`.
+
+  **The open rulings** are HI90 krav.yaml `materialprodukt.aapne` (worklog
+  2026-09-23 «Åpent»): Dør og vindu (IfcDoor, IfcWindow and their
+  StandardCase: stk in the type register, m² in the Solibri route map), Dekke
+  og tak (IfcSlab, its two cases, IfcRoof: m² in the engine, m³ in the
+  method), Trappeløp og rampeløp (IfcStairFlight, IfcRampFlight: quantity in
+  one rule table, count in another), Prefab-moduler (no class: counted, but
+  no product EPD, so the definition breaks). The tables still answer for
+  those classes; the row never lets that pass silently. `aapne` lists all
+  four always, `n` = in-scope objects whose mengdetype the class table
+  decided for one of its classes, null for Prefab-moduler, which cannot be
+  told apart per object.
+
+  **The tables** are `src/codelists/mengdetype-ifcklasse.ts` (155 classes,
+  plus `MENGDETYPE_AAPNE`) and `mengdetype-ns3457.ts` (789 codes), generated
+  from HI90's `02_Arbeid/mengdetype_ifcklasse.yaml`, `mengdetype_ns3457.yaml`
+  and `krav.yaml` with provenance meta (source, SHA-256, date, count). Not
+  in `CODE_LISTS`: no code-lookup rule can name them. The generator fails on
+  a changed row count, an unknown mengdetype or ledeenhet, or a ruling naming
+  a class the table lacks.
+
+  **`materialsJson()`** is attached as `graph.materials` by `ids-cli report`
+  only. `ProductRow.materials` carries layer-set materials only (HI90_ARK:
+  none on its 29 IfcCovering and 1 148 IfcFurnishingElement, which carry a
+  direct IfcMaterial); `element-material` reads that column, so it undercounts
+  direct materials. Not changed here.
+
+  **Not expressible in the project layer:** HI90's pattern sources (a pset
+  matching `^MagiCAD Pset_`, property `^product ?code$`), and HI90's
+  funksjonskode cascade feeding the NS 3457 code (this row reads the
+  classification only).
+
+  Against the HI90 22.09 reference on HI90_ARK (same sha), with and without
+  `examples/hi90-project-layer.test.ruleset.json` (every project source 0
+  there, as in the reference): oppfylt 697 and avvik 134 match, as do the
+  material values (Betong 197, Isolasjon - Myk 176, Finer 105, Innervegg 71
+  avvik, Gipsplate - Ombruk 67, Dekke 63 avvik), the IfcMaterial source (29)
+  and the open rulings (Dør og vindu 77, Dekke og tak 278, Prefab-moduler
+  shown without a count). Differences, all from the population and the n
+  definition, none forced: grunnlag 2417 against 2258 and mangler 1586
+  against 1427, because this row judges every physical product (2980, as
+  `phase`) while HI90 counts IfcProduct with 3D geometry (2731); the extra
+  159 are 153 IfcFurnishingElement, 2 IfcStair and 4 IfcRailing without
+  geometry, all mangler. gjelder_ikke 563 against 473: 91 IfcVirtualElement
+  are in this population, and IfcSite (HI90's one extra) is not a product row
+  here. `IfcMaterialLayerSet` n 802 against 668: n here is objects the source
+  decided (oppfylt + avvik), HI90's is oppfylt only. Trappeløp og rampeløp is
+  listed here with n 0; HI90 omits a classed ruling that touches nothing.
+  HI90 says `bad` where this says `warn`.
+
+Not in the contract yet (#1 gaps 5, 6): the pset inventory, and a
+standard-layer cascade for the classification mappings (with no mapping
+configured, NS 3451 and NS 3457 produce no row). A code-lookup rule still
+reads one source.
 
 Exit codes as the rest of `ids-cli`: 1 when a row is `fail` or a model could
 not be read, 3 when a row is `not_evaluable`, else 0. `warn` and

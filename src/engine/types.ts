@@ -155,6 +155,30 @@ export interface IfcGraph {
   psets?: PropertyRow[];
   classifications?: ClassificationRow[];
   quantities?: QuantityRow[];
+  /** `materialsJson()`, attached by the `report` CLI only (the Materiale /
+   *  Produkt row reads it; no screen does). Absent = not supplied, and the row
+   *  that needs it says so. */
+  materials?: MaterialRow[];
+}
+
+/** One material assignment row — `materialsJson()`, long format.
+ *
+ * `IfcRelAssociatesMaterial` resolved per object: one row for a direct
+ * `IfcMaterial`, one per entry of a list, one per LAYER of a layer set (with
+ * its thickness). `role` is `direct`, `list`, `layer`, or `unknown` for a
+ * relating material ifcfast does not resolve (constituent and profile sets).
+ * Unlike `ProductRow.materials`, which carries layer-set materials only
+ * (HI90_ARK 22.09: no direct material on its 29 IfcCovering there, 29 here),
+ * this carries every assignment. `source` is `instance` or `type`. */
+export interface MaterialRow {
+  guid: string;
+  role: string;
+  layer_index: number;
+  material_name: string | null;
+  layer_thickness_mm: number | null;
+  category: string | null;
+  fraction: number | null;
+  source: string;
 }
 
 export interface IfcSummary {
