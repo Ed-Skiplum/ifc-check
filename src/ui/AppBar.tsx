@@ -95,11 +95,20 @@ export function AppBar({
     // Oppsett and NB/EN were off-screen). The board itself has no portrait
     // layout; the bar is chrome and must not lock anyone out.
     <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-panel px-4 py-2">
+      {/* The filled primary only while nothing is open. Once a model is on the
+          board it is the action least needed next, and a filled green block in
+          the corner pulled the first look away from the verdicts (2026-09-24):
+          it drops to the outlined style every other bar control has. */}
       <button
         type="button"
         onClick={() => ifcInput.current?.click()}
-        data-chrome="primary"
-        className="flex items-center gap-3 bg-green px-4 py-1.5 text-sm font-medium text-cream hover:bg-ink"
+        data-chrome={modelCount === 0 ? "primary" : undefined}
+        className={
+          "flex items-center gap-3 " +
+          (modelCount === 0
+            ? "bg-green px-4 py-1.5 text-sm font-medium text-cream hover:bg-ink"
+            : "border border-line bg-input px-2 py-1 text-[12px] text-ink hover:border-green hover:text-green")
+        }
       >
         <span>{t("action.openIfc", lang)}</span>
         <span className="hidden font-mono text-[11px] tracking-wide sm:inline">

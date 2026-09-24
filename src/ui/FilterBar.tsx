@@ -1,6 +1,12 @@
 /** The active-filter bar: what the board is narrowed to, and how the narrowing
  *  is expressed in 3D.
  *
+ * It rides the right-hand end of the tab strip's line (2026-09-24): on a line
+ * of its own it was a band of chrome above the board that said nothing until
+ * a click. It never wraps, so a chip appearing moves nothing on the page and
+ * the row just clicked is still under the pointer for the click that undoes
+ * it; more chips than the line holds scroll sideways inside it.
+ *
  * Always rendered, empty or not. The point of the bar is that *"what am I
  * filtered to?"* is answerable at a glance, and a bar that appears only when
  * something is on cannot answer it — you have to already know to look.
@@ -41,7 +47,7 @@ export function FilterBar({
   onClear,
 }: FilterBarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+    <div data-filter-bar className="flex items-center gap-x-2 whitespace-nowrap [&>*]:shrink-0">
       <span className="text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
         {t("filter.label", lang)}
       </span>

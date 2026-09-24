@@ -12,7 +12,7 @@
  *   rows       each tile shows at least its kind's minimum of list rows,
  *              fully, without scrolling (focal: every universal check; floors:
  *              every row of the config on the 8×3 tile both boards now carry;
- *              gauge: all four levels; KPI strip: all seven cards)
+ *              gauge: all four levels; KPI strip: all four neutral counts)
  *   fill       a board shorter than the page height it was given has its row
  *              unit already at the ceiling its own placed tiles allow — a
  *              surplus that is structural, never a module that declined to
@@ -132,7 +132,9 @@ const UNIVERSAL_CHECKS =
       authoring_app: null, length_unit: "METRE", unit_scale: 1, unit_resolved: true,
       duplicate_step_ids: 0, parse_seconds: 0, warnings: [], tables: {} },
   ).length + 2;
-const MIN_ROWS = { verify: UNIVERSAL_CHECKS, floors: 6, spatial: 4, kpis: 7 };
+// kpis: the four neutral counts in the last-row strip (2026-09-24); the three
+// verdict counts moved into the focal and are held by the clip assertion.
+const MIN_ROWS = { verify: UNIVERSAL_CHECKS, floors: 6, spatial: 4, kpis: 4 };
 const FLOORS_FULL_FROM_WIDTH = 1440;
 const FLOORS_FULL_ROWS = 10;
 const minRowsFor = (v) => ({

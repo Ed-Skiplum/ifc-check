@@ -217,9 +217,12 @@ function buildTiles({
       )
     : 0;
 
-  // THE KPI ROW. Seven numbers, one each, asked for by name. Three carry the
+  // THE KPI NUMBERS. Seven, one each, asked for by name. Three carry the
   // verdict of the check they count and cross-filter to its findings on click;
-  // the other four are counts and stay neutral.
+  // the other four are counts and stay neutral. Since 2026-09-24 the two kinds
+  // sit apart: the three verdicts inside the focal, beside the rows they
+  // count, as the board's only large coloured numerals; the four counts in the
+  // quiet strip on the last row (`bento-layouts.ts`).
   const excluded = model.evaluation?.excludedGuids;
   const kpis = modelKpis({
     summary,
@@ -246,7 +249,14 @@ function buildTiles({
     label: t(labelKey, lang),
     value,
   });
-  const kpiCards: KpiCard[] = [
+  // In the focal, in the order the focal lists the checks they count, so the
+  // eye reads the rows and the numbers top to bottom in one direction.
+  const verdictCards: KpiCard[] = [
+    counted("orphans", "kpi.orphans", "storey-containment", kpis.orphans),
+    counted("untyped", "kpi.untyped", "element-typed", kpis.untyped),
+    counted("placement", "kpi.placement", "mesh-placement", kpis.placement),
+  ];
+  const countCards: KpiCard[] = [
     // USED of DECLARED, and the label says which is which. One number here was
     // the declared count while the type ledger counted distinct type NAMES, so
     // the board carried two "types" figures that could not be reconciled from
@@ -258,12 +268,9 @@ function buildTiles({
         ? "—"
         : `${kpis.typesUsed === null ? "—" : formatCount(kpis.typesUsed, lang)} / ${formatCount(kpis.typesDeclared, lang)}`,
     ),
-    counted("untyped", "kpi.untyped", "element-typed", kpis.untyped),
     plain("floors", "kpi.storeys", formatCount(kpis.floors, lang)),
     plain("size", "kpi.size", formatBytes(kpis.sizeBytes, lang)),
     plain("materials", "kpi.materials", formatCount(kpis.materials, lang)),
-    counted("orphans", "kpi.orphans", "storey-containment", kpis.orphans),
-    counted("placement", "kpi.placement", "mesh-placement", kpis.placement),
   ];
 
   // 21 tracks only: the class bars. Beside a 5-wide model and a 5-wide gauge
@@ -295,17 +302,17 @@ function buildTiles({
   return [
     ...classes,
     {
-      // A 1-row strip, 13 tracks on BOTH boards. `tellTales` is the registry's
-      // strip kind (13×1 upstream too); the grid has no KPI-row kind, and
-      // seven tiles cannot share one band (at most four band cuts per row), so
-      // the seven cards are cells of this one tile. On 21 tracks the strip
-      // gives up the other eight tracks of row 1 to the Etasjer tile, which is
-      // what buys that tile its third row — see `bento-layouts.ts`.
+      // A 1-row strip, 13 tracks on BOTH boards, on the LAST row: the four
+      // neutral counts. `tellTales` is the registry's strip kind (13×1
+      // upstream too); the grid has no KPI-row kind, so the cards are cells of
+      // this one tile. Quiet: no verdict colour and a small numeral, because a
+      // file size or a material count is reference, not a finding. P2, and on
+      // 13 tracks the one row past the fold.
       id: "kpis",
       kind: "tellTales",
-      priority: "P0",
+      priority: "P2",
       span: { w: 13, h: 1 },
-      body: <KpiRow cards={kpiCards} selected={selected} onFocus={onFocus} />,
+      body: <KpiRow cards={countCards} selected={selected} onFocus={onFocus} quiet />,
     },
     {
       id: "verify",
@@ -322,6 +329,9 @@ function buildTiles({
           selected={selected}
           onFocus={onFocus}
           rules={rules}
+          readouts={
+            <KpiRow cards={verdictCards} selected={selected} onFocus={onFocus} stacked />
+          }
         />
       ),
     },
@@ -358,9 +368,8 @@ function buildTiles({
     {
       id: "spatial",
       kind: "gauge",
-      // P2 on 13 tracks: that board is 9 rows against an 8-row fold and the
-      // gauge ends on row 9, where only P2 may sit.
-      priority: wide ? "P0" : "P2",
+      // Rows 6–8 on 13 tracks, 4–6 on 21: inside the fold on both boards.
+      priority: "P1",
       span: { w: 5, h: 3 },
       label: t("tile.spatial", lang),
       body: <SpatialGauge lang={lang} levels={chainLevels(profile)} />,
@@ -378,7 +387,7 @@ function buildTiles({
       // is "Etasje × klasse" on Innhold.
       id: "floors",
       kind: "roster",
-      priority: wide ? "P1" : "P2",
+      priority: "P1",
       span: { w: 8, h: 3 },
       label: t("tile.storeys", lang),
       sub: configured
