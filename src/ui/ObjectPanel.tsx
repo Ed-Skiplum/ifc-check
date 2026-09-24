@@ -557,14 +557,17 @@ function ElevationStrip({
   // Labels are pushed apart where two storeys sit close together; the LINES
   // stay at their true elevation, so nothing about the drawing lies — only the
   // text moves, and it moves down, never up past its own line.
-  let lastLabel = -Infinity;
   const labelled = [...levels]
     .sort((a, b) => b.elevation - a.elevation)
-    .map((level) => {
-      const at = Math.max(y(level.elevation) - 1.5, lastLabel + 8);
-      lastLabel = at;
-      return { level, line: y(level.elevation), text: at };
-    });
+    .reduce<{ level: (typeof levels)[number]; line: number; text: number }[]>((rows, level) => {
+      const last = rows.length ? rows[rows.length - 1].text : -Infinity;
+      rows.push({
+        level,
+        line: y(level.elevation),
+        text: Math.max(y(level.elevation) - 1.5, last + 8),
+      });
+      return rows;
+    }, []);
 
   return (
     <svg
