@@ -12,7 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { runFundamentals, verdictOf } from "../src/engine/fundamentals.ts";
+import { elementMaterialNames, runFundamentals, verdictOf } from "../src/engine/fundamentals.ts";
 import {
   checkMeshPlacement,
   collectBoxes,
@@ -71,6 +71,7 @@ for (const path of args) {
     checkMeshPlacement(graph, summary, boxes),
   ];
   const openings = new Set(graph.voids.map((v) => v.opening_guid));
+  const materialNames = elementMaterialNames(graph);
   const kpis = modelKpis({
     summary,
     checks,
@@ -78,6 +79,7 @@ for (const path of args) {
     storeys: graph.storeys.length,
     products: graph.products.map((p) => ({
       ...p,
+      materials: materialNames?.get(p.guid) ?? p.materials,
       typeGuid: p.type_guid,
       isOpening: openings.has(p.guid),
     })),

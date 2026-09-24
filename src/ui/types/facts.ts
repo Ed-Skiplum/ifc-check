@@ -18,6 +18,7 @@
  */
 
 import type { IfcGraph } from "../../engine/types";
+import { elementMaterialNames } from "../../engine/fundamentals";
 import type { ModelProfile, ProductRowLite } from "../profile";
 
 /**
@@ -49,6 +50,10 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
     parentOf.set(a.child_guid, { guid: a.parent_guid, kind: a.parent_kind });
   }
 
+  // Layer-set names plus directly associated IfcMaterial (#5), the same set
+  // `element-material` judges, so the KPI and the object panel agree with it.
+  const materialNames = elementMaterialNames(graph);
+
   const rows: ProductRowLite[] = profile.rows.map((row) => {
     const product = byGuid.get(row.guid);
     if (!product) return row;
@@ -61,7 +66,7 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
       predefinedType: product.predefined_type,
       objectType: product.object_type,
       tag: product.tag,
-      materials: product.materials ?? [],
+      materials: materialNames?.get(row.guid) ?? product.materials ?? [],
       isExternal: product.is_external,
       fireRating: product.fire_rating,
       loadBearing: product.load_bearing,
