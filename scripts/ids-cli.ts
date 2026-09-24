@@ -52,6 +52,8 @@ import {
 import { checkStoreyConfig } from "../src/engine/storey-config.ts";
 import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
 import { schemaFamily } from "../src/engine/standard-layer.ts";
+import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../src/codelists/mengdetype-ifcklasse.ts";
+import { MENGDETYPE_NS3457 } from "../src/codelists/mengdetype-ns3457.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
@@ -221,6 +223,7 @@ interface WasmModel {
   psetsJson(): string;
   classificationsJson(): string;
   quantitiesJson(): string;
+  materialsJson(): string;
   typeObjectsJson(): string;
   free(): void;
 }
@@ -340,6 +343,8 @@ async function cmdReport(args: string[]): Promise<number> {
       graph.psets = JSON.parse(parsed.psetsJson());
       graph.classifications = JSON.parse(parsed.classificationsJson());
       graph.quantities = JSON.parse(parsed.quantitiesJson());
+      // Read by the material-product row only; no screen reads it.
+      graph.materials = JSON.parse(parsed.materialsJson());
       parsed.free();
 
       const evaluation = ruleset
@@ -927,6 +932,111 @@ async function cmdSelftest(): Promise<number> {
     withTfm.funn.map((f) => `${f.guid}:${f.grunn}:${f.verdi}`).join(","),
   );
 
+  // Gap 3, Materiale / Produkt switched by mengdetype. One object per path:
+  // a door (class telleobjekt, and a code saying mengdeobjekt, which the
+  // class overrides) with a ModelReference; furniture with only an
+  // ArticleNumber, and with nothing; a wall with a layered Betong, and with
+  // «Innervegg»; a covering whose only material is a RAL colour, and one whose
+  // material is in a project property; proxies (class avhenger) decided by an
+  // NS 3457 code with a suffix, by a project property, and by nothing; a part
+  // (ikke_relevant); a slab with a direct material; a class the table lacks.
+  const mpEl = (guid: string, entity: string) => ({ ...wall(guid, null), entity });
+  const mat = (guid: string, role: string, name: string, thickness: number | null) => ({
+    guid, role, layer_index: role === "layer" ? 0 : -1, material_name: name,
+    layer_thickness_mm: thickness, category: null, fraction: null, source: "instance",
+  });
+  const ns3457 = (guid: string, identification: string) => ({
+    guid, system_name: "NS 3457-8", edition: null, identification, name: null, location: null,
+    source: null, assignment_source: "instance",
+  });
+  const mpGraph = {
+    ...(graph as unknown as IfcGraph),
+    products: [
+      mpEl("d1", "IFCDOOR"), mpEl("f2", "IFCFURNISHINGELEMENT"), mpEl("f3", "IFCFURNISHINGELEMENT"),
+      mpEl("w1", "IFCWALL"), mpEl("w2", "IFCWALL"), mpEl("c1", "IFCCOVERING"), mpEl("c2", "IFCCOVERING"),
+      mpEl("x1", "IFCBUILDINGELEMENTPROXY"), mpEl("x2", "IFCBUILDINGELEMENTPROXY"),
+      mpEl("x3", "IFCBUILDINGELEMENTPROXY"), mpEl("b1", "IFCBUILDINGELEMENTPART"), mpEl("s1", "IFCSLAB"),
+      mpEl("u1", "IFCNOTACLASS"),
+    ],
+    psets: [
+      prop("d1", "Pset_ManufacturerTypeInformation", "ModelReference", "D-10"),
+      prop("f2", "Pset_ManufacturerTypeInformation", "ArticleNumber", "A-9"),
+      prop("c2", "HI90_Prosjektinfo", "HI90_Material", "Gips"),
+      prop("x2", "NOSKI_Mengde", "Mengdetype", "Telleobjekt"),
+    ],
+    classifications: [ns3457("d1", "AB"), ns3457("x1", "ABA-01")],
+    materials: [
+      mat("w1", "layer", "Betong", 200), mat("w2", "layer", "Innervegg", 100),
+      mat("c1", "direct", "RAL 9010", null), mat("s1", "direct", "Betong", null),
+    ],
+  } as unknown as IfcGraph;
+  const mpLayer: Ruleset["projectLayer"] = {
+    "material-product": {
+      mengdetype: [{ property: { propertySet: "NOSKI_Mengde", name: "Mengdetype" } }],
+      product: [{ property: { propertySet: "Identity Data", name: "MC Product Code" } }],
+      material: [{ property: { propertySet: "HI90_Prosjektinfo", name: "HI90_Material" } }],
+    },
+  };
+  const mpRowFor = (projectLayer: Ruleset["projectLayer"] | undefined, g: IfcGraph = mpGraph) =>
+    reportRows({
+      model: { file: "m.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+      graph: g,
+      summary: summary as unknown as IfcSummary,
+      checks: [],
+      ruleset: projectLayer ? ({ ...SAMPLE_RULESET, projectLayer } as Ruleset) : null,
+    }).find((r) => r.id === "material-product")!;
+  const mpStd = mpRowFor(undefined);
+  const mpPrj = mpRowFor(mpLayer);
+  record("material-product: standard layer alone", "warn 12=4+2+6 gjelder_ikke 1", `${describe(mpStd)} gjelder_ikke ${mpStd.dekning.gjelder_ikke}`);
+  record("material-product: the project layer adds a material and decides a proxy", "warn 12=5+2+5", describe(mpPrj));
+  record(
+    "material-product: kilder per branch, the class deciding first, 0 hits included",
+    "mengdetype:IFC-klasse:standard:9:true,mengdetype:IfcClassificationReference NS 3457:standard:1:false," +
+      "mengdetype:NOSKI_Mengde.Mengdetype:prosjekt:1:false," +
+      "telleobjekt:Pset_ManufacturerTypeInformation.ModelReference:standard:1:true," +
+      "telleobjekt:Pset_ManufacturerTypeInformation.ArticleNumber:standard:1:false," +
+      "telleobjekt:Identity Data.MC Product Code:prosjekt:0:false," +
+      "mengdeobjekt:IfcMaterial:standard:2:true,mengdeobjekt:IfcMaterialLayerSet:standard:2:false," +
+      "mengdeobjekt:HI90_Prosjektinfo.HI90_Material:prosjekt:1:false",
+    mpPrj.dekning.kilder.map((k) => `${k.gren}:${k.navn}:${k.lag}:${k.n}:${k.foretrukket}`).join(","),
+  );
+  record(
+    "material-product: one finding per object not oppfylt, by branch",
+    "f3:product-missing:null,w2:material-unusable:Innervegg,c1:material-unusable:RAL 9010," +
+      "x1:material-missing:null,x2:product-missing:null,x3:mengdetype-undecided:avhenger,u1:mengdetype-undecided:ukjent",
+    mpPrj.funn.map((f) => `${f.guid}:${f.grunn}:${f.verdi}`).join(","),
+  );
+  record(
+    "material-product: the open rulings, counted where the class decided, never dropped",
+    "Dør og vindu:1,Dekke og tak:1,Trappeløp og rampeløp:0,Prefab-moduler:null / Dør og vindu:1,Dekke og tak:1",
+    (mpPrj.aapne ?? []).map((a) => `${a.tittel}:${a.n}`).join(",") + " / " +
+      (mpPrj.fordeling ?? []).filter((v) => v.flagg === "åpen").map((v) => `${v.verdi}:${v.n}`).join(","),
+  );
+  record(
+    "material-product: fordeling, values with their flag",
+    "null:mangler:5,Betong:ok:2,A-9:ok:1,D-10:ok:1,Gips:ok:1,Innervegg:avvik:1,RAL 9010:avvik:1",
+    (mpPrj.fordeling ?? []).filter((v) => v.flagg !== "åpen").map((v) => `${v.verdi}:${v.flagg || "ok"}:${v.n}`).join(","),
+  );
+  const onlyDoor = { ...mpGraph, products: [mpEl("d1", "IFCDOOR")] } as unknown as IfcGraph;
+  record(
+    "material-product: an open ruling keeps a clean object off pass",
+    "warn 1=1+0+0",
+    describe(mpRowFor(undefined, onlyDoor)),
+  );
+  const noMaterials = { ...mpGraph, materials: undefined } as unknown as IfcGraph;
+  record(
+    "material-product: no material table is not_evaluable, never mangler",
+    "not_evaluable",
+    mpRowFor(undefined, noMaterials).state,
+  );
+  record(
+    "material-product: the bundled tables carry their provenance",
+    "155 classes, 789 codes, 4 rulings, sha256 64/64/64",
+    `${MENGDETYPE_IFCKLASSE.meta.count} classes, ${MENGDETYPE_NS3457.meta.count} codes, ` +
+      `${MENGDETYPE_AAPNE.meta.count} rulings, sha256 ` +
+      [MENGDETYPE_IFCKLASSE, MENGDETYPE_NS3457, MENGDETYPE_AAPNE].map((t) => t.meta.sha256.length).join("/"),
+  );
+
   // The project layer's lint: an id the standard layer does not define is an
   // error (HI90 konfig.py refuses it too), a schema must be a family, and
   // widening past the standard is a warning.
@@ -940,6 +1050,8 @@ async function cmdSelftest(): Promise<number> {
   record("lint: a schema outside the standard widens it", "warning:schema-accepted-widens", layerLint({ "ifc-schema": { accepted: ["IFC4X3"] } }));
   record("lint: a cascade source with no property name", "error:code-source-empty", layerLint({ phase: { sources: [{ property: { propertySet: "HI90_TFM", name: "" } }] } }));
   record("lint: the HI90 project layer lints clean", "none", layerLint({ "ifc-schema": { accepted: ["IFC4"] }, phase: { sources: [{ property: { propertySet: "HI90_TFM", name: "Fase" } }] } }));
+  record("lint: a material-product branch with no source", "error:cascade-sources-empty", layerLint({ "material-product": { product: [] } }));
+  record("lint: the HI90 material-product layer lints clean", "none", layerLint(mpLayer));
   record(
     "schema: projectLayer validates, and refuses an unknown key",
     "0 / >0",

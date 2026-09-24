@@ -55,7 +55,7 @@ export const IFC_VERSIONS: IfcVersion[] = ["IFC2X3", "IFC4", "IFC4X3_ADD2"];
 
 /** The requirements with a standard layer a ruleset's `projectLayer` may
  *  extend (src/engine/standard-layer.ts). */
-export const STANDARD_REQUIREMENT_IDS: StandardRequirementId[] = ["ifc-schema", "phase"];
+export const STANDARD_REQUIREMENT_IDS: StandardRequirementId[] = ["ifc-schema", "phase", "material-product"];
 
 /** The standard layer's accepted schema families, as HI90's standard.yaml
  *  has them. */
@@ -624,6 +624,17 @@ function checkProjectLayer(ctx: Ctx, layer: unknown): void {
         add(ctx, "error", `${path}.sources`, "cascade-sources-empty", "sources lists no source");
       } else {
         e.sources.forEach((source, i) => checkCodeSource(ctx, `${path}.sources[${i}]`, source));
+      }
+    }
+    if (id === "material-product") {
+      for (const branch of ["mengdetype", "product", "material"]) {
+        const list = e[branch];
+        if (list === undefined) continue;
+        if (!Array.isArray(list) || list.length === 0) {
+          add(ctx, "error", `${path}.${branch}`, "cascade-sources-empty", `${branch} lists no source`);
+        } else {
+          list.forEach((source, i) => checkCodeSource(ctx, `${path}.${branch}[${i}]`, source));
+        }
       }
     }
   }

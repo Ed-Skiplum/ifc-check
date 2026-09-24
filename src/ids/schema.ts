@@ -241,6 +241,35 @@ export const RULESET_JSON_SCHEMA = {
             },
           },
         },
+        "material-product": {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            mengdetype: {
+              type: "array",
+              minItems: 1,
+              items: { $ref: "#/$defs/codeSource" },
+              description:
+                "Read after the IFC class table and the NS 3457 code, in this order; a value " +
+                "'telleobjekt' or 'mengdeobjekt' decides the switch.",
+            },
+            product: {
+              type: "array",
+              minItems: 1,
+              items: { $ref: "#/$defs/codeSource" },
+              description:
+                "A telleobjekt's product, read after Pset_ManufacturerTypeInformation " +
+                "ModelReference and ArticleNumber, in this order.",
+            },
+            material: {
+              type: "array",
+              minItems: 1,
+              items: { $ref: "#/$defs/codeSource" },
+              description:
+                "A mengdeobjekt's material, read after IfcMaterial and IfcMaterialLayerSet, in this order.",
+            },
+          },
+        },
       },
     },
     rules: { type: "array", items: { $ref: "#/$defs/rule" } },

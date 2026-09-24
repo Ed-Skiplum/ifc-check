@@ -356,6 +356,16 @@ export interface ProjectLayer {
   "ifc-schema"?: { accepted?: string[] };
   /** Pset_*Common.Status. `sources` are read after it, in order. */
   phase?: { sources?: CodeSource[] };
+  /** Materiale / Produkt, switched by mengdetype. Each list is read after
+   *  the standard's sources of its branch: `mengdetype` after the IFC class
+   *  table and the NS 3457 code (a value `telleobjekt` / `mengdeobjekt`),
+   *  `product` after Pset_ManufacturerTypeInformation, `material` after
+   *  IfcMaterial and the layer set. */
+  "material-product"?: {
+    mengdetype?: CodeSource[];
+    product?: CodeSource[];
+    material?: CodeSource[];
+  };
 }
 
 export type StandardRequirementId = keyof ProjectLayer;

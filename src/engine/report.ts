@@ -48,6 +48,11 @@ export interface ReportSource {
   /** Objects this source answered for. null = the engine does not count it. */
   n: number | null;
   foretrukket: boolean;
+  /** Which branch of a switched requirement the source belongs to, on the
+   *  `material-product` row only: `mengdetype` (what decided the switch),
+   *  `telleobjekt` (product) or `mengdeobjekt` (material). `foretrukket` is
+   *  then the first source of its branch. */
+  gren?: "mengdetype" | "telleobjekt" | "mengdeobjekt";
 }
 
 export interface ReportCoverage {
@@ -60,7 +65,9 @@ export interface ReportCoverage {
   kilder: ReportSource[];
 }
 
-export type ReportFlag = "" | "avvik" | "mangler";
+/** `åpen` marks objects whose reading rests on an open ruling (the
+ *  `material-product` row): decided by a table row edkjo has not settled. */
+export type ReportFlag = "" | "avvik" | "mangler" | "åpen";
 
 export interface ReportValue {
   /** null = the objects carried no value. */
@@ -96,6 +103,11 @@ export interface ReportRow {
    *  list (`ifc-schema`, `phase`): the standard's, or the project layer's
    *  replacement. Absent otherwise. */
   godtatte?: string[];
+  /** On `material-product` only: every open ruling on the mengdetype tables,
+   *  with the in-scope objects whose mengdetype one of its classes decided.
+   *  `n` is null for a ruling with no class, which cannot be told apart per
+   *  object. */
+  aapne?: { tittel: string; klasser: string[]; n: number | null }[];
   dekning: ReportCoverage;
   /** null = the engine does not produce a distribution for this requirement. */
   fordeling: ReportValue[] | null;

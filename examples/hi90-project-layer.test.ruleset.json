@@ -1,12 +1,20 @@
 {
   "formatVersion": 1,
-  "name": "TEST FIXTURE: HI90 project layer for ifc-schema and phase",
-  "description": "Test fixture, not a project config. Mirrors the ifc-schema and fase entries of HI90 krav.yaml (blokker) so the report can be compared with the 22.09 reference. HI90's exporter exception (IFC2X3 for Tekla) is not expressible here.",
+  "name": "TEST FIXTURE: HI90 project layer for ifc-schema, phase and material-product",
+  "description": "Test fixture, not a project config. Mirrors the ifc-schema, fase and materialprodukt entries of HI90 krav.yaml (blokker) so the report can be compared with the 22.09 reference. Not expressible here: HI90's exporter exception (IFC2X3 for Tekla), and its pattern source for a product code (pset matching ^MagiCAD Pset_, property ^product ?code$).",
   "ifcVersions": ["IFC4"],
   "projectLayer": {
     "ifc-schema": { "accepted": ["IFC4"] },
     "phase": {
       "sources": [{ "property": { "propertySet": "HI90_TFM", "name": "Fase" } }]
+    },
+    "material-product": {
+      "mengdetype": [{ "property": { "propertySet": "NOSKI_Mengde", "name": "Mengdetype" } }],
+      "product": [{ "property": { "propertySet": "Identity Data", "name": "MC Product Code" } }],
+      "material": [
+        { "property": { "propertySet": "HI90_Prosjektinfo", "name": "HI90_Material" } },
+        { "property": { "propertySet": "HI90_Prosjektinfo_IFC", "name": "HI90_Material" } }
+      ]
     }
   },
   "rules": []
