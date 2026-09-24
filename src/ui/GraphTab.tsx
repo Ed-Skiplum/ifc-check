@@ -615,6 +615,11 @@ function Edge({ from, to, label }: { from: Point; to: Point; label: string }) {
   // 8 px mono is ~4.9 px per character; the label never runs past its own edge.
   const room = Math.max(0, Math.floor((length - 26) / 4.9));
   const text = room >= 4 ? clip(label, room) : "";
+  // Not the midpoint: the graph is a FAN from the selected element, so every
+  // edge's midpoint lands in the same crowded ring near the hub and the labels
+  // overprint each other. Two thirds out, the arc between neighbouring edges is
+  // twice as wide and they separate on their own.
+  const at = { x: from.x + dx * 0.68, y: from.y + dy * 0.68 };
   return (
     <g>
       <line
@@ -627,9 +632,9 @@ function Edge({ from, to, label }: { from: Point; to: Point; label: string }) {
       />
       {text ? (
         <text
-          x={(from.x + to.x) / 2}
-          y={(from.y + to.y) / 2 - 3.5}
-          transform={`rotate(${angle} ${(from.x + to.x) / 2} ${(from.y + to.y) / 2 - 3.5})`}
+          x={at.x}
+          y={at.y - 3.5}
+          transform={`rotate(${angle} ${at.x} ${at.y - 3.5})`}
           textAnchor="middle"
           fontFamily="var(--font-mono)"
           fontSize={8}
