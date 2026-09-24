@@ -297,6 +297,10 @@ export interface CheckResult {
   findings: Finding[];
   /** Short factual line, e.g. "0 of 851 elements linked to a type". */
   detail: string;
+  /** Per-state element counts, where a check has more states than
+   *  pass/finding. `mesh-placement` sets green / yellow / red / far /
+   *  no_storey / unmeshed. Read by the report contract (`report.ts`). */
+  tally?: Record<string, number>;
 }
 
 export interface ModelReport {

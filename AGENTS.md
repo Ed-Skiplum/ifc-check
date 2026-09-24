@@ -18,6 +18,8 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   placement.ts   `mesh-placement`, the twelfth check: needs the streamed meshes,
                  so it runs beside `runFundamentals`, not inside it
   kpis.ts        the seven numbers on the board's KPI row
+  report.ts      the report contract: one row per requirement × model
+                 (see "Report contract")
   storey-config.ts  `storey-config`: file storeys against the ruleset's floor
                  config (`storeys`)
 src/ui/          the screen, and the worker that drives the engine
@@ -213,13 +215,31 @@ reason. Copy-object exclusions and openings are dropped exactly as in
   broken by a change. The models that DO carry a stray today are the Void-demo
   exports: `KNM_ARK` 1 of 1 335 (cutoff 290.3 m) and `KNM_RIB` 1 of 3 (cutoff
   4.1 m). `zoom-gate.mjs` uses the first.
-- `storey-mismatch` — the storey the mesh BOTTOM falls in (greatest elevation
-  <= bottom + 0.1 m) is not the stated storey. Method and tolerance from
-  `KNM_Mottakskontroll/02_arbeid/ids/storey_check.py`. Elevation is scaled by
+- `storey-mismatch` — edkjo's three-state rule (ifc-check#2, 2026-09-24),
+  per element against its STATED storey, span `[elev, next_elev)` where
+  `next_elev` is the next distinct elevation above; the top storey is open:
+
+  | band | condition |
+  |---|---|
+  | green | `elev <= mesh_bottom < next_elev` |
+  | yellow | `elev - 0.10 <= mesh_bottom < elev` AND `mesh_top >= elev` |
+  | red | anything else |
+
+  Yellow and red are both findings with code `storey-mismatch`;
+  `params.band` says which and `params.delta` is bottom minus the stated
+  elevation (m). Red or far makes the check `fail` (Avvik); yellow alone makes
+  it `review` (Advarsel, via `verdictOf`). The UI prints one sentence for both
+  bands. `CheckResult.tally` carries green / yellow / red / far / no_storey /
+  unmeshed / band_ran. Every edge compares with 1 mm of slack
+  (`LEVEL_EPSILON_M`), which is numerical, not a tolerance: streamed vertices
+  are float32, and on HI90_ARK (22.09) exact comparison read 723 elements
+  yellow, 717 of them under 0.1 mm below their storey. Elevation is scaled by
   `unit_scale` (ifcfast#180). Refuses to run, and says so in `detail`, when
   fewer than two distinct elevations exist or when the elevation span and the
   mesh-bottom span do not overlap (elevations relative to a building placed
-  elsewhere).
+  elsewhere). This replaces the KNM `storey_check.py` rule (greatest elevation
+  <= bottom + 0.1 m). On HI90_ARK: before, 40 of 2 730 off their storey;
+  after, 2 689 green, 7 yellow, 34 red.
 
 Not measurable: distance from an element's OWN placement origin. The core has
 a `drift` table (`drift_distance_m`) but the wasm build exposes only its row
@@ -1436,6 +1456,7 @@ node scripts/ids-cli.ts sample                        # a worked ruleset to star
 node scripts/ids-cli.ts lint   my.ruleset.json
 node scripts/ids-cli.ts emit   my.ruleset.json [--out DIR]
 node scripts/ids-cli.ts run    my.ruleset.json a.ifc [b.ifc ...]
+node scripts/ids-cli.ts report [--ruleset my.ruleset.json] a.ifc [...]   # see "Report contract"
 node scripts/ids-cli.ts selftest
 ```
 
@@ -1514,3 +1535,83 @@ PYTHONUTF8=1 python scripts/gen-codelists.py                   # src/codelists/*
 NS 3457-8's source (`ns3457_pdf_extract.json`, the QA'd transcription its
 HANDOVER marks authoritative) against the reviewed `ns3457_table.csv` code by
 code.
+
+## Report contract
+
+`node scripts/ids-cli.ts report [--ruleset my.ruleset.json] a.ifc [b.ifc ...]`
+prints one JSON document, UTF-8 bytes on stdout whatever the console code
+page: `{command, ruleset, rows, errors, lint}`. `rows` is one object per
+requirement × model, built by `src/engine/report.ts` from results the engine
+already computed (fundamentals, `storey-config`, `mesh-placement`, the
+ruleset's enabled rules). It is the shape the HI90 mottakskontroll report
+builder reads (Ed-Skiplum/ifc-check#1; vocabulary from that project's
+`docs/begreper.md`). The model is parsed once, geometry included, and the
+copy-object exclusions reach the fundamentals as in the browser worker.
+
+```json
+{ "model": {"file": "HI90_ARK.ifc", "schema": "IFC2X3", "sha256": "<64 hex>"},
+  "id": "mesh-placement",
+  "state": "pass|warn|fail|not_applicable|not_evaluable|not_configured",
+  "grunn": "why, only on not_applicable / not_evaluable / not_configured",
+  "dekning": {"grunnlag": 2730, "grunnlag_klasse": "IfcProduct",
+              "oppfylt": 2689, "avvik": 41, "mangler": 0, "gjelder_ikke": 250,
+              "kilder": [{"navn": "IfcRelContainedInSpatialStructure",
+                          "lag": "standard", "n": 2730, "foretrukket": true}]},
+  "fordeling": [{"verdi": "yellow", "n": 7, "flagg": "avvik"}],
+  "funn": [{"guid": "...", "klasse": "IfcSlab",
+            "grunn": "storey-mismatch-red", "verdi": "-0.3"}] }
+```
+
+- `mapping`: present on a project-mapping row only, the role
+  (`progress-code`, `copy-object`, ...), since a rule's `id` is cosmetic.
+- `state`: a fundamental maps through `verdictOf` (`na` → `not_applicable`).
+  A rule keeps its own state. `not_configured` = no home in the IFC standard
+  and no project config: `storey-config` with no floor list, and a row per
+  unconfigured `progress-code` / `copy-object` mapping (id = the role). A
+  disabled mapping counts as unconfigured. `mesh-placement` is
+  `not_evaluable` with no geometry, and when its storey half refused to run
+  (then `fail` if anything is far).
+- `dekning`: `oppfylt + avvik + mangler = grunnlag` whenever all three are
+  set. mangler = not there, avvik = there but not acceptable. `gjelder_ikke`
+  = objects taken out of scope before judging: copy-object exclusions,
+  elements without geometry (`mesh-placement`), elements with no named type
+  (`type-name-placeholder`). `kilder` is every source the requirement reads,
+  0 hits included; `lag` is `standard` for an IFC attribute, relationship,
+  `IfcClassificationReference` or a `Pset_*` / `Qto_*` property, else
+  `prosjekt`. The engine's cascades are one source long today, so every
+  `kilder` has one entry, `foretrukket: true`.
+- `fordeling`: every distinct value, uncollapsed, most frequent first.
+  `verdi: null` = no value; `flagg` is `""`, `avvik` or `mangler`. Per check:
+  storeys (incl. 0-count) for `storey-containment`; building for
+  `storey-in-building`; elevation in m (3 decimals) for `storey-elevation`;
+  GlobalId multiplicity in objects for `guid-unique` (`"1"`, `"2"`...);
+  names, type names (`""` = typed, unnamed type), materials (an object with
+  several counts under each); instances per declared type Name for
+  `type-unused` (0 flagged); `green` / `yellow` / `red` / `far-from-model` for
+  `mesh-placement`; the value read for code-lookup, the copy-object mapping
+  and model-metadata.
+- `funn`: every finding, uncapped. `grunn` is a code, never prose: the
+  engine's ReasonCode (yellow and red split into `storey-mismatch-yellow` /
+  `-red`), or the rule finding's code (`empty`, `no-match`, `not-in-list`,
+  `no-type`, `duplicate`, `type-usage`, `value`, `requirement`,
+  `occurrence-bounds`).
+
+**Null, because the engine does not compute it:** `parse-integrity` has no
+coverage (every `dekning` count null, `kilder` and `fordeling` empty/null);
+`spatial-chain` has no `grunnlag_klasse` and no `kilder`; an ids rule has no
+avvik/mangler split, no `kilder` and no `fordeling` (a finding can carry
+several facet failures at once); `unique-attribute` and `type-usage-count`
+have no `mangler` (empty values and untyped elements are skipped, not
+failed), no `kilder.n` and no `fordeling`; `grunnlag_klasse` is null when a
+rule selects several classes, `physicalElement`/`builtElement`, or no entity;
+a rule's `gjelder_ikke` is null when the copy-object filter excluded
+anything, since which of those the rule would have selected is not recorded.
+
+Not in the contract yet (#1 gaps 2 to 6): the schema allowlist, the
+materiale/produkt switch, fase, the pset inventory, and a standard-layer
+cascade for the classification mappings (with no mapping configured, NS 3451
+and NS 3457 produce no row).
+
+Exit codes as the rest of `ids-cli`: 1 when a row is `fail` or a model could
+not be read, 3 when a row is `not_evaluable`, else 0. `warn` and
+`not_configured` are answers, not failures.

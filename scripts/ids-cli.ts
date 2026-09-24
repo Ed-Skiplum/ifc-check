@@ -8,6 +8,7 @@
  *   node scripts/ids-cli.ts lint   my.ruleset.json
  *   node scripts/ids-cli.ts emit   my.ruleset.json --out dist-rules
  *   node scripts/ids-cli.ts run    my.ruleset.json model.ifc [...]
+ *   node scripts/ids-cli.ts report [--ruleset my.ruleset.json] model.ifc [...]
  *   node scripts/ids-cli.ts selftest
  *
  * Every command writes one JSON document to stdout. Progress and errors go to
@@ -18,8 +19,15 @@
  *   1  the thing being checked failed: lint errors, invalid .ids, rule failures
  *   2  usage error, unreadable file, or an internal error
  *   3  nothing failed, but at least one rule could not be evaluated
+ *
+ * `report` prints the report contract (src/engine/report.ts, AGENTS.md
+ * "Report contract"): one row per requirement × model, fundamentals plus
+ * `storey-config` plus `mesh-placement` plus the ruleset's rules. Same exit
+ * scale: 1 when a row is `fail` or a model could not be read, 3 when a row is
+ * `not_evaluable`, else 0.
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -33,6 +41,17 @@ import { SAMPLE_RULESET } from "../src/ids/sample.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
 import type { Ruleset } from "../src/ids/types.ts";
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
+import { runFundamentals } from "../src/engine/fundamentals.ts";
+import {
+  checkMeshPlacement,
+  collectBoxes,
+  storeyBand,
+  unshiftBoxes,
+  type ElementBox,
+} from "../src/engine/placement.ts";
+import { checkStoreyConfig } from "../src/engine/storey-config.ts";
+import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
+import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -96,7 +115,7 @@ function loadRuleset(path: string | undefined): Ruleset {
   }
 }
 
-const VALUE_FLAGS = ["--out", "--max-findings"];
+const VALUE_FLAGS = ["--out", "--max-findings", "--ruleset"];
 
 function flagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -194,6 +213,8 @@ async function cmdEmit(args: string[]): Promise<number> {
 /* ------------------------------------------------------------------- run */
 
 interface WasmModel {
+  streamMeshes(batch: number, onBatch: (metaJson: string, positions: Float32Array) => void): void;
+  streamShiftJson(): string;
   summaryJson(): string;
   graphJson(): string;
   psetsJson(): string;
@@ -271,6 +292,82 @@ async function cmdRun(args: string[]): Promise<number> {
 
   if (totals.fail > 0 || totals.error > 0) return 1;
   return totals.not_evaluable > 0 ? 3 : 0;
+}
+
+/* ---------------------------------------------------------------- report */
+
+/** Write one document as UTF-8 bytes and wait until the stream has taken it,
+ *  so `process.exit` cannot cut a large document short on a pipe and no
+ *  console code page decides how æøå are encoded. */
+function emitUtf8(value: unknown): Promise<void> {
+  const bytes = Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8");
+  return new Promise((resolve, reject) => {
+    process.stdout.write(bytes, (error) => (error ? reject(error) : resolve()));
+  });
+}
+
+async function cmdReport(args: string[]): Promise<number> {
+  const rulesetPath = flagValue(args, "--ruleset");
+  const ruleset = rulesetPath === undefined ? null : loadRuleset(rulesetPath);
+  const lint = ruleset ? lintRuleset(ruleset) : [];
+  if (ruleset && hasErrors(lint)) {
+    await emitUtf8({ command: "report", ruleset: ruleset.name, rows: [], errors: [], lint, error: "lint errors" });
+    return 1;
+  }
+  const modelPaths = positionals(args);
+  if (modelPaths.length === 0) fail("report needs at least one .ifc path");
+
+  const IfcModel = await loadWasm();
+  const rows: ReportRow[] = [];
+  const errors: { file: string; error: string }[] = [];
+  for (const path of modelPaths) {
+    const name = basename(path);
+    try {
+      const bytes = readFileSync(path);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      note(`report: ${name}`);
+      const parsed = IfcModel.fromBytes(new Uint8Array(bytes), name);
+      // Geometry first, as the parse worker and check-cli do it.
+      const boxes = new Map<string, ElementBox>();
+      parsed.streamMeshes(250, (metaJson, positions) => {
+        collectBoxes(boxes, JSON.parse(metaJson), positions);
+      });
+      unshiftBoxes(boxes, JSON.parse(parsed.streamShiftJson()));
+      const summary = JSON.parse(parsed.summaryJson()) as IfcSummary;
+      const graph = JSON.parse(parsed.graphJson()) as IfcGraph;
+      graph.type_objects = JSON.parse(parsed.typeObjectsJson());
+      graph.psets = JSON.parse(parsed.psetsJson());
+      graph.classifications = JSON.parse(parsed.classificationsJson());
+      graph.quantities = JSON.parse(parsed.quantitiesJson());
+      parsed.free();
+
+      const evaluation = ruleset
+        ? evaluateRuleset(ruleset, graph as unknown as ModelGraph, summary as unknown as ModelSummary, name)
+        : null;
+      // The copy-object exclusions reach the fundamentals exactly as the
+      // browser worker applies them.
+      const excluded = evaluation?.excludedGuids?.length ? new Set(evaluation.excludedGuids) : undefined;
+      const checks = [
+        ...runFundamentals(graph, summary, excluded),
+        checkStoreyConfig(graph, summary, ruleset?.storeys),
+        checkMeshPlacement(graph, summary, boxes, excluded),
+      ];
+      rows.push(
+        ...reportRows({
+          model: { file: name, schema: summary.schema, sha256 },
+          graph,
+          summary,
+          checks,
+          ruleset,
+          evaluation,
+        }),
+      );
+    } catch (error) {
+      errors.push({ file: name, error: (error as Error).message });
+    }
+  }
+  await emitUtf8({ command: "report", ruleset: ruleset?.name ?? null, rows, errors, lint });
+  return errors.length > 0 ? 1 : reportExitCode(rows);
 }
 
 /* -------------------------------------------------------------- selftest */
@@ -697,6 +794,45 @@ async function cmdSelftest(): Promise<number> {
     String((noTable.results[0].reason ?? "").includes("no classification table was supplied")),
   );
 
+  // edkjo's storey rule (ifc-check#2): per element against its STATED
+  // storey, span [elev, next_elev), top storey open; yellow = bottom up to
+  // 0.10 m below with the top at or above elev.
+  const levels = [
+    { guid: "s0", name: "U1", elevation: 0 },
+    { guid: "s1", name: "P1", elevation: 3 },
+    { guid: "s1b", name: "P1 split", elevation: 3.0005 },
+    { guid: "s2", name: "P2", elevation: 6 },
+  ];
+  const bandCases: [string, number, number, number, string][] = [
+    ["bottom on the storey", 1, 3, 4, "green"],
+    ["bottom inside the span", 1, 4.2, 5, "green"],
+    ["bottom a float32 hair under the storey", 1, 3 - 4e-6, 4, "green"],
+    ["bottom 0.05 m under, top above", 1, 2.95, 4, "yellow"],
+    ["bottom 0.10 m under, top above", 1, 2.9, 4, "yellow"],
+    ["bottom 0.05 m under, top also under", 1, 2.95, 2.99, "red"],
+    ["bottom 0.15 m under", 1, 2.85, 4, "red"],
+    ["bottom on the next storey", 1, 6, 7, "red"],
+    ["bottom just under the next storey", 1, 5.95, 7, "green"],
+    ["top storey is open upward", 3, 40, 41, "green"],
+  ];
+  for (const [name, level, bottom, top, expected] of bandCases) {
+    record(`storey band: ${name}`, expected, storeyBand(levels, levels[level], bottom, top));
+  }
+
+  // not_configured is its own state: with no ruleset, MMI and copy-object
+  // are rows saying so, never absent and never not_applicable.
+  const bare = reportRows({
+    model: { file: "synthetic.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+    graph: { ...(graph as unknown as IfcGraph), storeys: [], projects: [], storey_building: [] },
+    summary: summary as unknown as IfcSummary,
+    checks: [],
+  });
+  record(
+    "report: unconfigured no-IFC-home mappings are not_configured rows",
+    "progress-code:not_configured,copy-object:not_configured",
+    bare.map((r) => `${r.id}:${r.state}`).join(","),
+  );
+
   const result = exportRuleset(SAMPLE_RULESET);
   const { included, excluded } = partitionRules(SAMPLE_RULESET);
   record("sample splits into both kinds", "6 ids / 4 excluded", `${included.length} ids / ${excluded.length} excluded`);
@@ -771,6 +907,9 @@ switch (command) {
   case "run":
     code = await cmdRun(rest);
     break;
+  case "report":
+    code = await cmdReport(rest);
+    break;
   case "schema":
     emit(RULESET_JSON_SCHEMA);
     code = 0;
@@ -784,7 +923,7 @@ switch (command) {
     break;
   default:
     note(
-      "usage: node scripts/ids-cli.ts <lint|emit|run|schema|sample|selftest> [args]",
+      "usage: node scripts/ids-cli.ts <lint|emit|run|report|schema|sample|selftest> [args]",
     );
     code = 2;
 }

@@ -24,13 +24,24 @@
  *                    "placement mismatch" can never disagree about which
  *                    elements are strays.
  *
- *   storey-mismatch  the storey the mesh BOTTOM falls in is not the stated
- *                    storey. Expected storey = the storey with the greatest
- *                    elevation still <= bottom + STOREY_TOLERANCE_M. Method and
- *                    tolerance from `KNM_Mottakskontroll/02_arbeid/ids/
- *                    storey_check.py`: the bottom, not the centroid, because
- *                    columns, facades and shafts legitimately span storeys and
- *                    start in the one that owns them.
+ *   storey-mismatch  the mesh BOTTOM is not inside the span of the stated
+ *                    storey. Span = [elev, next_elev), where next_elev is the
+ *                    next distinct elevation above; the top storey is open.
+ *                    Three states per element (edkjo, Ed-Skiplum/ifc-check#2,
+ *                    2026-09-24: "bottom edge fully in the floor for green.
+ *                    Yellow: within 100mm AND top in the registered floor or
+ *                    above."):
+ *                      green   elev <= bottom < next_elev
+ *                      yellow  elev - STOREY_TOLERANCE_M <= bottom < elev
+ *                              AND mesh top >= elev
+ *                      red     anything else
+ *                    Yellow and red are both findings (code `storey-mismatch`,
+ *                    `params.band` says which). Only yellow makes the check a
+ *                    `review` (Advarsel); any red or far makes it `fail`. The
+ *                    bottom, not the centroid, because columns, facades and
+ *                    shafts legitimately span storeys and start in the one that
+ *                    owns them (from `KNM_Mottakskontroll/02_arbeid/ids/
+ *                    storey_check.py`, which this rule replaces).
  *
  * ── Units and frames ──────────────────────────────────────────────────────
  * Streamed positions are world METRES minus `streamShiftJson()`; the shift is
@@ -59,10 +70,13 @@
 import type { CheckResult, Finding, IfcGraph, IfcSummary, ProductRow } from "./types";
 import { finding, literal, result, share } from "./fundamentals.ts";
 
-/** Metres. Screed, finish build-up and modelling slop put a mesh bottom a few
- *  centimetres under its storey level; 0.1 m absorbs that and stays an order
- *  of magnitude under any real storey spacing. From storey_check.py. */
+/** Metres. How far BELOW its storey's elevation a mesh bottom may sit and
+ *  still be yellow rather than red (edkjo's "within 100mm", ifc-check#2). There
+ *  is no band at the upper edge: a bottom at or above the next storey is red. */
 export const STOREY_TOLERANCE_M = 0.1;
+
+/** Green, yellow or red for one element against its stated storey. */
+export type PlacementBand = "green" | "yellow" | "red";
 
 /** Elevations closer than this are one level (a split level modelled as two
  *  storeys is not a mismatch for elements in either). */
@@ -167,22 +181,51 @@ export function bulkOutliers(
   return { outlier, cutoff };
 }
 
-interface Level {
+export interface Level {
   guid: string;
   name: string | null;
   /** METRES — `unit_scale` already applied (ifcfast#180). */
   elevation: number;
 }
 
-/** The storey the mesh bottom falls in, lowest-first `levels`. null = below
- *  every storey. */
+/** The storey the mesh bottom falls in, lowest-first `levels`: the greatest
+ *  elevation <= bottom, with the same 1 mm numerical slack as `storeyBand`.
+ *  null = below every storey. Informational (the object panel's "storey by
+ *  mesh"); the verdict is `storeyBand`. */
 function expectedLevel(levels: Level[], bottom: number): Level | null {
   let found: Level | null = null;
   for (const level of levels) {
-    if (level.elevation <= bottom + STOREY_TOLERANCE_M) found = level;
+    if (level.elevation <= bottom + LEVEL_EPSILON_M) found = level;
     else break;
   }
   return found;
+}
+
+/** The next distinct elevation above `stated`, or null for the top storey. */
+function nextElevation(levels: Level[], stated: Level): number | null {
+  for (const level of levels) {
+    if (level.elevation > stated.elevation + LEVEL_EPSILON_M) return level.elevation;
+  }
+  return null;
+}
+
+/** edkjo's three-state storey rule (ifc-check#2), per element against its
+ *  STATED storey. `levels` lowest first, metres.
+ *
+ *  Every edge is compared with LEVEL_EPSILON_M (1 mm) of slack, and that is
+ *  numerical, not a tolerance: streamed vertices are float32, and a slab
+ *  modelled exactly on its storey comes back a few micrometres under it.
+ *  Measured on HI90_ARK (22.09 export): 723 elements read yellow with exact
+ *  comparisons, 717 of them less than 0.1 mm under their storey and none
+ *  between 0.1 mm and 10 mm. */
+export function storeyBand(levels: Level[], stated: Level, bottom: number, top: number): PlacementBand {
+  const eps = LEVEL_EPSILON_M;
+  const elev = stated.elevation;
+  const next = nextElevation(levels, stated);
+  const belowNext = next === null || bottom < next - eps;
+  if (bottom >= elev - eps && belowNext) return "green";
+  if (bottom >= elev - STOREY_TOLERANCE_M && bottom < elev - eps && top >= elev - eps) return "yellow";
+  return "red";
 }
 
 const round = (v: number, d = 2) => Number(v.toFixed(d));
@@ -328,12 +371,17 @@ export interface ElementPlacement {
   far: boolean;
   /** Mesh bottom, metres (world Z). */
   bottom: number | null;
+  /** Mesh top, metres (world Z). */
+  top: number | null;
   /** The storey the file says contains it, elevation in metres. */
   stated: Level | null;
   /** The storey the mesh bottom falls in. */
   expected: Level | null;
   /** bottom - stated elevation, metres, signed. */
   delta: number | null;
+  /** The verdict against the stated storey; null when it cannot be judged
+   *  (no mesh, no stated storey, far, or the band refused to run). */
+  band: PlacementBand | null;
   /** Why `expected` could not be computed, in the engine's own words. */
   storeyReason: string | null;
 }
@@ -351,9 +399,11 @@ export function placementOf(guid: string, ctx: PlacementContext): ElementPlaceme
       cutoff: ctx.cutoff,
       far: false,
       bottom: null,
+      top: null,
       stated: statedLevel,
       expected: null,
       delta: null,
+      band: null,
       storeyReason: ctx.storeyReason,
     };
   }
@@ -363,6 +413,7 @@ export function placementOf(guid: string, ctx: PlacementContext): ElementPlaceme
     (box.min[2] + box.max[2]) / 2,
   ];
   const bottom = box.min[2];
+  const top = box.max[2];
   const far = ctx.far.has(guid);
   // Far wins: a mesh kilometres away has no meaningful storey band, which is
   // exactly the precedence `checkMeshPlacement` applies to its findings.
@@ -375,9 +426,11 @@ export function placementOf(guid: string, ctx: PlacementContext): ElementPlaceme
     cutoff: ctx.cutoff,
     far,
     bottom,
+    top,
     stated: statedLevel,
     expected,
     delta: statedLevel ? bottom - statedLevel.elevation : null,
+    band: canBand && statedLevel ? storeyBand(ctx.levels, statedLevel, bottom, top) : null,
     storeyReason: far ? "far from the model" : ctx.storeyReason,
   };
 }
@@ -427,32 +480,54 @@ export function checkMeshPlacement(
     );
   }
 
+  // Per-element tally, so a consumer (the report contract) reads the three
+  // states without re-deriving them. `no_storey`: meshed, not far, but with no
+  // stated storey that carries an elevation, so there is nothing to judge
+  // against (`storey-containment` owns that finding).
+  const tally = {
+    green: 0,
+    yellow: 0,
+    red: 0,
+    far: ctx.far.size,
+    no_storey: 0,
+    unmeshed: ctx.unmeshed,
+    // 0 when the storey half refused to run (`storeyReason`): the three
+    // states are then unknown, not zero.
+    band_ran: ctx.storeyReason === null ? 1 : 0,
+  };
   let storeyNote: string;
   if (ctx.storeyReason !== null) {
     storeyNote = ctx.storeyReason;
   } else {
-    let off = 0;
     for (const p of ctx.meshed) {
-      if (ctx.far.has(p.guid) || !p.storeyGuid) continue;
-      const stated = ctx.storeyByGuid.get(p.storeyGuid);
-      if (!stated) continue;
+      if (ctx.far.has(p.guid)) continue;
+      const stated = p.storeyGuid ? ctx.storeyByGuid.get(p.storeyGuid) : undefined;
+      if (!stated) {
+        tally.no_storey += 1;
+        continue;
+      }
       const place = placementOf(p.guid, ctx);
+      const band = place.band ?? "red";
+      tally[band] += 1;
+      if (band === "green") continue;
       const expected = place.expected;
-      if (expected && Math.abs(expected.elevation - stated.elevation) <= LEVEL_EPSILON_M) continue;
-      off += 1;
       findings.push(
         finding(byGuid.get(p.guid)!, "storey-mismatch", {
           bottom: round(place.bottom ?? 0),
           storey: stated.name ?? stated.guid,
           elevation: round(stated.elevation),
           expected: expected ? (expected.name ?? expected.guid) : "-",
+          delta: round(place.delta ?? 0, 3),
+          band,
         }),
       );
     }
-    storeyNote = `${off} of ${ctx.compared} off their storey (tolerance ${STOREY_TOLERANCE_M} m)`;
+    storeyNote =
+      `of ${ctx.compared} against their storey: ${tally.green} green, ${tally.yellow} yellow ` +
+      `(bottom up to ${STOREY_TOLERANCE_M} m below, top at or above), ${tally.red} red`;
   }
 
-  return result(
+  const checked = result(
     id,
     "deviation",
     ctx.meshed.length,
@@ -461,4 +536,8 @@ export function checkMeshPlacement(
     `${ctx.far.size} of ${ctx.meshed.length} far from the model (cutoff ${round(ctx.cutoff, 1)} m); ` +
       `${storeyNote}; ${ctx.unmeshed} without geometry`,
   );
+  // Only-yellow is an Advarsel, not an Avvik: `review` with a deviation
+  // severity renders as warn in `verdictOf`, which is the whole mapping.
+  if (checked.state === "fail" && tally.red === 0 && tally.far === 0) checked.state = "review";
+  return { ...checked, tally };
 }

@@ -135,7 +135,7 @@ function sharedElevation(
  *  `excluded` is the copy-object mapping's reference/copy objects (evaluate.ts
  *  `ModelResult.excludedGuids`) — out of scope for every check here exactly as
  *  for every ruleset rule, never a defect they can be found by. */
-function physicalProducts(graph: IfcGraph, excluded?: ReadonlySet<string>): ProductRow[] {
+export function physicalProducts(graph: IfcGraph, excluded?: ReadonlySet<string>): ProductRow[] {
   const openings = new Set(graph.voids.map((v) => v.opening_guid));
   return graph.products.filter((p) => !openings.has(p.guid) && !excluded?.has(p.guid));
 }

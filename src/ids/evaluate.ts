@@ -60,6 +60,21 @@ export interface Finding {
   /** Set when the finding is about a type object: the GlobalIds of the
    *  elements that use it, so a filter on the finding reaches the model. */
   members?: string[];
+  /** Stable key for why it failed, so a consumer branches on it rather than
+   *  on `reason`: `empty` · `no-match` · `not-in-list` (code-lookup),
+   *  `no-type`, `duplicate`, `type-usage`, `value` (model-metadata),
+   *  `requirement` (an ids rule), `occurrence-bounds`. */
+  code?: string;
+  /** The value the rule read off the subject, raw, when it read one. */
+  value?: string | null;
+}
+
+/** One distinct value a rule read, with how many subjects carried it and
+ *  what the rule made of it. `value` null = the subjects carried none. */
+export interface ValueCount {
+  value: string | null;
+  n: number;
+  state: "ok" | "deviating" | "missing";
 }
 
 export interface RuleResult {
@@ -78,6 +93,14 @@ export interface RuleResult {
   reason?: string;
   /** Caveats about how the check was run, e.g. a weakened property match. */
   notes?: string[];
+  /** Structured split of `applicable`, for the report contract. Set by the
+   *  checks that read a value (code-lookup, the copy-object mapping):
+   *  met + deviating + missing = applicable. `sourceHits` = subjects the
+   *  source answered with a non-empty value. */
+  coverage?: { met: number; deviating: number; missing: number; sourceHits: number };
+  /** Every distinct value read, uncollapsed, most frequent first. Same
+   *  checks as `coverage`. */
+  values?: ValueCount[];
 }
 
 export interface ModelResult {
@@ -844,28 +867,40 @@ function codeLookup(
   let noMatch = 0;
   let unknown = 0;
   const findings: Finding[] = [];
+  const tally = new Map<string | null, ValueCount>();
   for (const subject of subjects) {
     const value = subject.value;
     let reason: string | null = null;
+    let why: string | undefined;
     if (value === null || value === "") {
       missing += 1;
       reason = `${label} is empty`;
+      why = "empty";
     } else {
       const code = regex.exec(value)?.[1];
       if (code === undefined || code === "") {
         noMatch += 1;
         reason = `${label} "${value}" does not match ${check.extract}`;
+        why = "no-match";
       } else if (!lookup.has(code)) {
         unknown += 1;
         reason = `code "${code}" from ${label} "${value}" is not in ${listLabel}`;
+        why = "not-in-list";
       }
     }
+    countValue(
+      tally,
+      value === "" ? null : value,
+      why === undefined ? "ok" : why === "empty" ? "missing" : "deviating",
+    );
     if (reason === null) continue;
     const finding: Finding = {
       guid: subject.guid,
       entity: subject.entity,
       name: subject.name,
       reason,
+      code: why,
+      value: value === "" ? null : value,
     };
     if (subject.members) finding.members = subject.members;
     findings.push(finding);
@@ -880,7 +915,31 @@ function codeLookup(
       `${subjects.length - findings.length} of ${subjects.length} ${noun} carry a code from ` +
       `${listLabel}; ${missing} empty, ${noMatch} no match, ${unknown} not in the list`,
     notes: notes.length ? notes : undefined,
+    coverage: {
+      met: subjects.length - findings.length,
+      deviating: noMatch + unknown,
+      missing,
+      sourceHits: subjects.length - missing,
+    },
+    values: sortedValues(tally),
   };
+}
+
+function countValue(
+  tally: Map<string | null, ValueCount>,
+  value: string | null,
+  state: ValueCount["state"],
+): void {
+  const row = tally.get(value);
+  if (row) row.n += 1;
+  else tally.set(value, { value, n: 1, state });
+}
+
+/** Most frequent first, then by value, so the order is deterministic. */
+function sortedValues(tally: Map<string | null, ValueCount>): ValueCount[] {
+  return [...tally.values()].sort(
+    (a, b) => b.n - a.n || String(a.value ?? "").localeCompare(String(b.value ?? "")),
+  );
 }
 
 /* ------------------------------------------------------- reference objects */
@@ -913,7 +972,7 @@ function identifyReferenceObjects(
   byGuid: Map<string, ModelProduct>,
   index: ModelIndex,
   ruleset: Ruleset,
-): { excluded: Set<string>; candidates: number } {
+): { excluded: Set<string>; candidates: number; present: number; values: ValueCount[] } {
   const check = rule.check;
   if (check.type !== "code-lookup") {
     throw new Unsupported(
@@ -939,14 +998,20 @@ function identifyReferenceObjects(
     selects(select, p, byGuid, index, ruleset.ifcVersions),
   );
   const excluded = new Set<string>();
+  // Every value read, flagged nowhere: this mapping never fails an element, so
+  // a missing value is an ordinary object, not a "missing" state.
+  const tally = new Map<string | null, ValueCount>();
+  let present = 0;
   for (const product of candidates) {
     const value = codeValue(source, product, index).value;
+    countValue(tally, value === "" ? null : value, "ok");
     if (value === null || value === "") continue;
+    present += 1;
     const code = regex.exec(value)?.[1];
     if (code === undefined || code === "") continue;
     if (isReference(code)) excluded.add(product.guid);
   }
-  return { excluded, candidates: candidates.length };
+  return { excluded, candidates: candidates.length, present, values: sortedValues(tally) };
 }
 
 /** Runs the copy-object mapping (if any, and enabled) and returns both the
@@ -966,7 +1031,7 @@ function copyObjectFilter(
 
   const base = { ruleId: rule.id, ruleName: rule.name, kind: rule.kind } as const;
   try {
-    const { excluded, candidates } = identifyReferenceObjects(
+    const { excluded, candidates, present, values } = identifyReferenceObjects(
       rule,
       allProducts,
       byGuid,
@@ -983,6 +1048,8 @@ function copyObjectFilter(
         failed: 0,
         findings: [],
         detail: `${excluded.size} of ${candidates} objects excluded as reference objects`,
+        coverage: { met: present, deviating: 0, missing: candidates - present, sourceHits: present },
+        values,
       },
     };
   } catch (error) {
@@ -1057,10 +1124,19 @@ function evaluateRule(
                 entity: "model",
                 name: field,
                 reason: `${field} is ${value === null ? "(none)" : `"${value}"`}, required ${literal(rule.check.value)}`,
+                code: "value",
+                value,
               },
             ],
         detail: `${field} = ${value === null ? "(none)" : value}`,
         notes: notes.length ? notes : undefined,
+        coverage: {
+          met: ok ? 1 : 0,
+          deviating: !ok && value !== null ? 1 : 0,
+          missing: !ok && value === null ? 1 : 0,
+          sourceHits: value === null ? 0 : 1,
+        },
+        values: [{ value, n: 1, state: ok ? "ok" : value === null ? "missing" : "deviating" }],
       };
     }
 
@@ -1096,6 +1172,7 @@ function evaluateRule(
           entity: "model",
           name: rule.id,
           reason: `${applicable.length} applicable entities, minOccurs is ${minOccurs}`,
+          code: "occurrence-bounds",
         });
       }
       if (
@@ -1108,6 +1185,7 @@ function evaluateRule(
           entity: "model",
           name: rule.id,
           reason: `${applicable.length} applicable entities, maxOccurs is ${maxOccurs}`,
+          code: "occurrence-bounds",
         });
       }
       if (applicable.length === 0 && boundFindings.length === 0) {
@@ -1137,6 +1215,7 @@ function evaluateRule(
               entity: product.entity,
               name: product.name,
               reason: reasons.join("; "),
+              code: "requirement",
             });
           }
         }
@@ -1181,6 +1260,7 @@ function evaluateRule(
           entity: p.entity,
           name: p.name,
           reason: "no type object",
+          code: "no-type",
         }));
       return {
         ...base,
@@ -1190,6 +1270,12 @@ function evaluateRule(
         findings: cap(findings, maxFindings),
         detail: `${applicable.length - findings.length} of ${applicable.length} elements are linked to a type`,
         notes: notes.length ? notes : undefined,
+        coverage: {
+          met: applicable.length - findings.length,
+          deviating: 0,
+          missing: findings.length,
+          sourceHits: applicable.length - findings.length,
+        },
       };
     }
 
@@ -1215,6 +1301,8 @@ function evaluateRule(
             entity: product.entity,
             name: product.name,
             reason: `${check.attribute} "${value}" shared by ${bucket.length} elements`,
+            code: "duplicate",
+            value,
           });
         }
       }
@@ -1251,6 +1339,8 @@ function evaluateRule(
             name: product.name,
             reason: `type "${typeName}" is used by ${bucket.length} element(s), ` +
               (low ? `minimum ${check.min}` : `maximum ${check.max}`),
+            code: "type-usage",
+            value: typeName,
           });
         }
       }
