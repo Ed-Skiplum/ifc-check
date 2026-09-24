@@ -206,11 +206,92 @@ export const RULESET_JSON_SCHEMA = {
         },
       },
     },
+    projectLayer: {
+      type: "object",
+      additionalProperties: false,
+      description:
+        "This project's layer on the standard requirements, keyed by the requirement's " +
+        "report id. A cascade named here is appended after the standard sources; an " +
+        "accepted list replaces the standard's.",
+      properties: {
+        "ifc-schema": {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            accepted: {
+              type: "array",
+              minItems: 1,
+              uniqueItems: true,
+              items: { type: "string", pattern: "^IFC\\d+(X\\d+)?$" },
+              description:
+                "Accepted schema families (FILE_SCHEMA folded: 'IFC4 ADD2 TC1' is IFC4, " +
+                "IFC4X3_ADD2 is IFC4X3). Replaces the standard's [IFC2X3, IFC4].",
+            },
+          },
+        },
+        phase: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            sources: {
+              type: "array",
+              minItems: 1,
+              items: { $ref: "#/$defs/codeSource" },
+              description: "Read after Pset_*Common.Status, in this order.",
+            },
+          },
+        },
+      },
+    },
     rules: { type: "array", items: { $ref: "#/$defs/rule" } },
   },
 
   $defs: {
     ifcVersion: { enum: ["IFC2X3", "IFC4", "IFC4X3_ADD2"] },
+
+    codeSource: {
+      description:
+        "Exactly one of attribute, property or classification. A property " +
+        "is identified by set plus name; a classification reads the " +
+        "schema-normalised identification (IFC4 Identification, IFC2x3 " +
+        "ItemReference).",
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["attribute"],
+          properties: { attribute: { type: "string", minLength: 1 } },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["property"],
+          properties: {
+            property: {
+              type: "object",
+              additionalProperties: false,
+              required: ["propertySet", "name"],
+              properties: {
+                propertySet: { type: "string", minLength: 1 },
+                name: { type: "string", minLength: 1 },
+              },
+            },
+          },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["classification"],
+          properties: {
+            classification: {
+              type: "object",
+              additionalProperties: false,
+              properties: { system: { type: "string", minLength: 1 } },
+            },
+          },
+        },
+      ],
+    },
 
     classGroup: {
       enum: [
@@ -469,47 +550,8 @@ export const RULESET_JSON_SCHEMA = {
             },
             target: { enum: ["occurrence", "type"], default: "occurrence" },
             source: {
-              description:
-                "Exactly one of attribute, property or classification. A property " +
-                "is identified by set plus name; a classification reads the " +
-                "schema-normalised identification (IFC4 Identification, IFC2x3 " +
-                "ItemReference). target 'type' takes an attribute source only.",
-              oneOf: [
-                {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["attribute"],
-                  properties: { attribute: { type: "string", minLength: 1 } },
-                },
-                {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["property"],
-                  properties: {
-                    property: {
-                      type: "object",
-                      additionalProperties: false,
-                      required: ["propertySet", "name"],
-                      properties: {
-                        propertySet: { type: "string", minLength: 1 },
-                        name: { type: "string", minLength: 1 },
-                      },
-                    },
-                  },
-                },
-                {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["classification"],
-                  properties: {
-                    classification: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: { system: { type: "string", minLength: 1 } },
-                    },
-                  },
-                },
-              ],
+              $ref: "#/$defs/codeSource",
+              description: "target 'type' takes an attribute source only.",
             },
             extract: {
               type: "string",

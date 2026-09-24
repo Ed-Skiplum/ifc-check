@@ -339,8 +339,26 @@ export interface Ruleset {
   /** The project's floors. Absent or empty = no floor config: the
    *  `storey-config` check is then not_applicable. */
   storeys?: StoreyConfig[];
+  /** This project's layer on the standard requirements, keyed by the
+   *  requirement's report id. Absent = the standard layer alone. */
+  projectLayer?: ProjectLayer;
   rules: Rule[];
 }
+
+/** The project layer on the requirements the tool ships with a standard
+ *  layer for (src/engine/standard-layer.ts). Modelled on HI90's
+ *  standard.yaml + krav.yaml merge: a cascade the project names is APPENDED
+ *  after the standard sources, so a standard source is always the preferred
+ *  one; a list of accepted values REPLACES the standard's. */
+export interface ProjectLayer {
+  /** FILE_SCHEMA. `accepted` replaces the standard's [IFC2X3, IFC4]: schema
+   *  families (`IFC4`, not `IFC4 ADD2 TC1`), meant to narrow the default. */
+  "ifc-schema"?: { accepted?: string[] };
+  /** Pset_*Common.Status. `sources` are read after it, in order. */
+  phase?: { sources?: CodeSource[] };
+}
+
+export type StandardRequirementId = keyof ProjectLayer;
 
 /* -------------------------------------------------------------------- lint */
 
