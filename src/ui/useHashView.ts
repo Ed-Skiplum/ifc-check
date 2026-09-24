@@ -2,6 +2,17 @@
  *
  * `?lang=` is read once on load and wins over everything, then the hash, then
  * the last choice in localStorage, then nb.
+ *
+ * ── `design=` ────────────────────────────────────────────────────────────
+ * One more key, and the cheapest honest mechanism for the three visual
+ * directions: `#design=a` sets `data-design="a"` on the document element and
+ * the whole stylesheet reads off that attribute. No route table, no server
+ * rewrite, no second bundle — which matters, because this app is served as a
+ * static site AND embedded in an iframe on skiplum.com, where a path route
+ * would need the host's cooperation and a hash does not.
+ *
+ * Absent — the default — there is NO attribute, so the default look and every
+ * gate that measures it are untouched by this file.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -9,6 +20,10 @@ import type { Lang } from "./i18n";
 import { LANGS } from "./i18n";
 
 const LANG_KEY = "ifc-check.lang";
+
+/** The three directions. `null` is the shipped default. */
+export const DESIGNS = ["a", "b", "c"] as const;
+export type Design = (typeof DESIGNS)[number];
 
 export interface ViewState {
   lang: Lang;
@@ -21,6 +36,17 @@ export interface ViewState {
   /** The model panel's tab. null is the first tab, Kontroll; it is left out
    *  of the hash so a bare URL and a board link stay short. */
   tab: "contents" | "graph" | null;
+  /** The visual direction, or null for the shipped default. */
+  design: Design | null;
+}
+
+function isDesign(value: string | null): value is Design {
+  return value !== null && (DESIGNS as readonly string[]).includes(value);
+}
+
+function readDesign(hash: URLSearchParams): Design | null {
+  const value = hash.get("design");
+  return isDesign(value) ? value : null;
 }
 
 function isLang(value: string | null): value is Lang {
@@ -56,6 +82,7 @@ function parse(): ViewState {
     focus: hash.get("focus"),
     page: readPage(hash),
     tab: readTab(hash),
+    design: readDesign(hash),
   };
 }
 
@@ -77,6 +104,7 @@ function serialise(view: ViewState): string {
   if (view.focus) params.set("focus", view.focus);
   if (view.page) params.set("page", view.page);
   if (view.tab) params.set("tab", view.tab);
+  if (view.design) params.set("design", view.design);
   return `#${params.toString()}`;
 }
 
@@ -103,6 +131,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         focus: hash.get("focus"),
         page: readPage(hash),
         tab: readTab(hash),
+        design: readDesign(hash),
       }));
     };
     window.addEventListener("hashchange", onHashChange);
@@ -141,6 +170,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         focus: hash.get("focus"),
         page: readPage(hash),
         tab: readTab(hash),
+        design: readDesign(hash),
       }));
     };
     window.addEventListener("popstate", onPopState);

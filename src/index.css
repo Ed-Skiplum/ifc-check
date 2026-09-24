@@ -1,6 +1,17 @@
 @import "tailwindcss";
+@import "./design/directions.css";
 
+/* ── The DEFAULT palette ───────────────────────────────────────────────────
+ *
+ * Unchanged, with one split: `cream` used to mean two things at once, the
+ * page FIELD and the light ink that sits on a filled surface (`bg-green
+ * text-cream`, the switch knob, a raised chip). Those are the same colour by
+ * coincidence on a warm-paper board and opposite colours on a dark one, so
+ * `ground` is now the field and `cream` is the light one. Both start at the
+ * same value, so nothing about the default board moves.
+ */
 @theme {
+  --color-ground: #f4eedc;
   --color-cream: #f4eedc;
   --color-panel: #eae0c5;
   --color-input: #fcf8ec;
@@ -24,7 +35,7 @@ body,
 }
 
 body {
-  background: var(--color-cream);
+  background: var(--color-ground);
   color: var(--color-ink);
   font-family: var(--font-sans);
   overflow: hidden;

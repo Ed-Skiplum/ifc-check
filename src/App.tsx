@@ -25,6 +25,7 @@ import { TraceBand } from "./ui/TraceBand";
 import type { FloorPeer } from "./ui/FloorSetup";
 import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
 import { buildTrace, parseFocus, serialiseFocus, type Focus } from "./ui/trace";
+import { loadDesignFonts } from "./design/fonts";
 import { useHashView } from "./ui/useHashView";
 import { isAcceptedFile, useModels } from "./ui/useModels";
 
@@ -54,6 +55,20 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = view.lang;
   }, [view.lang]);
+
+  /* The visual direction, published on the document element. Everything about
+   * a direction that CSS can carry reads off this attribute (see
+   * `src/design/*.css`); the graph reads the same value as a prop, because a
+   * node-link drawing is painted in SVG attributes, not in classes. Absent,
+   * no attribute is written at all, so the default look is the untouched one
+   * every gate measures. */
+  useEffect(() => {
+    const root = document.documentElement;
+    if (view.design) {
+      root.dataset.design = view.design;
+      loadDesignFonts(view.design);
+    } else delete root.dataset.design;
+  }, [view.design]);
 
   const loadRuleset = useCallback(
     async (file: File) => {
@@ -224,7 +239,7 @@ export default function App() {
 
   return (
     <div
-      className="flex h-full flex-col overflow-hidden bg-cream text-ink"
+      className="flex h-full flex-col overflow-hidden bg-ground text-ink"
       onDragEnter={(event) => {
         event.preventDefault();
         setDragging((depth) => depth + 1);
@@ -300,6 +315,7 @@ export default function App() {
               <ModelPanel
                 key={model.id}
                 lang={view.lang}
+                design={view.design}
                 model={model}
                 hasRuleset={rulesetName !== null}
                 claims={claims}

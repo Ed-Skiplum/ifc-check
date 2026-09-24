@@ -1,0 +1,532 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * THREE VISUAL DIRECTIONS, one structure.
+ *
+ * edkjo, 2026-09-23, on the shipped board: *"our problem now is that the UIUX
+ * is really ugly and old looking. We need this to be modern, snappy and
+ * impressive."* The structure was accepted — bento, KPI cards, the three tabs,
+ * the object panel, the landing. The cream/hairline/gold-caps vocabulary
+ * mirrored from sprucelab was not.
+ *
+ * So this file is three SKINS over the one board, reached by `#design=a|b|c`,
+ * and nothing here changes a component's markup, its strings or what it shows.
+ * Same labels, same nb/en, same rows, same numbers. What differs is material,
+ * type, shape and motion.
+ *
+ *   a  INSTRUMENT   graphite sheet, ruled, everything mono, zero radius,
+ *                   tracked caps, a scanline on the field. The register he
+ *                   picked on ifcfast-site (mockup B, promoted to the live
+ *                   page) and named for dashboards: "Grafana inspired,
+ *                   automobile (instrument cluster) inspired, gaming (HUD)
+ *                   inspired, in a professional setting" (2026-08-24).
+ *   b  PAPIR        bright warm paper, ink rules at two weights, one amber,
+ *                   big confident sans with negative tracking. "INK ON PAPER"
+ *                   (2026-08-07: *"clean bright base … built around something
+ *                   like a strong amber"*, *"crisp"*) at the type scale he
+ *                   chose on 2026-09-08 (*"more bold and in your face font and
+ *                   font size"*).
+ *   c  SMASH        a saturated rust field with frosted panels floating on it,
+ *                   rounded, shadowed, and the only direction that moves on
+ *                   hover. thefinanceapp's landing register (2026-07-02:
+ *                   LOUD · CRISP · HIGH-CONTRAST, *"in a complete rejection of
+ *                   muted safe dark mode"*).
+ *
+ * ── What binds all three ────────────────────────────────────────────────
+ * · STATUS IS A CLASSIC TRAFFIC LIGHT, never a brand hue (2026-09-23,
+ *   documents.md: *"Traffic light with standard colors, not hues to match our
+ *   brand."*). `green` / `gold` / `bad` are a real green, a real amber and a
+ *   real red in every direction; the direction's identity lives in the field,
+ *   the material, the type and the motion. The glyph stays beside the colour,
+ *   so a verdict still survives a black-and-white print.
+ * · GOLD CAPS ARE RETIRED (2026-09-23). The micro-label keeps its job and
+ *   loses its colour: `.text-gold` is redirected per direction.
+ * · NO EDGE-STRIPE STATE CUES, no inset white top highlight, no gold rim on
+ *   glass — the three AI tells he has named (2026-07-02, 2026-07-13,
+ *   2026-08-16). A selected thing is filled: *"If you wanna colour something,
+ *   colour the entire thing."*
+ * · NEVER #fff, NEVER #000 (colour fundamentals, 2026-06-17).
+ * · THE 3D FIELD IS NOT SKINNED. `scene.ts` holds a neutral low-chroma warm
+ *   grey (`#b8b3a8`), which is what the canon asks for in BOTH themes — never
+ *   cream, never pure black. A field that changed per direction would make the
+ *   scene chrome rather than scene.
+ * · REDUCED MOTION is honoured at the end of this file.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * A — INSTRUMENT
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-design="a"] {
+  --color-ground: #0b0c0e;
+  --color-panel: #101215;
+  --color-input: #0d0f12;
+  --color-cream: #e9e7e1;
+  --color-ink: #e9e7e1;
+  --color-muted: #7b8089;
+  --color-line: #22262c;
+  /* Traffic light, on graphite. Lifted enough to hold 4.5:1 against the sheet. */
+  --color-green: #3f9f63;
+  --color-palegreen: #16241c;
+  --color-gold: #d99b1c;
+  --color-bad: #d9503f;
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* The engaged colour, kept OFF the traffic light so nothing reads as a
+     verdict by accident. Mockup B's amber. */
+  --d-accent: #ff8f3a;
+  --d-accent-dim: #b3671f;
+  --d-accent-wash: rgba(255, 143, 58, 0.11);
+  --d-on-accent: #0b0c0e;
+
+  --d-radius: 0px;
+  --d-radius-lg: 0px;
+  --d-pill: 0px;
+  --d-rule: #2c313a;
+  --d-rule-w: 1px;
+  --d-shadow: none;
+  --d-panel-shadow: none;
+
+  --d-dur: 110ms;
+  --d-dur-slow: 180ms;
+  --d-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --d-lift: none;
+
+  --d-label-tf: uppercase;
+  --d-label-ls: 0.22em;
+  --d-label-w: 500;
+  --d-label-family: var(--font-mono);
+  --d-label-color: #8b919a;
+
+  --d-head-family: var(--font-mono);
+  --d-head-w: 500;
+  --d-head-ls: 0.01em;
+}
+
+/* Everything is the instrument's own voice: one family, the mono. A sans
+   anywhere in this direction would be the second design he keeps striking out
+   (2026-07-21: *"Not different fonts, sizes, margins → Coherent."*). */
+:root[data-design="a"] body {
+  font-family: var(--font-mono);
+  /* The sheet's scanline. 3 px, 1.4 % white: texture you read as a surface
+     rather than an effect you notice. */
+  background-image: linear-gradient(0deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px);
+  background-size: 100% 3px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * B — PAPIR
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-design="b"] {
+  --color-ground: #f1efe9;
+  --color-panel: #fbfaf7;
+  --color-input: #f7f5f0;
+  --color-cream: #fbfaf7;
+  --color-ink: #16130f;
+  --color-muted: #6d675d;
+  --color-line: #cdc7ba;
+  --color-green: #2f7d4f;
+  --color-palegreen: #e4efe6;
+  --color-gold: #b5811a;
+  --color-bad: #bf3b2c;
+
+  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --d-accent: #c25a10;
+  --d-accent-dim: #8c3f09;
+  --d-accent-wash: rgba(194, 90, 16, 0.09);
+  --d-on-accent: #fbfaf7;
+
+  --d-radius: 0px;
+  --d-radius-lg: 0px;
+  --d-pill: 0px;
+  /* Two rule weights, the poster grammar: a heavy ink rule around a structure,
+     a hairline inside it. */
+  --d-rule: #16130f;
+  --d-rule-w: 1.5px;
+  --d-shadow: none;
+  --d-panel-shadow: none;
+
+  --d-dur: 150ms;
+  --d-dur-slow: 240ms;
+  --d-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --d-lift: none;
+
+  --d-label-tf: uppercase;
+  --d-label-ls: 0.1em;
+  --d-label-w: 700;
+  /* One face for a key and its value (2026-09-06: a mono kicker beside a sans
+     value is the *"offset effect"* he rejected). */
+  --d-label-family: var(--font-sans);
+  --d-label-color: #55504a;
+
+  --d-head-family: var(--font-sans);
+  --d-head-w: 800;
+  --d-head-ls: -0.02em;
+}
+
+:root[data-design="b"] body {
+  font-family: var(--font-sans);
+}
+
+/* The heavy rule is what makes this a poster rather than a card deck: the
+   structural boxes take an ink rule, everything inside them keeps the
+   hairline. */
+:root[data-design="b"] [data-tile-id],
+:root[data-design="b"] header {
+  border-color: var(--d-rule);
+  border-width: var(--d-rule-w);
+}
+:root[data-design="b"] header {
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+}
+
+/* Values and names carry the weight, at the tight tracking he chose. The
+   micro-label is excluded: it is the one string in this direction that opens
+   up rather than tightens. */
+:root[data-design="b"] [data-essential]:not(.tracking-\[0\.12em\]) {
+  letter-spacing: -0.015em;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * C — SMASH
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-design="c"] {
+  --color-ground: #1b0e07;
+  /* Translucent enough that the field reads THROUGH the board. At 0.62 the
+     panels covered the colour and what was left was a brown-black dashboard,
+     which is the muted dark he rejected wearing a warmer coat. */
+  --color-panel: rgba(30, 16, 10, 0.5);
+  --color-input: rgba(18, 10, 6, 0.46);
+  --color-cream: #f6f1e9;
+  --color-ink: #f6f1e9;
+  --color-muted: #b09a8a;
+  --color-line: rgba(255, 255, 255, 0.09);
+  /* The same panel, opaque. A translucent surface is only ever a surface over
+     the FIELD; over another surface it is a leak. */
+  --d-panel-solid: #281510;
+  --color-green: #37b36c;
+  --color-palegreen: rgba(55, 179, 108, 0.16);
+  --color-gold: #f0ad20;
+  --color-bad: #e8503a;
+
+  --font-sans: "Archivo", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* Primary is the warm white, as on the page he kept: a light fill on a dark
+     field. It cannot be mistaken for a verdict, and on this much colour a
+     fourth hue would be noise. */
+  --d-accent: #f6f1e9;
+  --d-accent-dim: rgba(246, 241, 233, 0.55);
+  --d-accent-wash: rgba(246, 241, 233, 0.1);
+  --d-on-accent: #1b0e07;
+
+  --d-radius: 10px;
+  --d-radius-lg: 14px;
+  --d-pill: 999px;
+  --d-rule: rgba(255, 255, 255, 0.09);
+  --d-rule-w: 1px;
+  --d-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.85);
+  --d-panel-shadow: 0 18px 48px -22px rgba(0, 0, 0, 0.85);
+
+  --d-dur: 190ms;
+  --d-dur-slow: 320ms;
+  --d-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --d-lift: translateY(-2px);
+
+  --d-label-tf: uppercase;
+  --d-label-ls: 0.14em;
+  --d-label-w: 600;
+  --d-label-family: var(--font-sans);
+  --d-label-color: #c8ad99;
+
+  --d-head-family: var(--font-sans);
+  --d-head-w: 700;
+  --d-head-ls: -0.025em;
+}
+
+/* The field: one rust body, lit from the top. A flat dark rectangle is the
+   *"muted safe dark mode"* he rejected; the depth is the point. */
+:root[data-design="c"] body {
+  font-family: var(--font-sans);
+  background-color: #140a05;
+  background-image: radial-gradient(
+    ellipse 145% 125% at 50% -18%,
+    #8f3b10 0%,
+    #5a240c 30%,
+    #35170a 58%,
+    #211007 80%,
+    #160b05 100%
+  );
+  background-attachment: fixed;
+}
+:root[data-design="c"] .bg-ground {
+  background-color: transparent;
+}
+
+/* Frosted, and nothing else: one border at one low-alpha white, no bright
+   inset top edge and no gold rim. Both are tells he has named by name. */
+:root[data-design="c"] .bg-panel,
+:root[data-design="c"] [data-tile-id] {
+  backdrop-filter: blur(14px) saturate(1.06);
+  -webkit-backdrop-filter: blur(14px) saturate(1.06);
+  box-shadow: var(--d-panel-shadow);
+}
+:root[data-design="c"] .bg-input {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Anything STICKY sits over the page's own content, not over the field, so it
+   is opaque. Caught by looking: the derivation band is sticky, and at 0.5 the
+   graph behind it was legible straight through the table of findings — a node
+   apparently drawn on top of a row it has nothing to do with. It covers the
+   sticky table headers in the ledger for the same reason. */
+:root[data-design="c"] .sticky {
+  background-color: var(--d-panel-solid);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * SHARED — what every direction gets from its own tokens
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* Shape. Blunt on purpose: the chrome is built from a small, consistent set of
+   Tailwind classes, so the radius can be set once per surface class instead of
+   threaded through forty components. */
+:root[data-design] button,
+:root[data-design] .bg-input,
+:root[data-design] [role="tab"],
+:root[data-design] input,
+:root[data-design] select,
+:root[data-design] textarea {
+  border-radius: var(--d-radius);
+}
+
+:root[data-design] [data-tile-id],
+:root[data-design] .bg-panel {
+  border-radius: var(--d-radius-lg);
+}
+
+/* Motion. Only what a gesture touches, never a blanket `transition: all` on
+   every node — a board of 2 000 cells animating its own repaint is the
+   opposite of snappy. */
+:root[data-design] button,
+:root[data-design] [role="tab"],
+:root[data-design] [data-tile-id],
+:root[data-design] [data-node],
+:root[data-design] .cursor-pointer,
+:root[data-design] input,
+:root[data-design] select {
+  transition:
+    background-color var(--d-dur) var(--d-ease),
+    border-color var(--d-dur) var(--d-ease),
+    color var(--d-dur) var(--d-ease),
+    box-shadow var(--d-dur) var(--d-ease),
+    transform var(--d-dur) var(--d-ease),
+    opacity var(--d-dur) var(--d-ease);
+}
+
+/* The micro-label keeps its job and loses the gold.
+ *
+ * `.tracking-\[0\.12em\]` is the hook because that tracking IS the house
+ * micro-label — it is what every one of its ~25 sites has in common and it
+ * appears on nothing else. `[data-essential]` was the obvious first try and it
+ * was wrong: the viewport gate marks VALUES essential too, so the label's
+ * tracking landed on "339 / 398" and ellipsized it in every KPI card at every
+ * viewport. The gate caught it on the first run, which is what it is for. */
+:root[data-design] .text-gold {
+  color: var(--d-label-color);
+}
+:root[data-design] .tracking-\[0\.12em\] {
+  font-family: var(--d-label-family);
+  text-transform: var(--d-label-tf);
+  letter-spacing: var(--d-label-ls);
+  font-weight: var(--d-label-w);
+}
+
+/* The entrance's headline, at each direction's own scale. 2026-09-08, on the
+ * type of the site: *"Couldnt we do a more bold and in your face font and font
+ * size?"* — landed on size and tightness rather than on more weight alone. */
+:root[data-design] [data-chrome="lede"] {
+  font-family: var(--d-head-family);
+  font-weight: var(--d-head-w);
+  letter-spacing: var(--d-head-ls);
+  font-size: clamp(26px, 3.1vw, 46px);
+  line-height: 1;
+}
+:root[data-design="a"] [data-chrome="lede"] {
+  /* An instrument does not shout. The scale here is the readout's, not a
+     poster's, and the tracking opens instead of closing. */
+  font-size: clamp(20px, 1.9vw, 30px);
+  letter-spacing: 0.04em;
+}
+
+/* Numerals. His own rule for a figure, from the page he kept: tabular, and
+ * tracked in slightly. It also earns its place mechanically here — IBM Plex
+ * Mono and Archivo are both wider than the default stack, and the viewport
+ * gate caught the KPI value "339 / 398" ellipsizing by 3 px in its card at
+ * every viewport in a and c. */
+:root[data-design] .tabular-nums {
+  letter-spacing: -0.025em;
+  font-feature-settings: "zero" 1;
+}
+
+/* The interaction accent, redirected off green so the traffic light keeps
+   green to itself. */
+:root[data-design] .hover\:text-green:hover,
+:root[data-design] .group:hover .group-hover\:text-ink,
+:root[data-design] .hover\:text-ink:hover {
+  color: var(--d-accent);
+}
+:root[data-design] .hover\:border-green:hover {
+  border-color: var(--d-accent);
+}
+:root[data-design] .hover\:bg-palegreen:hover {
+  background-color: var(--d-accent-wash);
+}
+:root[data-design] .hover\:bg-ink:hover,
+:root[data-design] .group:hover .group-hover\:bg-ink {
+  background-color: var(--d-accent);
+  color: var(--d-on-accent);
+}
+
+/* An INK FILL is a dark block with light text, which is what it is on paper
+ * and the opposite of what it is on a dark board: `bg-ink text-cream` put a
+ * near-white row label on a near-white row (the picked row in the derivation
+ * band). On a skinned board the engaged fill is the accent, which is the same
+ * thing this vocabulary always meant. */
+:root[data-design] .bg-ink {
+  background-color: var(--d-accent);
+  color: var(--d-on-accent);
+}
+
+/* PRIMARY — the one filled control per surface. Marked in the markup rather
+   than guessed from a class, because `bg-green` is also the `pass` cell and
+   the two must not move together. */
+:root[data-design] [data-chrome="primary"] {
+  background-color: var(--d-accent);
+  color: var(--d-on-accent);
+  border-color: var(--d-accent);
+  box-shadow: var(--d-shadow);
+}
+:root[data-design] [data-chrome="primary"]:hover {
+  background-color: var(--d-accent);
+  filter: brightness(1.08);
+  transform: var(--d-lift);
+}
+:root[data-design="a"] [data-chrome="primary"]:hover {
+  filter: none;
+  background-color: var(--d-accent-dim);
+}
+
+/* Buttons that are not the primary: quiet, and they answer on hover. */
+:root[data-design] button:not([data-chrome="primary"]):hover {
+  transform: var(--d-lift);
+}
+
+/* Tiles lift where the direction lifts, and nowhere else. A board that jumps
+   is the reflow he has ruled out twice (2026-08-12, 2026-08-19); this moves
+   2 px and takes no space from a neighbour. */
+:root[data-design="c"] [data-tile-id]:hover {
+  transform: var(--d-lift);
+  box-shadow: 0 26px 60px -26px rgba(0, 0, 0, 0.9);
+}
+
+/* Tabs. The active one is filled, not underlined with a hairline: colour the
+   whole thing. */
+:root[data-design] [role="tab"][aria-selected="true"] {
+  color: var(--color-ink);
+  border-color: var(--d-rule);
+}
+:root[data-design="a"] [role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--d-accent);
+  border-bottom-width: 2px;
+  color: var(--d-accent);
+}
+:root[data-design="b"] [role="tab"][aria-selected="true"] {
+  background-color: var(--color-ink);
+  color: var(--color-panel);
+  border-color: var(--color-ink);
+}
+:root[data-design="c"] [role="tab"][aria-selected="true"] {
+  background-color: var(--d-accent);
+  color: var(--d-on-accent);
+  border-color: transparent;
+  border-radius: var(--d-pill);
+}
+:root[data-design="c"] [role="tab"] {
+  border-radius: var(--d-pill);
+  border-color: transparent;
+}
+:root[data-design="c"] [role="tablist"] {
+  border-bottom-color: transparent;
+  gap: 0.25rem;
+}
+
+/* Scrollbars, per field. */
+:root[data-design] * {
+  scrollbar-color: var(--color-muted) transparent;
+}
+
+/* Focus, visible on every field. */
+:root[data-design] :focus-visible {
+  outline: 2px solid var(--d-accent);
+  outline-offset: 1px;
+}
+
+/* ── The graph surface ───────────────────────────────────────────────────
+ * The node-link drawing paints itself in SVG attributes (see `GraphTab`), so
+ * what belongs here is only what CSS owns: the field under it, the cursor,
+ * and the hover/dim classes the simulation toggles. */
+:root[data-design] [data-graph] {
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+:root[data-design] [data-graph][data-panning="true"] {
+  cursor: grabbing;
+}
+:root[data-design] [data-graph] [data-node] {
+  transition: opacity var(--d-dur) var(--d-ease);
+}
+:root[data-design] [data-graph][data-focused="true"] [data-node]:not([data-near="true"]) {
+  opacity: 0.22;
+}
+:root[data-design] [data-graph][data-focused="true"] [data-edge]:not([data-near="true"]) {
+  opacity: 0.14;
+}
+:root[data-design] [data-graph] [data-edge] {
+  transition: opacity var(--d-dur) var(--d-ease);
+}
+
+/* A's field carries the instrument's dot grid; B's is bare paper; C's is a
+   soft bloom under the drawing. */
+:root[data-design="a"] [data-graph-field] {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+:root[data-design="c"] [data-graph-field] {
+  background-image: radial-gradient(
+    ellipse 80% 70% at 50% 50%,
+    rgba(255, 143, 58, 0.09) 0%,
+    transparent 70%
+  );
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────
+ * The lift, the transitions and the graph's own settle all stand down. The
+ * simulation reads the same query and jumps to its settled arrangement. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-design] * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+  :root[data-design] {
+    --d-lift: none;
+  }
+}

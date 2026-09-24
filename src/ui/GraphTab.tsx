@@ -28,19 +28,29 @@
  * the honest model-level graph — not a whole-model relationship dump, which
  * would be a picture of nothing at 851 products.
  *
- * ── The layout ───────────────────────────────────────────────────────────
- * A small spring embedder written here rather than a dependency: repulsion
- * between every pair, a spring along every edge, a weak pull to the centre, a
- * fixed iteration count and a cooling step cap. Start positions come from a
- * FNV hash of the node id, so the same element lays out the same way every
- * time it is opened — a graph that reshuffles on each visit cannot be read
- * twice. The selected element is pinned at the origin; the result is fitted
- * into the measured container box, so glyphs and labels keep their px size at
- * any width and 1100 px (the skiplum.com iframe) is a normal case.
+ * ── The layout is ALIVE ──────────────────────────────────────────────────
+ * The physics lives in `graph-sim.ts` and runs over real frames: the
+ * arrangement expands into place, a new selection MOVES the nodes it shares
+ * with the old one rather than cutting to a new picture, a node can be dragged
+ * and stays where it is put, the wheel magnifies about the pointer and a drag
+ * on the field pans. Determinism survives the change — start positions are
+ * still an FNV hash of the node id and there is no randomness anywhere, so the
+ * same element settles into the same arrangement every time it is opened. See
+ * that file's header for why this is not d3-force.
+ *
+ * `graph-paint.ts` holds the per-direction material. The DRAWING is identical
+ * in all four skins; what changes is glyph weight, whether an edge bows,
+ * whether a label rides a chip, and how long an edge must be before it names
+ * its relationship.
  *
  * Labels only — the node's name and its IFC term, the edge's relationship
  * name. A label that does not fit ellipsizes and carries the full text in
- * `title`.
+ * `title`, and a label that would land on another label is not drawn at all:
+ * the collision pass reserves boxes in rank order, so the centre and the
+ * spatial parents keep their names and a property set gives way.
+ *
+ * Positions are written straight to the DOM by the frame loop. React owns what
+ * exists, the loop owns where it is.
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
@@ -50,15 +60,18 @@ import { formatCount } from "./format";
 import { MicroLabel } from "./BentoGrid";
 import { Switch } from "./Switch";
 import type { ModelProfile, ProductRowLite } from "./profile";
+import type { Design } from "./useHashView";
+import { GraphSim, fitView, toSim, zoomAt, type GraphView } from "./graph-sim";
+import { edgeLabelAt, edgePath, skinOf, type GraphSkin } from "./graph-paint";
 
 /** How many members of one relationship group are drawn before the rest
  *  collapse into a `+N` node. A wall with forty openings is forty labels no
  *  one can read; the count is the honest summary and the panel still has the
  *  full list. */
 const MAX_PER_GROUP = 12;
-/** Total ceiling, so the O(n²) embedder stays inside a frame. */
+/** Total ceiling, so the O(n²) force sum stays well inside a frame — and the
+ *  reason a Barnes-Hut dependency would not pay for itself here. */
 const MAX_NODES = 180;
-const ITERATIONS = 360;
 
 type NodeKind =
   | "self"
@@ -97,11 +110,6 @@ interface Build {
   edges: GraphEdge[];
   /** The node pinned at the origin, or null for the model-level graph. */
   centre: string | null;
-}
-
-interface Point {
-  x: number;
-  y: number;
 }
 
 /* ------------------------------------------------------------------ build */
@@ -381,148 +389,16 @@ function modelGraph(profile: ModelProfile, lang: Lang): Build {
   return { nodes, edges, centre: null };
 }
 
-/* ----------------------------------------------------------------- layout */
-
-/** FNV-1a over the node id: the seed for its start position, so the same
- *  element lays out identically every time. */
-function seedOf(id: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < id.length; i += 1) {
-    hash ^= id.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-const REPULSION = 11000;
-const SPRING = 0.04;
-const REST_LENGTH = 92;
-const CENTRE_PULL = 0.013;
-
-/** Repulsion between every pair, a spring along every edge, a weak pull to the
- *  origin, a fixed number of iterations and a step that cools linearly. No
- *  randomness anywhere: the seed is the id. */
-function layout(nodes: GraphNode[], edges: GraphEdge[], centre: string | null): Map<string, Point> {
-  const n = nodes.length;
-  const at = new Map(nodes.map((node, i) => [node.id, i]));
-  const x = new Float64Array(n);
-  const y = new Float64Array(n);
-  for (let i = 0; i < n; i += 1) {
-    const seed = seedOf(nodes[i].id);
-    const angle = ((seed % 4096) / 4096) * Math.PI * 2;
-    const radius = 24 + (((seed >>> 12) % 1024) / 1024) * 130;
-    x[i] = Math.cos(angle) * radius;
-    y[i] = Math.sin(angle) * radius;
-  }
-  const pinned = centre === null ? -1 : (at.get(centre) ?? -1);
-  if (pinned >= 0) {
-    x[pinned] = 0;
-    y[pinned] = 0;
-  }
-
-  const links: number[][] = [];
-  for (const edge of edges) {
-    const a = at.get(edge.a);
-    const b = at.get(edge.b);
-    if (a !== undefined && b !== undefined && a !== b) links.push([a, b]);
-  }
-
-  const fx = new Float64Array(n);
-  const fy = new Float64Array(n);
-
-  for (let step = 0; step < ITERATIONS; step += 1) {
-    fx.fill(0);
-    fy.fill(0);
-    for (let i = 0; i < n; i += 1) {
-      for (let j = i + 1; j < n; j += 1) {
-        let ux = x[i] - x[j];
-        let uy = y[i] - y[j];
-        let d2 = ux * ux + uy * uy;
-        if (d2 < 0.01) {
-          // Two nodes on the same point have no direction to separate along;
-          // take one from the indices rather than from a random number, so the
-          // layout stays reproducible.
-          ux = ((i * 7 + 3) % 11) - 5;
-          uy = ((j * 5 + 1) % 11) - 5;
-          d2 = ux * ux + uy * uy || 1;
-        }
-        const d = Math.sqrt(d2);
-        const force = REPULSION / d2;
-        fx[i] += (ux / d) * force;
-        fy[i] += (uy / d) * force;
-        fx[j] -= (ux / d) * force;
-        fy[j] -= (uy / d) * force;
-      }
-    }
-    for (const [a, b] of links) {
-      const ux = x[b] - x[a];
-      const uy = y[b] - y[a];
-      const d = Math.sqrt(ux * ux + uy * uy) || 0.001;
-      const force = SPRING * (d - REST_LENGTH);
-      fx[a] += (ux / d) * force;
-      fy[a] += (uy / d) * force;
-      fx[b] -= (ux / d) * force;
-      fy[b] -= (uy / d) * force;
-    }
-    const cool = 24 * (1 - step / ITERATIONS) + 0.6;
-    for (let i = 0; i < n; i += 1) {
-      if (i === pinned) {
-        x[i] = 0;
-        y[i] = 0;
-        continue;
-      }
-      fx[i] -= x[i] * CENTRE_PULL;
-      fy[i] -= y[i] * CENTRE_PULL;
-      const len = Math.hypot(fx[i], fy[i]) || 0.000001;
-      const take = Math.min(len, cool);
-      x[i] += (fx[i] / len) * take;
-      y[i] += (fy[i] / len) * take;
-    }
-  }
-
-  const out = new Map<string, Point>();
-  nodes.forEach((node, i) => out.set(node.id, { x: x[i], y: y[i] }));
-  return out;
-}
-
-/** Fit the laid-out cloud into the measured box. Positions scale; glyphs and
- *  labels do not, so the drawing reads the same at 700 px and at 1440 px. */
-function fit(points: Map<string, Point>, width: number, height: number): Map<string, Point> {
-  const pad = 54;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const point of points.values()) {
-    minX = Math.min(minX, point.x);
-    minY = Math.min(minY, point.y);
-    maxX = Math.max(maxX, point.x);
-    maxY = Math.max(maxY, point.y);
-  }
-  if (!Number.isFinite(minX)) return points;
-  const scale = Math.min(
-    (width - pad * 2) / Math.max(1, maxX - minX),
-    (height - pad * 2) / Math.max(1, maxY - minY),
-    1.5,
-  );
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const out = new Map<string, Point>();
-  for (const [id, point] of points) {
-    out.set(id, {
-      x: width / 2 + (point.x - cx) * scale,
-      y: height / 2 + (point.y - cy) * scale,
-    });
-  }
-  return out;
-}
-
 /* ---------------------------------------------------------------- drawing */
 
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
+/** Glyph per kind, in `currentColor` and the palette vars so one set of shapes
+ *  serves all four skins. The SHAPE says what a thing is — a storey is a
+ *  square, a type a diamond, a capped remainder a dashed circle — and the
+ *  shape is what survives a colour-blind reader and a black-and-white print. */
 const GLYPH: Record<NodeKind, ReactElement> = {
   self: <circle r={11} fill="var(--color-gold)" stroke="var(--color-ink)" strokeWidth={1.5} />,
   element: (
@@ -576,7 +452,7 @@ const GLYPH: Record<NodeKind, ReactElement> = {
   count: (
     <circle
       r={7}
-      fill="var(--color-cream)"
+      fill="var(--color-ground)"
       stroke="var(--color-muted)"
       strokeWidth={1}
       strokeDasharray="2.5 2.5"
@@ -605,133 +481,60 @@ const GLYPH: Record<NodeKind, ReactElement> = {
   ),
 };
 
-function Edge({ from, to, label }: { from: Point; to: Point; label: string }) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const length = Math.hypot(dx, dy);
-  let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-  if (angle > 90) angle -= 180;
-  if (angle < -90) angle += 180;
-  // 8 px mono is ~4.9 px per character; the label never runs past its own edge.
-  const room = Math.max(0, Math.floor((length - 26) / 4.9));
-  const text = room >= 4 ? clip(label, room) : "";
-  // Not the midpoint: the graph is a FAN from the selected element, so every
-  // edge's midpoint lands in the same crowded ring near the hub and the labels
-  // overprint each other. Two thirds out, the arc between neighbouring edges is
-  // twice as wide and they separate on their own.
-  const at = { x: from.x + dx * 0.68, y: from.y + dy * 0.68 };
-  return (
-    <g>
-      <line
-        x1={from.x}
-        y1={from.y}
-        x2={to.x}
-        y2={to.y}
-        stroke="var(--color-line)"
-        strokeWidth={1.25}
-      />
-      {text ? (
-        <text
-          x={at.x}
-          y={at.y - 3.5}
-          transform={`rotate(${angle} ${at.x} ${at.y - 3.5})`}
-          textAnchor="middle"
-          fontFamily="var(--font-mono)"
-          fontSize={8}
-          fill="var(--color-muted)"
-        >
-          {text.length < label.length ? <title>{label}</title> : null}
-          {text}
-        </text>
-      ) : null}
-    </g>
-  );
+/** Which labels get the room. Higher wins a collision.
+ *
+ * The centre of the drawing and the spatial parents are what orient a reader;
+ * a capped `+N` remainder and a property set are what a reader looks up after
+ * they have found their bearings. */
+const LABEL_RANK: Record<NodeKind, number> = {
+  self: 100,
+  building: 70,
+  site: 68,
+  storey: 66,
+  type: 60,
+  material: 40,
+  classification: 38,
+  element: 30,
+  count: 20,
+  pset: 12,
+  quantity: 10,
+};
+
+/** Advance width per character, as a fraction of the font size. Measured off
+ *  the two faces this drawing uses rather than measured in the DOM: a
+ *  `getComputedTextLength` per label per settle frame is a layout flush per
+ *  label per frame, which is exactly the stall this rewrite exists to remove.
+ *  It is used to RESERVE space, so an approximation that runs slightly wide is
+ *  the safe direction. */
+const CHAR_W = { mono: 0.61, sans: 0.55 } as const;
+
+function textWidth(text: string, size: number, family: "mono" | "sans"): number {
+  return text.length * size * CHAR_W[family];
 }
 
-function Node({
-  node,
-  point,
-  active,
-  labelMax,
-  onPick,
-}: {
-  node: GraphNode;
-  point: Point;
-  active: boolean;
-  /** Characters a non-centre label may take before it ellipsizes. Measured at
-   *  1100 px the embedder leaves ~90 px between neighbours on an element graph
-   *  and ~48 px on a forty-storey model graph, so a crowded graph gets the
-   *  shorter cap rather than overlapping labels. The full text is in `title`. */
-  labelMax: number;
-  onPick: (guid: string, additive: boolean) => void;
-}) {
-  const guid = node.guid ?? null;
-  const label = clip(node.label, node.kind === "self" ? 30 : labelMax);
-  const subFull = node.sub ?? null;
-  const sub = subFull ? clip(subFull, 24) : null;
-  return (
-    <g
-      transform={`translate(${point.x} ${point.y})`}
-      data-node={guid ?? undefined}
-      role={guid ? "button" : undefined}
-      tabIndex={guid ? 0 : undefined}
-      aria-label={guid ? node.label : undefined}
-      className={guid ? "cursor-pointer" : undefined}
-      onClick={
-        guid
-          ? (event) => onPick(guid, event.shiftKey || event.ctrlKey || event.metaKey)
-          : undefined
-      }
-      onKeyDown={
-        guid
-          ? (event) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
-              onPick(guid, event.shiftKey || event.ctrlKey || event.metaKey);
-            }
-          : undefined
-      }
-    >
-      {active && node.kind !== "self" ? (
-        <circle r={13} fill="none" stroke="var(--color-gold)" strokeWidth={2} />
-      ) : null}
-      {GLYPH[node.kind]}
-      <text
-        y={node.kind === "self" ? 26 : 21}
-        textAnchor="middle"
-        fontFamily="var(--font-mono)"
-        fontSize={node.kind === "self" ? 11 : 10}
-        fontWeight={node.kind === "self" ? 600 : 400}
-        fill="var(--color-ink)"
-      >
-        {label.length < node.label.length ? <title>{node.label}</title> : null}
-        {label}
-      </text>
-      {sub && subFull ? (
-        <text
-          y={node.kind === "self" ? 38 : 32}
-          textAnchor="middle"
-          fontFamily="var(--font-mono)"
-          fontSize={9}
-          fill="var(--color-muted)"
-        >
-          {sub.length < subFull.length ? <title>{subFull}</title> : null}
-          {sub}
-        </text>
-      ) : null}
-    </g>
-  );
+interface LabelBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+function overlaps(a: LabelBox, b: LabelBox): boolean {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 }
 
 /* ------------------------------------------------------------------ panel */
 
 export function GraphTab({
   lang,
+  design,
   profile,
   selection,
   onPick,
 }: {
   lang: Lang;
+  /** The visual direction, which decides how the drawing is painted. */
+  design: Design | null;
   profile: ModelProfile | null;
   /** The panel's `view.selection`. The FIRST guid is the centre: one graph has
    *  one origin, and drawing several centres at once is a picture of nothing. */
@@ -744,12 +547,13 @@ export function GraphTab({
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [shown, setShown] = useState(false);
+  const skin = skinOf(design);
 
   // The tab is `hidden` while another tab is active, so it has no box at all
   // until it is shown. A zero measurement keeps the LAST size — so reopening
   // the tab does not repaint at a different width — but clears `shown`, and
-  // the embedder below runs only while shown: a selection made on Kontroll
-  // must not cost a layout pass for a graph nobody is looking at.
+  // the simulation below runs only while shown: a selection made on Kontroll
+  // must not cost a frame of physics for a graph nobody is looking at.
   useLayoutEffect(() => {
     const element = box.current;
     if (!element || typeof ResizeObserver === "undefined") return;
@@ -781,17 +585,388 @@ export function GraphTab({
       : modelGraph(profile, lang);
   }, [profile, shown, centreGuid, lang, psets, quantities]);
 
-  const points = useMemo(() => {
-    if (build.nodes.length === 0 || !size || !shown) return null;
-    return fit(layout(build.nodes, build.edges, build.centre), size.width, size.height);
-  }, [build, size, shown]);
+  /* ── The live part ───────────────────────────────────────────────────────
+   *
+   * React renders the node and edge ELEMENTS, once per build. Their positions
+   * are written straight to the DOM by the frame loop below, because a
+   * `setState` per frame over 180 nodes is a reconcile per frame and the
+   * settle drops to about 20 fps. The rule this follows is the one the viewer
+   * tile already follows: React owns what exists, the loop owns where it is.
+   */
+  const svgRef = useRef<SVGSVGElement>(null);
+  const nodeRefs = useRef(new Map<string, SVGGElement>());
+  const labelRefs = useRef(new Map<string, SVGGElement>());
+  const edgeRefs = useRef<(SVGPathElement | null)[]>([]);
+  const edgeLabelRefs = useRef<(SVGGElement | null)[]>([]);
+  const simRef = useRef<GraphSim | null>(null);
+  const viewRef = useRef<GraphView>({ k: 1, tx: 0, ty: 0 });
+  /** Screen-independent positions of the last arrangement, so a NEW selection
+   *  that shares nodes with the old one moves them from where they were
+   *  instead of re-throwing the whole picture. */
+  const carried = useRef(new Map<string, { x: number; y: number }>());
+  /** Once the reader has panned or zoomed, the drawing stops re-framing itself
+   *  under them. */
+  const framed = useRef(false);
+  const dragging = useRef<{ index: number; id: string; moved: boolean } | null>(null);
+  const panning = useRef<{ x: number; y: number } | null>(null);
+  const hovered = useRef<string | null>(null);
+  const raf = useRef(0);
+  const sinceLabels = useRef(0);
 
-  const pick = useCallback(
-    (guid: string, additive: boolean) => onPick(guid, additive),
-    [onPick],
+  const reducedMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /** Decide which node labels are drawn, in rank order, by reserving boxes.
+   *  Runs on a cadence rather than per frame — a label that flickers between
+   *  two frames of a settle is worse than one that appears a beat late. */
+  const relabel = useCallback(() => {
+    const sim = simRef.current;
+    if (!sim || !size) return;
+    const view = viewRef.current;
+    const order = build.nodes
+      .map((node, i) => ({ node, i }))
+      .sort((p, q) => LABEL_RANK[q.node.kind] - LABEL_RANK[p.node.kind]);
+    const placed: LabelBox[] = [];
+    for (const { node, i } of order) {
+      const element = labelRefs.current.get(node.id);
+      if (!element) continue;
+      const at = sim.nodes[i];
+      const x = at.x * view.k + view.tx;
+      const y = at.y * view.k + view.ty;
+      const size_ = node.kind === "self" ? skin.labelSize + 1 : skin.labelSize;
+      const width = textWidth(clip(node.label, node.kind === "self" ? 30 : 22), size_, skin.labelFamily);
+      const top = y + (node.kind === "self" ? 18 : 14);
+      const height = node.sub ? size_ + skin.subSize + 6 : size_ + 3;
+      const wanted: LabelBox = {
+        x0: x - width / 2 - 3,
+        y0: top,
+        x1: x + width / 2 + 3,
+        y1: top + height,
+      };
+      // Outside the box is not a collision, it is off-screen: drop it either
+      // way, so a label never hangs half over the tile's edge.
+      const inside =
+        wanted.x0 > -12 && wanted.x1 < size.width + 12 && wanted.y1 < size.height + 4;
+      const free = inside && !placed.some((other) => overlaps(wanted, other));
+      // The centre always keeps its name. A drawing whose own subject is
+      // unlabelled is not a drawing of anything.
+      const show = node.kind === "self" || free;
+      if (show) placed.push(wanted);
+      element.setAttribute("opacity", show ? "1" : "0");
+    }
+
+    /* Edge labels answer to the same reservation, and they answer SECOND: a
+     * node's name beats the name of a relationship, because the relationship is
+     * also printed as a row in the object panel and the node's name is not
+     * printed anywhere else on this surface.
+     *
+     * Longest edge first, and an edge must be long enough to hold its own
+     * label before it is offered one at all. That is what makes the wheel a
+     * legibility control: zoom in and the relationships name themselves, zoom
+     * out and the shape of the graph is what is left. */
+    const byLength = build.edges
+      .map((edge, e) => {
+        const a = sim.index(edge.a);
+        const b = sim.index(edge.b);
+        if (a === undefined || b === undefined) return null;
+        const ax = sim.nodes[a].x * view.k + view.tx;
+        const ay = sim.nodes[a].y * view.k + view.ty;
+        const bx = sim.nodes[b].x * view.k + view.tx;
+        const by = sim.nodes[b].y * view.k + view.ty;
+        return { e, edge, ax, ay, bx, by, length: Math.hypot(bx - ax, by - ay) };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+      .sort((p, q) => q.length - p.length);
+
+    for (const row of byLength) {
+      const element = edgeLabelRefs.current[row.e];
+      if (!element) continue;
+      const width = textWidth(row.edge.label, skin.subSize, skin.subFamily);
+      if (row.length < skin.edgeLabelFloor || row.length < width + 30) {
+        element.setAttribute("opacity", "0");
+        continue;
+      }
+      const at = edgeLabelAt(row.ax, row.ay, row.bx, row.by, skin.bow);
+      // The label is rotated along its edge; reserving its unrotated box is a
+      // deliberate over-reservation, which is the safe direction for a test
+      // that decides whether two strings collide.
+      const half = Math.max(width, skin.subSize) / 2;
+      const wanted: LabelBox = {
+        x0: at.x - half,
+        y0: at.y - half - 4,
+        x1: at.x + half,
+        y1: at.y + half,
+      };
+      const free = !placed.some((other) => overlaps(wanted, other));
+      if (free) placed.push(wanted);
+      element.setAttribute("opacity", free ? "1" : "0");
+    }
+  }, [build.edges, build.nodes, size, skin]);
+
+  /** Write the current arrangement to the DOM. No allocation, no React. */
+  const paint = useCallback(() => {
+    const sim = simRef.current;
+    if (!sim || !size) return;
+    const view = viewRef.current;
+    const nodes = sim.nodes;
+
+    for (let i = 0; i < nodes.length; i += 1) {
+      const element = nodeRefs.current.get(build.nodes[i].id);
+      if (!element) continue;
+      const x = nodes[i].x * view.k + view.tx;
+      const y = nodes[i].y * view.k + view.ty;
+      element.setAttribute("transform", `translate(${x.toFixed(2)} ${y.toFixed(2)})`);
+    }
+
+    for (let e = 0; e < build.edges.length; e += 1) {
+      const path = edgeRefs.current[e];
+      if (!path) continue;
+      const a = sim.index(build.edges[e].a);
+      const b = sim.index(build.edges[e].b);
+      if (a === undefined || b === undefined) continue;
+      const ax = nodes[a].x * view.k + view.tx;
+      const ay = nodes[a].y * view.k + view.ty;
+      const bx = nodes[b].x * view.k + view.tx;
+      const by = nodes[b].y * view.k + view.ty;
+      path.setAttribute("d", edgePath(ax, ay, bx, by, skin.bow));
+
+      const label = edgeLabelRefs.current[e];
+      if (!label) continue;
+      const at = edgeLabelAt(ax, ay, bx, by, skin.bow);
+      let angle = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
+      if (angle > 90) angle -= 180;
+      if (angle < -90) angle += 180;
+      label.setAttribute(
+        "transform",
+        `translate(${at.x.toFixed(2)} ${at.y.toFixed(2)}) rotate(${angle.toFixed(1)})`,
+      );
+    }
+  }, [build.edges, build.nodes, size, skin]);
+
+  /** One frame: step the physics, ease the framing, write the DOM, and stop
+   *  when there is nothing left moving. */
+  const frame = useCallback(function step() {
+    const sim = simRef.current;
+    if (!sim || !size) {
+      raf.current = 0;
+      return;
+    }
+    const held = dragging.current !== null;
+    if (sim.running || held) sim.tick();
+
+    // The drawing frames ITSELF while it settles: the arrangement grows, and
+    // the view eases out to keep it whole. Eased rather than snapped, or the
+    // board jitters once per frame while the bounds wobble.
+    let moving = false;
+    if (!framed.current) {
+      const target = fitView(sim.bounds(), size.width, size.height);
+      const view = viewRef.current;
+      const rate = sim.running ? 0.14 : 0.3;
+      const k = view.k + (target.k - view.k) * rate;
+      const tx = view.tx + (target.tx - view.tx) * rate;
+      const ty = view.ty + (target.ty - view.ty) * rate;
+      moving =
+        Math.abs(k - view.k) > 0.0004 ||
+        Math.abs(tx - view.tx) > 0.15 ||
+        Math.abs(ty - view.ty) > 0.15;
+      viewRef.current = moving ? { k, tx, ty } : target;
+    }
+
+    paint();
+    sinceLabels.current += 1;
+    if (sinceLabels.current >= 5) {
+      sinceLabels.current = 0;
+      relabel();
+    }
+
+    if (sim.running || held || moving) {
+      raf.current = requestAnimationFrame(step);
+    } else {
+      raf.current = 0;
+      relabel();
+      // Remember where everything came to rest, so the next selection can
+      // start from here.
+      carried.current = new Map(sim.nodes.map((node) => [node.id, { x: node.x, y: node.y }]));
+    }
+  }, [paint, relabel, size]);
+
+  const wake = useCallback(() => {
+    if (raf.current === 0) raf.current = requestAnimationFrame(frame);
+  }, [frame]);
+
+  /* A new node set, or a new box: build the simulation. Nodes the last
+   * arrangement already held keep their place, so changing the selection
+   * MOVES the picture instead of replacing it. */
+  useLayoutEffect(() => {
+    if (!shown || !size || build.nodes.length === 0) {
+      simRef.current = null;
+      return;
+    }
+    const sim = new GraphSim(
+      build.nodes.map((node) => node.id),
+      build.edges.map((edge) => [edge.a, edge.b] as [string, string]),
+      build.centre,
+    );
+    for (const node of sim.nodes) {
+      const was = carried.current.get(node.id);
+      if (!was || node.fx !== null) continue;
+      node.x = was.x;
+      node.y = was.y;
+    }
+    // A few steps before the first paint, so the drawing OPENS as a shape
+    // expanding rather than as a knot untying.
+    sim.settle(reducedMotion ? 320 : 10);
+    if (reducedMotion) sim.alpha = 0;
+    // The cloud grows into the shape of the tile it is drawn in.
+    sim.fitTo(size.width / Math.max(1, size.height));
+    simRef.current = sim;
+    framed.current = false;
+    viewRef.current = fitView(sim.bounds(), size.width, size.height);
+    paint();
+    relabel();
+    wake();
+    return () => {
+      if (raf.current !== 0) cancelAnimationFrame(raf.current);
+      raf.current = 0;
+    };
+  }, [build, shown, size, paint, relabel, wake, reducedMotion]);
+
+  /* ── Gestures ───────────────────────────────────────────────────────────
+   * A wheel magnifies about the pointer; a drag on the field pans; a drag on
+   * a node pins it under the pointer and reheats its neighbourhood; a press
+   * that does NOT move is a click, and a click still selects exactly as a
+   * table row does. */
+
+  const pointFromEvent = useCallback((event: { clientX: number; clientY: number }) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return rect
+      ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      : { x: 0, y: 0 };
+  }, []);
+
+  const onWheel = useCallback(
+    (event: React.WheelEvent<SVGSVGElement>) => {
+      if (!simRef.current) return;
+      event.preventDefault();
+      const at = pointFromEvent(event);
+      // Per notch, not per pixel: a trackpad reports tiny deltas and a mouse
+      // reports 100, and a raw multiplier makes one of the two unusable.
+      const factor = Math.exp(-event.deltaY * 0.0016);
+      viewRef.current = zoomAt(viewRef.current, at.x, at.y, factor);
+      framed.current = true;
+      paint();
+      relabel();
+    },
+    [paint, pointFromEvent, relabel],
+  );
+
+  const onPointerDown = useCallback(
+    (event: React.PointerEvent<SVGSVGElement>) => {
+      if (event.button !== 0 || !simRef.current) return;
+      const target = (event.target as Element).closest("[data-node-id]");
+      const id = target?.getAttribute("data-node-id") ?? null;
+      svgRef.current?.setPointerCapture(event.pointerId);
+      if (id !== null) {
+        const index = simRef.current.index(id);
+        if (index !== undefined) {
+          dragging.current = { index, id, moved: false };
+          wake();
+          return;
+        }
+      }
+      const at = pointFromEvent(event);
+      panning.current = { x: at.x - viewRef.current.tx, y: at.y - viewRef.current.ty };
+      svgRef.current?.setAttribute("data-panning", "true");
+    },
+    [pointFromEvent, wake],
+  );
+
+  const onPointerMove = useCallback(
+    (event: React.PointerEvent<SVGSVGElement>) => {
+      const at = pointFromEvent(event);
+      const held = dragging.current;
+      if (held) {
+        const sim = simRef.current;
+        if (!sim) return;
+        held.moved = true;
+        const inSim = toSim(viewRef.current, at.x, at.y);
+        sim.pin(held.index, inSim.x, inSim.y);
+        sim.reheat();
+        framed.current = true;
+        wake();
+        return;
+      }
+      if (panning.current) {
+        viewRef.current = {
+          ...viewRef.current,
+          tx: at.x - panning.current.x,
+          ty: at.y - panning.current.y,
+        };
+        framed.current = true;
+        paint();
+        return;
+      }
+      // Hover: the drawing dims everything the hovered node is not attached
+      // to. The neighbourhood is marked in the DOM and the FADE is CSS, so a
+      // hover costs one attribute write and no frame.
+      const node = (event.target as Element).closest("[data-node-id]");
+      const id = node?.getAttribute("data-node-id") ?? null;
+      if (id === hovered.current) return;
+      hovered.current = id;
+      const svg = svgRef.current;
+      if (!svg) return;
+      svg.setAttribute("data-focused", id === null ? "false" : "true");
+      if (id === null) return;
+      const near = new Set<string>([id]);
+      for (const edge of build.edges) {
+        if (edge.a === id) near.add(edge.b);
+        else if (edge.b === id) near.add(edge.a);
+      }
+      for (const [nodeId, element] of nodeRefs.current) {
+        element.setAttribute("data-near", near.has(nodeId) ? "true" : "false");
+      }
+      build.edges.forEach((edge, e) => {
+        const path = edgeRefs.current[e]?.parentElement;
+        path?.setAttribute("data-near", edge.a === id || edge.b === id ? "true" : "false");
+      });
+    },
+    [build.edges, paint, pointFromEvent, wake],
+  );
+
+  const endGesture = useCallback(
+    (event: React.PointerEvent<SVGSVGElement>) => {
+      svgRef.current?.releasePointerCapture?.(event.pointerId);
+      svgRef.current?.removeAttribute("data-panning");
+      panning.current = null;
+      const held = dragging.current;
+      dragging.current = null;
+      if (!held) return;
+      const sim = simRef.current;
+      if (!sim) return;
+      if (held.moved) {
+        // A node the reader placed STAYS placed. It is the only way to untangle
+        // a crowded relationship set by hand, and letting it spring back would
+        // undo the one thing a drag is for.
+        sim.reheat(0.25);
+        wake();
+        return;
+      }
+      // Not a drag: a click. The centre keeps its pin; everything else is
+      // released so the arrangement can breathe again.
+      const node = build.nodes.find((candidate) => candidate.id === held.id);
+      if (node?.id !== build.centre) sim.unpin(held.index);
+      if (node?.guid) {
+        onPick(node.guid, event.shiftKey || event.ctrlKey || event.metaKey);
+      }
+      wake();
+    },
+    [build.centre, build.nodes, onPick, wake],
   );
 
   const selected = new Set(selection);
+  const labelMax = build.nodes.length > 28 ? 14 : 22;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
@@ -816,43 +991,86 @@ export function GraphTab({
             {`${formatCount(build.nodes.length, lang)} · ${formatCount(build.edges.length, lang)}`}
           </span>
         </div>
-        <div ref={box} className="min-h-0 min-w-0 flex-1 bg-cream">
+        <div
+          ref={box}
+          data-graph-field
+          // The SVG is sized from a MEASUREMENT, and a measurement is one
+          // frame behind the box on the frame the derivation band opens under
+          // it. Clipping here means a node can never be drawn over the band,
+          // whatever the measurement is doing that frame.
+          className="min-h-0 min-w-0 flex-1 overflow-hidden bg-ground"
+        >
           <svg
+            ref={svgRef}
             data-graph
             width={size?.width ?? 0}
             height={size?.height ?? 0}
             viewBox={`0 0 ${size?.width ?? 0} ${size?.height ?? 0}`}
             className="block"
+            onWheel={onWheel}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endGesture}
+            onPointerCancel={endGesture}
+            onPointerLeave={() => {
+              hovered.current = null;
+              svgRef.current?.setAttribute("data-focused", "false");
+            }}
           >
-            {points ? (
+            {build.nodes.length > 0 ? (
               <>
-                {build.edges.map((edge, i) => {
-                  const from = points.get(edge.a);
-                  const to = points.get(edge.b);
-                  if (!from || !to) return null;
-                  return (
-                    <Edge
-                      key={`${edge.a}->${edge.b}:${edge.label}:${i}`}
-                      from={from}
-                      to={to}
-                      label={edge.label}
-                    />
-                  );
-                })}
-                {build.nodes.map((node) => {
-                  const point = points.get(node.id);
-                  if (!point) return null;
-                  return (
-                    <Node
+                <g>
+                  {build.edges.map((edge, e) => (
+                    <g key={`${edge.a}->${edge.b}:${edge.label}:${e}`} data-edge>
+                      <path
+                        ref={(element) => {
+                          edgeRefs.current[e] = element;
+                        }}
+                        fill="none"
+                        stroke="var(--color-line)"
+                        strokeWidth={skin.edgeWidth}
+                        strokeOpacity={skin.edgeAlpha}
+                      />
+                      <g
+                        ref={(element) => {
+                          edgeLabelRefs.current[e] = element;
+                        }}
+                        opacity={0}
+                      >
+                        <text
+                          y={-4}
+                          textAnchor="middle"
+                          fontFamily={`var(--font-${skin.subFamily})`}
+                          fontSize={skin.subSize}
+                          letterSpacing={`${skin.subTracking}em`}
+                          fill="var(--color-muted)"
+                        >
+                          {edge.label}
+                        </text>
+                      </g>
+                    </g>
+                  ))}
+                </g>
+                <g>
+                  {build.nodes.map((node) => (
+                    <GraphNode
                       key={node.id}
                       node={node}
-                      point={point}
+                      skin={skin}
                       active={node.guid !== undefined && selected.has(node.guid)}
-                      labelMax={build.nodes.length > 28 ? 12 : 22}
-                      onPick={pick}
+                      labelMax={labelMax}
+                      onNode={(element) => {
+                        if (element) nodeRefs.current.set(node.id, element);
+                        else nodeRefs.current.delete(node.id);
+                      }}
+                      onLabel={(element) => {
+                        if (element) labelRefs.current.set(node.id, element);
+                        else labelRefs.current.delete(node.id);
+                      }}
+                      onPick={onPick}
                     />
-                  );
-                })}
+                  ))}
+                </g>
               </>
             ) : size && shown ? (
               // The object panel's own vocabulary: no profile at all, versus a
@@ -872,5 +1090,107 @@ export function GraphTab({
         </div>
       </section>
     </div>
+  );
+}
+
+/** One node: its glyph, its ring when selected, and its label as a separate
+ *  group the collision pass can hide without touching the glyph. Keyboard
+ *  reaches it the same way it always did. */
+function GraphNode({
+  node,
+  skin,
+  active,
+  labelMax,
+  onNode,
+  onLabel,
+  onPick,
+}: {
+  node: GraphNode;
+  skin: GraphSkin;
+  active: boolean;
+  labelMax: number;
+  onNode: (element: SVGGElement | null) => void;
+  onLabel: (element: SVGGElement | null) => void;
+  onPick: (guid: string, additive: boolean) => void;
+}) {
+  const guid = node.guid ?? null;
+  const label = clip(node.label, node.kind === "self" ? 30 : labelMax);
+  const subFull = node.sub ?? null;
+  const sub = subFull ? clip(subFull, 24) : null;
+  const size = node.kind === "self" ? skin.labelSize + 1 : skin.labelSize;
+  const chipWidth = textWidth(label, size, skin.labelFamily) + 10;
+  return (
+    <g
+      ref={onNode}
+      data-node-id={node.id}
+      data-node={guid ?? undefined}
+      role={guid ? "button" : undefined}
+      tabIndex={guid ? 0 : undefined}
+      aria-label={guid ? node.label : undefined}
+      className={guid ? "cursor-pointer" : undefined}
+      onKeyDown={
+        guid
+          ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onPick(guid, event.shiftKey || event.ctrlKey || event.metaKey);
+            }
+          : undefined
+      }
+    >
+      {skin.halo > 0 ? (
+        <circle
+          r={(node.kind === "self" ? 11 : 8) * skin.scale + skin.halo * 3}
+          fill="var(--color-ink)"
+          opacity={0.07}
+        />
+      ) : null}
+      {active && node.kind !== "self" ? (
+        <circle
+          r={13 * skin.scale}
+          fill="none"
+          stroke="var(--color-gold)"
+          strokeWidth={skin.activeWidth}
+        />
+      ) : null}
+      <g transform={skin.scale === 1 ? undefined : `scale(${skin.scale})`}>{GLYPH[node.kind]}</g>
+      <g ref={onLabel} opacity={0}>
+        {skin.chip ? (
+          <rect
+            x={-chipWidth / 2}
+            y={(node.kind === "self" ? 26 : 21) - size + 1}
+            width={chipWidth}
+            height={size + 5}
+            rx={skin.chipRadius}
+            fill="var(--color-panel)"
+            opacity={0.86}
+          />
+        ) : null}
+        <text
+          y={node.kind === "self" ? 26 : 21}
+          textAnchor="middle"
+          fontFamily={`var(--font-${skin.labelFamily})`}
+          fontSize={size}
+          fontWeight={node.kind === "self" ? skin.labelWeight + 100 : skin.labelWeight}
+          fill="var(--color-ink)"
+        >
+          {label.length < node.label.length ? <title>{node.label}</title> : null}
+          {label}
+        </text>
+        {sub && subFull ? (
+          <text
+            y={node.kind === "self" ? 38 : 32}
+            textAnchor="middle"
+            fontFamily={`var(--font-${skin.subFamily})`}
+            fontSize={skin.subSize}
+            letterSpacing={`${skin.subTracking}em`}
+            fill="var(--color-muted)"
+          >
+            {sub.length < subFull.length ? <title>{subFull}</title> : null}
+            {sub}
+          </text>
+        ) : null}
+      </g>
+    </g>
   );
 }

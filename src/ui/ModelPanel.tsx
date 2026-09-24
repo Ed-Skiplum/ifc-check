@@ -36,6 +36,7 @@ import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
 import type { Focus } from "./trace";
 import type { Lang, StringKey } from "./i18n";
+import type { Design } from "./useHashView";
 import type { FilterChip, Mode, ModelView } from "./cross-filter";
 import { chipOf, resolveFilter } from "./cross-filter";
 import { t } from "./i18n";
@@ -62,6 +63,9 @@ const TAB_LABEL: Record<Tab, StringKey> = {
 
 interface ModelPanelProps {
   lang: Lang;
+  /** The visual direction, for the one surface painted in SVG rather than in
+   *  classes. */
+  design: Design | null;
   model: ModelEntry;
   hasRuleset: boolean;
   claims: KpiClaims;
@@ -89,6 +93,7 @@ interface ModelPanelProps {
 
 export function ModelPanel({
   lang,
+  design,
   model,
   hasRuleset,
   claims,
@@ -319,6 +324,7 @@ export function ModelPanel({
             <div role="tabpanel" hidden={tab !== "graph"} className="flex flex-col">
               <GraphTab
                 lang={lang}
+                design={design}
                 profile={profile ?? null}
                 selection={view.selection}
                 onPick={onPick}

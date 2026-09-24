@@ -122,10 +122,16 @@ function IfcTile({ lang, dragging, onFiles }: LandingProps) {
           }
         >
           <IfcGlyph active={dragging} />
-          <span className="text-center text-[22px] leading-tight font-medium tracking-tight @3xl:text-[28px]">
+          {/* The entrance's one line of type. Marked so a visual direction can
+              set it at its own scale and weight without the string, the
+              structure or the default's size changing. */}
+          <span
+            data-chrome="lede"
+            className="text-center text-[22px] leading-tight font-medium tracking-tight @3xl:text-[28px]"
+          >
             {t("drop.ifc", lang)}
           </span>
-          <span className="flex items-center gap-3 bg-green px-4 py-1.5 text-sm font-medium text-cream group-hover:bg-ink">
+          <span data-chrome="primary" className="flex items-center gap-3 bg-green px-4 py-1.5 text-sm font-medium text-cream group-hover:bg-ink">
             {t("action.openIfc", lang)}
           </span>
         </button>
@@ -168,7 +174,11 @@ function IfcGlyph({ active }: { active: boolean }) {
         fontSize="10"
         fontWeight="600"
         letterSpacing="1.2"
-        fill="var(--color-cream)"
+        // The FIELD, not `cream`. `cream` means "the light one on a filled
+        // surface", and on a dark board `ink` is light too — the extension
+        // vanished into its own tag. The page's field contrasts with `ink` in
+        // every direction by construction.
+        fill="var(--color-ground)"
       >
         IFC
       </text>

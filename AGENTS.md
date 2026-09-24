@@ -47,12 +47,14 @@ src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
 src/bcf/         BCF 2.1 export: topic plan, camera, spaces, XML, zip, XSD
                  validation (pure) + `browser.ts` (snapshots, download)
+src/design/      the three visual directions (`#design=a|b|c`) and their fonts
 src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
   check-cli.ts   run the fundamentals headlessly
   ids-cli.ts     author, lint, emit and run rulesets headlessly
   bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
   viewport-gate.mjs  real models in headless Chrome at every target viewport
+                     (`--design a|b|c` measures a visual direction)
   isolate-gate.mjs   what a CLICK does, driven with real mouse events
   zoom-gate.mjs      what the WHEEL does, driven with real CDP wheel events
   build-wasm.sh  rebuild the vendored ifcfast wasm module
@@ -805,12 +807,38 @@ its own tabbed view"*. So it is a third model-panel tab, not a card in the
 object panel: it needs the width, and it matches the MODEL | GRAPH tabs on his
 ifcfast-site.
 
-`src/ui/GraphTab.tsx`, inline SVG, **no dependency** — a spring embedder written
-inline (FNV-1a seed per node id, pairwise repulsion + Hooke springs + a weak
-centre pull, 360 fixed iterations, cooling step). Deterministic: the same
-element lays out identically every time. The selected element is pinned at the
-origin, and the result is scaled to fit the measured container. Caps: 12 members
-per relationship group then a `+N` node, 180 nodes total.
+`src/ui/GraphTab.tsx`, inline SVG, **no dependency**. The build is unchanged;
+the layout is LIVE (2026-09-23). edkjo: *"the graph for instance needs to be
+cool and smooth."*
+
+`src/ui/graph-sim.ts` runs the same physics over real frames instead of inside
+a `useMemo`: velocity Verlet with a per-tick decay, `alpha` cooling to rest and
+reheating on every gesture, a collision radius, and pinned nodes. So the
+arrangement expands into place, a new selection MOVES the nodes it shares with
+the old one instead of cutting to a new picture, a node can be dragged and
+stays where it is put, the wheel magnifies about the pointer and a drag on the
+field pans. Hovering dims everything the hovered node is not attached to, in
+CSS, off one attribute write. Positions are written straight to the DOM by the
+frame loop: React owns what exists, the loop owns where it is.
+
+Determinism survives — start positions are still an FNV-1a hash of the node id
+and there is no randomness anywhere, so the same element settles into the same
+arrangement every time it is opened. The centre pull is split per axis from the
+tile's aspect, which is what stopped the drawing under-filling a wide tile.
+
+**Why not d3-force**: ~26 kB for Barnes-Hut approximation that pays at
+thousands of nodes. This graph is capped at 180 by the build, deliberately, and
+180 nodes is 16 110 pairs per tick — a tenth of a frame. The exact sum is both
+cheaper than the import and more accurate than the approximation.
+
+Labels are placed by a collision pass that reserves boxes in rank order: the
+centre and the spatial parents keep their names, a property set gives way, and
+edge labels go last and only on an edge long enough to hold one, which is what
+makes the wheel a legibility control. `src/ui/graph-paint.ts` holds the
+per-direction material — the drawing is identical in all four skins, what
+changes is glyph weight, whether an edge bows, whether a label rides a chip.
+
+Caps: 12 members per relationship group then a `+N` node, 180 nodes total.
 
 Edges, each labelled with the relationship it IS, and drawn only where the
 engine really carries it: `IfcRelContainedInSpatialStructure` (element →
@@ -830,13 +858,15 @@ category whose table is absent gets ONE node reading `ikke levert`, so "nobody
 supplied this" never wears the clothes of "this element has none".
 
 **Clicking an element node selects it**, through the panel's own `onPick` — the
-same semantics as every other UI click. Non-element nodes (a material, a pset, a
-storey) carry no handler at all: they are not elements, and a faked selection
-would be worse than none.
+same semantics as every other UI click. A press that MOVES is a drag, not a
+click, so pushing a node around never changes the selection. Non-element nodes
+(a material, a pset, a storey) carry no handler at all: they are not elements,
+and a faked selection would be worse than none.
 
-Not verified in a browser at the time of writing: the layout numbers in the
-implementation notes are a measurement of the embedder, not of the rendered
-page.
+Photographed in a real browser at 1440 and 1920 in all three directions
+(`tmp/design-shot.mjs`), which is what caught the drawing under-filling its
+tile, the edge labels crowding each other near the hub, and, in c, the graph
+reading straight through the translucent derivation band on top of it.
 
 ## The dashboard grid — binding, not advisory
 
@@ -992,6 +1022,57 @@ the app lays out against its own box). The board has no portrait layout (canon
 Mark any new essential label or value `data-essential`; by-design ellipsis
 (type names, material lists, rule names, a found storey name, the program
 name) stays unmarked and carries its full text in `title`.
+
+`--design a|b|c` runs the same assertions against a visual direction and puts
+its screenshots in `tmp/viewports/<design>/`. A direction is a skin, so every
+assertion applies to it unchanged, and a wider face or a larger type scale
+that clips a value is exactly what this catches: it found the KPI value
+`339 / 398` ellipsized in its own card at every viewport in two of the three
+on their first run. Run it per direction after touching `src/design/`.
+
+## The three visual directions
+
+edkjo, 2026-09-23, on the shipped board: *"our problem now is that the UIUX is
+really ugly and old looking. We need this to be modern, snappy and
+impressive."* The structure was accepted; the cream/hairline/gold-caps
+vocabulary mirrored from sprucelab was not. Three ground-up directions live as
+unlisted skins over the SAME board, for him to pick from:
+
+```
+#design=a   INSTRUMENT   graphite sheet, ruled, everything mono, zero radius,
+                         tracked caps, a scanline on the field
+#design=b   PAPIR        bright warm paper, ink rules at two weights, one
+                         amber, big confident sans at negative tracking
+#design=c   SMASH        a saturated rust field, frosted panels floating on
+                         it, rounded, shadowed, the one that moves on hover
+```
+
+Absent, there is no `data-design` attribute at all, so the default look and
+everything measured against it is untouched. The mechanism is one more key in
+the existing hash (`src/ui/useHashView.ts`), which is what a static host and
+an iframe both allow and a path route does not.
+
+**What a direction may and may not do.** It may change colour, material,
+shape, type, spacing and motion. It may NOT change a string, a label, a row, a
+number, or what any surface shows — the panel still shows everything, and
+there is no curation in `src/design/`. Three rules bind all three directions:
+status is a classic traffic light and never a brand hue (2026-09-23), the
+micro-label's gold is retired, and no state is ever cued by an edge stripe,
+an inset white top highlight or a gold rim on glass.
+
+**Where the hooks are.** Almost everything is reached through the palette
+tokens and the existing Tailwind classes. Four markup hooks exist because a
+class could not separate two meanings: `data-chrome="primary"` (the one filled
+control per surface, because `bg-green` is also the `pass` cell),
+`data-chrome="lede"` (the entrance's headline), `.tracking-[0.12em]` (the
+house micro-label, used as a selector, NOT `[data-essential]` — that marks
+values too) and `--color-ground` (the page field, split out of `cream`, which
+also means "the light ink on a filled surface" and is the opposite colour on
+a dark board).
+
+**The 3D field is not skinned.** `scene.ts` holds a neutral low-chroma warm
+grey, which is what the canon asks for in both themes; a field that changed
+per direction would make the scene chrome rather than scene.
 
 ## IDS, and where it stops
 

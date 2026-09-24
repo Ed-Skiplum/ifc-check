@@ -35,6 +35,8 @@
  * Run:   npm run build && node scripts/viewport-gate.mjs
  *        node scripts/viewport-gate.mjs --url https://ifc-check.skiplum.com
  *        [--only 1280x720,1920x1080] [--scenario one|three] [--models DIR]
+ *        [--design a|b|c]   measure a visual direction instead of the default;
+ *                           its screenshots land in tmp/viewports/<design>/
  * Exit:  0 every assertion holds · 1 an assertion failed · 2 usage/internal.
  */
 
@@ -46,7 +48,7 @@ import { fileURLToPath } from "node:url";
 import { runFundamentals } from "../src/engine/fundamentals.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const OUT = resolve(ROOT, "tmp/viewports");
+const OUT_BASE = resolve(ROOT, "tmp/viewports");
 const PORT = 4179;
 const CDP = 9333;
 const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
@@ -62,6 +64,20 @@ const liveUrl = opt("url");
 const modelsDir = opt("models") ?? DEFAULT_MODELS;
 const only = opt("only")?.split(",");
 const onlyScenario = opt("scenario");
+/** Which visual direction to measure. Absent is the shipped default, and the
+ *  default is what the gate has always measured. A direction is a skin over
+ *  the same board, so every assertion here applies to it unchanged — a type
+ *  scale or a radius that clips a value is exactly what this catches. */
+const design = opt("design");
+if (design !== undefined && !["a", "b", "c"].includes(design)) {
+  console.error(`--design takes a, b or c (given: ${design})`);
+  process.exit(2);
+}
+const hash = design ? `#lang=nb&design=${design}` : "#lang=nb";
+
+/** Screenshots per direction, so a run on b does not overwrite the evidence
+ *  from a run on a. */
+const OUT = design ? resolve(OUT_BASE, design) : OUT_BASE;
 
 /** CSS px viewports. `iframe` marks the skiplum.com embed boxes: the app lays
  *  out against its own box, so an iframe of that size and a viewport of that
@@ -460,7 +476,7 @@ const MEASURE = (minRows) => `(() => {
 async function openEmpty() {
   await send("Page.navigate", { url: "about:blank" });
   await sleep(300);
-  await send("Page.navigate", { url: `${base}#lang=nb` });
+  await send("Page.navigate", { url: `${base}${hash}` });
   await until(`!!document.querySelector('input[type=file][accept=".ifc,.ifczip"]')`, 30000, "app");
   await sleep(1500);
   await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => /^(Tøm alle|Clear all)$/.test(x.textContent.trim())); b && b.click(); return true; })()`);

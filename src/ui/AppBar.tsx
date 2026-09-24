@@ -15,6 +15,7 @@ export function LangToggle({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) 
           type="button"
           onClick={() => onLang(code)}
           aria-pressed={code === lang}
+          data-chrome={code === lang ? "primary" : undefined}
           className={
             "px-3 py-1 font-mono text-xs uppercase " +
             (code === lang ? "bg-green text-cream" : "bg-input text-muted hover:text-ink")
@@ -41,6 +42,7 @@ export function SetupToggle({
       type="button"
       aria-pressed={open}
       onClick={onToggle}
+      data-chrome={open ? "primary" : undefined}
       className={
         "border px-2 py-1 text-[12px] " +
         (open
@@ -96,6 +98,7 @@ export function AppBar({
       <button
         type="button"
         onClick={() => ifcInput.current?.click()}
+        data-chrome="primary"
         className="flex items-center gap-3 bg-green px-4 py-1.5 text-sm font-medium text-cream hover:bg-ink"
       >
         <span>{t("action.openIfc", lang)}</span>
