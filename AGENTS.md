@@ -1319,10 +1319,23 @@ built to avoid.
 - Exactly one of `list` and `values`. `values` is the project's own list of
   allowed codes (lint rejects an empty list; the finding reads `is not in the
   allowed values (...)`). Same evaluator path as a bundled list.
-- `list` names a bundled list in `src/codelists/`. Only `ns3457-8` ships
-  (NS 3457-8:2021, 909 codes, all three levels). Each generated module carries
-  its provenance in `meta`: source file, SHA-256, date, count. Lookups only:
-  nothing enumerates a list into an IDS.
+- `list` names a bundled list in `src/codelists/`. Two ship:
+  `ns3457-8` (NS 3457-8:2021, 909 codes, all three levels) and `ns3451`
+  (NS 3451:2022 tables 2–7, the bygningsdelstabell: 813 codes of 1 to 4
+  digits, 125 of them reserved). Table 8 (Systemkoder, the 4-digit
+  `2120`-style system codes) is a different list and is not bundled. Each
+  generated module carries its provenance in `meta`: source file, SHA-256,
+  date, count, and for `ns3451` the corrections against the earlier table
+  with the page each was verified on. Lookups only: nothing enumerates a list
+  into an IDS.
+- **Reserved codes** (`(Reservert)`, "Koden skal ikke benyttes") are in the
+  list and named in `CodeList.reserved`, so a lookup tells a reserved code
+  from an unknown one: finding code `reserved` (`code "227" ... is reserved in
+  NS 3451`), counted apart in the detail line (`, 1 reserved`, printed only
+  when there is one) and in a note. Whether a project accepts a reserved code
+  is an owner ruling nobody has made; until a ruleset can express it, a
+  reserved-code finding fails the rule like any other finding and sits in
+  `coverage.deviating`.
 - `extract` is a JavaScript regex (not XSD, not implicitly anchored) with
   exactly one capture group, the code. Lint rejects zero or several groups.
 - `source` is one of `{attribute}`, `{property: {propertySet, name}}`,
@@ -1341,7 +1354,8 @@ built to avoid.
   the member elements in `finding.members` (the cross-filter uses them).
   `select` is optional for this check; omitted selects everything.
 - Findings per subject: `<attr> is empty` · `does not match <extract>` ·
-  `code "X" ... is not in <list>`. The detail line counts all three.
+  `code "X" ... is not in <list>` · `code "X" ... is reserved in <list>`.
+  The detail line counts all four.
 
 What a type subject cannot be, and why: the parser exposes a type object only
 through the product rows that use it (`typed` + `type_name`). There is no type
@@ -1569,6 +1583,29 @@ PYTHONUTF8=1 python scripts/gen-codelists.py                   # src/codelists/*
 NS 3457-8's source (`ns3457_pdf_extract.json`, the QA'd transcription its
 HANDOVER marks authoritative) against the reviewed `ns3457_table.csv` code by
 code.
+
+NS 3451 is extracted from the standard's PDF itself
+(`resources/standards/ns3451/ns-3451_2022_no_001.pdf`, copied there from
+`_graveyard/toolkit--ifc-workbench/ns3451-ifc-mapper/docs/`), so the
+generator needs PyMuPDF (`pip install pymupdf`). `find_tables` gives the
+cells; the name is the characters inside the Navn cell. The PDF text layer is
+broken in 17 names: runs of zero-width glyphs plus a spacer, which every
+extractor reads as `overfla te`, `vanntåk ke`, `fjernva rme`. That is where
+the earlier table's `overflåte`/`fjernvårme` came from. Those 17 names are
+typed in `NS3451_READ_FROM_IMAGE`, each read off the rendered page at 170 dpi
+and checked to be a subsequence of the damaged text layer. The build stops if
+a zero-width name appears that is not listed, if the set of disagreements
+with the earlier `mappings/ebkph/ns3451_table.csv` changes (13 corrected
+names, 3 codes that table lacked: 374, 632, 762), or if any name carries
+mojibake, `(cid:`, or a code has no parent. The spruceledger lexicon has no
+entry for any of these terms.
+
+Headless on HI90 (`ids-cli run`, `system-classification` → `ns3451` on
+`HI90_Prosjektinfo.HI90_NS3451`): ARK (Dalux export 2026-09-14) 1306 of 2071
+pass, 455 empty, 310 no match (`24-`, `23-`, `35-`, `26-`, `Ny `); RIB
+(2026-09-04) 2033 of 2299 pass, 255 empty, 11 not in the list (`230`, which
+NS 3451:2022 does not have). Neither model uses a reserved code, so the
+reserved path is asserted only on the synthetic model in `selftest`.
 
 ## Report contract
 

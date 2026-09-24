@@ -4,13 +4,15 @@
  *  A list is added by extending scripts/gen-codelists.py and registering the
  *  generated module here. Nothing is assembled by hand. */
 
+import { NS3451 } from "./ns3451.ts";
 import { NS3457_8 } from "./ns3457-8.ts";
 import type { CodeList } from "./types.ts";
 
-export type { CodeList, CodeListMeta } from "./types.ts";
+export type { CodeList, CodeListCorrection, CodeListMeta } from "./types.ts";
 
 export const CODE_LISTS = {
   "ns3457-8": NS3457_8,
+  ns3451: NS3451,
 } as const satisfies Record<string, CodeList>;
 
 export type CodeListId = keyof typeof CODE_LISTS;
