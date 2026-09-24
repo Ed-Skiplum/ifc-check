@@ -1842,7 +1842,7 @@ marker). HI90 says `bad` where this says `warn`.
   listed here with n 0; HI90 omits a classed ruling that touches nothing.
   HI90 says `bad` where this says `warn`.
 
-Not in the contract yet (#1 gaps 5, 6): the pset inventory, and a
+Not in the contract yet: a
 standard-layer cascade for the classification mappings (with no mapping
 configured, NS 3451 and NS 3457 produce no row). A code-lookup rule still
 reads one source.
