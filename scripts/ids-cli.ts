@@ -51,6 +51,7 @@ import {
 } from "../src/engine/placement.ts";
 import { checkStoreyConfig } from "../src/engine/storey-config.ts";
 import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
+import { schemaFamily } from "../src/engine/standard-layer.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
@@ -830,7 +831,120 @@ async function cmdSelftest(): Promise<number> {
   record(
     "report: unconfigured no-IFC-home mappings are not_configured rows",
     "progress-code:not_configured,copy-object:not_configured",
-    bare.map((r) => `${r.id}:${r.state}`).join(","),
+    bare.filter((r) => r.mapping).map((r) => `${r.id}:${r.state}`).join(","),
+  );
+  record(
+    "report: phase with no property table is not_evaluable, never mangler",
+    "not_evaluable",
+    bare.find((r) => r.id === "phase")?.state ?? "absent",
+  );
+
+  // Gap 2, the IFC-skjema allowlist. The fold matches HI90's skjema_grunn:
+  // an IFC4 addendum is IFC4, IFC4X3 is its own family.
+  record(
+    "ifc-schema: FILE_SCHEMA folds to its family",
+    "IFC2X3,IFC4,IFC4,IFC4,IFC4X3,",
+    ["IFC2X3", "IFC4", "IFC4 ADD2 TC1", "IFC4ADD2", "IFC4X3_ADD2", "garbage"].map(schemaFamily).join(","),
+  );
+  const schemaRowFor = (schema: string, ruleset: Ruleset | null) => {
+    const row = reportRows({
+      model: { file: "s.ifc", schema, sha256: "0".repeat(64) },
+      graph: { ...(graph as unknown as IfcGraph), psets: [] },
+      summary: summary as unknown as IfcSummary,
+      checks: [],
+      ruleset,
+    }).find((r) => r.id === "ifc-schema")!;
+    const d = row.dekning;
+    return `${row.state} ${d.oppfylt}/${d.avvik}/${d.mangler} [${row.godtatte?.join(" ")}] ` +
+      (row.fordeling ?? []).map((v) => `${v.verdi}:${v.flagg || "ok"}`).join(",");
+  };
+  const narrowed = { ...SAMPLE_RULESET, projectLayer: { "ifc-schema": { accepted: ["IFC4"] } } } as Ruleset;
+  record("ifc-schema: IFC2X3 passes the standard layer", "pass 1/0/0 [IFC2X3 IFC4] IFC2X3:ok", schemaRowFor("IFC2X3", null));
+  record("ifc-schema: an IFC4 addendum passes as IFC4", "pass 1/0/0 [IFC2X3 IFC4] IFC4 ADD2 TC1:ok", schemaRowFor("IFC4 ADD2 TC1", null));
+  record("ifc-schema: IFC4X3 is not IFC4", "warn 0/1/0 [IFC2X3 IFC4] IFC4X3_ADD2:avvik", schemaRowFor("IFC4X3_ADD2", null));
+  record("ifc-schema: the project layer narrows to IFC4", "warn 0/1/0 [IFC4] IFC2X3:avvik", schemaRowFor("IFC2X3", narrowed));
+  record("ifc-schema: no FILE_SCHEMA is a fail and mangler", "fail 0/0/1 [IFC2X3 IFC4] null:mangler", schemaRowFor("", null));
+
+  // Gap 1 (the cascade) and gap 4 (fase). Six walls: accepted in the
+  // standard source; OTHER there but accepted in the project source; only a
+  // project value outside the list; nothing; a lower-case accepted value; and
+  // UNSET, which is carried but says nothing.
+  const prop = (guid: string, pset_name: string, prop_name: string, value: string) => ({
+    guid, pset_name, prop_name, value, value_type: "IfcLabel", source: "instance",
+  });
+  const phaseGraph = {
+    ...(graph as unknown as IfcGraph),
+    products: ["p1", "p2", "p3", "p4", "p5", "p6"].map((g) => wall(g, null)),
+    psets: [
+      prop("p1", "Pset_WallCommon", "Status", "NEW"),
+      prop("p2", "Pset_WallCommon", "Status", "OTHER"),
+      prop("p2", "HI90_TFM", "Fase", "EXISTING"),
+      prop("p3", "HI90_TFM", "Fase", "Fase 2"),
+      prop("p5", "Pset_SlabCommon", "Status", "new"),
+      prop("p6", "Pset_WallCommon", "Status", "UNSET"),
+      // Not a Common set: never read as the standard source.
+      prop("p4", "Pset_WallCommonX", "Status", "NEW"),
+    ],
+  } as unknown as IfcGraph;
+  const phaseRowFor = (projectLayer: Ruleset["projectLayer"] | undefined) => {
+    const row = reportRows({
+      model: { file: "p.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+      graph: phaseGraph,
+      summary: summary as unknown as IfcSummary,
+      checks: [],
+      ruleset: projectLayer ? ({ ...SAMPLE_RULESET, projectLayer } as Ruleset) : null,
+    }).find((r) => r.id === "phase")!;
+    return row;
+  };
+  const describe = (row: ReportRow) => {
+    const d = row.dekning;
+    return `${row.state} ${d.grunnlag}=${d.oppfylt}+${d.avvik}+${d.mangler}`;
+  };
+  const kilderOf = (row: ReportRow) =>
+    row.dekning.kilder.map((k) => `${k.navn}:${k.lag}:${k.n}:${k.foretrukket}`).join(",");
+  const withTfm = phaseRowFor({
+    phase: { sources: [
+      { property: { propertySet: "HI90_TFM", name: "Fase" } },
+      { property: { propertySet: "Nowhere", name: "Fase" } },
+    ] },
+  });
+  record("phase: standard layer alone", "warn 6=2+2+2", describe(phaseRowFor(undefined)));
+  record("phase: standard layer alone has one source", "Pset_*Common.Status:standard:4:true", kilderOf(phaseRowFor(undefined)));
+  record("phase: the project source rescues an OTHER and carries an avvik", "warn 6=3+2+1", describe(withTfm));
+  record(
+    "cascade: every source in order, layer tagged, 0 hits included, first preferred",
+    "Pset_*Common.Status:standard:3:true,HI90_TFM.Fase:prosjekt:2:false,Nowhere.Fase:prosjekt:0:false",
+    kilderOf(withTfm),
+  );
+  record(
+    "phase: fordeling carries every decisive value as written, with its flag",
+    "null:mangler,EXISTING:ok,Fase 2:avvik,new:ok,NEW:ok,UNSET:avvik",
+    (withTfm.fordeling ?? []).map((v) => `${v.verdi}:${v.flagg || "ok"}`).join(","),
+  );
+  record(
+    "phase: one finding per object not oppfylt",
+    "p3:not-in-list:Fase 2,p4:empty:null,p6:not-in-list:UNSET",
+    withTfm.funn.map((f) => `${f.guid}:${f.grunn}:${f.verdi}`).join(","),
+  );
+
+  // The project layer's lint: an id the standard layer does not define is an
+  // error (HI90 konfig.py refuses it too), a schema must be a family, and
+  // widening past the standard is a warning.
+  const layerLint = (projectLayer: unknown) =>
+    lintRuleset({ ...SAMPLE_RULESET, projectLayer } as unknown as Ruleset)
+      .filter((i) => i.path.startsWith("projectLayer"))
+      .map((i) => `${i.severity}:${i.code}`)
+      .join(",") || "none";
+  record("lint: projectLayer with an unknown requirement id", "error:project-layer-unknown", layerLint({ mmi: {} }));
+  record("lint: a schema that is not a family", "error:schema-accepted-form", layerLint({ "ifc-schema": { accepted: ["IFC4 ADD2"] } }));
+  record("lint: a schema outside the standard widens it", "warning:schema-accepted-widens", layerLint({ "ifc-schema": { accepted: ["IFC4X3"] } }));
+  record("lint: a cascade source with no property name", "error:code-source-empty", layerLint({ phase: { sources: [{ property: { propertySet: "HI90_TFM", name: "" } }] } }));
+  record("lint: the HI90 project layer lints clean", "none", layerLint({ "ifc-schema": { accepted: ["IFC4"] }, phase: { sources: [{ property: { propertySet: "HI90_TFM", name: "Fase" } }] } }));
+  record(
+    "schema: projectLayer validates, and refuses an unknown key",
+    "0 / >0",
+    `${shapeErrors({ ...SAMPLE_RULESET, projectLayer: { phase: { sources: [{ property: { propertySet: "A", name: "B" } }] } } }).length} / ` +
+      (shapeErrors({ ...SAMPLE_RULESET, projectLayer: { mmi: {} } }).length > 0 ? ">0" : "0"),
   );
 
   const result = exportRuleset(SAMPLE_RULESET);

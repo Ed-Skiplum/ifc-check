@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "name": "TEST FIXTURE: HI90 project layer for ifc-schema and phase",
+  "description": "Test fixture, not a project config. Mirrors the ifc-schema and fase entries of HI90 krav.yaml (blokker) so the report can be compared with the 22.09 reference. HI90's exporter exception (IFC2X3 for Tekla) is not expressible here.",
+  "ifcVersions": ["IFC4"],
+  "projectLayer": {
+    "ifc-schema": { "accepted": ["IFC4"] },
+    "phase": {
+      "sources": [{ "property": { "propertySet": "HI90_TFM", "name": "Fase" } }]
+    }
+  },
+  "rules": []
+}

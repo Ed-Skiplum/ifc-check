@@ -779,6 +779,44 @@ function codeValue(
   return { value: values[0] ?? null, extra: Math.max(0, values.length - 1) };
 }
 
+/** One source of a report cascade (src/engine/standard-layer.ts): a ruleset
+ *  `CodeSource`, or a property whose set and name may be restrictions, which
+ *  is how the standard layer names `Pset_*Common.Status`. */
+export type CascadeSource =
+  | CodeSource
+  | { propertyMatch: { propertySet: IdsValue; name: IdsValue } };
+
+/** Reads cascade sources off objects by the same path code-lookup reads its
+ *  source, so a value means the same thing in a rule and in a report row.
+ *  `read` returns the first non-empty value in file order, or null, and
+ *  throws `SourceUnreachable` when the table the source needs was not
+ *  supplied with the graph. */
+export class SourceUnreachable extends Error {}
+
+export function cascadeReader(graph: ModelGraph): {
+  read(source: CascadeSource, product: ModelProduct): string | null;
+} {
+  const index = buildIndex(graph);
+  return {
+    read(source, product) {
+      try {
+        if ("propertyMatch" in source) {
+          const rows = propertyRows(index, product, {
+            propertySet: source.propertyMatch.propertySet,
+            baseName: source.propertyMatch.name,
+          });
+          const row = rows.find((r) => r.value !== null && r.value !== "");
+          return row?.value ?? null;
+        }
+        return codeValue(source, product, index).value;
+      } catch (error) {
+        if (error instanceof Unsupported) throw new SourceUnreachable(error.message);
+        throw error;
+      }
+    },
+  };
+}
+
 /** How a code-lookup's source reads on a finding: the attribute name, the
  *  qualified property, or the classification system. */
 function sourceLabel(source: CodeSource): string {

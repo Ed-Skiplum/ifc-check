@@ -27,6 +27,7 @@
  */
 
 import { physicalProducts, verdictOf } from "./fundamentals.ts";
+import { standardLayerRows } from "./standard-layer.ts";
 import type { CheckResult, Finding, IfcGraph, IfcSummary } from "./types";
 import type { ModelResult, RuleResult, ValueCount, Finding as RuleFinding } from "../ids/evaluate.ts";
 import type { CodeSource, MappingRole, Rule, Ruleset, Selector } from "../ids/types.ts";
@@ -91,6 +92,10 @@ export interface ReportRow {
   /** Why the row is not_applicable / not_evaluable / not_configured, in the
    *  engine's own (English) words. Absent otherwise. */
   grunn?: string;
+  /** The accepted values, on a standard-layer row that judges against a
+   *  list (`ifc-schema`, `phase`): the standard's, or the project layer's
+   *  replacement. Absent otherwise. */
+  godtatte?: string[];
   dekning: ReportCoverage;
   /** null = the engine does not produce a distribution for this requirement. */
   fordeling: ReportValue[] | null;
@@ -656,12 +661,20 @@ function ruleRow(rule: Rule, result: RuleResult, input: ReportInput, excludedAny
 /* ------------------------------------------------------------------ entry */
 
 /** Every row for one model: the engine's checks in their own order, then the
- *  ruleset's enabled rules in the ruleset's order, then a `not_configured` row
+ *  standard-layer rows (`ifc-schema`, `phase`), then the ruleset's enabled rules in the ruleset's order, then a `not_configured` row
  *  for each no-IFC-home mapping the ruleset does not configure. */
 export function reportRows(input: ReportInput): ReportRow[] {
   const excludedList = input.evaluation?.excludedGuids;
   const excluded = excludedList && excludedList.length ? new Set(excludedList) : undefined;
   const rows = input.checks.map((check) => fundamentalRow(check, input, excluded));
+  rows.push(
+    ...standardLayerRows({
+      model: input.model,
+      graph: input.graph,
+      excluded,
+      ruleset: input.ruleset,
+    }),
+  );
 
   const rules = input.ruleset?.rules ?? [];
   for (const result of input.evaluation?.results ?? []) {

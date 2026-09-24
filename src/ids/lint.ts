@@ -25,6 +25,7 @@ import type {
   Rule,
   Ruleset,
   Selector,
+  StandardRequirementId,
 } from "./types.ts";
 
 const RELATIONS: PartOfRelation[] = [
@@ -51,6 +52,14 @@ export const CLASS_GROUPS: ClassGroup[] = [
 ];
 
 export const IFC_VERSIONS: IfcVersion[] = ["IFC2X3", "IFC4", "IFC4X3_ADD2"];
+
+/** The requirements with a standard layer a ruleset's `projectLayer` may
+ *  extend (src/engine/standard-layer.ts). */
+export const STANDARD_REQUIREMENT_IDS: StandardRequirementId[] = ["ifc-schema", "phase"];
+
+/** The standard layer's accepted schema families, as HI90's standard.yaml
+ *  has them. */
+export const DEFAULT_ACCEPTED_SCHEMAS = ["IFC2X3", "IFC4"] as const;
 
 /** The XSD pattern on ids/info/author. */
 const AUTHOR_PATTERN = /^[^@]+@[^.]+\..+$/;
@@ -537,6 +546,89 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
   }
 }
 
+/** One `CodeSource`: a code-lookup's, or one entry of a project-layer
+ *  cascade. */
+function checkCodeSource(ctx: Ctx, path: string, raw: unknown): void {
+  const source = (raw ?? {}) as Record<string, unknown>;
+  const keys = Object.keys(source);
+  if (keys.length !== 1 || !["attribute", "property", "classification"].includes(keys[0])) {
+    add(
+      ctx,
+      "error",
+      path,
+      "code-source-shape",
+      "source needs exactly one of attribute, property or classification",
+    );
+  } else if (keys[0] === "attribute" && !source.attribute) {
+    add(ctx, "error", `${path}.attribute`, "code-source-empty", "source names no attribute");
+  } else if (keys[0] === "property") {
+    const property = (source.property ?? {}) as { propertySet?: string; name?: string };
+    if (!property.propertySet) {
+      add(ctx, "error", `${path}.property.propertySet`, "code-source-empty", "source names no property set");
+    }
+    if (!property.name) {
+      add(ctx, "error", `${path}.property.name`, "code-source-empty", "source names no property");
+    }
+  }
+}
+
+/** The project layer (`projectLayer`). An id the standard layer does not
+ *  know is an error, as in HI90's konfig.py: a requirement is defined once,
+ *  in the standard layer, and a project can only add to it. */
+function checkProjectLayer(ctx: Ctx, layer: unknown): void {
+  if (layer === null || typeof layer !== "object" || Array.isArray(layer)) {
+    add(ctx, "error", "projectLayer", "project-layer-shape", "projectLayer must be an object keyed by requirement id");
+    return;
+  }
+  for (const [id, entry] of Object.entries(layer as Record<string, unknown>)) {
+    const path = `projectLayer.${id}`;
+    if (!(STANDARD_REQUIREMENT_IDS as string[]).includes(id)) {
+      add(
+        ctx,
+        "error",
+        path,
+        "project-layer-unknown",
+        `"${id}" is not a standard requirement; the standard layer has ${STANDARD_REQUIREMENT_IDS.join(", ")}`,
+      );
+      continue;
+    }
+    const e = (entry ?? {}) as Record<string, unknown>;
+    if (id === "ifc-schema" && e.accepted !== undefined) {
+      const accepted = e.accepted;
+      if (!Array.isArray(accepted) || accepted.length === 0) {
+        add(ctx, "error", `${path}.accepted`, "schema-accepted-empty", "accepted lists no schema");
+      } else {
+        accepted.forEach((value, i) => {
+          if (typeof value !== "string" || !/^IFC\d+(X\d+)?$/.test(value)) {
+            add(
+              ctx,
+              "error",
+              `${path}.accepted[${i}]`,
+              "schema-accepted-form",
+              `"${String(value)}" is not a schema family (IFC2X3, IFC4, IFC4X3 ...)`,
+            );
+          } else if (!(DEFAULT_ACCEPTED_SCHEMAS as readonly string[]).includes(value)) {
+            add(
+              ctx,
+              "warning",
+              `${path}.accepted[${i}]`,
+              "schema-accepted-widens",
+              `${value} is outside the standard layer's ${DEFAULT_ACCEPTED_SCHEMAS.join(", ")}: the project layer widens it`,
+            );
+          }
+        });
+      }
+    }
+    if (id === "phase" && e.sources !== undefined) {
+      if (!Array.isArray(e.sources) || e.sources.length === 0) {
+        add(ctx, "error", `${path}.sources`, "cascade-sources-empty", "sources lists no source");
+      } else {
+        e.sources.forEach((source, i) => checkCodeSource(ctx, `${path}.sources[${i}]`, source));
+      }
+    }
+  }
+}
+
 function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
   const hasList = check.list !== undefined;
   const hasValues = check.values !== undefined;
@@ -572,27 +664,7 @@ function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
       });
     }
   }
-  const source = (check.source ?? {}) as Record<string, unknown>;
-  const keys = Object.keys(source);
-  if (keys.length !== 1 || !["attribute", "property", "classification"].includes(keys[0])) {
-    add(
-      ctx,
-      "error",
-      `${path}.check.source`,
-      "code-source-shape",
-      "source needs exactly one of attribute, property or classification",
-    );
-  } else if (keys[0] === "attribute" && !source.attribute) {
-    add(ctx, "error", `${path}.check.source.attribute`, "code-source-empty", "source names no attribute");
-  } else if (keys[0] === "property") {
-    const property = (source.property ?? {}) as { propertySet?: string; name?: string };
-    if (!property.propertySet) {
-      add(ctx, "error", `${path}.check.source.property.propertySet`, "code-source-empty", "source names no property set");
-    }
-    if (!property.name) {
-      add(ctx, "error", `${path}.check.source.property.name`, "code-source-empty", "source names no property");
-    }
-  }
+  checkCodeSource(ctx, `${path}.check.source`, check.source);
   let groups = -1;
   try {
     new RegExp(check.extract);
@@ -739,6 +811,8 @@ export function lintRuleset(ruleset: Ruleset): LintIssue[] {
       });
     }
   }
+
+  if (ruleset.projectLayer !== undefined) checkProjectLayer(ctx, ruleset.projectLayer);
 
   const seen = new Set<string>();
   const roles = new Set<string>();

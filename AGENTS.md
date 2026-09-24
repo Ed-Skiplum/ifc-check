@@ -20,6 +20,8 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   kpis.ts        the seven numbers on the board's KPI row
   report.ts      the report contract: one row per requirement × model
                  (see "Report contract")
+  standard-layer.ts  the `ifc-schema` and `phase` report rows, with the
+                 ruleset's `projectLayer` on top (see "The standard layer")
   storey-config.ts  `storey-config`: file storeys against the ruleset's floor
                  config (`storeys`)
 src/ui/          the screen, and the worker that drives the engine
@@ -1253,6 +1255,12 @@ JSON Schema: `src/ids/ruleset.schema.json` (draft 2020-12). Validate your
 authored ruleset against it before running. The selftest asserts the shipped
 copy has not drifted from `src/ids/schema.ts`.
 
+Besides `rules` and `storeys`, a ruleset may carry `projectLayer`: the
+project's additions to the standard-layer requirements (`ifc-schema`,
+`phase`), read by the report only. See "The standard layer" under "Report
+contract". The builder UI neither shows nor edits it; the setup page keeps
+it when it rewrites the ruleset.
+
 ### Two kinds of rule
 
 **`kind: "ids"`** becomes one IDS `<specification>`. All six facets are
@@ -1578,8 +1586,11 @@ copy-object exclusions reach the fundamentals as in the browser worker.
   (`type-name-placeholder`). `kilder` is every source the requirement reads,
   0 hits included; `lag` is `standard` for an IFC attribute, relationship,
   `IfcClassificationReference` or a `Pset_*` / `Qto_*` property, else
-  `prosjekt`. The engine's cascades are one source long today, so every
-  `kilder` has one entry, `foretrukket: true`.
+  `prosjekt`. The first source is `foretrukket`, the rest are not. Only
+  `phase` has a cascade longer than one source today (see "The standard
+  layer" below); every other row's `kilder` has one entry.
+- `godtatte`: on `ifc-schema` and `phase` only, the accepted values the row
+  judged against (the standard's, or the project layer's replacement).
 - `fordeling`: every distinct value, uncollapsed, most frequent first.
   `verdi: null` = no value; `flagg` is `""`, `avvik` or `mangler`. Per check:
   storeys (incl. 0-count) for `storey-containment`; building for
@@ -1607,10 +1618,75 @@ rule selects several classes, `physicalElement`/`builtElement`, or no entity;
 a rule's `gjelder_ikke` is null when the copy-object filter excluded
 anything, since which of those the rule would have selected is not recorded.
 
-Not in the contract yet (#1 gaps 2 to 6): the schema allowlist, the
-materiale/produkt switch, fase, the pset inventory, and a standard-layer
-cascade for the classification mappings (with no mapping configured, NS 3451
-and NS 3457 produce no row).
+### The standard layer: `ifc-schema` and `phase`
+
+`src/engine/standard-layer.ts`. Requirements whose home the IFC standard
+names, shipped with the tool, with the ruleset's `projectLayer` on top. The
+merge is HI90's (`standard.yaml` + `krav.yaml` through `konfig.py`): a
+project's sources are APPENDED after the standard's, so a standard source is
+always preferred; a project's accepted list REPLACES the standard's. Report
+rows only, after the fundamentals and before the rules; nothing reaches the
+screen.
+
+```json
+"projectLayer": {
+  "ifc-schema": { "accepted": ["IFC4"] },
+  "phase": { "sources": [ { "property": { "propertySet": "HI90_TFM", "name": "Fase" } } ] }
+}
+```
+
+`sources` entries are the `CodeSource` shape code-lookup uses (attribute,
+property by set plus name, classification by system). Lint refuses an id the
+standard layer does not define (`project-layer-unknown`, as konfig.py
+does), a schema that is not a family (`schema-accepted-form`), an empty
+list, and a malformed source; a schema outside [IFC2X3, IFC4] is a warning
+(`schema-accepted-widens`). HI90's per-exporter exception (`unntak`: IFC2X3
+for Tekla) has no field here.
+
+- **`ifc-schema`**: FILE_SCHEMA as written (`summary.schema`, which is the
+  header string: `IFC4X3_ADD2` comes through unchanged), folded to its family
+  with HI90's `skjema_grunn` rule, the leading `IFC<n>` plus an optional
+  `X<n>`. So `IFC4 ADD2 TC1` and `IFC4ADD2` are IFC4, and **IFC4X3 is its own
+  family, not IFC4**, as HI90's standard.yaml has it. Default accepted
+  [IFC2X3, IFC4]. `pass` when the family is accepted, `warn` (avvik 1) when
+  it is not, `fail` (mangler 1) when there is no schema. grunnlag 1,
+  `grunnlag_klasse` null (the file has no IFC class), `kilder` FILE_SCHEMA,
+  `fordeling` the value as written, no `funn`.
+- **`phase`**: `Pset_*Common.Status` (set matched by `Pset_\w*Common`, name
+  `Status`), then the project's sources in order, over the physical products
+  (openings and copy-object exclusions out, as the fundamentals). Accepted
+  NEW / EXISTING / DEMOLISH / TEMPORARY, case-insensitive; OTHER, NOTKNOWN,
+  UNSET and anything else carried are avvik. Per object, as HI90's
+  blokkdata: the first source carrying an accepted value decides oppfylt;
+  failing that, the first source carrying any value decides avvik; none is
+  mangler. `kilder[i].n` = objects that source decided (oppfylt or avvik),
+  so the n's sum to oppfylt + avvik, the same meaning as a single-source
+  row's "answered with a value". `fordeling` is the deciding value as
+  written, null for mangler. `funn` codes `not-in-list` and `empty`. State
+  `pass` with no finding, else `warn` (advisory, like `element-material`;
+  the HI90 builder applies its own thresholds to the counts);
+  `not_evaluable` when the graph carries no property table.
+
+Verified: selftest (fold, all five schema states, narrowing, the cascade's
+order, layers, 0-hit source and decisions on a synthetic graph, and the lint
+codes); `report` on HI90_ARK (22.09 export, sha matches the reference) with
+and without `examples/hi90-project-layer.test.ruleset.json`, and on KNM_ARK.
+No real model at hand carries Pset_*Common.Status or HI90_TFM.Fase, so the
+real `phase` rows are all mangler and the value paths are proven on the
+synthetic graph only.
+
+Against the HI90 22.09 reference on HI90_ARK: `ifc-schema` matches with the
+project layer (warn, 0/1/0, IFC2X3 avvik; with the standard alone it is a
+pass). `phase` matches in kind (0 oppfylt, all mangler, both sources at n 0)
+but grunnlag is 2980 against 2731: this tool judges every physical product,
+as the fundamentals rows do, while HI90 counts IfcProduct with 3D geometry
+(2730 meshed elements here, plus IfcSite, which carries ARK's coordination
+marker). HI90 says `bad` where this says `warn`.
+
+Not in the contract yet (#1 gaps 3, 5, 6): the materiale/produkt switch, the
+pset inventory, and a standard-layer cascade for the classification mappings
+(with no mapping configured, NS 3451 and NS 3457 produce no row). A
+code-lookup rule still reads one source.
 
 Exit codes as the rest of `ids-cli`: 1 when a row is `fail` or a model could
 not be read, 3 when a row is `not_evaluable`, else 0. `warn` and
