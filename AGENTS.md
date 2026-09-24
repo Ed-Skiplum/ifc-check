@@ -1038,22 +1038,35 @@ impressive."* The structure was accepted; the cream/hairline/gold-caps
 vocabulary mirrored from sprucelab was not. Three ground-up directions live as
 unlisted skins over the SAME board, for him to pick from:
 
+2026-09-24, after looking at them live: *"they dont really have different
+takes on component design"* … *"just color. Its easier to make the call if
+they all have the same color scheme."* … *"but for sure I like cards that come
+off the background vs flat."* So all three now share ONE palette (Papir's, ink
+on warm paper), every card lifts off the ground, and the directions differ in
+how components are built:
+
 ```
-#design=a   INSTRUMENT   graphite sheet, ruled, everything mono, zero radius,
-                         tracked caps, a scanline on the field
-#design=b   PAPIR        bright warm paper, ink rules at two weights, one
-                         amber, big confident sans at negative tracking
-#design=c   SMASH        a saturated rust field, frosted panels floating on
-                         it, rounded, shadowed, the one that moves on hover
+#design=a   INSTRUMENT   square, hairline-framed cards with a tight crisp
+                         shadow; segmented tabs, active = ink block; framed
+                         controls that invert on hover; dense; all mono
+#design=b   PAPIR        paper sheets with a soft diffuse shadow and no border,
+                         rules inside; underlined-word tabs; flat tinted
+                         controls; airy
+#design=c   SMASH        rounded chunky cards with layered depth that rise on
+                         hover; raised keys and pills that press down; a
+                         recessed tab tray; selection pops on its own shadow
 ```
+
+The graph follows the same split through `src/ui/graph-paint.ts` (edge colour,
+chip frame, drop depth, the selected-node mark).
 
 Absent, there is no `data-design` attribute at all, so the default look and
 everything measured against it is untouched. The mechanism is one more key in
 the existing hash (`src/ui/useHashView.ts`), which is what a static host and
 an iframe both allow and a path route does not.
 
-**What a direction may and may not do.** It may change colour, material,
-shape, type, spacing and motion. It may NOT change a string, a label, a row, a
+**What a direction may and may not do.** It may change material, shape, type,
+spacing and motion, but not a colour token: the palette is shared. It may NOT change a string, a label, a row, a
 number, or what any surface shows — the panel still shows everything, and
 there is no curation in `src/design/`. Three rules bind all three directions:
 status is a classic traffic light and never a brand hue (2026-09-23), the

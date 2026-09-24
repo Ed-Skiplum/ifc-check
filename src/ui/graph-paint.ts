@@ -3,8 +3,8 @@
  * The nodes, the edges and the labels are the same facts in all four skins —
  * every edge is still an `IfcRel*` the profile really carries, and nothing is
  * added or dropped for looks. What differs is the material: glyph weight, the
- * line, whether an edge bows, whether a label sits on a chip, and how much
- * room a label has to win before it is drawn.
+ * line, whether an edge bows, whether a label sits on a chip, whether a node
+ * stands on a shadow, and how much room a label has to win before it is drawn.
  *
  * Kept out of `GraphTab` because the tab is already the longest file on this
  * surface, and because a skin is a table rather than a branch.
@@ -43,6 +43,14 @@ export interface GraphSkin {
   edgeLabelFloor: number;
   /** Stroke width of the ring drawn around a selected node. */
   activeWidth: number;
+  /** The mark around a selected node: a ring, or a square bracket. */
+  activeShape: "ring" | "square";
+  /** Edge colour, as a CSS colour. */
+  edgeStroke: string;
+  /** Frame the label chip with an ink hairline. */
+  chipStroke: boolean;
+  /** Depth: a shadow this many px under the node and its chip. 0 is flat. */
+  drop: number;
 }
 
 const BASE: GraphSkin = {
@@ -61,6 +69,10 @@ const BASE: GraphSkin = {
   subTracking: 0,
   edgeLabelFloor: 46,
   activeWidth: 2,
+  activeShape: "ring",
+  edgeStroke: "var(--color-line)",
+  chipStroke: false,
+  drop: 0,
 };
 
 export const GRAPH_SKIN: Record<"default" | Design, GraphSkin> = {
@@ -70,12 +82,17 @@ export const GRAPH_SKIN: Record<"default" | Design, GraphSkin> = {
   default: BASE,
 
   /* A — INSTRUMENT. Thin, exact, everything tracked mono on a dot grid. An
-     instrument does not bow its lines. */
+     instrument does not bow its lines; a name sits in a square framed tag,
+     and a selected node is bracketed by a square, not ringed. */
   a: {
     ...BASE,
     scale: 0.94,
     edgeWidth: 1,
-    edgeAlpha: 0.78,
+    edgeAlpha: 0.7,
+    edgeStroke: "var(--color-muted)",
+    chip: true,
+    chipRadius: 0,
+    chipStroke: true,
     labelFamily: "mono",
     labelWeight: 500,
     labelSize: 10,
@@ -83,17 +100,19 @@ export const GRAPH_SKIN: Record<"default" | Design, GraphSkin> = {
     subSize: 8.5,
     subTracking: 0.16,
     edgeLabelFloor: 52,
-    activeWidth: 1.75,
+    activeWidth: 1.5,
+    activeShape: "square",
   },
 
-  /* B — PAPIR. Ink on paper: a heavier line, a name set in the page's own
-     sans at weight, and no glow at all. 2026-08-07, on a bright base: *"crisp"*
-     retires the glow vocabulary, so cues become ink. */
+  /* B — PAPIR. Ink on paper: straight ink lines at a pencil's strength, the
+     name bare on the sheet in the page's own sans at weight, no chip, no
+     glow, no depth. */
   b: {
     ...BASE,
     scale: 1.08,
-    edgeWidth: 1.6,
-    edgeAlpha: 0.9,
+    edgeWidth: 1.2,
+    edgeAlpha: 0.34,
+    edgeStroke: "var(--color-ink)",
     labelFamily: "sans",
     labelWeight: 700,
     labelSize: 11,
@@ -104,17 +123,18 @@ export const GRAPH_SKIN: Record<"default" | Design, GraphSkin> = {
     activeWidth: 2.5,
   },
 
-  /* C — SMASH. Depth: the edge bows, the node carries a halo, and the name
-     rides a chip so it stays readable over the field's own colour. */
+  /* C — SMASH. Depth: thick bowed edges, every node standing on its own
+     shadow, and the name on a rounded chip that stands up too. */
   c: {
     ...BASE,
-    scale: 1.14,
-    edgeWidth: 1.4,
-    edgeAlpha: 0.62,
+    scale: 1.16,
+    edgeWidth: 2.2,
+    edgeAlpha: 0.9,
+    edgeStroke: "var(--color-line)",
     bow: 0.14,
-    halo: 2.6,
     chip: true,
-    chipRadius: 5,
+    chipRadius: 8,
+    drop: 3,
     labelFamily: "sans",
     labelWeight: 600,
     labelSize: 10.5,
@@ -122,7 +142,7 @@ export const GRAPH_SKIN: Record<"default" | Design, GraphSkin> = {
     subSize: 8.5,
     subTracking: 0.1,
     edgeLabelFloor: 64,
-    activeWidth: 2.5,
+    activeWidth: 3,
   },
 };
 

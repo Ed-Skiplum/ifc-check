@@ -1027,7 +1027,7 @@ export function GraphTab({
                           edgeRefs.current[e] = element;
                         }}
                         fill="none"
-                        stroke="var(--color-line)"
+                        stroke={skin.edgeStroke}
                         strokeWidth={skin.edgeWidth}
                         strokeOpacity={skin.edgeAlpha}
                       />
@@ -1145,16 +1145,47 @@ function GraphNode({
           opacity={0.07}
         />
       ) : null}
-      {active && node.kind !== "self" ? (
+      {skin.drop > 0 ? (
         <circle
-          r={13 * skin.scale}
-          fill="none"
-          stroke="var(--color-gold)"
-          strokeWidth={skin.activeWidth}
+          cy={skin.drop}
+          r={(node.kind === "self" ? 11 : 8) * skin.scale}
+          fill="var(--color-ink)"
+          opacity={0.16}
         />
+      ) : null}
+      {active && node.kind !== "self" ? (
+        skin.activeShape === "square" ? (
+          <rect
+            x={-13 * skin.scale}
+            y={-13 * skin.scale}
+            width={26 * skin.scale}
+            height={26 * skin.scale}
+            fill="none"
+            stroke="var(--color-gold)"
+            strokeWidth={skin.activeWidth}
+          />
+        ) : (
+          <circle
+            r={13 * skin.scale}
+            fill="none"
+            stroke="var(--color-gold)"
+            strokeWidth={skin.activeWidth}
+          />
+        )
       ) : null}
       <g transform={skin.scale === 1 ? undefined : `scale(${skin.scale})`}>{GLYPH[node.kind]}</g>
       <g ref={onLabel} opacity={0}>
+        {skin.chip && skin.drop > 0 ? (
+          <rect
+            x={-chipWidth / 2}
+            y={(node.kind === "self" ? 26 : 21) - size + 1 + skin.drop * 0.6}
+            width={chipWidth}
+            height={size + 5}
+            rx={skin.chipRadius}
+            fill="var(--color-ink)"
+            opacity={0.12}
+          />
+        ) : null}
         {skin.chip ? (
           <rect
             x={-chipWidth / 2}
@@ -1163,7 +1194,10 @@ function GraphNode({
             height={size + 5}
             rx={skin.chipRadius}
             fill="var(--color-panel)"
-            opacity={0.86}
+            opacity={skin.chipStroke ? 1 : 0.92}
+            stroke={skin.chipStroke ? "var(--color-ink)" : undefined}
+            strokeOpacity={skin.chipStroke ? 0.45 : undefined}
+            strokeWidth={skin.chipStroke ? 1 : undefined}
           />
         ) : null}
         <text
