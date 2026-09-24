@@ -24,6 +24,9 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
                  ruleset's `projectLayer` on top (see "The standard layer")
   storey-config.ts  `storey-config`: file storeys against the ruleset's floor
                  config (`storeys`)
+  pset-inventory.ts  every property and quantity set, with fill, examples
+                 and category (see "Pset inventory")
+  ifc-pset-names.ts  generated: the set names the IFC templates define
 src/ui/          the screen, and the worker that drives the engine
   model-worker.ts  one Web Worker per file; keeps the parsed graph resident
                    so a ruleset dropped later evaluates without re-parsing
@@ -1491,6 +1494,7 @@ node scripts/ids-cli.ts lint   my.ruleset.json
 node scripts/ids-cli.ts emit   my.ruleset.json [--out DIR]
 node scripts/ids-cli.ts run    my.ruleset.json a.ifc [b.ifc ...]
 node scripts/ids-cli.ts report [--ruleset my.ruleset.json] a.ifc [...]   # see "Report contract"
+node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] a.ifc [...]   # see "Pset inventory"
 node scripts/ids-cli.ts selftest
 ```
 
@@ -1563,6 +1567,7 @@ rejected.
 python scripts/gen-ifc-classes.py                              # needs ifcopenshell
 node scripts/ids-cli.ts schema > src/ids/ruleset.schema.json   # selftest asserts this is current
 PYTHONUTF8=1 python scripts/gen-codelists.py                   # src/codelists/*.ts from the workspace standards tables
+PYTHONUTF8=1 python scripts/gen-ifc-psets.py                   # src/engine/ifc-pset-names.ts, needs ifcopenshell
 ```
 
 `gen-codelists.py` fails rather than writing a partial list, and cross-checks
@@ -1717,3 +1722,95 @@ code-lookup rule still reads one source.
 Exit codes as the rest of `ids-cli`: 1 when a row is `fail` or a model could
 not be read, 3 when a row is `not_evaluable`, else 0. `warn` and
 `not_configured` are answers, not failures.
+
+## Pset inventory
+
+`node scripts/ids-cli.ts psets [--ruleset my.ruleset.json] [--examples N] a.ifc [...]`
+prints every property set (`psetsJson()`) and quantity set
+(`quantitiesJson()`) in each model, as UTF-8 JSON on stdout. Data only: no
+state, no threshold, no finding. HI90's Egenskapssett gallery renders it
+(#1 gap 5). Built by `src/engine/pset-inventory.ts`; the model is parsed
+without geometry. Exit 0, or 1 when a model could not be read or the ruleset
+has lint errors.
+
+```json
+{ "command": "psets", "ruleset": "KNM" | null,
+  "krevd_kilder": [{"by": "projectLayer:phase", "ref": "HI90_TFM"}],
+  "models": [{
+    "model": {"file": "HI90_ARK.ifc", "schema": "IFC2X3", "sha256": "<64 hex>"},
+    "skjema_familie": "IFC2X3", "ifc_maler": ["IFC2X3", "IFC4"],
+    "tabeller": {"psets": 59022, "quantities": 10006},
+    "typer_deklarert": 205, "typer_ubrukt": 0,
+    "grenser": [{"kode": "type-rows-on-occurrences", "n": 0},
+                {"kode": "unused-type-sets-unreadable", "n": 0}],
+    "psett": [{
+      "navn": "Pset_WallCommon", "art": "pset", "kategori": "ifc",
+      "ifc_mal": ["IFC2X3", "IFC4", "IFC4X3"], "krevd_av": [],
+      "objekter": 524, "objekter_forekomst": 524, "objekter_type": 0, "typer": null,
+      "klasser": [{"klasse": "IfcWallStandardCase", "n": 524}],
+      "egenskaper": [{
+        "navn": "LoadBearing", "med_verdi": 354, "tom": 0, "mangler": 170,
+        "kilde": {"forekomst": 354, "type": 0},
+        "verdi_type": [{"type": "IfcBoolean", "n": 354}],
+        "eksempler": [{"verdi": "False", "n": 178}, {"verdi": "True", "n": 176}],
+        "ulike": 2 }] }] }],
+  "errors": [], "lint": [] }
+```
+
+- One entry per set NAME per table: `art` `pset` or `qto`. Owners are every
+  GUID the tables key by: products, spatial elements and the project, so an
+  `IfcProject` or `IfcBuildingStorey` shows in `klasser`. `klasse: null` =
+  an owner in no table the graph carries.
+- `objekter` = distinct owners with at least one row of the set;
+  `objekter_forekomst` / `objekter_type` = owners with at least one own row /
+  one row folded from their type (the two can overlap).
+- Per property, over the set's `objekter`: `med_verdi` (a non-blank value),
+  `tom` (the row exists, value `""`, blank or null), `mangler` (the owner
+  carries the set but not this property). They sum to `objekter`. `kilde`
+  counts rows by origin. `verdi_type` is every `value_type` /
+  `quantity_type` as the engine spells it (title-cased,
+  `IfcLengthmeasure`, see #186). `eksempler` = the N most frequent distinct
+  values (default 5, `--examples`), verbatim engine strings; `ulike` = the
+  exact number of distinct values, not capped.
+- `kategori`, in HI90's order: `ifc` when the name is an
+  `IfcPropertySetTemplate` in buildingSMART's templates for the file's schema
+  family or for IFC4 (`ifc_maler`; IFC4 is always included because the IFC2X3
+  template carries no `Qto_*`, which is what HI90 does too). By definition,
+  not by prefix: `Pset_Fake` is not `ifc`. Else `krevd` when `krevd_av` is
+  non-empty, else `annen`. `ifc_mal` lists every template defining the name,
+  whatever the file's schema.
+- `krevd_av`: every `propertySet` value found anywhere in an ENABLED rule
+  (IDS property facets in either position, code-lookup sources, selectors)
+  and anywhere under `projectLayer`, as `rule:<id>` / `projectLayer:<key>`.
+  The walk is generic, so a new rule shape or layer key that names a set is
+  picked up. A literal matches exactly (case and spaces count, unlike HI90's
+  konfig), a restriction by its pattern / enumeration / length. Filled for
+  `ifc` sets too. The top-level `krevd_kilder` lists every reference found.
+- Sort: category, then `objekter` descending, then name.
+
+**Limits, stated in `grenser` as codes with the count they affect:**
+
+| `kode` | means |
+|---|---|
+| `type-rows-on-occurrences` | ifcfast folds a type object's own rows onto each occurrence using it (`source: "type"`); no row is keyed by a type's GlobalId. `n` = owners carrying at least one such row. So "on types" is "reached through an occurrence", and `typer` counts the distinct `type_guid`s behind the type rows: USED types only, null when the set has no type row. |
+| `unused-type-sets-unreadable` | declared type objects no product uses (`typer_ubrukt`): their sets are in no table, so they are missing from the inventory entirely. |
+| `table-absent:<table>` | the caller supplied no `psets` / `quantities` / `type_objects` table; `tabeller` then reads null. The CLI always supplies all three. |
+
+One more the output cannot state per row: the engine writes a REAL without
+its trailing point (`IFCLENGTHMEASURE(400.)` becomes `"400"`), so it and an
+`IfcLabel` `'400'` count as one distinct value. HI90's ifcopenshell reading
+keeps them apart (`AC_Pset_Dimension.Width` on HI90_ARK: 23 distinct there,
+22 here).
+
+Verified: selftest (category by template with the IFC4 Qto fallback on an
+IFC2X3 file, a `Pset_` name that is not IFC, restriction and projectLayer
+references, a disabled rule ignored, the origin split, `typer`, fill with a
+null value, a spatial owner's class, the stated limits, absent tables).
+`psets` on HI90_ARK 22.09 (sha matches the reference) against HI90's own
+2026-09-22 blokkdata `psett`: the same 15 sets, and for all 15 the same
+object count and class counts, and for all 117 properties the same filled
+count; distinct values differ only as above. On KNM_ARK / RIV / RIB with
+`examples/knm.ruleset.json` (which names no set, so nothing is `krevd`):
+KNM_RIB is the one model at hand with type-folded rows (3 owners, 8 sets).
+No real model at hand carries a set the loaded ruleset requires, so `krevd`
+is proven on the synthetic graph only.

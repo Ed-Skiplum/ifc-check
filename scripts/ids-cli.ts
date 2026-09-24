@@ -9,6 +9,7 @@
  *   node scripts/ids-cli.ts emit   my.ruleset.json --out dist-rules
  *   node scripts/ids-cli.ts run    my.ruleset.json model.ifc [...]
  *   node scripts/ids-cli.ts report [--ruleset my.ruleset.json] model.ifc [...]
+ *   node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] model.ifc [...]
  *   node scripts/ids-cli.ts selftest
  *
  * Every command writes one JSON document to stdout. Progress and errors go to
@@ -25,6 +26,10 @@
  * `storey-config` plus `mesh-placement` plus the ruleset's rules. Same exit
  * scale: 1 when a row is `fail` or a model could not be read, 3 when a row is
  * `not_evaluable`, else 0.
+ *
+ * `psets` prints the pset inventory (src/engine/pset-inventory.ts, AGENTS.md
+ * "Pset inventory"): every property and quantity set per model, with its
+ * category. Data only, no verdict: 0, or 1 when a model could not be read.
  */
 
 import { createHash } from "node:crypto";
@@ -52,6 +57,7 @@ import {
 import { checkStoreyConfig } from "../src/engine/storey-config.ts";
 import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
 import { schemaFamily } from "../src/engine/standard-layer.ts";
+import { psetInventory, requiredSetRefs } from "../src/engine/pset-inventory.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
@@ -369,6 +375,59 @@ async function cmdReport(args: string[]): Promise<number> {
   }
   await emitUtf8({ command: "report", ruleset: ruleset?.name ?? null, rows, errors, lint });
   return errors.length > 0 ? 1 : reportExitCode(rows);
+}
+
+/* ----------------------------------------------------------------- psets */
+
+/** The pset inventory, one entry per model. No geometry: the sets are
+ *  mesh-free, so the model is parsed without streaming meshes. */
+async function cmdPsets(args: string[]): Promise<number> {
+  const rulesetPath = flagValue(args, "--ruleset");
+  const ruleset = rulesetPath === undefined ? null : loadRuleset(rulesetPath);
+  const lint = ruleset ? lintRuleset(ruleset) : [];
+  if (ruleset && hasErrors(lint)) {
+    await emitUtf8({ command: "psets", ruleset: ruleset.name, models: [], errors: [], lint, error: "lint errors" });
+    return 1;
+  }
+  const examplesFlag = flagValue(args, "--examples");
+  const examples = examplesFlag === undefined ? 5 : Number(examplesFlag);
+  if (!Number.isInteger(examples) || examples < 0) fail("--examples takes a whole number >= 0");
+  const modelPaths = positionals(args);
+  if (modelPaths.length === 0) fail("psets needs at least one .ifc path");
+
+  const IfcModel = await loadWasm();
+  const models = [];
+  const errors: { file: string; error: string }[] = [];
+  for (const path of modelPaths) {
+    const name = basename(path);
+    try {
+      const bytes = readFileSync(path);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      note(`psets: ${name}`);
+      const parsed = IfcModel.fromBytes(new Uint8Array(bytes), name);
+      const summary = JSON.parse(parsed.summaryJson()) as IfcSummary;
+      const graph = JSON.parse(parsed.graphJson()) as IfcGraph;
+      graph.type_objects = JSON.parse(parsed.typeObjectsJson());
+      graph.psets = JSON.parse(parsed.psetsJson());
+      graph.quantities = JSON.parse(parsed.quantitiesJson());
+      parsed.free();
+      models.push({
+        model: { file: name, schema: summary.schema, sha256 },
+        ...psetInventory(graph, summary.schema, ruleset, { examples }),
+      });
+    } catch (error) {
+      errors.push({ file: name, error: (error as Error).message });
+    }
+  }
+  await emitUtf8({
+    command: "psets",
+    ruleset: ruleset?.name ?? null,
+    krevd_kilder: requiredSetRefs(ruleset),
+    models,
+    errors,
+    lint,
+  });
+  return errors.length > 0 ? 1 : 0;
 }
 
 /* -------------------------------------------------------------- selftest */
@@ -947,6 +1006,90 @@ async function cmdSelftest(): Promise<number> {
       (shapeErrors({ ...SAMPLE_RULESET, projectLayer: { mmi: {} } }).length > 0 ? ">0" : "0"),
   );
 
+  // Gap 5, the pset inventory. Two walls of one type (w2 inherits Status
+  // from it), an untyped slab, a storey, a declared type nothing uses.
+  const pRow = (guid: string, pset_name: string, prop_name: string, value: string | null, source = "instance") => ({
+    guid, pset_name, prop_name, value, value_type: "IfcLabel", source,
+  });
+  const invGraph = {
+    ...(graph as unknown as IfcGraph),
+    products: [
+      { ...wall("w1", null), entity: "IfcWall", type_guid: "T1" },
+      { ...wall("w2", null), entity: "IfcWall", type_guid: "T1" },
+      { ...wall("s1", null), entity: "IfcSlab", type_guid: null },
+    ],
+    storeys: [{ guid: "st1", name: "P1", elevation: 0, building_guid: null }],
+    type_objects: [
+      { guid: "T1", entity: "IfcWalltype", name: "V1", step_id: 1 },
+      { guid: "T2", entity: "IfcWalltype", name: "V2", step_id: 2 },
+    ],
+    psets: [
+      pRow("w1", "Pset_WallCommon", "Status", "NEW"),
+      pRow("w1", "Pset_WallCommon", "IsExternal", ""),
+      pRow("w2", "Pset_WallCommon", "Status", "NEW", "type"),
+      pRow("s1", "HI90_TFM", "Fase", "F1"),
+      pRow("st1", "HI90_TFM", "Fase", null),
+      pRow("w1", "Pset_Fake", "X", "a"),
+    ],
+    quantities: [{ guid: "w1", qto_name: "Qto_WallBaseQuantities", quantity_name: "Length", value: "3.",
+      quantity_type: "IfcQuantityLength", unit_step_id: null, source: "instance" }],
+  } as unknown as IfcGraph;
+  const invRuleset = {
+    ...SAMPLE_RULESET,
+    rules: [
+      { id: "r-wall", name: "wall status", kind: "ids", applicability: { entity: { classes: ["IFCWALL"] } },
+        requirements: { property: [{ propertySet: { restriction: { pattern: "Pset_Wall.*" } }, baseName: "Status" }] } },
+      { id: "r-off", name: "off", kind: "extended", enabled: false,
+        check: { type: "code-lookup", values: ["a"], extract: "^(.*)$", source: { property: { propertySet: "Pset_Fake", name: "X" } } } },
+    ],
+    projectLayer: { phase: { sources: [{ property: { propertySet: "HI90_TFM", name: "Fase" } }] } },
+  } as unknown as Ruleset;
+  const inv = psetInventory(invGraph, "IFC2X3", invRuleset);
+  const invSet = (n: string) => inv.psett.find((e) => e.navn === n)!;
+  record(
+    "psets: category by template definition, IFC4 fallback for Qto on IFC2X3, sorted by category then objects",
+    "Pset_WallCommon:pset:ifc,Qto_WallBaseQuantities:qto:ifc,HI90_TFM:pset:krevd,Pset_Fake:pset:annen",
+    inv.psett.map((e) => `${e.navn}:${e.art}:${e.kategori}`).join(","),
+  );
+  record(
+    "psets: krevd_av names every enabled reference, a disabled rule none",
+    "Pset_WallCommon=rule:r-wall|HI90_TFM=projectLayer:phase|Pset_Fake=",
+    ["Pset_WallCommon", "HI90_TFM", "Pset_Fake"].map((n) => `${n}=${invSet(n).krevd_av.join("+")}`).join("|"),
+  );
+  const wc = invSet("Pset_WallCommon");
+  record(
+    "psets: objects split by origin, used types behind the type rows",
+    "2 f1 t1 typer1 IfcWall:2",
+    `${wc.objekter} f${wc.objekter_forekomst} t${wc.objekter_type} typer${wc.typer} ` +
+      wc.klasser.map((k) => `${k.klasse}:${k.n}`).join(","),
+  );
+  record(
+    "psets: fill per property is med_verdi/tom/mangler over the set's objects",
+    "Status 2/0/0 f1 t1 NEW:2|IsExternal 0/1/1 f1 t0 ",
+    wc.egenskaper.map((e) =>
+      `${e.navn} ${e.med_verdi}/${e.tom}/${e.mangler} f${e.kilde.forekomst} t${e.kilde.type} ` +
+      e.eksempler.map((x) => `${x.verdi}:${x.n}`).join(",")).join("|"),
+  );
+  const tfm = invSet("HI90_TFM");
+  record(
+    "psets: a null value is tom, a spatial owner keeps its class, no type rows gives typer null",
+    "1/1/0 IfcBuildingStorey:1,IfcSlab:1 typer=null",
+    `${tfm.egenskaper[0].med_verdi}/${tfm.egenskaper[0].tom}/${tfm.egenskaper[0].mangler} ` +
+      tfm.klasser.map((k) => `${k.klasse}:${k.n}`).join(",") + ` typer=${tfm.typer}`,
+  );
+  record(
+    "psets: the engine limits are stated with their counts",
+    "type-rows-on-occurrences:1,unused-type-sets-unreadable:1 typer 2/1",
+    inv.grenser.map((g) => `${g.kode}:${g.n}`).join(",") + ` typer ${inv.typer_deklarert}/${inv.typer_ubrukt}`,
+  );
+  const noTables = psetInventory({ ...(graph as unknown as IfcGraph) }, "IFC4", null);
+  record(
+    "psets: an absent table is null and a stated limit, never an empty inventory",
+    "null/null table-absent:psets,table-absent:quantities,table-absent:type_objects",
+    `${noTables.tabeller.psets}/${noTables.tabeller.quantities} ` +
+      noTables.grenser.filter((g) => g.kode.startsWith("table-absent")).map((g) => g.kode).join(","),
+  );
+
   const result = exportRuleset(SAMPLE_RULESET);
   const { included, excluded } = partitionRules(SAMPLE_RULESET);
   record("sample splits into both kinds", "6 ids / 4 excluded", `${included.length} ids / ${excluded.length} excluded`);
@@ -1024,6 +1167,9 @@ switch (command) {
   case "report":
     code = await cmdReport(rest);
     break;
+  case "psets":
+    code = await cmdPsets(rest);
+    break;
   case "schema":
     emit(RULESET_JSON_SCHEMA);
     code = 0;
@@ -1037,7 +1183,7 @@ switch (command) {
     break;
   default:
     note(
-      "usage: node scripts/ids-cli.ts <lint|emit|run|report|schema|sample|selftest> [args]",
+      "usage: node scripts/ids-cli.ts <lint|emit|run|report|psets|schema|sample|selftest> [args]",
     );
     code = 2;
 }
