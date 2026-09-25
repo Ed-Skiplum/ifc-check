@@ -1,63 +1,59 @@
 /* ─────────────────────────────────────────────────────────────────────────
- * THREE COMPONENT LANGUAGES, one palette, one structure.
+ * THE DESIGN ALTERNATIVES, one component family, three layouts (2026-09-25)
  *
- * edkjo, 2026-09-23, on the shipped board: *"our problem now is that the UIUX
- * is really ugly and old looking. We need this to be modern, snappy and
- * impressive."* The structure was accepted; the visual language was not.
+ * History, in edkjo's words:
+ *  2026-09-23  "the UIUX is really ugly and old looking. We need this to be
+ *              modern, snappy and impressive."
+ *  2026-09-24  "they dont really have different takes on component design"
+ *              … "just color" … "for sure I like cards that come off the
+ *              background vs flat."
+ *  2026-09-25  "there is barely any difference in the design, and basically
+ *              no difference in the layout" … "I dont like any of them. I'd
+ *              say the smash is closest, but the sizing and tiling/layout is
+ *              just bad."
  *
- * 2026-09-24, on the first three directions: *"they dont really have different
- * takes on component design"* … *"just color. Its easier to make the call if
- * they all have the same color scheme."* … *"but for sure I like cards that
- * come off the background vs flat."*
+ * So the three alternatives are now three LAYOUTS (`src/ui/alt/`, on the
+ * module grid in `src/ui/alt/module-grid.ts`) sharing ONE component language:
+ * Smash's family (rounded, raised keys, a sunken tab tray, cards that lift),
+ * refined by the research's common denominators
+ * (`tmp/research-data-dense-ui-2026-09-24.md` §1):
  *
- * So all three now share ONE palette (Papir's, ink on warm paper), every card
- * lifts off the ground, and the directions differ in how components are BUILT:
- * shape, how a card lifts, tabs, buttons, toggles, inputs, rows, hover and
- * selection, density, and how the graph draws. Reached by `#design=a|b|c`;
- * nothing here changes markup, strings or what is shown.
+ *   · depth = a surface ladder (ground → card → inset) plus a 1 px ring;
+ *     the card adds a contact shade so it still visibly lifts; a real soft
+ *     shadow only on what overlays (the app bar, the pinned band, menus)
+ *   · 32 px rows, rules between them, no zebra; table heads sticky
+ *   · numbers right-aligned in tabular figures
+ *   · colour for status only, always with a glyph and a word; one small
+ *     accent (amber) for focus, selection and the one primary
+ *   · hierarchy by weight and luminance; 11 px caps labels at +0.06 em
+ *   · motion 120 ms micro / 180 ms controls / 280 ms panels, ease-out
+ *   · radius two-step: 6 px controls, 10 px cards (Linear's ceiling is 12)
  *
- *   a  INSTRUMENT   square, hairline-framed cards with a tight crisp shadow,
- *                   segmented tabs whose active segment is a filled ink block,
- *                   framed controls, dense, everything mono.
- *   b  PAPIR        cards as paper sheets: no border, a soft diffuse shadow,
- *                   rules inside for structure; underlined-word tabs, flat
- *                   paper controls, airy.
- *   c  SMASH        rounded chunky cards with layered depth, raised pills and
- *                   buttons that press down, a recessed tab tray, selection
- *                   that pops out of the surface.
+ * The alternatives may push depth differently (a flattest, c deepest); the
+ * comparison is about layout. Absent `#design`, none of this applies and the
+ * default board is untouched.
  *
- * ── What binds all three ────────────────────────────────────────────────
- * · ONE PALETTE (below). A direction never sets a colour token.
- * · STATUS IS A CLASSIC TRAFFIC LIGHT, never a brand hue (2026-09-23). The
- *   glyph stays beside the colour so a verdict survives a black-and-white print.
- * · GOLD CAPS ARE RETIRED (2026-09-23): `.text-gold` is redirected.
- * · NO EDGE-STRIPE STATE CUES, no inset white top highlight, no gold rim. A
- *   selected or pressed thing is filled: *"If you wanna colour something,
- *   colour the entire thing."* (b's tabs are underlined words by request.)
- * · NEVER #fff, NEVER #000.
- * · THE 3D FIELD IS NOT SKINNED (`scene.ts`).
- * · Nothing here changes a box's size where the viewport gate measures fit:
- *   borders keep their widths (a direction recolours or hides them), inner
- *   rules are drawn as inset shadows, and lifts are transforms.
- * · REDUCED MOTION is honoured at the end of this file.
+ * Rules that still bind: status is a classic traffic light, never a brand
+ * hue; gold caps are retired; no state is cued by an edge stripe, an inset
+ * white top highlight or a gold rim; never #fff, never #000; the 3D field is
+ * not skinned (`scene.ts`).
  *
- * This file is imported unlayered, so it beats Tailwind's utilities whatever
- * the specificity. Anything that restyles a surface must therefore also state
- * that surface's hover, because the utility's hover can no longer reach it.
+ * Imported unlayered, so it beats Tailwind's utilities: anything restyled
+ * here also states its own hover.
  * ───────────────────────────────────────────────────────────────────────── */
 
 /* ══════════════════════════════════════════════════════════════════════════
- * THE PALETTE — Papir's, shared by all three
+ * THE PALETTE, shared by all three
  * ══════════════════════════════════════════════════════════════════════════ */
 
 :root[data-design] {
-  --color-ground: #f1efe9;
+  --color-ground: #eeebe4;
   --color-panel: #fbfaf7;
-  --color-input: #f7f5f0;
+  --color-input: #f6f4ef;
   --color-cream: #fbfaf7;
   --color-ink: #16130f;
   --color-muted: #6d675d;
-  --color-line: #cdc7ba;
+  --color-line: #e2ddd2;
   --color-green: #2f7d4f;
   --color-palegreen: #e4efe6;
   --color-gold: #b5811a;
@@ -67,549 +63,391 @@
   --d-accent-dim: #8c3f09;
   --d-accent-wash: rgba(194, 90, 16, 0.09);
   --d-on-accent: #fbfaf7;
-  --d-label-color: #55504a;
-  /* A neutral tint of the ground, for surfaces that sit IN a card. */
+  --d-label-color: #5f5950;
+  /* A warm gold readable as TEXT (the fill gold is for blocks with ink on). */
+  --d-warn-ink: #8a5f0c;
   --d-tint: rgba(22, 19, 15, 0.045);
   --d-tint-strong: rgba(22, 19, 15, 0.08);
-  /* The shadow colour: warm, taken from the ink rather than a neutral black,
-     so a lift reads as paper on a desk rather than a grey smudge. */
   --d-shade: 40, 30, 18;
+  /* The ring: the card's border, drawn as a shadow so it takes no box. */
+  --d-ring: rgba(var(--d-shade), 0.09);
+  --d-hair: rgba(var(--d-shade), 0.1);
 
+  --d-radius: 6px;
+  --d-radius-lg: 10px;
+  --d-pill: 999px;
+
+  --d-dur: 120ms;
+  --d-dur-slow: 180ms;
+  --d-dur-panel: 280ms;
+  --d-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* The card: ring + contact shade + a short soft fall-off. Visible at 1 : 1,
+     which is the owner's "cards that come off the background". */
+  --d-card-shadow:
+    0 0 0 1px var(--d-ring), 0 1px 2px rgba(var(--d-shade), 0.07),
+    0 6px 14px -8px rgba(var(--d-shade), 0.22);
+  --d-card-shadow-hover:
+    0 0 0 1px var(--d-ring), 0 2px 4px rgba(var(--d-shade), 0.08),
+    0 12px 24px -10px rgba(var(--d-shade), 0.3);
+  --d-overlay-shadow:
+    0 0 0 1px var(--d-ring), 0 8px 24px -8px rgba(var(--d-shade), 0.3);
+  --d-key: #d9d2c4;
+  --d-key-shadow: 0 1px 0 var(--d-key), 0 2px 4px -2px rgba(var(--d-shade), 0.2);
+  --d-lift: none;
+
+  --font-sans: "Archivo", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * A — INSTRUMENT
- * ══════════════════════════════════════════════════════════════════════════ */
+:root[data-design] body {
+  font-family: var(--font-sans);
+}
 
+/* a · Linear: the flattest. Chrome recedes, the list is the brightest thing. */
 :root[data-design="a"] {
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
-
-  --d-radius: 0px;
-  --d-radius-lg: 0px;
-  --d-pill: 0px;
-  /* The frame: an ink hairline at half strength. Crisp, not heavy. */
-  --d-frame: rgba(22, 19, 15, 0.42);
-  --d-card-border: var(--d-frame);
-  --d-card-shadow: 0 1px 0 rgba(var(--d-shade), 0.1), 0 2px 3px -1px rgba(var(--d-shade), 0.22);
+  --d-card-shadow: 0 0 0 1px var(--d-ring), 0 1px 2px rgba(var(--d-shade), 0.06);
   --d-card-shadow-hover: var(--d-card-shadow);
-  --d-shadow: none;
-
-  --d-dur: 90ms;
-  --d-dur-slow: 150ms;
-  --d-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --d-lift: none;
-
-  --d-label-tf: uppercase;
-  --d-label-ls: 0.2em;
-  --d-label-w: 500;
-  --d-label-family: var(--font-mono);
-
-  --d-head-family: var(--font-mono);
-  --d-head-w: 500;
-  --d-head-ls: 0.01em;
 }
 
-/* One family, the mono. */
-:root[data-design="a"] body {
-  font-family: var(--font-mono);
-}
-
-/* Dense: the tile's inner padding is the column gap, not φ times it. */
-:root[data-design="a"] [data-tile-id] {
-  --bento-pad: calc(var(--bento-colgap) * 1.15);
-}
-
-/* Tabs: a segmented switch. Every segment framed, the frames shared, the
-   active segment a solid ink block. */
-:root[data-design="a"] [role="tablist"] {
-  border-bottom-color: transparent;
-  gap: 0;
-}
-:root[data-design="a"] [role="tab"] {
-  margin-bottom: 0;
-  border-color: var(--d-frame);
-  background-color: var(--color-panel);
-  color: var(--color-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 11px;
-}
-:root[data-design="a"] [role="tab"] + [role="tab"] {
-  margin-left: -1px;
-}
-:root[data-design="a"] [role="tab"]:hover {
-  color: var(--color-ink);
-  background-color: var(--d-tint);
-}
-:root[data-design="a"] [role="tab"][aria-selected="true"] {
-  background-color: var(--color-ink);
-  border-color: var(--color-ink);
-  color: var(--color-panel);
-  font-weight: 500;
-}
-/* The pset strip is the same switch: its 1 px gaps become the frame. */
-:root[data-design="a"] [data-pset-tabs] {
-  background-color: var(--d-frame);
-  border-bottom-color: var(--d-frame);
-}
-:root[data-design="a"] [data-pset-tab] {
-  background-color: var(--color-panel);
-}
-:root[data-design="a"] [data-pset-tab][aria-selected="true"] {
-  background-color: var(--color-ink);
-  color: var(--color-panel);
-}
-
-/* Controls: framed, square, and they invert on hover like a key under a
-   finger. No movement: an instrument does not bounce. */
-:root[data-design="a"] button.bg-input:not(.rb button) {
-  background-color: var(--color-panel);
-  border-color: var(--d-frame);
-}
-:root[data-design="a"] button.bg-input:not(.rb button):hover {
-  background-color: var(--color-ink);
-  border-color: var(--color-ink);
-  color: var(--color-panel);
-}
-:root[data-design="a"] button:not(.rb button):active {
-  box-shadow: inset 0 1px 2px rgba(var(--d-shade), 0.35);
-}
-
-/* On state: the engaged amber, the whole segment. */
-:root[data-design="a"] button[aria-pressed="true"]:not(.rb button) {
-  background-color: var(--d-accent);
-  border-color: var(--d-accent);
-  color: var(--d-on-accent);
-}
-:root[data-design="a"] button[aria-pressed="true"]:not(.rb button):hover {
-  background-color: var(--d-accent-dim);
-  border-color: var(--d-accent-dim);
-  color: var(--d-on-accent);
-}
-
-/* Filter chips: a framed tag. */
-:root[data-design="a"] span.border.border-line.bg-input {
-  border-color: var(--d-frame);
-  background-color: var(--color-panel);
-}
-
-/* Fields: a framed well, a shade under the card. */
-:root[data-design="a"] :is(input, select, textarea).border {
-  border-color: var(--d-frame);
-  background-color: var(--color-input);
-}
-
-/* Tables: a ruled grid. The head is set off by an ink rule. */
-:root[data-design="a"] thead th {
-  border-bottom-color: var(--color-ink);
-}
-
-/* Rows: amber wash on hover; the selected row is framed in ink and washed. */
-:root[data-design="a"] .hover\:bg-palegreen:hover {
-  background-color: var(--d-accent-wash);
-}
-:root[data-design="a"] .outline-ink {
-  outline-width: 1px;
-  outline-offset: -1px;
-  outline-color: var(--color-ink);
-  background-color: var(--d-accent-wash);
-}
-/* The picked row stays an ink block, as on paper. */
-:root[data-design="a"] .bg-ink {
-  background-color: var(--color-ink);
-  color: var(--color-cream);
-}
-
-/* The header: an ink rule and the same crisp lift. */
-:root[data-design="a"] header {
-  border-color: var(--d-frame);
-}
-
-/* The graph field: the instrument's dot grid. */
-:root[data-design="a"] [data-graph-field] {
-  background-image: radial-gradient(rgba(22, 19, 15, 0.13) 1px, transparent 1px);
-  background-size: 16px 16px;
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
- * B — PAPIR
- * ══════════════════════════════════════════════════════════════════════════ */
-
-:root[data-design="b"] {
-  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
-
-  --d-radius: 0px;
-  --d-radius-lg: 2px;
-  --d-pill: 0px;
-  --d-card-border: transparent;
-  /* A sheet on a desk: a contact shade and a wide, soft, low fall-off. */
-  --d-card-shadow:
-    0 0 0 1px rgba(var(--d-shade), 0.035), 0 1px 2px rgba(var(--d-shade), 0.06),
-    0 12px 32px -12px rgba(var(--d-shade), 0.2);
-  --d-card-shadow-hover: var(--d-card-shadow);
-  --d-shadow: none;
-
-  --d-dur: 150ms;
-  --d-dur-slow: 240ms;
-  --d-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --d-lift: none;
-
-  --d-label-tf: uppercase;
-  --d-label-ls: 0.1em;
-  --d-label-w: 700;
-  /* One face for a key and its value (2026-09-06). */
-  --d-label-family: var(--font-sans);
-
-  --d-head-family: var(--font-sans);
-  --d-head-w: 800;
-  --d-head-ls: -0.02em;
-}
-
-:root[data-design="b"] body {
-  font-family: var(--font-sans);
-}
-
-/* Airy: the tile breathes at twice the column gap. */
-:root[data-design="b"] [data-tile-id] {
-  --bento-pad: calc(var(--bento-colgap) * 1.9);
-}
-/* Except the KPI strip: seven cards share its width, and at 1.9 the viewport
-   gate measured "339 / 398" ellipsized by 3 to 6 px at every size. */
-:root[data-design="b"] [data-tile-id="kpis"] {
-  --bento-pad: calc(var(--bento-colgap) * 1.618);
-}
-
-/* Structure inside the sheet is a rule, not a box: the tile's header gets a
-   hairline under it, drawn as a shadow so it takes no height. */
-:root[data-design="b"] [data-tile-id] > div:first-child:not(:only-child) {
-  box-shadow: inset 0 -1px 0 var(--color-line);
-}
-
-/* Values and names carry the weight, at the tight tracking he chose. */
-:root[data-design="b"] [data-essential]:not(.tracking-\[0\.12em\]) {
-  letter-spacing: -0.015em;
-}
-
-/* Tabs: underlined words. No box, no fill; the active word is ink at weight
-   with a 2 px ink rule under it. */
-:root[data-design="b"] [role="tablist"] {
-  border-bottom-color: var(--color-line);
-  gap: 1.25rem;
-}
-:root[data-design="b"] [role="tab"] {
-  border-color: transparent;
-  background-color: transparent;
-  padding-left: 0;
-  padding-right: 0;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-:root[data-design="b"] [role="tab"]:hover {
-  color: var(--color-ink);
-  box-shadow: inset 0 -1px 0 var(--color-muted);
-}
-:root[data-design="b"] [role="tab"][aria-selected="true"] {
-  border-color: transparent;
-  background-color: transparent;
-  color: var(--color-ink);
-  font-weight: 700;
-  box-shadow: inset 0 -2px 0 var(--color-ink);
-}
-:root[data-design="b"] [data-pset-tabs] {
-  background-color: var(--color-panel);
-  gap: 0.75rem;
-  padding-inline: 0.75rem;
-}
-:root[data-design="b"] [data-pset-tab] {
-  background-color: transparent;
-  padding-inline: 0;
-}
-:root[data-design="b"] [data-pset-tab]:hover {
-  color: var(--color-ink);
-}
-:root[data-design="b"] [data-pset-tab][aria-selected="true"] {
-  background-color: transparent;
-  box-shadow: inset 0 -2px 0 var(--color-ink);
-}
-
-/* Controls: flat paper, no frame. A tint of the desk under the word; the
-   hover deepens the tint. */
-:root[data-design="b"] button.bg-input:not(.rb button) {
-  border-color: transparent;
-  background-color: var(--d-tint);
-}
-:root[data-design="b"] button.bg-input:not(.rb button):hover {
-  border-color: transparent;
-  background-color: var(--d-tint-strong);
-  color: var(--color-ink);
-}
-
-/* On state: ink on paper, the whole segment. */
-:root[data-design="b"] button[aria-pressed="true"]:not(.rb button) {
-  background-color: var(--color-ink);
-  border-color: var(--color-ink);
-  color: var(--color-panel);
-}
-:root[data-design="b"] button[aria-pressed="true"]:not(.rb button):hover {
-  background-color: var(--color-ink);
-  color: var(--color-panel);
-}
-
-/* Filter chips: a tinted tag, no frame. */
-:root[data-design="b"] span.border.border-line.bg-input {
-  border-color: transparent;
-  background-color: var(--d-tint);
-}
-
-/* Fields: a writing line. No box, an ink rule under the value. */
-:root[data-design="b"] :is(input, select, textarea).border {
-  border-color: transparent;
-  background-color: transparent;
-  box-shadow: inset 0 -1px 0 var(--color-ink);
-}
-
-/* Tables: horizontal rules only. The head closes on a heavier ink rule. */
-:root[data-design="b"] thead th {
-  border-right-color: transparent;
-  box-shadow: inset 0 -1px 0 var(--color-ink);
-  border-bottom-color: var(--color-ink);
-}
-:root[data-design="b"] tbody td {
-  border-right-color: transparent;
-}
-
-/* Rows: a pencil tint on hover; the selected row keeps the 2 px ink ring. */
-:root[data-design="b"] .hover\:bg-palegreen:hover {
-  background-color: var(--d-tint);
-}
-:root[data-design="b"] .outline-ink {
-  outline-color: var(--color-ink);
-}
-/* The picked row is the one amber fill on the page. */
-:root[data-design="b"] .bg-ink {
-  background-color: var(--d-accent);
-  color: var(--d-on-accent);
-}
-
-:root[data-design="b"] header {
-  border-color: transparent;
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
- * C — SMASH
- * ══════════════════════════════════════════════════════════════════════════ */
-
+/* c · Grafana: the deepest. Panels stand off the ground and rise under the
+   pointer, because every panel is a door down. */
 :root[data-design="c"] {
-  --font-sans: "Archivo", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
-
-  --d-radius: 9px;
-  --d-radius-lg: 16px;
-  --d-pill: 999px;
-  --d-card-border: transparent;
-  /* Layered depth: a contact edge, a near shadow and a far one. */
   --d-card-shadow:
-    0 0 0 1px rgba(var(--d-shade), 0.05), 0 2px 4px rgba(var(--d-shade), 0.08),
-    0 10px 22px -6px rgba(var(--d-shade), 0.2), 0 28px 50px -24px rgba(var(--d-shade), 0.32);
+    0 0 0 1px var(--d-ring), 0 2px 4px rgba(var(--d-shade), 0.08),
+    0 10px 22px -8px rgba(var(--d-shade), 0.26);
   --d-card-shadow-hover:
-    0 0 0 1px rgba(var(--d-shade), 0.06), 0 4px 8px rgba(var(--d-shade), 0.1),
-    0 16px 30px -8px rgba(var(--d-shade), 0.26), 0 36px 64px -26px rgba(var(--d-shade), 0.38);
-  /* The key: a solid edge under a raised control, so it reads as a thing
-     standing on the card that goes down when pressed. */
-  --d-key: #d8d1c3;
-  --d-key-shadow: 0 2px 0 var(--d-key), 0 3px 6px -2px rgba(var(--d-shade), 0.25);
-  --d-shadow: 0 3px 0 var(--d-accent-dim), 0 6px 12px -4px rgba(var(--d-shade), 0.35);
-
-  --d-dur: 190ms;
-  --d-dur-slow: 320ms;
-  --d-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    0 0 0 1px var(--d-ring), 0 4px 8px rgba(var(--d-shade), 0.1),
+    0 18px 32px -12px rgba(var(--d-shade), 0.34);
   --d-lift: translateY(-2px);
-
-  --d-label-tf: uppercase;
-  --d-label-ls: 0.12em;
-  --d-label-w: 700;
-  --d-label-family: var(--font-sans);
-
-  --d-head-family: var(--font-sans);
-  --d-head-w: 800;
-  --d-head-ls: -0.025em;
 }
 
-:root[data-design="c"] body {
-  font-family: var(--font-sans);
+/* ══════════════════════════════════════════════════════════════════════════
+ * CHROME: the app bar, the file line, the tab tray
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-design] header {
+  position: relative;
+  z-index: 5;
+  border-color: transparent;
+  box-shadow: var(--d-overlay-shadow);
 }
 
-/* Cards rise when the pointer is on them. 2 px, a transform, no reflow. */
-:root[data-design="c"] [data-tile-id]:hover {
-  transform: var(--d-lift);
-  box-shadow: var(--d-card-shadow-hover);
+/* a: chrome that recedes (Linear 2026: "don't compete for attention you
+   haven't earned"). The bar sits on the ground, with no shadow, its words
+   muted until the pointer is on it. */
+:root[data-design="a"] header {
+  background-color: var(--color-ground);
+  box-shadow: inset 0 -1px 0 var(--d-hair);
+}
+:root[data-design="a"] header button:not([data-chrome="primary"]) {
+  color: var(--color-muted);
+}
+:root[data-design="a"] header button:not([data-chrome="primary"]):hover {
+  color: var(--color-ink);
 }
 
-/* Tabs: a recessed tray, and the active tab a raised pill standing in it. */
-:root[data-design="c"] [role="tablist"] {
+/* Tabs: a sunken tray, the active tab a raised pill standing in it. */
+:root[data-design] [role="tablist"] {
   border-bottom-color: transparent;
-  gap: 0.25rem;
+  gap: 2px;
   align-self: flex-start;
   align-items: center;
+  width: fit-content;
   padding: 3px;
   border-radius: var(--d-pill);
   background-color: var(--d-tint-strong);
-  box-shadow: inset 0 1px 3px rgba(var(--d-shade), 0.18);
+  box-shadow: inset 0 1px 2px rgba(var(--d-shade), 0.14);
 }
-:root[data-design="c"] [role="tab"] {
+:root[data-design] [role="tab"] {
   margin-bottom: 0;
   border-color: transparent;
   border-radius: var(--d-pill);
   color: var(--color-muted);
   font-weight: 600;
-  padding-inline: 0.9rem;
+  padding-inline: 0.85rem;
 }
-:root[data-design="c"] [role="tab"]:hover {
+:root[data-design] [role="tab"]:hover {
   color: var(--color-ink);
 }
-:root[data-design="c"] [role="tab"][aria-selected="true"] {
+:root[data-design] [role="tab"][aria-selected="true"] {
   background-color: var(--color-panel);
   border-color: transparent;
   color: var(--color-ink);
-  font-weight: 700;
-  box-shadow: 0 1px 2px rgba(var(--d-shade), 0.18), 0 3px 8px -2px rgba(var(--d-shade), 0.22);
+  box-shadow: 0 0 0 1px var(--d-ring), 0 1px 3px rgba(var(--d-shade), 0.16);
 }
-:root[data-design="c"] [data-pset-tabs] {
+:root[data-design="a"] [role="tablist"] {
+  background-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-design] [data-pset-tabs] {
   background-color: var(--color-panel);
   gap: 0.25rem;
   padding: 0.3rem 0.5rem;
   border-bottom-color: transparent;
 }
-:root[data-design="c"] [data-pset-tab] {
+:root[data-design] [data-pset-tab] {
   border-radius: var(--d-pill);
   background-color: var(--d-tint);
 }
-:root[data-design="c"] [data-pset-tab]:hover {
+:root[data-design] [data-pset-tab]:hover {
   background-color: var(--d-tint-strong);
   color: var(--color-ink);
 }
-:root[data-design="c"] [data-pset-tab][aria-selected="true"] {
-  background-color: var(--d-accent);
-  color: var(--d-on-accent);
-  box-shadow: 0 2px 0 var(--d-accent-dim);
+:root[data-design] [data-pset-tab][aria-selected="true"] {
+  background-color: var(--color-ink);
+  color: var(--color-panel);
 }
 
-/* Controls: raised keys. They stand on a solid edge, rise on hover and go
-   down on press. */
-:root[data-design="c"] button.bg-input:not(.rb button) {
+/* Controls: raised keys on a solid edge, down on press. */
+:root[data-design] button.bg-input:not(.rb button) {
   border-color: transparent;
   background-color: var(--color-panel);
-  box-shadow: var(--d-key-shadow);
+  box-shadow: 0 0 0 1px var(--d-ring), var(--d-key-shadow);
   font-weight: 600;
 }
-:root[data-design="c"] button.bg-input:not(.rb button):hover {
+:root[data-design] button.bg-input:not(.rb button):hover {
   border-color: transparent;
   color: var(--color-ink);
-  transform: translateY(-1px);
-  box-shadow: 0 3px 0 var(--d-key), 0 6px 10px -3px rgba(var(--d-shade), 0.28);
-}
-:root[data-design="c"] button:not(.rb button):not([role="tab"]):active {
-  transform: translateY(2px);
-  box-shadow: 0 0 0 var(--d-key);
-}
-
-/* On state: a raised amber pill. */
-:root[data-design="c"] button[aria-pressed="true"]:not(.rb button) {
-  background-color: var(--d-accent);
-  border-color: transparent;
-  color: var(--d-on-accent);
-  box-shadow: var(--d-shadow);
-  border-radius: var(--d-pill);
-}
-:root[data-design="c"] button[aria-pressed="true"]:not(.rb button):hover {
-  background-color: var(--d-accent);
-  color: var(--d-on-accent);
-  box-shadow: 0 4px 0 var(--d-accent-dim), 0 8px 14px -4px rgba(var(--d-shade), 0.4);
-}
-:root[data-design="c"] button[aria-pressed]:not(.rb button) {
-  border-radius: var(--d-pill);
-}
-
-/* Filter chips: a raised pill. */
-:root[data-design="c"] span.border.border-line.bg-input {
-  border-color: transparent;
-  border-radius: var(--d-pill);
   background-color: var(--color-panel);
-  box-shadow: var(--d-key-shadow);
+  box-shadow: 0 0 0 1px rgba(var(--d-shade), 0.16), 0 2px 0 var(--d-key),
+    0 4px 8px -3px rgba(var(--d-shade), 0.24);
 }
-
-/* The switch: a rounded track with a round knob. */
-:root[data-design="c"] [role="switch"] > span:first-child,
-:root[data-design="c"] [role="switch"] > span:first-child > span {
-  border-radius: var(--d-pill);
+:root[data-design] button:not(.rb button):not([role="tab"]):active {
+  transform: translateY(1px);
 }
-
-/* Fields: a rounded well pressed into the card. */
-:root[data-design="c"] :is(input, select, textarea).border {
+:root[data-design] button[aria-pressed="true"]:not(.rb button) {
+  background-color: var(--color-ink);
   border-color: transparent;
-  background-color: var(--d-tint);
-  box-shadow: inset 0 1px 3px rgba(var(--d-shade), 0.2);
-}
-
-/* Tables: no grid. The head is a tinted band; rows are separated by space
-   and a faint rule. */
-:root[data-design="c"] thead th {
-  border-color: transparent;
-  background-color: var(--color-input);
-}
-:root[data-design="c"] tbody td {
-  border-right-color: transparent;
-  border-bottom-color: rgba(var(--d-shade), 0.08);
-}
-
-/* Rows: an amber wash on hover. The selected row POPS: it leaves the list on
-   its own shadow, ringed in amber. */
-:root[data-design="c"] .hover\:bg-palegreen:hover {
-  background-color: var(--d-accent-wash);
-}
-:root[data-design="c"] .outline-ink {
-  outline: none;
-  position: relative;
-  z-index: 1;
-  border-radius: var(--d-radius);
-  background-color: var(--color-panel);
-  box-shadow:
-    0 0 0 2px var(--d-accent),
-    0 8px 18px -6px rgba(var(--d-shade), 0.4);
-}
-/* A table row cannot carry that shadow in every engine, so it keeps a ring. */
-:root[data-design="c"] tr.outline-ink {
-  outline: 2px solid var(--d-accent);
-  outline-offset: -2px;
+  color: var(--color-panel);
   box-shadow: none;
 }
-:root[data-design="c"] .bg-ink {
-  background-color: var(--d-accent);
-  color: var(--d-on-accent);
-  box-shadow: 0 6px 14px -6px rgba(var(--d-shade), 0.5);
-  z-index: 1;
+:root[data-design] button[aria-pressed="true"]:not(.rb button):hover {
+  background-color: var(--color-ink);
+  color: var(--color-panel);
+}
+:root[data-design] button[aria-pressed]:not(.rb button) {
+  border-radius: var(--d-pill);
 }
 
-:root[data-design="c"] header {
+/* Filter chips: pills. */
+:root[data-design] span.border.border-line.bg-input {
   border-color: transparent;
+  border-radius: var(--d-pill);
+  background-color: var(--color-panel);
+  box-shadow: 0 0 0 1px var(--d-ring);
 }
 
-/* The graph field: a soft light under the drawing, so the nodes stand on a
-   lit plate rather than on a flat fill. */
-:root[data-design="c"] [data-graph-field] {
-  background-image: radial-gradient(
-    ellipse 75% 65% at 50% 45%,
-    rgba(251, 250, 247, 0.9) 0%,
-    rgba(251, 250, 247, 0) 75%
-  );
+:root[data-design] [role="switch"] > span:first-child,
+:root[data-design] [role="switch"] > span:first-child > span {
+  border-radius: var(--d-pill);
+}
+
+/* Fields: a shallow well. */
+:root[data-design] :is(input, select, textarea).border {
+  border-color: transparent;
+  background-color: var(--color-input);
+  box-shadow: inset 0 0 0 1px var(--d-hair), inset 0 1px 2px rgba(var(--d-shade), 0.08);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
- * SHARED — what every direction gets from its own tokens
+ * TABLES AND ROWS: rules, not zebra; heads that stay
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/* Shape. The chrome is built from a small, consistent set of Tailwind
-   classes, so the radius is set once per surface class. */
+:root[data-design] thead th {
+  border-right-color: transparent;
+  border-bottom-color: var(--d-hair);
+  background-color: var(--color-panel);
+}
+:root[data-design] tbody td {
+  border-right-color: transparent;
+  border-bottom-color: var(--d-hair);
+}
+:root[data-design] .border-line {
+  border-color: var(--d-hair);
+}
+:root[data-design] .hover\:bg-palegreen:hover {
+  background-color: var(--d-accent-wash);
+}
+:root[data-design] .outline-ink {
+  outline-width: 2px;
+  outline-offset: -2px;
+  outline-color: var(--d-accent);
+  background-color: var(--d-accent-wash);
+}
+:root[data-design] .bg-ink {
+  background-color: var(--d-accent);
+  color: var(--d-on-accent);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * CARDS
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-design] :is([data-tile-id], .alt-card, :is(section, dialog, div).border.border-line.bg-panel) {
+  border-radius: var(--d-radius-lg);
+  border-color: transparent;
+  box-shadow: var(--d-card-shadow);
+}
+:root[data-design] [data-tile-id][role="alert"] {
+  border-color: transparent;
+}
+
+.alt-card {
+  background-color: var(--color-panel);
+  transition:
+    box-shadow var(--d-dur-slow) var(--d-ease),
+    transform var(--d-dur-slow) var(--d-ease);
+}
+:root[data-design="c"] .alt-card:has(.alt-stat.alt-hover):hover {
+  transform: var(--d-lift);
+  box-shadow: var(--d-card-shadow-hover);
+}
+
+.alt-head {
+  box-shadow: inset 0 -1px 0 var(--d-hair);
+}
+.alt-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--d-label-color);
+}
+.alt-stat {
+  background-color: var(--color-panel);
+}
+.alt-hover {
+  cursor: pointer;
+  transition: background-color var(--d-dur) var(--d-ease);
+}
+.alt-hover:hover {
+  background-color: var(--d-accent-wash);
+}
+.alt-chosen {
+  outline: 2px solid var(--d-accent);
+  outline-offset: -2px;
+  background-color: var(--d-accent-wash);
+}
+.alt-figure {
+  color: var(--color-ink);
+}
+/* A figure scales with the panel it sits in, so a panel the aspect rule made
+   taller carries a larger number rather than more air. Bounded by the
+   panel's width too, so "339 / 398" is never cut. */
+.alt-sized {
+  container-type: size;
+}
+.alt-figure-lead {
+  font-size: clamp(26px, min(30cqh, 19cqw), 64px);
+}
+.alt-figure-count {
+  font-size: clamp(18px, min(21cqh, 12cqw), 44px);
+}
+.alt-figure[data-verdict="fail"] {
+  color: var(--color-bad);
+}
+.alt-figure[data-verdict="warn"] {
+  color: var(--d-warn-ink);
+}
+.alt-figure[data-verdict="pass"] {
+  color: var(--color-green);
+}
+.alt-figure[data-verdict="na"] {
+  color: var(--color-muted);
+}
+
+/* The verdict word with its glyph, in the verdict's own fill. */
+.alt-badge,
+.alt-lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  border-radius: var(--d-pill);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.alt-badge {
+  padding: 1px 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.alt-lamp {
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+:is(.alt-badge, .alt-lamp)[data-verdict="pass"] {
+  background-color: var(--color-green);
+  color: var(--color-cream);
+}
+:is(.alt-badge, .alt-lamp)[data-verdict="warn"] {
+  background-color: var(--color-gold);
+  color: var(--color-ink);
+}
+:is(.alt-badge, .alt-lamp)[data-verdict="fail"] {
+  background-color: var(--color-bad);
+  color: var(--color-cream);
+}
+:is(.alt-badge, .alt-lamp)[data-verdict="na"] {
+  background-color: var(--color-muted);
+  color: var(--color-cream);
+}
+
+/* A magnitude, not a verdict: one neutral hue. */
+.alt-meter {
+  border-radius: var(--d-pill);
+  background-color: var(--d-tint-strong);
+}
+.alt-meter > span {
+  border-radius: var(--d-pill);
+  background-color: rgba(22, 19, 15, 0.55);
+}
+
+/* a: the list pane's group heads, one surface step down, sticky. */
+.alt-group-head {
+  background-color: var(--color-input);
+  box-shadow: inset 0 -1px 0 var(--d-hair), inset 0 1px 0 var(--d-hair);
+}
+.alt-group-rule {
+  height: 8px;
+  background-color: var(--color-input);
+  box-shadow: inset 0 1px 0 var(--d-hair);
+}
+
+/* c: a group's title row (a Grafana row): a heading, not a card. */
+.alt-group {
+  padding-bottom: 4px;
+  box-shadow: inset 0 -1px 0 var(--d-hair);
+}
+.alt-group-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+/* The docked band in a: the card is the frame, so the band drops its own. */
+.alt-band > section {
+  border-top-width: 0;
+}
+
+/* The pinned band (b, c): an overlay over the board, so it gets the one
+   real shadow. */
+:root[data-design] .sticky.bottom-0 {
+  border-radius: var(--d-radius-lg) var(--d-radius-lg) 0 0;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--d-ring), 0 -12px 28px -14px rgba(var(--d-shade), 0.32);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * SHARED DETAILS
+ * ══════════════════════════════════════════════════════════════════════════ */
+
 :root[data-design] button,
 :root[data-design] .bg-input,
 :root[data-design] [role="tab"],
@@ -619,39 +457,9 @@
   border-radius: var(--d-radius);
 }
 
-/* CARDS. Every card-like surface lifts off the ground, each direction by its
- * own shadow and frame. The selector is the house card vocabulary: a board
- * tile, and any section/dialog/popover built as `border border-line bg-panel`. */
-:root[data-design] :is([data-tile-id], :is(section, dialog, div).border.border-line.bg-panel) {
-  border-radius: var(--d-radius-lg);
-  border-color: var(--d-card-border);
-  box-shadow: var(--d-card-shadow);
-}
-/* The failure tile keeps its red, and lifts like its neighbours. */
-:root[data-design] [data-tile-id][role="alert"] {
-  border-color: transparent;
-}
-
-/* The derivation band is one card pinned to the bottom of the page: it lifts
-   upward, over the board it scrolls across. */
-:root[data-design] .sticky.bottom-0 {
-  box-shadow: 0 -1px 0 rgba(var(--d-shade), 0.08), 0 -12px 28px -14px rgba(var(--d-shade), 0.3);
-}
-:root[data-design="a"] .sticky.bottom-0 {
-  box-shadow: 0 -1px 0 var(--d-frame), 0 -2px 4px -1px rgba(var(--d-shade), 0.2);
-}
-
-/* The app bar sits over the page and throws its own card shadow down onto it. */
-:root[data-design] header {
-  position: relative;
-  z-index: 5;
-  box-shadow: var(--d-card-shadow);
-}
-
-/* Motion. Only what a gesture touches, never a blanket `transition: all`. */
+/* Motion: only what a gesture touches. */
 :root[data-design] button,
 :root[data-design] [role="tab"],
-:root[data-design] [data-tile-id],
 :root[data-design] [data-node],
 :root[data-design] .cursor-pointer,
 :root[data-design] input,
@@ -660,50 +468,35 @@
     background-color var(--d-dur) var(--d-ease),
     border-color var(--d-dur) var(--d-ease),
     color var(--d-dur) var(--d-ease),
-    box-shadow var(--d-dur) var(--d-ease),
+    box-shadow var(--d-dur-slow) var(--d-ease),
     transform var(--d-dur) var(--d-ease),
     opacity var(--d-dur) var(--d-ease);
 }
 
-/* The micro-label keeps its job and loses the gold.
- *
- * `.tracking-\[0\.12em\]` is the hook because that tracking IS the house
- * micro-label; `[data-essential]` would also catch values (the viewport gate
- * marks them essential) and ellipsize "339 / 398" in every KPI card. */
+/* The micro-label loses the gold and takes the shared label. */
 :root[data-design] .text-gold {
   color: var(--d-label-color);
 }
 :root[data-design] .tracking-\[0\.12em\] {
-  font-family: var(--d-label-family);
-  text-transform: var(--d-label-tf);
-  letter-spacing: var(--d-label-ls);
-  font-weight: var(--d-label-w);
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
 }
 
-/* The entrance's headline, at each direction's own scale. */
 :root[data-design] [data-chrome="lede"] {
-  font-family: var(--d-head-family);
-  font-weight: var(--d-head-w);
-  letter-spacing: var(--d-head-ls);
+  font-weight: 800;
+  letter-spacing: -0.025em;
   font-size: clamp(26px, 3.1vw, 46px);
   line-height: 1;
 }
-:root[data-design="a"] [data-chrome="lede"] {
-  /* An instrument does not shout: the readout's scale, tracking opened. */
-  font-size: clamp(20px, 1.9vw, 30px);
-  letter-spacing: 0.04em;
-}
 
-/* Numerals: tabular, tracked in slightly. IBM Plex Mono and Archivo are wider
-   than the default stack, and the viewport gate caught "339 / 398" ellipsizing
-   by 3 px without this. */
 :root[data-design] .tabular-nums {
-  letter-spacing: -0.025em;
-  font-feature-settings: "zero" 1;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
 }
 
-/* The interaction accent, redirected off green so the traffic light keeps
-   green to itself. */
+/* The interaction accent, off green so the traffic light keeps green. */
 :root[data-design] .hover\:text-green:hover,
 :root[data-design] .group:hover .group-hover\:text-ink,
 :root[data-design] .hover\:text-ink:hover {
@@ -718,56 +511,37 @@
   color: var(--d-on-accent);
 }
 
-/* PRIMARY — the one filled control per surface, marked in the markup because
-   `bg-green` is also the `pass` cell and the two must not move together. */
+/* PRIMARY: the one filled control per surface. */
 :root[data-design] [data-chrome="primary"] {
   background-color: var(--d-accent);
   color: var(--d-on-accent);
-  border-color: var(--d-accent);
-  box-shadow: var(--d-shadow);
+  border-color: transparent;
+  border-radius: var(--d-pill);
+  font-weight: 700;
+  box-shadow: 0 2px 0 var(--d-accent-dim), 0 4px 10px -4px rgba(var(--d-shade), 0.35);
 }
 :root[data-design] [data-chrome="primary"]:hover {
   background-color: var(--d-accent-dim);
-  border-color: var(--d-accent-dim);
   color: var(--d-on-accent);
-}
-/* b: the primary is ink on paper; the amber is kept for what is picked. */
-:root[data-design="b"] [data-chrome="primary"] {
-  background-color: var(--color-ink);
-  border-color: var(--color-ink);
-  color: var(--color-panel);
-}
-:root[data-design="b"] [data-chrome="primary"]:hover {
-  background-color: var(--d-accent);
-  border-color: var(--d-accent);
-  color: var(--d-on-accent);
-}
-/* c: a raised amber key that rises further on hover. */
-:root[data-design="c"] [data-chrome="primary"] {
-  border-radius: var(--d-pill);
-  font-weight: 700;
-}
-:root[data-design="c"] [data-chrome="primary"]:hover {
-  background-color: var(--d-accent);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 0 var(--d-accent-dim), 0 10px 16px -6px rgba(var(--d-shade), 0.45);
 }
 
-/* Scrollbars. */
 :root[data-design] * {
   scrollbar-color: var(--color-muted) transparent;
 }
 
-/* Focus, visible on every surface. */
 :root[data-design] :focus-visible {
   outline: 2px solid var(--d-accent);
   outline-offset: 1px;
 }
 
-/* ── The graph surface ───────────────────────────────────────────────────
- * The node-link drawing paints itself in SVG attributes from its skin
- * (`graph-paint.ts`); what belongs here is only what CSS owns: the field, the
- * cursor, and the hover/dim classes the simulation toggles. */
+/* ── The graph surface ─────────────────────────────────────────────────── */
+:root[data-design] [data-graph-field] {
+  background-image: radial-gradient(
+    ellipse 75% 65% at 50% 45%,
+    rgba(251, 250, 247, 0.9) 0%,
+    rgba(251, 250, 247, 0) 75%
+  );
+}
 :root[data-design] [data-graph] {
   touch-action: none;
   cursor: grab;
@@ -776,7 +550,8 @@
 :root[data-design] [data-graph][data-panning="true"] {
   cursor: grabbing;
 }
-:root[data-design] [data-graph] [data-node] {
+:root[data-design] [data-graph] [data-node],
+:root[data-design] [data-graph] [data-edge] {
   transition: opacity var(--d-dur) var(--d-ease);
 }
 :root[data-design] [data-graph][data-focused="true"] [data-node]:not([data-near="true"]) {
@@ -785,12 +560,8 @@
 :root[data-design] [data-graph][data-focused="true"] [data-edge]:not([data-near="true"]) {
   opacity: 0.14;
 }
-:root[data-design] [data-graph] [data-edge] {
-  transition: opacity var(--d-dur) var(--d-ease);
-}
 
-/* ── Reduced motion ──────────────────────────────────────────────────────
- * The lift, the transitions and the graph's own settle all stand down. */
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   :root[data-design] * {
     transition-duration: 0.01ms !important;

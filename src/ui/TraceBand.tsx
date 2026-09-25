@@ -104,6 +104,10 @@ interface TraceBandProps {
   onPick: (guid: string, name: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
   onClose: () => void;
+  /** The list OVER the object panel instead of beside it: for a band docked
+   *  in a tall, narrow inspector (`#design=a` on a wide screen), where side by
+   *  side would cut both. Absent, the band is laid out as it always was. */
+  stack?: boolean;
 }
 
 export function TraceBand({
@@ -115,6 +119,7 @@ export function TraceBand({
   onPick,
   onHover,
   onClose,
+  stack = false,
 }: TraceBandProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -279,8 +284,15 @@ export function TraceBand({
       {/* The split follows the rows' content (`columnsFor`): the list takes
           50 % to 61.8 %, the object panel the rest. The band's own height is
           unchanged; this costs table WIDTH, never rows. */}
-      <div className="flex min-h-0 flex-1">
-      <div className="flex min-h-0 min-w-0 shrink-0 flex-col text-[12px]" style={{ width }}>
+      <div className={stack ? "flex min-h-0 flex-1 flex-col" : "flex min-h-0 flex-1"}>
+      <div
+        className={
+          stack
+            ? "flex min-h-0 min-w-0 flex-1 flex-col text-[12px]"
+            : "flex min-h-0 min-w-0 shrink-0 flex-col text-[12px]"
+        }
+        style={stack ? undefined : { width }}
+      >
       <div
         // The same `gap-x-2` the rows carry, or every header after the first
         // sits left of the column it names by the accumulated gaps. And the
@@ -372,7 +384,7 @@ export function TraceBand({
       </div>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1">
+      <div className={stack ? "h-1/2 min-h-0 min-w-0 shrink-0 border-t border-line" : "min-h-0 min-w-0 flex-1"}>
         <ObjectPanel lang={lang} model={model} selection={selection} />
       </div>
       </div>

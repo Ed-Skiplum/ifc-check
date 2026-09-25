@@ -54,6 +54,7 @@ import {
  *  the column's width and ellipsizes (by design, full name in `title`) rather
  *  than widening the column for everything. */
 const COLUMNS = "max-content 18em 4.5em";
+const FILL_COLUMNS = "max-content minmax(18em, 1fr) 4.5em";
 
 interface VerificationProps {
   lang: Lang;
@@ -74,6 +75,10 @@ interface VerificationProps {
   /** The three verdict counts, drawn in the section to the right of the rows:
    *  the width the rows do not need, given to the numbers they summarise. */
   readouts?: ReactNode;
+  /** The verdict column takes the width the names leave (the design
+   *  alternatives, where the tile is sized to the list): the rows then end
+   *  at the tile's edge instead of partway across it. */
+  fill?: boolean;
 }
 
 // Row and type ride the grid's list line (`--bento-line`, a fixed fraction of
@@ -110,6 +115,7 @@ export function Verification({
   onFocus,
   rules,
   readouts,
+  fill = false,
 }: VerificationProps) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden bg-input">
@@ -118,7 +124,7 @@ export function Verification({
           "grid min-h-0 content-start gap-x-2 overflow-x-hidden overflow-y-auto text-[length:var(--bento-fs)] [scrollbar-gutter:stable] " +
           (readouts ? "flex-none" : "flex-1")
         }
-        style={{ gridTemplateColumns: COLUMNS, gridAutoRows: "max-content" }}
+        style={{ gridTemplateColumns: fill ? FILL_COLUMNS : COLUMNS, gridAutoRows: "max-content" }}
       >
         <div className="sticky top-0 z-10 col-span-full grid h-[var(--bento-line)] grid-cols-subgrid items-center border-b border-line bg-panel px-[var(--bento-pad)] font-semibold tracking-[0.12em] text-gold uppercase">
           <span className="truncate text-[length:var(--bento-fs-sm)]">{t("col.check", lang)}</span>

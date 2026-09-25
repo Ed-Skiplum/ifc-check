@@ -211,6 +211,10 @@ export function ModelPanel({
     onClear: onClearChips,
   };
 
+  // `#design=a` docks the derivation in the board's inspector (a Linear-style
+  // master/detail) on Kontroll; every other view keeps the band at the foot.
+  const docked = design === "a" && tab === "checks";
+
   const rules = hasRuleset
     ? {
         evaluation: model.evaluation,
@@ -317,6 +321,8 @@ export function ModelPanel({
                 floors={floors}
                 peers={ownFirst}
                 rules={rules}
+                design={design}
+                inspector={docked ? trace : undefined}
               />
             </div>
             <div role="tabpanel" hidden={tab !== "contents"} className="flex flex-col">
@@ -343,7 +349,7 @@ export function ModelPanel({
                 spans it, so a number clicked at the top of a tall board opens
                 its derivation in view; it takes 38.2 % of the screen and the
                 board keeps 61.8 %. At the end of the panel it rests in flow. */}
-            {trace ? (
+            {trace && !docked ? (
               <div className="sticky bottom-0 z-20 flex h-[38.2dvh] min-h-[16rem] flex-col">
                 {trace}
               </div>

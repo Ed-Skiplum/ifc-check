@@ -54,16 +54,19 @@ src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
 src/builder/     rule builder UI (a strict subset of the JSON format)
 src/bcf/         BCF 2.1 export: topic plan, camera, spaces, XML, zip, XSD
                  validation (pure) + `browser.ts` (snapshots, download)
-src/design/      the three visual directions (`#design=a|b|c`) and their fonts
+src/design/      the design alternatives' component family (`#design=a|b|c`) and fonts
+src/ui/alt/      the design alternatives' layouts on the module grid (see
+                 "Design alternatives 2026-09-25")
 src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
   check-cli.ts   run the fundamentals headlessly
   ids-cli.ts     author, lint, emit and run rulesets headlessly
   bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
   viewport-gate.mjs  real models in headless Chrome at every target viewport
-                     (`--design a|b|c` measures a visual direction)
   isolate-gate.mjs   what a CLICK does, driven with real mouse events
   zoom-gate.mjs      what the WHEEL does, driven with real CDP wheel events
+  module-grid-gate.mjs  the design alternatives on the module grid: tile edges
+                     on the grid, aspect bounds, cut values, per width class
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
@@ -1097,69 +1100,221 @@ Mark any new essential label or value `data-essential`; by-design ellipsis
 (type names, material lists, rule names, a found storey name, the program
 name) stays unmarked and carries its full text in `title`.
 
-`--design a|b|c` runs the same assertions against a visual direction and puts
-its screenshots in `tmp/viewports/<design>/`. A direction is a skin, so every
-assertion applies to it unchanged, and a wider face or a larger type scale
-that clips a value is exactly what this catches: it found the KPI value
-`339 / 398` ellipsized in its own card at every viewport in two of the three
-on their first run. Run it per direction after touching `src/design/`.
+`--design a|b|c` no longer applies here: since 2026-09-25 a design alternative
+is not a skin over the bento board but its own layout on the module grid, and
+`scripts/module-grid-gate.mjs` measures those (below). This gate measures the
+default board.
 
-## The three visual directions
+## Design alternatives 2026-09-25
 
-edkjo, 2026-09-23, on the shipped board: *"our problem now is that the UIUX is
-really ugly and old looking. We need this to be modern, snappy and
-impressive."* The structure was accepted; the cream/hairline/gold-caps
-vocabulary mirrored from sprucelab was not. Three ground-up directions live as
-unlisted skins over the SAME board, for him to pick from:
+History. 2026-09-23, edkjo on the shipped board: *"our problem now is that the
+UIUX is really ugly and old looking. We need this to be modern, snappy and
+impressive."* 2026-09-24: *"they dont really have different takes on component
+design"* … *"just color"* … *"for sure I like cards that come off the
+background vs flat."* 2026-09-25, on the three skins live: *"there is barely any
+difference in the design, and basically no difference in the layout. What is
+this for alternatives?"*, *"it seems you havent applied real research and
+options around modern data dense dashboards"*, *"I dont like any of them. I'd
+say the smash is closest, but the sizing and tiling/layout is just bad."* Then
+three rules for the grid: *"we want to build this around a fixed grid size that
+is dynamically adjusted to monitors/viewports according to best practice"*,
+*"tiles need to have aspect ratios that lend themselves to this. wide/short and
+narrow/tall is to be avoided"*, qualified *"unless the chart or component
+explicitly is supposed to be that."*
 
-2026-09-24, after looking at them live: *"they dont really have different
-takes on component design"* … *"just color. Its easier to make the call if
-they all have the same color scheme."* … *"but for sure I like cards that come
-off the background vs flat."* So all three now share ONE palette (Papir's, ink
-on warm paper), every card lifts off the ground, and the directions differ in
-how components are built:
+So `#design=a|b|c` are now three LAYOUTS of the Kontroll tab, one component
+family, one grid. The research they apply is
+`tmp/research-data-dense-ui-2026-09-24.md` (components, layout, perception,
+the audit); the references are its outperformers. Absent `#design` nothing
+changes: no `data-design` attribute, the bento board, every gate above as it
+was. Innhold and Graf are the same components in all three; they only take the
+shared styling.
 
-```
-#design=a   INSTRUMENT   square, hairline-framed cards with a tight crisp
-                         shadow; segmented tabs, active = ink block; framed
-                         controls that invert on hover; dense; all mono
-#design=b   PAPIR        paper sheets with a soft diffuse shadow and no border,
-                         rules inside; underlined-word tabs; flat tinted
-                         controls; airy
-#design=c   SMASH        rounded chunky cards with layered depth that rise on
-                         hover; raised keys and pills that press down; a
-                         recessed tab tray; selection pops on its own shadow
-```
+Code: `src/ui/alt/module-grid.ts` (the grid, the tile vocabulary, the three
+layout functions, pure TS), `src/ui/alt/AltBoard.tsx` (the tiles; every body is
+an existing component or the same numbers, via `src/ui/board-data.ts`, which
+the bento board reads too), `src/design/directions.css` (the component family).
+`Dashboard` hands off to `AltBoard` when a design is set; `ModelPanel` docks
+the band in the board for `a` on Kontroll and keeps it at the foot otherwise.
 
-The graph follows the same split through `src/ui/graph-paint.ts` (edge colour,
-chip frame, drop depth, the selected-node mark).
+### Grid practice, researched
 
-Absent, there is no `data-design` attribute at all, so the default look and
-everything measured against it is untouched. The mechanism is one more key in
-the existing hash (`src/ui/useHashView.ts`), which is what a static host and
-an iframe both allow and a path route does not.
+| Source | What it fixes | Seen how |
+|---|---|---|
+| Grafana dashboard JSON (`gridPos`) | 24 columns; height in units of 30 px; panels placed at whole x, y, w, h | [docs page](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/view-dashboard-json-model/), fetched |
+| Datadog dashboards | a 12 column grid; "high density" on a wide screen puts the dashboard's halves side by side as 2 × 12, widgets stay max 12 wide | [effective-dashboards](https://github.com/DataDog/effective-dashboards/blob/main/guidelines.md), [integration dashboards](https://datadoghq.dev/integrations-core/guidelines/dashboards/); numbers from search snippets |
+| Carbon 2x grid | 8 px mini unit, everything a multiple; 32 px gutter (16 px each side) at every breakpoint; 16 columns by default, 4 and 8 on small screens; breakpoints sm 320, md 672, lg 1056, xlg 1312, max 1584 | [2x grid](https://carbondesignsystem.com/elements/2x-grid/overview/); the page did not render through fetch, values from search snippets |
+| Material 3 | window size classes by width: compact < 600, medium 600–839, expanded 840+, large and extra-large from 1200 / 1600; layout changes at a class, not continuously | [Android window size classes](https://developer.android.com/develop/adaptive-apps/guides/use-window-size-classes), snippet |
+| Fluent 2 | 4 px spacing ramp; six width classes 320 / 480 / 640 / 1024 / 1366 / 1920; a 12 column grid "common for its flexibility"; gutters and margins change per breakpoint | [layout](https://fluent2.microsoft.design/layout), fetched |
+| Atlassian | 12 columns; gutter, margin and column count change per breakpoint; breakpoints read off the viewport; space tokens on an 8 px base (space.100) | [grid](https://atlassian.design/foundations/grid), snippet |
 
-**What a direction may and may not do.** It may change material, shape, type,
-spacing and motion, but not a colour token: the palette is shared. It may NOT change a string, a label, a row, a
-number, or what any surface shows — the panel still shows everything, and
-there is no curation in `src/design/`. Three rules bind all three directions:
-status is a classic traffic light and never a brand hue (2026-09-23), the
-micro-label's gold is retired, and no state is ever cued by an edge stripe,
-an inset white top highlight or a gold rim on glass.
+Common denominators: a small base unit (4 or 8 px) that every dimension is a
+multiple of; a FIXED row unit (Grafana 30 px) and fluid columns with fixed
+gutters (Carbon, Atlassian, Fluent); a column count that is a multiple of 12
+(Datadog 12, Grafana 24, Carbon 16 is the outlier); a small set of width
+classes where the layout may change, and scaling between them. How products
+scale up: Carbon and Atlassian add columns per class, Datadog duplicates the
+12-column grid side by side, Grafana stays at 24 and lets columns grow, Stripe
+and Carbon cap the content width.
 
-**Where the hooks are.** Almost everything is reached through the palette
-tokens and the existing Tailwind classes. Four markup hooks exist because a
-class could not separate two meanings: `data-chrome="primary"` (the one filled
-control per surface, because `bg-green` is also the `pass` cell),
-`data-chrome="lede"` (the entrance's headline), `.tracking-[0.12em]` (the
-house micro-label, used as a selector, NOT `[data-essential]` — that marks
-values too) and `--color-ground` (the page field, split out of `cream`, which
-also means "the light ink on a filled surface" and is the opposite colour on
-a dark board).
+### The module grid (one grid, all three)
 
-**The 3D field is not skinned.** `scene.ts` holds a neutral low-chroma warm
-grey, which is what the canon asks for in both themes; a field that changed
-per direction would make the scene chrome rather than scene.
+- **Base unit 8 px.** Row unit 32 px (4 units), which is also the dense table
+  row, so a tile of h rows holds whole list lines. Gutter 16 px (2 units) on
+  both axes, so the row pitch is 48 px and a tile h rows tall is 48h − 16 px.
+- **Columns: 12, 24 or 36**, the largest multiple of 12 whose column pitch
+  stays at or above 50.67 px (24 columns at 1200 px). So from 1200 px of grid
+  up the column is 51 to 76 px wide whatever the screen, and a wider screen gets
+  MORE columns rather than fatter ones (Datadog's 12 repeated, Carbon's
+  4 → 8 → 16). 12 columns is the compact fallback below 1200 px (the 1100 px
+  skiplum.com iframe, a tablet).
+- **Width cap 2400 px**, then the margins grow (Carbon max, Stripe). The
+  margin under the cap is the page's own 16 px padding.
+- **Width classes**, read off the GRID's own width (not the viewport, so the
+  iframe gets the layout its box carries): compact < 1200 (12 col), regular
+  1200 to 1807 (24), wide 1808 to 2400 (36). Measured: 1100 → 12 col at 90 px
+  pitch, 1280 → 24 at 52.7, 1440 → 24 at 59.3, 1920 → 36 at 52.9, 2112 →
+  36 at 58.2, 2560 → 36 at 67.1 (capped).
+- **Width from content, height from content.** A tile's span is the fewest
+  columns that seat its content (`mgSpan(px)`: the checks list 470 px, a
+  verdict stat 170, a count stat 140, a storey panel 150, a class panel 190);
+  the one fill tile of a row (the model, mostly) takes what is left. A tile's
+  rows are its lines; raised only where that keeps it inside its aspect bound.
+  Only `a`'s two panes take the rows the viewport has left (a screen per model
+  panel), which is the one place a viewport HEIGHT enters.
+- **Why not the 13/21 ladder here.** The bento track is `100cqw / divisor`, so
+  a tile's px size and its row height move with the screen width, and the
+  spans are Fibonacci cuts chosen for proportion, not for content. The research
+  says the opposite (a fixed row unit, fluid columns, fixed gutters), and the
+  owner asked for a fixed grid size. The default board keeps its ladder; the
+  question for sprucelab upstream is open.
+
+### The tile vocabulary and its aspect bounds
+
+Aspect = rendered width / height in px at the viewport drawn at. `MG_ASPECT` in
+`module-grid.ts` is the list; the gate allows these kinds and no others.
+
+| Kind | Bound | Why this shape (the content, not the packing) |
+|---|---|---|
+| `panel` | 1 : 2 to 2 : 1 | the rule: every stat, table tile, gauge and small multiple. 2 : 1 is where a tile stops reading as a card and starts reading as a strip |
+| `list` | 0.3 to 2 | a long ranked list that scrolls (a's master list): read down, the rows are the content |
+| `viewer` | 0.5 to 2.4 | a camera frames whatever box it gets; a building read in elevation is wider than tall, so up to 21 : 9 |
+| `band` | 0.4 to 2.4 | the derivation table: rows × four columns beside or over the object panel |
+
+No strips: the 13×1 KPI strip and a full-width one-row bar do not exist in the
+alternatives. Romlig struktur is a compact panel in `c`, a group in `a`'s list,
+and one line under the Etasjer tile's head in `b` (merged into a neighbour's
+header, which the owner allowed). A group title row in `c` is one row, full
+width, and a heading (label and count), not a tile; the gate checks its
+alignment only.
+
+### The three alternatives
+
+**a · Linear work surface** (reference: Linear's 2026 refresh, "don't compete
+for attention you haven't earned"; master/detail after Linear's issue list →
+side panel, Figma UI3's docked panels, Vaadin master-detail; canon 2026-08-26
+"the detail panel appears only once a row is selected"). Two panes, the height
+of the screen, no page scroll. Left, one `list` tile: the three verdict counts
+as its head, then the checks and rules, Etasjer, Romlig struktur and the four
+counts as grouped sections with sticky group heads. Right, the inspector: the
+model; once a number is opened, the derivation band docks in it, under the
+model when the inspector is under 1200 px wide, beside it when wider (list
+over object panel there). The chrome recedes: the app bar sits on the ground
+with no shadow and muted words, the tab tray is flat, the cards are the
+flattest of the three.
+
+**b · Stripe summary** (reference: Stripe's home, a few key numbers and no
+widget grid; Few, "upper-left is the most expensive real estate"; Sultanum &
+Setlur 2026, KPIs are read early when prominent). Top row: the seven numbers as
+seven panels, the three verdict counts first with their figure in the
+verdict's colour, glyph and word; then the report down one column (checks,
+then Etasjer with the chain lamps under its head) with the model beside it as
+the evidence, as tall as the column. The page scrolls; it reads top to bottom
+like the delivered report. Band at the foot.
+
+**c · Grafana / Datadog overview → drill-down** (reference: Grafana rows,
+"most important top-left, one row per service" and repeated panels; Datadog
+groups; Tufte small multiples; Shneiderman overview → zoom → details). Titled
+groups. Verifikasjon: a stat block (the three verdict counts, the four counts)
+beside the checks and the model. Etasjer: Romlig struktur, then one panel per
+storey (name, kote, element count, a one-hue bar against the largest).
+With a floor config the floor matrix leads the Etasjer group instead, the
+chain as one line of lamps under its head, as in `b`.
+Klasser: one panel per IFC class. Every panel is a door: a click is the same
+focus and chip as on the bento board, and the band opens at the foot. The
+deepest cards; panels rise 2 px under the pointer. Small multiples keep one
+size so they compare; the per-row count is chosen so the last row ends full
+(storeys: the columns they leave go to the Romlig struktur panel, then one
+each to the storey columns, so the row closes on content).
+
+### The shared component family (all three)
+
+Smash's family, refined by the research's common denominators (research §1):
+
+- **Surfaces:** ground `#eeebe4` → card `#fbfaf7` → inset `#f6f4ef`; a 1 px
+  ring `rgba(40,30,18,.09)` drawn as a shadow; hairline rules
+  `rgba(40,30,18,.10)`. Cards lift with ring + contact shade + a short soft
+  fall-off (`0 1px 2px .07`, `0 6px 14px -8px .22`); a real soft shadow only on
+  what overlays (app bar, pinned band). a flatter, c deeper. (Vercel ring,
+  Linear/Raycast surface ladder, Atlassian "raised only for what moves".)
+- **Rows 32 px** everywhere the alternatives own the row; rules, no zebra;
+  table heads sticky (they already were). (PostHog Lemon, Carbon sm, P&P.)
+- **Numbers:** right-aligned, `tnum`, mono for figures and identifiers.
+- **Colour for status only**, always glyph + word + value; one accent (amber
+  `#c25a10`) for focus, selection and the one primary. Magnitude bars are one
+  neutral ink hue. (Bloomberg, Carbon status pattern, Stripe.)
+- **Hierarchy** by weight and luminance: 11 px caps labels at +0.06 em weight
+  600; verdict figures scale with their panel (`container-type: size`,
+  `clamp(26px, min(30cqh, 19cqw), 64px)`), counts smaller.
+- **Motion:** 120 ms micro, 180 ms controls and lift, 280 ms panels, ease-out;
+  reduced motion honoured. (M3 durations, Fluent.)
+- **Radius** 6 px controls, 10 px cards; pills for tabs, chips and keys. Tabs
+  are a sunken tray with the active tab raised (Smash).
+- **Type:** Archivo + IBM Plex Mono for all three.
+- Unchanged binding rules: status is a traffic light, gold caps retired, no
+  edge-stripe state cues, never #fff or #000, the 3D field not skinned.
+
+### `scripts/module-grid-gate.mjs`
+
+`npm run build && node scripts/module-grid-gate.mjs [--out dir] [--only
+1440x900,…] [--design a,b,c] [--scenario one|three]`. One headless Chrome
+(launched only with >= 4 GB free) on a LOCAL preview build, real KNM models
+(ARK alone; ARK + RIV + RIB with the test floor config at 1440 and 2112), at
+1100×800, 1280×800, 1440×900, 1920×1080, 2112×1267 and 2560×1440, for a, b and
+c, and for a with a check opened (the docked band). Asserts: the column count
+is the rule's for the grid's width; every tile's left and top on a whole
+column / row pitch and its width and height a whole number of units, within
+1 px; nothing past the last column; every tile's rendered aspect inside its
+kind's bound, and no kind outside the vocabulary; group title rows full width
+and one row tall; no `[data-essential]` value cut inside a tile; no sideways
+page scroll. It prints every tile as `id w×h = px aspect`. Screenshots to
+`tmp/alternatives/` by default.
+
+On its first runs it caught: verdict labels cut by the badge in a 142 px
+panel, `IfcBuildingStorey` cut in a 159 px chain panel, storey panels at
+2.34 : 1 and at 0.38 : 1 beside the floor matrix, the model at 2.67 : 1 in a
+second model's panel, and "339 / 398" cut at 142 px. Each was fixed in the
+layout rule, not by an exception.
+
+### Research not applied, and why
+
+- Cmd+K palette, single-key shortcuts, a density switcher, collapsible groups
+  in c: new features, not asked for.
+- Skeleton loading: the progress sweep already says "working"; no new state.
+- Sparklines under Stripe's numbers: there is no time series in one file.
+- Small multiples per MODEL: each loaded model keeps its own panel; a
+  cross-model board is a new surface. With a floor config, `c`'s Etasjer
+  group is led by the floor matrix, which is per model.
+- Datadog's high-density duplication: columns are added instead, which keeps
+  one composition.
+- The derivation band's rows stay 26 px: the row height is the windowing
+  constant of `TraceBand`, and the band behaves as before.
+- Bloomberg's zero radius and dark ground: the owner chose Smash's family.
+
+Known limits, seen in the screenshots: in `a` at 1280 to 1440 px the docked
+band under the model is 8 rows, so its list shows about five findings above the
+object panel; `c`'s storey panels can differ by one column where the storeys
+do not divide the row (2112: six at 217 px, two at 159 px).
 
 ## IDS, and where it stops
 
