@@ -130,6 +130,7 @@ const STRINGS = {
   "filter.kind.storey": { nb: "Etasje", en: "Storey" },
   "filter.kind.element": { nb: "Element", en: "Element" },
   "filter.kind.material": { nb: "Materialer", en: "Materials" },
+  "filter.kind.tree": { nb: "Klassifikasjon", en: "Classification" },
 
   /* -------------------------------------------------------------- columns */
   "col.class": { nb: "IFC-klasse", en: "IFC class" },
@@ -282,6 +283,40 @@ const STRINGS = {
   "field.storeyName": { nb: "Navn", en: "Name" },
   "field.storeyElevation": { nb: "Kote (m)", en: "Elevation (m)" },
   "action.addRow": { nb: "Legg til", en: "Add" },
+
+  /* --------------------------------------------------------- requirements */
+  // The mottakskontroll report's own terms (HI90 docs/rapport-rammeverk.md and
+  // docs/begreper.md), in its order. English is the report's gloss where it
+  // gives one (System classification, Function classification, Reference
+  // object, Phase), else the plain term.
+  "req.group.ifc": { nb: "IFC-struktur", en: "IFC structure" },
+  "req.group.std": { nb: "Standardkrav", en: "Standard requirements" },
+  "req.ifc-schema": { nb: "IFC-skjema", en: "IFC schema" },
+  "req.typeobjekt": { nb: "Typeobjekt", en: "Type object" },
+  "req.guid": { nb: "GUID", en: "GUID" },
+  "req.etasjedefinisjon": { nb: "Etasjedefinisjon", en: "Storey definition" },
+  "req.objekter-i-etasje": { nb: "Objekter i etasje", en: "Objects in storey" },
+  "req.systemkode": { nb: "Systemkode NS 3451", en: "System classification NS 3451" },
+  "req.funksjonskode": { nb: "Funksjonskode NS 3457-8", en: "Function classification NS 3457-8" },
+  "req.materiale-produkt": { nb: "Materiale / Produkt", en: "Material / Product" },
+  "req.kopiobjekt": { nb: "Kopiobjekt", en: "Reference object" },
+  "req.mmi": { nb: "MMI", en: "MMI" },
+  "req.fase": { nb: "Fase", en: "Phase" },
+  "req.dekning": { nb: "Dekning", en: "Coverage" },
+  "req.fordeling": { nb: "Fordeling", en: "Distribution" },
+  "req.fra": { nb: "fra", en: "from" },
+  "req.av": { nb: "av", en: "of" },
+  "req.avvik": { nb: "avvik", en: "deviating" },
+  "req.mangler": { nb: "mangler", en: "missing" },
+  "req.gjelderIkke": { nb: "gjelder ikke", en: "not applicable" },
+  "req.aapen": { nb: "åpen", en: "open" },
+  "req.unike": { nb: "unike verdier", en: "unique values" },
+  "req.lag.standard": { nb: "IFC", en: "IFC" },
+  "req.lag.prosjekt": { nb: "prosjekt", en: "project" },
+  "req.state.not_configured": { nb: "ikke konfigurert", en: "not configured" },
+  "req.duplikater": { nb: "Duplikater i fila", en: "Duplicates in the file" },
+  // edkjo's wording, verbatim (2026-09-25): the MMI tile with no mapping.
+  "mmi.notConfigured": { nb: "Statuskode ikke konfigurert", en: "Status code not configured" },
 
   /* ------------------------------------------------------------------ BCF */
   "action.bcf": { nb: "BCF", en: "BCF" },

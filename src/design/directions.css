@@ -369,6 +369,7 @@
   font-weight: 600;
 }
 .alt-badge {
+  white-space: nowrap;
   padding: 1px 8px;
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -429,6 +430,121 @@
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--color-ink);
+}
+
+/* ── the requirements (2026-09-25) ───────────────────────────────────── */
+
+/* The layer tag on a «fra» source: IFC or prosjekt. */
+.alt-src {
+  border-radius: var(--d-radius);
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  background-color: var(--d-tint-strong);
+  color: var(--d-label-color);
+}
+
+/* A value of a fordeling: neutral, or the verdict's fill where the row
+   flagged it (avvik amber, mangler red), glyph-free because the word or the
+   value is the text. An open ruling is outlined, not filled. */
+.alt-value {
+  border-radius: var(--d-pill);
+  padding: 1px 8px;
+  background-color: var(--d-tint);
+  color: var(--color-ink);
+}
+.alt-value[data-verdict="warn"] {
+  background-color: var(--color-gold);
+  color: var(--color-ink);
+}
+.alt-value[data-verdict="fail"] {
+  background-color: var(--color-bad);
+  color: var(--color-cream);
+}
+.alt-value-open {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--d-hair);
+}
+
+/* b: the report's status square. */
+.alt-square-fill[data-verdict="pass"] {
+  background-color: var(--color-green);
+  color: var(--color-cream);
+}
+.alt-square-fill[data-verdict="warn"] {
+  background-color: var(--color-gold);
+  color: var(--color-ink);
+}
+.alt-square-fill[data-verdict="fail"] {
+  background-color: var(--color-bad);
+  color: var(--color-cream);
+}
+.alt-square-fill[data-verdict="na"] {
+  background-color: var(--color-muted);
+  color: var(--color-cream);
+}
+
+/* The treemap: one neutral hue for codes, classes and types, shaded by depth
+   so nesting reads; status only where the rule judged the value. */
+.alt-cell {
+  background-color: rgba(22, 19, 15, 0.1);
+  color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px var(--color-panel);
+  transition: background-color var(--d-dur) var(--d-ease);
+}
+.alt-cell[data-depth="1"] {
+  background-color: rgba(22, 19, 15, 0.16);
+}
+.alt-cell[data-depth="2"],
+.alt-cell[data-depth="3"] {
+  background-color: rgba(22, 19, 15, 0.22);
+}
+.alt-cell-frame,
+.alt-cell-frame[data-depth] {
+  background-color: rgba(22, 19, 15, 0.05);
+}
+.alt-cell:hover {
+  background-color: var(--d-accent-wash);
+}
+.alt-cell[data-verdict="warn"] {
+  background-color: var(--color-gold);
+}
+.alt-cell[data-verdict="fail"] {
+  background-color: var(--color-bad);
+  color: var(--color-cream);
+}
+/* A PredefinedType fallback is not a code: hatched, so it never reads as one. */
+.alt-cell[data-kind="fallback"] {
+  background-color: var(--color-input);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(22, 19, 15, 0.09) 0 2px,
+    transparent 2px 7px
+  );
+}
+
+/* The MMI bars: one neutral ink; the avvik and mangler bars take status. */
+.alt-bar {
+  border-radius: 3px 3px 0 0;
+  background-color: rgba(22, 19, 15, 0.55);
+}
+.alt-bar-row {
+  border-radius: 0 3px 3px 0;
+}
+.alt-bar[data-verdict="warn"] {
+  background-color: var(--color-gold);
+}
+.alt-bar[data-verdict="fail"] {
+  background-color: var(--color-bad);
+}
+
+/* Scope and Detail: the card is the frame, so the band and the object panel
+   drop their own. */
+.alt-dock > section {
+  border-top-width: 0;
+  border-left-width: 0;
+  height: 100%;
 }
 
 /* The docked band in a: the card is the frame, so the band drops its own. */
@@ -551,4 +667,16 @@
   :root[data-design] {
     --d-lift: none;
   }
+}
+
+/* The requirement surfaces keep their own shapes against the shared button
+   radius above: a treemap cell is a cell, a fordeling value is a pill. */
+:root[data-design] button.alt-cell {
+  border-radius: 3px;
+}
+:root[data-design] .alt-value {
+  border-radius: var(--d-pill);
+}
+:root[data-design] button.alt-cell:active {
+  transform: none;
 }

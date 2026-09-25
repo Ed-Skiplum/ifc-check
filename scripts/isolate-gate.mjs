@@ -56,6 +56,17 @@
  *   8  a storey row    the Etasjer tile isolates that floor, and clears it
  *  9-10 three models   only the panel's OWN column in the floor matrix is a
  *                      door, and a click there leaves the other panels alone
+ * D1-D7 the design alternatives (`#design=a|b|c`, 2026-09-25): the band is
+ *                      replaced by two docked panels, Scope and Detail. Both
+ *                      empty at rest and no band anywhere · a requirement
+ *                      makes a chip, narrows the 3D and fills Scope without
+ *                      moving a tile · a Scope row is one element, framed,
+ *                      and fills Detail · the same row steps back out and
+ *                      empties Detail · the requirement again removes its
+ *                      chip and empties Scope · a canvas pick fills Detail,
+ *                      makes no chip, opens nothing in Scope and leaves the
+ *                      camera alone · a value of a fordeling is a door of
+ *                      its own
  *
  * RAM: one Chrome at a time, launched only with >= 4 GB free physical memory;
  * kills only the Chrome and the preview server it started.
@@ -300,7 +311,7 @@ const STATE = (panel_index = 0) => `(() => {
   const barText = bar ? bar.textContent : '';
   const count = barText.match(/(\\d[\\d\\u00a0\\u202f ]*)\\s*\\/\\s*(\\d[\\d\\u00a0\\u202f ]*)/);
   const num = (s) => (s === undefined ? null : Number(s.replace(/[^\\d]/g, '')));
-  const tile = panel ? panel.querySelector('[data-tile-id=viewer]') : null;
+  const tile = panel ? panel.querySelector(':is([data-tile-id=viewer], [data-mg-tile=viewer])') : null;
   const hud = tile ? [...tile.querySelectorAll('span[title]')].map((s) => s.textContent.trim())[0] ?? '' : '';
   const hudNums = hud.split('/').map((p) => num(p.trim())).filter((n) => n !== null);
   const buttons = tile ? [...tile.querySelectorAll('button')].map((b) => ({ label: b.textContent.trim(), disabled: b.disabled })) : [];
@@ -371,7 +382,7 @@ async function bandShot(name) {
 /** The canvas alone, so the comparison is the 3D and not the page around it. */
 async function canvasShot(name) {
   const rect = await evaluate(
-    `(() => { const c = document.querySelector('[role=tabpanel]:not([hidden]) [data-tile-id=viewer] canvas');
+    `(() => { const c = document.querySelector('[role=tabpanel]:not([hidden]) :is([data-tile-id=viewer], [data-mg-tile=viewer]) canvas');
       if (!c) return null; const r = c.getBoundingClientRect();
       return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height), scale: 1 }; })()`,
   );
@@ -599,7 +610,7 @@ await park();
 const beforePick = await evaluate(STATE());
 const posePreClick = await evaluate(POSE(0, []));
 const canvasBox = await evaluate(
-  `(() => { const c = document.querySelector('[role=tabpanel]:not([hidden]) [data-tile-id=viewer] canvas'); const r = c.getBoundingClientRect();
+  `(() => { const c = document.querySelector('[role=tabpanel]:not([hidden]) :is([data-tile-id=viewer], [data-mg-tile=viewer]) canvas'); const r = c.getBoundingClientRect();
     return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`,
 );
 let picked = null;
@@ -835,6 +846,135 @@ if (existsSync(resolve(ROOT, "examples/knm-floors.test.ruleset.json"))) {
       after[1].hudShown === before[1].hudShown && after[2].hudShown === before[2].hudShown,
       `10 the other models' 3D is untouched (${after[1].hud} · ${after[2].hud})`,
     );
+  }
+}
+
+/* ---- phase 3: the design alternatives' docked panels ------------------
+
+   edkjo 2026-09-25: *"When clicking an object it makes no sense to open a
+   table that hides half the page. Why not have a dedicated information panel
+   with identities in scope and another with properties/info on a selected
+   identity?"* So on `#design=a|b|c` the band is gone and two tiles of the
+   grid hold what it held: Scope (the rows behind the last click) and Detail
+   (the selected identity). The click rules above are unchanged; only where
+   the answer lands has moved. */
+const DOCK = `(() => {
+  const grid = document.querySelector('[data-mg-grid]');
+  const tiles = grid ? [...grid.querySelectorAll(':scope > [data-mg-tile]')].map((t) => t.dataset.mgTile + '@' + t.dataset.mgAt).join(' ') : '';
+  const scope = grid?.querySelector('[data-mg-tile="scope"]');
+  return {
+    tiles,
+    scopeRows: scope ? scope.querySelectorAll('[data-guid]').length : -1,
+    band: !!document.querySelector('main .sticky.bottom-0'),
+    hash: location.hash,
+  };
+})()`;
+const designs = (opt("design") ?? "a,b,c").split(",").filter(Boolean);
+for (const design of designs) {
+  await send("Page.navigate", { url: "about:blank" });
+  await sleep(400);
+  await send("Page.navigate", { url: `${base}#lang=nb&design=${design}` });
+  await until(`!!document.querySelector('input[type=file][accept=".ifc,.ifczip"]')`, 30000, "app");
+  await sleep(1200);
+  await evaluate(
+    `(() => { const b = [...document.querySelectorAll('button')].find((x) => /^(Tøm alle|Clear all)$/.test(x.textContent.trim())); b && b.click(); return true; })()`,
+  );
+  await until(`!document.querySelector('[role=tablist]')`, 30000, "empty landing");
+  await setFiles('input[type=file][accept=".ifc,.ifczip"]', [resolve(modelPath)]);
+  await until(
+    `(() => { const t = document.body.innerText; return !/Leser|I kø/.test(t) && !!document.querySelector('[data-mg-grid] canvas'); })()`,
+    300000,
+    `${design}: model ready`,
+  );
+  await sleep(4000);
+  await park();
+
+  const d0 = await evaluate(STATE());
+  const k0 = await evaluate(DOCK);
+  check(
+    d0.chips.length === 0 && k0.scopeRows === 0 && d0.panel === null && !k0.band,
+    `D1 ${design}: Scope and Detail are empty at rest, no band (${k0.scopeRows} rows, panel ${d0.panel ? "present" : "absent"})`,
+  );
+
+  // A requirement that makes a chip: the first flagged one with findings.
+  const reqs = await evaluate(`(() => [...document.querySelectorAll('[data-mg-grid] button[data-req]')].map((b) => ({ key: b.dataset.req, state: b.querySelector('[data-state]')?.dataset.state ?? '' })))()`);
+  let req = null;
+  for (const r of reqs.filter((x) => /fail|warn/.test(x.state) && x.key !== "ifc-schema")) {
+    const at = await centre(`document.querySelector('[data-mg-grid] button[data-req="${r.key}"]')`);
+    await clickAt(at.x, at.y);
+    const now = await evaluate(STATE());
+    const dock = await evaluate(DOCK);
+    if (now.chips.length === 1 && dock.scopeRows > 0) {
+      req = { ...r, at, now, dock };
+      break;
+    }
+    await clickAt(at.x, at.y);
+  }
+  check(req !== null, `D2 ${design}: a requirement click makes a chip and fills Scope (${req?.key}, ${req?.dock.scopeRows} rows)`);
+  if (!req) continue;
+  check(
+    req.now.hudShown !== null && req.now.hudShown < d0.hudTotal,
+    `D2 ${design}: the 3D narrowed to the requirement (${req.now.hud} of ${d0.hudTotal})`,
+  );
+  check(req.dock.tiles === k0.tiles && !req.dock.band, `D2 ${design}: no tile moved and nothing overlays the board`);
+
+  const rowGuid = await evaluate(`document.querySelector('[data-mg-tile="scope"] [data-guid]').getAttribute('data-guid')`);
+  const rowAt = await centre(`document.querySelector('[data-mg-tile="scope"] [data-guid]')`);
+  const before = await evaluate(POSE(0, [rowGuid]));
+  await clickAt(rowAt.x, rowAt.y);
+  const one = await evaluate(STATE());
+  const framed = await evaluate(POSE(0, [rowGuid]));
+  const k3 = await evaluate(DOCK);
+  check(one.chips.length === 2 && one.matched === 1, `D3 ${design}: a Scope row is one element (${JSON.stringify(one.chips)}, ${one.matched})`);
+  check(one.panel !== null && one.panel.fields.GlobalId === rowGuid, `D3 ${design}: Detail names it (${one.panel?.fields.GlobalId})`);
+  check(k3.tiles === k0.tiles, `D3 ${design}: no tile moved`);
+  if (before && framed && before.box !== null) {
+    check(moved(before, framed) > 0.01 && inView(framed.box), `D3 ${design}: the camera framed it (${moved(before, framed).toFixed(3)} of the radius)`);
+  } else console.log(`skip D3 camera — ${rowGuid} has no geometry in this scene`);
+  await bandShot(`D3-${design}-detail`);
+
+  await clickAt(rowAt.x, rowAt.y);
+  const back = await evaluate(STATE());
+  check(back.chips.length === 1 && back.panel === null, `D4 ${design}: the same row steps back out and Detail is empty (${JSON.stringify(back.chips)})`);
+
+  // D6 before D5: with the requirement's chip on, Vis kun can leave the
+  // scene empty (a requirement whose findings carry no geometry), and a
+  // pick needs something to hit. So undo first, then pick with Scope empty.
+  await clickAt(req.at.x, req.at.y);
+  const undone = await evaluate(STATE());
+  const kUndone = await evaluate(DOCK);
+  check(undone.chips.length === 0 && kUndone.scopeRows === 0, `D6 ${design}: the requirement again removes its chip and empties Scope`);
+
+  const canvas = await evaluate(
+    `(() => { const c = document.querySelector('[data-mg-tile=viewer] canvas'); const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`,
+  );
+  const kBefore = await evaluate(DOCK);
+  const poseBefore = await evaluate(POSE(0, []));
+  let pick = null;
+  for (const [dx, dy] of [[0.5, 0.5], [0.45, 0.55], [0.55, 0.45], [0.5, 0.6], [0.4, 0.5]]) {
+    await clickAt(canvas.x + canvas.w * dx, canvas.y + canvas.h * dy);
+    pick = await evaluate(STATE());
+    if (pick.panel !== null) break;
+  }
+  const kAfter = await evaluate(DOCK);
+  const poseAfter = await evaluate(POSE(0, []));
+  check(pick !== null && pick.panel !== null && (pick.panel.fields.GlobalId ?? "") !== "", `D5 ${design}: a canvas pick fills Detail (${pick?.panel?.fields.GlobalId})`);
+  check(pick !== null && pick.chips.length === 0, `D5 ${design}: and makes no chip (${JSON.stringify(pick?.chips)})`);
+  check(kAfter.scopeRows === kBefore.scopeRows && kAfter.hash === kBefore.hash, `D5 ${design}: Scope is untouched, the pick opens nothing there (${kAfter.scopeRows} rows)`);
+  check(poseBefore !== null && poseAfter !== null && moved(poseBefore, poseAfter) < 1e-9, `D5 ${design}: the camera did not move`);
+
+  const value = await evaluate(`(() => { const b = document.querySelector('[data-mg-grid] [data-value-door]'); if (!b) return null; b.setAttribute('data-gate-value', ''); return b.textContent.trim(); })()`);
+  if (value === null) {
+    check(false, `D7 ${design}: no value of a fordeling is a door`);
+  } else {
+    const at = await centre(`document.querySelector('[data-gate-value]')`);
+    await clickAt(at.x, at.y);
+    const v = await evaluate(STATE());
+    const kv = await evaluate(DOCK);
+    check(v.chips.length === 1 && kv.scopeRows > 0, `D7 ${design}: a value (${value}) makes a chip and fills Scope (${kv.scopeRows} rows)`);
+    await clickAt(at.x, at.y);
+    const off = await evaluate(STATE());
+    check(off.chips.length === 0, `D7 ${design}: the same value again removes it`);
   }
 }
 

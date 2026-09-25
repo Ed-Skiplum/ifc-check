@@ -55,6 +55,9 @@ import {
  *  than widening the column for everything. */
 const COLUMNS = "max-content 18em 4.5em";
 const FILL_COLUMNS = "max-content minmax(18em, 1fr) 4.5em";
+/** Without the % column (a narrow tile in `#design=c`): the share repeats
+ *  the value's own two counts, so it is the column that can go. */
+const FILL_COLUMNS_NO_SHARE = "max-content minmax(18em, 1fr)";
 
 interface VerificationProps {
   lang: Lang;
@@ -79,6 +82,8 @@ interface VerificationProps {
    *  alternatives, where the tile is sized to the list): the rows then end
    *  at the tile's edge instead of partway across it. */
   fill?: boolean;
+  /** false: no % column. */
+  share?: boolean;
 }
 
 // Row and type ride the grid's list line (`--bento-line`, a fixed fraction of
@@ -116,6 +121,7 @@ export function Verification({
   rules,
   readouts,
   fill = false,
+  share: withShare = true,
 }: VerificationProps) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden bg-input">
@@ -124,12 +130,15 @@ export function Verification({
           "grid min-h-0 content-start gap-x-2 overflow-x-hidden overflow-y-auto text-[length:var(--bento-fs)] [scrollbar-gutter:stable] " +
           (readouts ? "flex-none" : "flex-1")
         }
-        style={{ gridTemplateColumns: fill ? FILL_COLUMNS : COLUMNS, gridAutoRows: "max-content" }}
+        style={{
+          gridTemplateColumns: !withShare ? FILL_COLUMNS_NO_SHARE : fill ? FILL_COLUMNS : COLUMNS,
+          gridAutoRows: "max-content",
+        }}
       >
         <div className="sticky top-0 z-10 col-span-full grid h-[var(--bento-line)] grid-cols-subgrid items-center border-b border-line bg-panel px-[var(--bento-pad)] font-semibold tracking-[0.12em] text-gold uppercase">
           <span className="truncate text-[length:var(--bento-fs-sm)]">{t("col.check", lang)}</span>
           <span className="truncate text-[length:var(--bento-fs-sm)]">{t("col.found", lang)}</span>
-          <span className="text-right text-[length:var(--bento-fs-sm)]">%</span>
+          {withShare ? <span className="text-right text-[length:var(--bento-fs-sm)]">%</span> : null}
         </div>
 
         {checks.map((check) => {
@@ -174,14 +183,16 @@ export function Verification({
                 </span>
               </span>
 
-              <span data-essential className={SHARE}>
-                {share}
-              </span>
+              {withShare ? (
+                <span data-essential className={SHARE}>
+                  {share}
+                </span>
+              ) : null}
             </button>
           );
         })}
 
-        {rules ? <RuleRows lang={lang} rules={rules} selected={selected} onFocus={onFocus} /> : null}
+        {rules ? <RuleRows lang={lang} rules={rules} selected={selected} onFocus={onFocus} share={withShare} /> : null}
       </div>
 
       {readouts ? (
@@ -200,11 +211,13 @@ function RuleRows({
   rules,
   selected,
   onFocus,
+  share = true,
 }: {
   lang: Lang;
   rules: NonNullable<VerificationProps["rules"]>;
   selected: string | null;
   onFocus: (focus: Focus) => void;
+  share?: boolean;
 }) {
   const results = rules.evaluation?.results;
   return (
@@ -260,11 +273,13 @@ function RuleRows({
                   </span>
                 ) : null}
               </span>
-              <span data-essential className={SHARE}>
-                {evaluable && result.applicable > 0
-                  ? formatShare(Math.max(0, result.applicable - result.failed), result.applicable, lang)
-                  : ""}
-              </span>
+              {share ? (
+                <span data-essential className={SHARE}>
+                  {evaluable && result.applicable > 0
+                    ? formatShare(Math.max(0, result.applicable - result.failed), result.applicable, lang)
+                    : ""}
+                </span>
+              ) : null}
             </button>
           );
         })

@@ -36,6 +36,7 @@ import type { IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import type { MeshBatch, MeshBudget } from "../viewer/mesh-stream";
 import type { CheckResult } from "../engine/types";
 import type { ModelResult } from "../ids/evaluate.ts";
+import type { BoardData } from "./report-rows";
 import type { Ruleset } from "../ids/types.ts";
 import {
   cacheKeyOf,
@@ -81,6 +82,14 @@ export interface ModelEntry {
    *  exclusions, the floor config); clearing it puts these back, so a cleared
    *  ruleset never leaves its filtered checks on the board. */
   baseChecks?: CheckResult[];
+  /** The report contract rows (`src/engine/report.ts`), the mapping rows
+   *  per-value doors and the code treemaps, built in the worker over the same
+   *  checks as `report` (`report-rows.ts`). The design alternatives read
+   *  these and compute nothing. */
+  board?: BoardData;
+  /** The board data as parsed, with no ruleset; restored when the ruleset
+   *  clears. */
+  baseBoard?: BoardData;
   /** Present once a ruleset has been evaluated against this model. */
   evaluation?: ModelResult;
   evaluationError?: string;
@@ -259,6 +268,8 @@ function createController(setModels: SetModels): Controller {
           report: message.report,
           profile: message.profile,
           baseChecks: message.report.checks,
+          board: message.board,
+          baseBoard: message.board,
         });
         const draft = drafts.get(id);
         if (draft) {
@@ -316,6 +327,7 @@ function createController(setModels: SetModels): Controller {
                   evaluation: message.result,
                   evaluationError: undefined,
                   report: m.report ? { ...m.report, checks: message.checks } : m.report,
+                  board: message.board,
                 }
               : m,
           ),
@@ -571,6 +583,7 @@ function createController(setModels: SetModels): Controller {
           current.map((m) => ({
             ...m,
             report: m.report && m.baseChecks ? { ...m.report, checks: m.baseChecks } : m.report,
+            board: m.baseBoard,
             evaluating: false,
             evaluation: undefined,
             evaluationError: undefined,

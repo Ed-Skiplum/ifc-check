@@ -99,9 +99,9 @@ export interface ReportRow {
   /** Why the row is not_applicable / not_evaluable / not_configured, in the
    *  engine's own (English) words. Absent otherwise. */
   grunn?: string;
-  /** The accepted values, on a standard-layer row that judges against a
-   *  list (`ifc-schema`, `phase`): the standard's, or the project layer's
-   *  replacement. Absent otherwise. */
+  /** The accepted values, on a row that judges against a list: `ifc-schema`
+   *  and `phase` (the standard's, or the project layer's replacement), and a
+   *  code-lookup rule with its own `values` (MMI). Absent otherwise. */
   godtatte?: string[];
   /** On `material-product` only: every open ruling on the mengdetype tables,
    *  with the in-scope objects whose mengdetype one of its classes decided.
@@ -648,6 +648,9 @@ function ruleRow(rule: Rule, result: RuleResult, input: ReportInput, excludedAny
     if (check.type === "code-lookup") {
       const s = sourceOf(check.source);
       kilder = [{ ...s, n: cov ? cov.sourceHits : null, foretrukket: true }];
+      // The project's own allowed codes (MMI, a copy-object list): the values
+      // the row judged against, as on `ifc-schema` and `phase`.
+      if (check.values !== undefined) row.godtatte = [...check.values];
     } else if (check.type === "element-typed") {
       kilder = [source("IfcRelDefinesByType", cov ? cov.sourceHits : null)];
     } else if (check.type === "type-usage-count") {

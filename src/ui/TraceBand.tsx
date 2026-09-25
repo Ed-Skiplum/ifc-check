@@ -108,6 +108,9 @@ interface TraceBandProps {
    *  in a tall, narrow inspector (`#design=a` on a wide screen), where side by
    *  side would cut both. Absent, the band is laid out as it always was. */
   stack?: boolean;
+  /** The list alone, no object panel beside it: the Scope panel of the design
+   *  alternatives, where the object panel is its own docked Detail panel. */
+  alone?: boolean;
 }
 
 export function TraceBand({
@@ -120,6 +123,7 @@ export function TraceBand({
   onHover,
   onClose,
   stack = false,
+  alone = false,
 }: TraceBandProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -147,7 +151,13 @@ export function TraceBand({
       ),
     [rows, lang],
   );
-  const { columns, width } = useMemo(() => columnsFor(rows, reasons), [rows, reasons]);
+  const fitted = useMemo(() => columnsFor(rows, reasons), [rows, reasons]);
+  // Alone, the list has the panel to itself and may be narrow: the GUID keeps
+  // its width, the other three share the rest and ellipsize (full text in
+  // `title`, as before).
+  const { columns, width } = alone
+    ? { columns: "25ch minmax(8ch,1fr) minmax(8ch,1fr) minmax(10ch,1.4fr)", width: "100%" }
+    : fitted;
   // A row that carries a reason IS a finding of the open check or rule, so its
   // reason is drawn in the focal's verdict cell: the same fill and glyph the
   // row above had, read the same way down here (2026-09-24).
@@ -292,6 +302,7 @@ export function TraceBand({
             : "flex min-h-0 min-w-0 shrink-0 flex-col text-[12px]"
         }
         style={stack ? undefined : { width }}
+        data-scope-list={alone ? "" : undefined}
       >
       <div
         // The same `gap-x-2` the rows carry, or every header after the first
@@ -384,9 +395,11 @@ export function TraceBand({
       </div>
       </div>
 
-      <div className={stack ? "h-1/2 min-h-0 min-w-0 shrink-0 border-t border-line" : "min-h-0 min-w-0 flex-1"}>
-        <ObjectPanel lang={lang} model={model} selection={selection} />
-      </div>
+      {alone ? null : (
+        <div className={stack ? "h-1/2 min-h-0 min-w-0 shrink-0 border-t border-line" : "min-h-0 min-w-0 flex-1"}>
+          <ObjectPanel lang={lang} model={model} selection={selection} />
+        </div>
+      )}
       </div>
     </section>
   );

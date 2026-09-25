@@ -21,6 +21,7 @@ import {
   type ElementBox,
 } from "../engine/placement";
 import { checkStoreyConfig } from "../engine/storey-config";
+import { boardData, type BoardData } from "./report-rows";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import {
   MESH_PRODUCTS_PER_BATCH,
@@ -53,7 +54,9 @@ export type ModelWorkerResponse =
    *  thread can cache it (`src/storage/model-cache.ts`) and a later session can
    *  restore this model without the file. Absent on the restore path, whose
    *  graph came out of that cache in the first place. */
-  | { kind: "parsed"; report: ModelReport; profile: ModelProfile; graph?: IfcGraph }
+  /** `board` is the report contract (`src/engine/report.ts`) over the same
+   *  checks, the rows the dashboard's requirements read. */
+  | { kind: "parsed"; report: ModelReport; profile: ModelProfile; board: BoardData; graph?: IfcGraph }
   | { kind: "parse-error"; fileName: string; message: string }
   | { kind: "mesh-batch"; batch: MeshBatch }
   | { kind: "mesh-done"; shift: [number, number, number]; budget: MeshBudget }
@@ -61,7 +64,7 @@ export type ModelWorkerResponse =
   /** `checks` is the fundamentals re-run over this ruleset's exclusions: the
    *  same rows the parse produced when the copy-object mapping is absent or
    *  excludes nothing, filtered when it excludes reference objects. */
-  | { kind: "evaluated"; result: ModelResult; checks: CheckResult[] }
+  | { kind: "evaluated"; result: ModelResult; checks: CheckResult[]; board: BoardData }
   | { kind: "evaluate-error"; message: string };
 
 let ready: Promise<unknown> | null = null;
@@ -217,7 +220,8 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
         checkMeshPlacement(graph, summary, boxes),
       ],
     };
-    send({ kind: "parsed", report, profile: withTypeFacts(profileOf(graph), graph), graph });
+    const board = boardData(graph, summary, fileName, report.checks, null, null);
+    send({ kind: "parsed", report, profile: withTypeFacts(profileOf(graph), graph), board, graph });
   } catch (err) {
     // A file that cannot be parsed is reported as itself, never folded into
     // the others as a pass or dropped from the run.
@@ -244,7 +248,8 @@ function evaluate(ruleset: Ruleset) {
       checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
     ];
-    send({ kind: "evaluated", result, checks });
+    const board = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
+    send({ kind: "evaluated", result, checks, board });
   } catch (err) {
     send({
       kind: "evaluate-error",

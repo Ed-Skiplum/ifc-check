@@ -28,6 +28,7 @@ import { profileOf } from "./rehydrate.ts";
 // A restored board must carry the same type facts a freshly parsed one does,
 // or the type ledger renders dead on exactly the path the cache exists for.
 import { withTypeFacts } from "../ui/types/facts.ts";
+import { boardData } from "../ui/report-rows.ts";
 
 export type RestoreWorkerRequest =
   | {
@@ -79,6 +80,7 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
       kind: "parsed",
       report,
       profile: withTypeFacts(profileOf(request.graph), request.graph),
+      board: boardData(request.graph, request.summary, request.fileName, report.checks, null, null),
     });
   } catch (err) {
     // A restore that cannot be completed fails as loudly as a parse that
@@ -107,7 +109,8 @@ function evaluate(ruleset: Ruleset) {
       checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded, heldNoGeometry),
     ];
-    post({ kind: "evaluated", result, checks });
+    const board = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
+    post({ kind: "evaluated", result, checks, board });
   } catch (err) {
     post({
       kind: "evaluate-error",

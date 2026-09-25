@@ -81,8 +81,10 @@ interface DashboardProps {
    *  own layout on the module grid (`alt/AltBoard.tsx`). Absent: the bento
    *  board, untouched. */
   design?: Design | null;
-  /** `#design=a` only: the derivation band, docked in the inspector. */
-  inspector?: ReactNode;
+  /** The design alternatives only: the Scope and Detail panels, docked on
+   *  the board (`alt/AltBoard.tsx`). */
+  scope?: ReactNode;
+  detail?: ReactNode;
 }
 
 export function Dashboard({
@@ -100,7 +102,8 @@ export function Dashboard({
   peers,
   rules,
   design,
-  inspector,
+  scope,
+  detail,
 }: DashboardProps) {
   const { ref, cols, space } = useBentoCols();
   const report = model.report;
@@ -138,7 +141,6 @@ export function Dashboard({
         design={design}
         lang={lang}
         model={model}
-        census={census}
         claims={claims}
         selected={selected}
         onFocus={onFocus}
@@ -146,10 +148,9 @@ export function Dashboard({
         matched={matched}
         onPick={onPick}
         onHover={onHover}
-        floors={floors}
-        peers={peers}
         rules={rules}
-        inspector={inspector}
+        scope={scope ?? null}
+        detail={detail ?? null}
       />
     );
   }

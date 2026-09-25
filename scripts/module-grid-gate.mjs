@@ -10,12 +10,19 @@
  *    within 1 px, and no tile past the last column
  *  - every tile's rendered aspect is inside its kind's bounds (`MG_ASPECT`);
  *    a kind not in the vocabulary fails
- *  - a group title row (c) spans the grid and is one row tall
+ *  - a group title row (c) spans its region and is one row tall
  *  - no `[data-essential]` value is cut inside a tile (cramped content)
- *  - no sideways page scroll
+ *  - no sideways page scroll, and NO VERTICAL PAGE SCROLL (2026-09-25, the
+ *    owner: "fit to viewport for the dash"): with one model the page does not
+ *    scroll at all; with several, every model's board fits the screen
+ *  - the docked panels (2026-09-25): Scope and Detail are tiles of the grid,
+ *    empty until used; a requirement click fills Scope, a Scope row fills
+ *    Detail, and the tiles do not move while that happens (nothing overlays)
  *
- * Also: `a` with a derivation open (the band docked in the inspector), and
- * the three-model + test-floor-config scenario at 1440 and 2112.
+ * Scenarios: KNM_ARK alone; KNM ARK + RIV + RIB with the test floor config at
+ * 1440 and 2112; HI90_ARK without and with
+ * `examples/hi90-project-layer.test.ruleset.json` at 1440 and 2112 (when the
+ * HI90 export is on this machine).
  *
  * Screenshots to `--out` (default tmp/alternatives/):
  * `<design>-<scenario>-<w>x<h>.png`, and `-full.png` when the page is taller
@@ -40,6 +47,8 @@ const CDP = 9335;
 const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const DEFAULT_MODELS =
   "C:/workspace/skiplum/client-projects/10016-kistefos/underprosjekter/KNM_Void-demo/01_inn/export_2026-09-14";
+const HI90_ARK =
+  "C:/workspace/skiplum/client-projects/10021-henrik-ibsens-gate-90/underprosjekter/HI90_Mottakskontroll/01_Inn/Dalux-eksport/Export HI90 22. sep. 2026, 1254/HI90_ARK.ifc";
 
 const args = process.argv.slice(2);
 const opt = (name) => {
@@ -48,7 +57,7 @@ const opt = (name) => {
 };
 const liveUrl = opt("url");
 const modelsDir = opt("models") ?? DEFAULT_MODELS;
-const OUT = resolve(opt("out") ?? resolve(ROOT, "tmp/alternatives"));
+const OUT = resolve(opt("out") ?? resolve(ROOT, "tmp/panels"));
 const only = opt("only")?.split(",");
 const DESIGNS = (opt("design") ?? "a,b,c").split(",");
 const onlyScenario = opt("scenario");
@@ -64,15 +73,23 @@ const VIEWPORTS = [
 ].filter((v) => !only || only.includes(`${v.w}x${v.h}`));
 
 const floorsRuleset = resolve(ROOT, "examples/knm-floors.test.ruleset.json");
+const hi90Ruleset = resolve(ROOT, "examples/hi90-project-layer.test.ruleset.json");
+const knm = (f) => resolve(modelsDir, f);
 const SCENARIOS = [
-  { name: "one", files: ["KNM_ARK.ifc"], ruleset: null, sizes: null },
+  { name: "one", files: [knm("KNM_ARK.ifc")], ruleset: null, sizes: null },
   {
     name: "three",
-    files: ["KNM_ARK.ifc", "KNM_RIV.ifc", "KNM_RIB.ifc"],
+    files: ["KNM_ARK.ifc", "KNM_RIV.ifc", "KNM_RIB.ifc"].map(knm),
     ruleset: floorsRuleset,
     sizes: ["1440x900", "2112x1267"],
   },
-].filter((s) => !onlyScenario || s.name === onlyScenario);
+  ...(existsSync(HI90_ARK)
+    ? [
+        { name: "hi90", files: [HI90_ARK], ruleset: null, sizes: ["1440x900", "2112x1267"] },
+        { name: "hi90-fixture", files: [HI90_ARK], ruleset: hi90Ruleset, sizes: ["1440x900", "2112x1267"] },
+      ]
+    : []),
+].filter((s) => !onlyScenario || onlyScenario.split(",").includes(s.name));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -304,14 +321,39 @@ const MEASURE = `(() => {
     for (const el of grid.querySelectorAll(':scope > [data-mg-row]')) {
       const r = el.getBoundingClientRect();
       const y = r.top - g.top;
-      if (Math.abs(r.left - g.left) > 1 || Math.abs(r.width - g.width) > 1) fails.push('row ' + el.dataset.mgRow + ': not full width');
+      const [sx, sw] = (el.dataset.mgSpan ?? '0,' + cols).split(',').map(Number);
+      const wantLeft = g.left + sx * pitch, wantWidth = sw * pitch - G;
+      if (Math.abs(r.left - wantLeft) > 1 || Math.abs(r.width - wantWidth) > 1) fails.push('row ' + el.dataset.mgRow + ': does not span its region ' + sx + '+' + sw);
       if (Math.abs(y - Math.round(y / PY) * PY) > 1) fails.push('row ' + el.dataset.mgRow + ': off the row grid');
       if (Math.abs(r.height - ROW) > 1) fails.push('row ' + el.dataset.mgRow + ': not one row tall');
     }
   }
   if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) fails.push('page scrolls sideways');
+  // Fit to the viewport: one model, no page scroll at all; several, each
+  // model's board inside one screen of the page.
+  const main = document.querySelector('main');
+  if (document.documentElement.scrollHeight > document.documentElement.clientHeight + 1) fails.push('the document scrolls vertically');
+  if (main && grids.length === 1 && main.scrollHeight > main.clientHeight + 1)
+    fails.push('page scrolls vertically: ' + main.scrollHeight + ' > ' + main.clientHeight);
+  if (main) for (const grid of grids) {
+    const panel = grid.closest('main > section');
+    const top = panel ? panel.getBoundingClientRect().top : 0;
+    const bottom = grid.getBoundingClientRect().bottom;
+    if (bottom - top > main.clientHeight + 1) fails.push('a model board is taller than the screen: ' + Math.round(bottom - top) + ' > ' + main.clientHeight);
+  }
   const grid = grids[0];
   return { fails, tiles, cols: Number(grid.dataset.mgCols), pitch: Number(grid.dataset.mgPitch), width: Math.round(grid.getBoundingClientRect().width) };
+})()`;
+
+const DOCKS = `(() => {
+  const grid = document.querySelector('[data-mg-grid]');
+  const scope = grid?.querySelector('[data-mg-tile="scope"]');
+  const detail = grid?.querySelector('[data-mg-tile="detail"]');
+  return {
+    scopeRows: scope ? scope.querySelectorAll('[data-guid]').length : -1,
+    detail: !!detail?.querySelector('[data-object-panel]'),
+    band: !!document.querySelector('main .sticky.bottom-0'),
+  };
 })()`;
 
 async function openEmpty(design) {
@@ -360,10 +402,7 @@ for (const scenario of SCENARIOS) {
     await setFiles('input[type=file][accept=".ids,.xml,.json"]', [scenario.ruleset]);
     await sleep(500);
   }
-  await setFiles(
-    'input[type=file][accept=".ifc,.ifczip"]',
-    scenario.files.map((f) => resolve(modelsDir, f)),
-  );
+  await setFiles('input[type=file][accept=".ifc,.ifczip"]', scenario.files);
   await until(
     `(() => { const t = document.body.innerText; return !/Leser|I kø/.test(t) && document.querySelectorAll('canvas').length >= ${scenario.files.length}; })()`,
     300000,
@@ -381,21 +420,45 @@ for (const scenario of SCENARIOS) {
       await shot(name, v);
       report(name, m, v);
 
-      // a: open the first failing check, so the band docks in the inspector.
-      if (design === "a" && scenario.name === "one") {
-        await evaluate(`(() => {
-          const row = [...document.querySelectorAll('[data-mg-tile="list"] button')].find((b) => /Avvik|Deviation/.test(b.textContent));
-          row && row.click();
-          return !!row;
-        })()`);
-        await sleep(800);
-        await settle();
-        const mb = await evaluate(MEASURE);
-        if (!mb.tiles.some((t) => t.id === "band")) mb.fails.push("no docked band after opening a check");
-        await shot(`${name}-band`, v);
-        report(`${name}-band`, mb, v);
-        await setDesign(design);
-      }
+      // The docked panels: a requirement fills Scope, a Scope row fills
+      // Detail, and the grid does not move while it happens. Both empty
+      // before; nothing overlays the board after.
+      const place = (mm) => JSON.stringify(mm.tiles.map((t) => [t.id, t.x, t.y, t.w, t.h]));
+      const grid0 = place(m);
+      const empty = await evaluate(DOCKS);
+      if (empty.scopeRows !== 0 || empty.detail) m.fails.push(`Scope/Detail not empty at rest (${JSON.stringify(empty)})`);
+      const opened = await evaluate(`(() => {
+        const first = document.querySelector('[data-mg-grid]');
+        const reqs = [...first.querySelectorAll('button[data-req]')];
+        const state = (b) => b.querySelector('[data-state]')?.dataset.state ?? '';
+        const pick = reqs.find((b) => /fail|warn/.test(state(b)) && b.dataset.req !== 'ifc-schema') ?? reqs[0];
+        if (!pick) return null;
+        pick.click();
+        return pick.dataset.req;
+      })()`);
+      await sleep(900);
+      await settle();
+      const mr = await evaluate(MEASURE);
+      const docks = await evaluate(DOCKS);
+      if (!opened) mr.fails.push("no requirement to click");
+      if (docks.scopeRows <= 0) mr.fails.push(`a requirement click (${opened}) left Scope empty`);
+      if (docks.band) mr.fails.push("a band overlays the board");
+      if (place(mr) !== grid0) mr.fails.push("the tiles moved when Scope filled");
+      report(`${name}-req`, mr, v);
+      await evaluate(`(() => { const r = document.querySelector('[data-mg-tile="scope"] [data-guid]'); r && r.click(); return !!r; })()`);
+      await sleep(900);
+      await settle();
+      const ms = await evaluate(MEASURE);
+      const picked = await evaluate(DOCKS);
+      if (!picked.detail) ms.fails.push("a Scope row left Detail empty");
+      if (place(ms) !== grid0) ms.fails.push("the tiles moved when Detail filled");
+      await shot(`${name}-selected`, v);
+      report(`${name}-selected`, ms, v);
+      // Step back out (the same row again), clear, for the next state.
+      await evaluate(`(() => { const r = document.querySelector('[data-mg-tile="scope"] [data-guid]'); r && r.click(); return true; })()`);
+      await sleep(400);
+      await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => /^(Tøm filter|Clear filter)$/.test(x.textContent.trim())); b && b.click(); return true; })()`);
+      await setDesign(design);
     }
   }
 }
