@@ -129,6 +129,7 @@ const STRINGS = {
   "filter.kind.type": { nb: "Type", en: "Type" },
   "filter.kind.storey": { nb: "Etasje", en: "Storey" },
   "filter.kind.element": { nb: "Element", en: "Element" },
+  "filter.kind.material": { nb: "Materialer", en: "Materials" },
 
   /* -------------------------------------------------------------- columns */
   "col.class": { nb: "IFC-klasse", en: "IFC class" },

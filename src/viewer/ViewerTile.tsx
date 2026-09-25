@@ -33,6 +33,7 @@ import {
   type MeshSet,
 } from "./mesh-stream";
 import { ModelScene, type Mode } from "./scene";
+import { registerDock } from "./dock";
 
 declare global {
   interface Window {
@@ -147,6 +148,8 @@ export function ViewerTile({
     registry.push(instance);
 
     const observer = new ResizeObserver(() => {
+      // Lent to the Graf tab (`dock.ts`): the borrower sizes it there.
+      if (element.parentElement !== box) return;
       const rect = box.getBoundingClientRect();
       instance.resize(rect.width, rect.height, INSETS);
     });
@@ -171,6 +174,24 @@ export function ViewerTile({
     if (!set) return;
     scene.current?.load(set, framing);
   }, [set, framing]);
+
+  // Offer this scene to the Graf tab of the same model (`dock.ts`).
+  useEffect(() => {
+    const instance = scene.current;
+    const element = canvas.current;
+    const box = holder.current;
+    if (!batches || !instance || !element || !box) return;
+    const restore = () => {
+      if (element.parentElement !== box) box.insertBefore(element, box.firstChild);
+      const rect = box.getBoundingClientRect();
+      instance.resize(rect.width, rect.height, INSETS);
+    };
+    const unregister = registerDock(batches, { scene: instance, canvas: element, home: box, restore });
+    return () => {
+      unregister();
+      restore();
+    };
+  }, [batches]);
 
   useEffect(() => {
     scene.current?.setFilter(matched, mode);
@@ -237,6 +258,7 @@ export function ViewerTile({
       {/* CSS sizes the BOX; `ModelScene.resize` sizes the drawing buffer. */}
       <canvas
         ref={canvas}
+        data-viewer-canvas
         tabIndex={0}
         className="block h-full w-full cursor-crosshair outline-none"
       />

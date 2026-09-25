@@ -1,194 +1,255 @@
-/** How each direction PAINTS the same graph.
+/** How the Graf tab is PAINTED: a canvas, drawn as a space.
  *
- * The nodes, the edges and the labels are the same facts in all four skins —
- * every edge is still an `IfcRel*` the profile really carries, and nothing is
- * added or dropped for looks. What differs is the material: glyph weight, the
- * line, whether an edge bows, whether a label sits on a chip, whether a node
- * stands on a shadow, and how much room a label has to win before it is drawn.
+ * edkjo on the flat drawing (2026-09-25): *"very boring looking. square nodes
+ * and flat UI. make it feel more like a space with information. Neural
+ * network."* So the field is dark and deep, and the drawing is light on it:
  *
- * Kept out of `GraphTab` because the tab is already the longest file on this
- * surface, and because a skin is a table rather than a branch.
+ *   · round nodes that glow, sized by the weight they stand for (a storey by
+ *     its element count, a class bucket by its members)
+ *   · edges as faint luminous threads that thin out with length and depth
+ *   · depth: every node has a z; far nodes are smaller, dimmer and softer (a
+ *     blurred bokeh rather than a crisp core), and what is far from the
+ *     selection falls back into the depth while its neighbourhood comes
+ *     forward
+ *   · parallax against the pointer, and a slow ambient drift
+ *   · a selection lights its neighbourhood, pulses running out along the
+ *     edges like firing synapses, while the rest dims
+ *
+ * What stays legible: the verdict colours (Avvik red, Advarsel amber) keep a
+ * floor on their opacity whatever the depth, the class colours are one cool
+ * ramp so the warm verdicts stand out of it, and labels are drawn on focus and
+ * hover over a dark outline.
+ *
+ * Canvas 2D rather than WebGL: the glow is a pre-rendered sprite per colour
+ * composited with `lighter`, which is what a shader would do here, at a few
+ * milliseconds for two thousand nodes and without a second GL context beside
+ * the viewer's.
  */
 
-import type { Design } from "./useHashView";
+import type { GNode, NodeKind, Tone } from "./graph-model";
 
-export interface GraphSkin {
-  /** Glyph radius multiplier. */
-  scale: number;
-  /** Edge stroke width in px, at zoom 1. */
-  edgeWidth: number;
-  /** Edge opacity at rest. */
-  edgeAlpha: number;
-  /** 0 draws a straight line; above that the edge bows by this fraction of its
-   *  own length. */
-  bow: number;
-  /** A soft ring behind a node, sized from its glyph. Off where the canon
-   *  retires the glow vocabulary. */
-  halo: number;
-  /** Draw the node label on a filled chip rather than bare on the field. */
-  chip: boolean;
-  /** Corner radius of that chip. */
-  chipRadius: number;
-  /** Font for the node's name. */
-  labelFamily: "mono" | "sans";
-  labelWeight: number;
-  labelSize: number;
-  /** Font for the IFC token under the name, and for the edge's relationship. */
-  subFamily: "mono" | "sans";
-  subSize: number;
-  /** Tracking on the IFC token, in em. */
-  subTracking: number;
-  /** Edge labels appear once the edge is at least this many px long on screen.
-   *  A higher floor is a quieter drawing. */
-  edgeLabelFloor: number;
-  /** Stroke width of the ring drawn around a selected node. */
-  activeWidth: number;
-  /** The mark around a selected node: a ring, or a square bracket. */
-  activeShape: "ring" | "square";
-  /** Edge colour, as a CSS colour. */
-  edgeStroke: string;
-  /** Frame the label chip with an ink hairline. */
-  chipStroke: boolean;
-  /** Depth: a shadow this many px under the node and its chip. 0 is flat. */
-  drop: number;
+export type Rgb = readonly [number, number, number];
+
+export interface Palette {
+  building: Rgb;
+  storey: Rgb;
+  bucket: Rgb;
+  site: Rgb;
+  rel: Record<"type" | "material" | "classification" | "pset" | "quantity" | "count" | "more", Rgb>;
+  fail: Rgb;
+  warn: Rgb;
+  accent: Rgb;
+  edge: Rgb;
+  label: Rgb;
+  outline: string;
+  mono: string;
+  classes: Map<string, Rgb>;
 }
 
-const BASE: GraphSkin = {
-  scale: 1,
-  edgeWidth: 1.25,
-  edgeAlpha: 1,
-  bow: 0,
-  halo: 0,
-  chip: false,
-  chipRadius: 0,
-  labelFamily: "mono",
-  labelWeight: 400,
-  labelSize: 10,
-  subFamily: "mono",
-  subSize: 9,
-  subTracking: 0,
-  edgeLabelFloor: 46,
-  activeWidth: 2,
-  activeShape: "ring",
-  edgeStroke: "var(--color-line)",
-  chipStroke: false,
-  drop: 0,
-};
-
-export const GRAPH_SKIN: Record<"default" | Design, GraphSkin> = {
-  /* The board as it shipped: the drawing is unchanged, only its layout is now
-     alive. Nothing about the default's look moves because three mockups
-     exist. */
-  default: BASE,
-
-  /* A — INSTRUMENT. Thin, exact, everything tracked mono on a dot grid. An
-     instrument does not bow its lines; a name sits in a square framed tag,
-     and a selected node is bracketed by a square, not ringed. */
-  a: {
-    ...BASE,
-    scale: 0.94,
-    edgeWidth: 1,
-    edgeAlpha: 0.7,
-    edgeStroke: "var(--color-muted)",
-    chip: true,
-    chipRadius: 0,
-    chipStroke: true,
-    labelFamily: "mono",
-    labelWeight: 500,
-    labelSize: 10,
-    subFamily: "mono",
-    subSize: 8.5,
-    subTracking: 0.16,
-    edgeLabelFloor: 52,
-    activeWidth: 1.5,
-    activeShape: "square",
-  },
-
-  /* B — PAPIR. Ink on paper: straight ink lines at a pencil's strength, the
-     name bare on the sheet in the page's own sans at weight, no chip, no
-     glow, no depth. */
-  b: {
-    ...BASE,
-    scale: 1.08,
-    edgeWidth: 1.2,
-    edgeAlpha: 0.34,
-    edgeStroke: "var(--color-ink)",
-    labelFamily: "sans",
-    labelWeight: 700,
-    labelSize: 11,
-    subFamily: "mono",
-    subSize: 8.5,
-    subTracking: 0.08,
-    edgeLabelFloor: 58,
-    activeWidth: 2.5,
-  },
-
-  /* C — SMASH. Depth: thick bowed edges, every node standing on its own
-     shadow, and the name on a rounded chip that stands up too. */
-  c: {
-    ...BASE,
-    scale: 1.16,
-    edgeWidth: 2.2,
-    edgeAlpha: 0.9,
-    edgeStroke: "var(--color-line)",
-    bow: 0.14,
-    chip: true,
-    chipRadius: 8,
-    drop: 3,
-    labelFamily: "sans",
-    labelWeight: 600,
-    labelSize: 10.5,
-    subFamily: "mono",
-    subSize: 8.5,
-    subTracking: 0.1,
-    edgeLabelFloor: 64,
-    activeWidth: 3,
-  },
-};
-
-export function skinOf(design: Design | null): GraphSkin {
-  return GRAPH_SKIN[design ?? "default"];
+function parseColour(value: string, fallback: Rgb): Rgb {
+  const v = value.trim();
+  const hex = /^#([0-9a-f]{6})$/i.exec(v);
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(v);
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  return fallback;
 }
 
-/** A quadratic bow, perpendicular to the chord. Zero bow returns the straight
- *  path, so one code path draws both. */
-export function edgePath(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  bow: number,
-): string {
-  if (bow === 0) return `M${ax} ${ay}L${bx} ${by}`;
-  const mx = (ax + bx) / 2;
-  const my = (ay + by) / 2;
-  const dx = bx - ax;
-  const dy = by - ay;
-  return `M${ax} ${ay}Q${mx - dy * bow} ${my + dx * bow} ${bx} ${by}`;
+/** Toward white by `t`, so a token picked for a light page still reads as
+ *  light on the dark field. */
+function lift(c: Rgb, t: number): Rgb {
+  return [
+    Math.round(c[0] + (255 - c[0]) * t),
+    Math.round(c[1] + (255 - c[1]) * t),
+    Math.round(c[2] + (255 - c[2]) * t),
+  ];
 }
 
-/** Where a bowed edge's label sits: on the curve, not on the chord, and two
- *  thirds out rather than at the middle.
- *
- * The reason is the one the old drawing already gave: the graph is a FAN from
- * the selected element, so every edge's midpoint lands in the same crowded
- * ring near the hub. Two thirds out the arc between neighbours is twice as
- * wide and the labels separate on their own.
- */
-export function edgeLabelAt(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  bow: number,
-  at = 0.68,
-): { x: number; y: number } {
-  if (bow === 0) return { x: ax + (bx - ax) * at, y: ay + (by - ay) * at };
-  const mx = (ax + bx) / 2 - (by - ay) * bow;
-  const my = (ay + by) / 2 + (bx - ax) * bow;
-  const u = 1 - at;
-  return {
-    x: u * u * ax + 2 * u * at * mx + at * at * bx,
-    y: u * u * ay + 2 * u * at * my + at * at * by,
+function hsl(h: number, s: number, l: number): Rgb {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
   };
+  return [f(0), f(8), f(4)];
+}
+
+/** One class, one colour, the same on every drill of the same model: the
+ *  demo's `stableEntityPalette` (sorted by name, spread over one range). The
+ *  range here is cool, teal to steel, so the warm verdicts and the accent
+ *  stand out of it. */
+function classRamp(entities: string[]): Map<string, Rgb> {
+  const sorted = [...new Set(entities)].sort();
+  const last = Math.max(1, sorted.length - 1);
+  const ramp = new Map<string, Rgb>();
+  sorted.forEach((entity, i) => {
+    const hue = 176 + (i / last) * 58;
+    const light = 0.6 + (i % 3) * 0.07;
+    ramp.set(entity, hsl(hue, 0.42, light));
+  });
+  return ramp;
+}
+
+export function readPalette(element: Element, design: boolean, entities: string[]): Palette {
+  const style = getComputedStyle(element);
+  const token = (name: string, fallback: Rgb) => parseColour(style.getPropertyValue(name), fallback);
+  const panel = token("--color-panel", [251, 250, 247]);
+  const bad = token("--color-bad", [191, 59, 44]);
+  const gold = token("--color-gold", [181, 129, 26]);
+  const accent = design ? token("--d-accent", [194, 90, 16]) : gold;
+  return {
+    building: panel,
+    storey: lift(token("--color-line", [226, 221, 210]), 0.1),
+    bucket: token("--color-muted", [109, 103, 93]),
+    site: panel,
+    rel: {
+      type: lift(gold, 0.45),
+      material: lift(token("--color-muted", [109, 103, 93]), 0.45),
+      classification: lift(token("--color-muted", [109, 103, 93]), 0.3),
+      pset: lift(token("--color-muted", [109, 103, 93]), 0.2),
+      quantity: lift(token("--color-muted", [109, 103, 93]), 0.12),
+      count: lift(token("--color-muted", [109, 103, 93]), 0.08),
+      more: lift(token("--color-muted", [109, 103, 93]), 0.08),
+    },
+    fail: lift(bad, 0.18),
+    warn: lift(gold, 0.22),
+    accent: lift(accent, 0.25),
+    edge: [150, 178, 192],
+    label: lift(panel, 0.2),
+    outline: "rgba(12, 10, 8, 0.9)",
+    mono: style.getPropertyValue("--font-mono").trim() || "ui-monospace, monospace",
+    classes: classRamp(entities),
+  };
+}
+
+/** The field the drawing floats in: the page's ink, deepened at the rim. */
+export const FIELD_BACKGROUND =
+  "radial-gradient(ellipse 80% 75% at 50% 42%, color-mix(in oklab, var(--color-ink) 88%, #3a4a52) 0%, color-mix(in oklab, var(--color-ink) 96%, #000) 72%)";
+
+/* ─────────────────────────────────────────────────────────── node look */
+
+/** Radius by the weight a node stands for. */
+export function radiusOf(node: GNode, centre: boolean): number {
+  const c = node.count ?? 0;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const table: Record<NodeKind, number> = {
+    site: 7,
+    building: clamp(8 + Math.sqrt(c) * 0.12, 8, 16),
+    storey: clamp(3.5 + Math.sqrt(c) * 0.32, 4.5, 13),
+    bucket: clamp(3.5 + Math.sqrt(c) * 0.32, 4.5, 13),
+    group: clamp(2.6 + Math.sqrt(c) * 0.42, 3.2, 10),
+    product: 2.4,
+    more: 3.2,
+    type: 4.2,
+    count: 3.4,
+    material: 3.8,
+    classification: 3.6,
+    pset: 3.2,
+    quantity: 3.2,
+  };
+  return centre ? 5.5 : table[node.kind];
+}
+
+export function colourOf(node: GNode, palette: Palette): Rgb {
+  if (node.kind === "product" && node.tone) return toneColour(node.tone, palette);
+  switch (node.kind) {
+    case "building":
+      return palette.building;
+    case "storey":
+      return palette.storey;
+    case "bucket":
+      return palette.bucket;
+    case "site":
+      return palette.site;
+    case "group":
+    case "product":
+      return palette.classes.get(node.entity ?? "") ?? palette.edge;
+    default:
+      return palette.rel[node.kind];
+  }
+}
+
+export function toneColour(tone: Exclude<Tone, null>, palette: Palette): Rgb {
+  return tone === "fail" ? palette.fail : palette.warn;
+}
+
+/** Which labels win a collision. Higher is kept. */
+export const LABEL_RANK: Record<NodeKind, number> = {
+  building: 70,
+  site: 68,
+  storey: 66,
+  bucket: 64,
+  group: 50,
+  type: 45,
+  material: 40,
+  classification: 38,
+  more: 30,
+  count: 28,
+  pset: 14,
+  quantity: 12,
+  product: 8,
+};
+
+/* ─────────────────────────────────────────────────────────── sprites */
+
+const SPRITE = 64;
+const glowCache = new Map<string, HTMLCanvasElement>();
+const coreCache = new Map<string, HTMLCanvasElement>();
+
+function makeCanvas(size: number): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  return canvas;
+}
+
+/** A soft radial glow in one colour, drawn with `lighter`. */
+export function glowSprite(c: Rgb): HTMLCanvasElement {
+  const key = c.join(",");
+  const hit = glowCache.get(key);
+  if (hit) return hit;
+  const canvas = makeCanvas(SPRITE);
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const g = ctx.createRadialGradient(SPRITE / 2, SPRITE / 2, 0, SPRITE / 2, SPRITE / 2, SPRITE / 2);
+    g.addColorStop(0, `rgba(${key},0.55)`);
+    g.addColorStop(0.25, `rgba(${key},0.22)`);
+    g.addColorStop(0.6, `rgba(${key},0.06)`);
+    g.addColorStop(1, `rgba(${key},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, SPRITE, SPRITE);
+  }
+  glowCache.set(key, canvas);
+  return canvas;
+}
+
+/** The node's body: a lit sphere, bright at the top left, so a disc reads as
+ *  a thing in space rather than a flat mark. */
+export function coreSprite(c: Rgb): HTMLCanvasElement {
+  const key = c.join(",");
+  const hit = coreCache.get(key);
+  if (hit) return hit;
+  const canvas = makeCanvas(SPRITE);
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const r = SPRITE / 2 - 1;
+    const hi = lift(c, 0.55);
+    const g = ctx.createRadialGradient(r * 0.72, r * 0.68, r * 0.08, SPRITE / 2, SPRITE / 2, r);
+    g.addColorStop(0, `rgb(${hi.join(",")})`);
+    g.addColorStop(0.55, `rgb(${key})`);
+    g.addColorStop(1, `rgb(${Math.round(c[0] * 0.55)},${Math.round(c[1] * 0.55)},${Math.round(c[2] * 0.55)})`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(SPRITE / 2, SPRITE / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  coreCache.set(key, canvas);
+  return canvas;
+}
+
+export function rgba(c: Rgb, a: number): string {
+  return `rgba(${c[0]},${c[1]},${c[2]},${a.toFixed(3)})`;
 }

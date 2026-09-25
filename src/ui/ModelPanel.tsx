@@ -46,6 +46,8 @@ import { census } from "./profile";
 import { Contents } from "./Contents";
 import { Dashboard } from "./Dashboard";
 import { GraphTab } from "./GraphTab";
+import { TypesTab } from "./TypesTab";
+import { MaterialsTab } from "./MaterialsTab";
 import { FilterBar } from "./FilterBar";
 import { ReadoutStrip, type Readout } from "./forms";
 import { BENTO_MAX_WIDTH } from "./bento-spec";
@@ -53,12 +55,14 @@ import { aggregateTypes, meshIndex } from "./types";
 import type { FloorConfig } from "../engine/storey-config";
 import type { FloorPeer } from "./FloorSetup";
 
-export type Tab = "checks" | "contents" | "graph";
-const TABS: readonly Tab[] = ["checks", "contents", "graph"];
+export type Tab = "checks" | "contents" | "graph" | "types" | "materials";
+const TABS: readonly Tab[] = ["checks", "contents", "graph", "types", "materials"];
 const TAB_LABEL: Record<Tab, StringKey> = {
   checks: "tab.checks",
   contents: "tab.contents",
   graph: "tab.graph",
+  types: "tile.types",
+  materials: "col.materials",
 };
 
 interface ModelPanelProps {
@@ -341,8 +345,24 @@ export function ModelPanel({
                 lang={lang}
                 design={design}
                 profile={profile ?? null}
+                checks={model.report?.checks}
+                meshBatches={model.meshBatches}
                 selection={view.selection}
                 onPick={onPick}
+                onFocus={focus}
+              />
+            </div>
+            <div role="tabpanel" hidden={tab !== "types"} className="flex flex-col">
+              <TypesTab lang={lang} profile={profile ?? null} selected={selected} onFocus={focus} />
+            </div>
+            <div role="tabpanel" hidden={tab !== "materials"} className="flex flex-col">
+              <MaterialsTab
+                lang={lang}
+                profile={profile ?? null}
+                chips={view.chips}
+                onToggleChip={(chip) =>
+                  view.chips.some((c) => c.key === chip.key) ? onRemoveChip(chip.key) : onAddChip(chip)
+                }
               />
             </div>
             {/* Pinned to the bottom of the scrolling page while this panel

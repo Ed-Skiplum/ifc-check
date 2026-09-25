@@ -534,31 +534,12 @@
   outline-offset: 1px;
 }
 
-/* ── The graph surface ─────────────────────────────────────────────────── */
-:root[data-design] [data-graph-field] {
-  background-image: radial-gradient(
-    ellipse 75% 65% at 50% 45%,
-    rgba(251, 250, 247, 0.9) 0%,
-    rgba(251, 250, 247, 0) 75%
-  );
-}
+/* ── The graph surface: its field is painted by the tab (dark, deep). ── */
 :root[data-design] [data-graph] {
-  touch-action: none;
   cursor: grab;
-  user-select: none;
 }
 :root[data-design] [data-graph][data-panning="true"] {
   cursor: grabbing;
-}
-:root[data-design] [data-graph] [data-node],
-:root[data-design] [data-graph] [data-edge] {
-  transition: opacity var(--d-dur) var(--d-ease);
-}
-:root[data-design] [data-graph][data-focused="true"] [data-node]:not([data-near="true"]) {
-  opacity: 0.22;
-}
-:root[data-design] [data-graph][data-focused="true"] [data-edge]:not([data-near="true"]) {
-  opacity: 0.14;
 }
 
 /* ── Reduced motion ─────────────────────────────────────────────────────── */

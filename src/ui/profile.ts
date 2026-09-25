@@ -12,6 +12,8 @@
  * line would be an invention.
  */
 
+import type { MaterialRow } from "../engine/types";
+
 /** One product, reduced to what the dashboard and its drill-downs read.
  *
  * The TYPE FACTS at the bottom are optional, and their absence is a real state
@@ -151,6 +153,9 @@ export interface ModelProfile {
    *  than only the GlobalId it points at. */
   buildings?: { guid: string; name: string | null }[];
   sites?: { guid: string; name: string | null }[];
+  /** `materialsJson()` rows as the engine gives them (`graph.materials`), for
+   *  the Materialer tab's layer sets. Absent = the table was not supplied. */
+  materialRows?: MaterialRow[];
 }
 
 export interface ClassCount {

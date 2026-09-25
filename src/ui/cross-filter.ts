@@ -50,7 +50,16 @@ import type { ModelEntry } from "./useModels";
 
 export type { Mode };
 
-export type ChipKind = "class" | "cell" | "check" | "rule" | "type" | "storey" | "element";
+export type ChipKind =
+  | "class"
+  | "cell"
+  | "check"
+  | "rule"
+  | "type"
+  | "storey"
+  | "element"
+  /** A material row of the Materialer tab; carries its own `guids`. */
+  | "material";
 
 export interface FilterChip {
   /** `serialiseFocus(focus)` — the same key the hash view uses, so a chip and

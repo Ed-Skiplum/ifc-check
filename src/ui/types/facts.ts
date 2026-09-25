@@ -79,5 +79,8 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
     };
   });
 
-  return { ...profile, rows };
+  const next: ModelProfile = { ...profile, rows };
+  // The engine's material rows, carried as they are for the Materialer tab.
+  if (graph.materials) next.materialRows = graph.materials;
+  return next;
 }

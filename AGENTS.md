@@ -361,10 +361,13 @@ loaded it drops to the outlined style of the other bar controls. Then:
    full width, sticky header, its disproportion band as the head. Both bands
    are fixed, viewport-derived heights; their tables scroll inside.
 
-3. **Graf** (`GraphTab.tsx`): the selected element's relationship graph, every
-   `IfcRel*` edge the engine carries, drawn around it (below).
+3. **Graf** (`GraphTab.tsx`): the model as a drill (building, storey, class,
+   product) with the selected element's `IfcRel*` edges blooming out of it, and
+   the 3D beside it (below).
+4. **Typer** (`TypesTab.tsx`) and 5. **Materialer** (`MaterialsTab.tsx`): the
+   type and material extraction (below).
 
-The tab is `tab=contents` / `tab=graph` in the URL hash (absent = Kontroll), one
+The tab is `tab=contents` / `graph` / `types` / `materials` in the URL hash (absent = Kontroll), one
 for all panels, pushed to history so Back/Forward walk it. Both tabs stay mounted and
 the inactive one is `hidden`, so the 3D scene and its camera survive a tab
 switch. The derivation band opens INSIDE the panel of the model it belongs to,
@@ -853,73 +856,85 @@ are NOT verified. Discrete split (same day, `bcf-cli.ts` only, not re-driven
 in the browser): HI90 topics 285 → 89 at N=500 and 461 → 259 at N=100; KNM
 unchanged, same GUIDs.
 
-## Graf — the element's relationship graph (2026-09-23)
+## Graf: the model as a space you drill into (2026-09-25)
 
-edkjo: *"showing the full edge graph is totally ok to do"*, then *"it should be
-its own tabbed view"*. So it is a third model-panel tab, not a card in the
-object panel: it needs the width, and it matches the MODEL | GRAPH tabs on his
-ifcfast-site.
+History: *"showing the full edge graph is totally ok to do"*, *"it should be
+its own tabbed view"*, *"the graph for instance needs to be cool and smooth"*
+(2026-09-23). Then, 2026-09-25: *"we built a demo here a few months ago using
+ifcfast. It had a way better graph UI than this"* (`sidehustles/ifc-fast-demo`,
+`components/drill-graph.tsx`), and on the flat SVG drawing: *"very boring
+looking. square nodes and flat UI. make it feel more like a space with
+information. Neural network."* And: *"lets add the viewer here as well like in
+IFCfast site … toggle between model and graph as main and the other windowed"*.
 
-`src/ui/GraphTab.tsx`, inline SVG, **no dependency**. The build is unchanged;
-the layout is LIVE (2026-09-23). edkjo: *"the graph for instance needs to be
-cool and smooth."*
+Files: `GraphTab.tsx` (React, gestures, frame loop), `graph-model.ts` (what is
+drawn, pure), `graph-sim.ts` (physics), `graph-paint.ts` (palette, sprites),
+`viewer/dock.ts` (lending the viewer).
 
-`src/ui/graph-sim.ts` runs the same physics over real frames instead of inside
-a `useMemo`: velocity Verlet with a per-tick decay, `alpha` cooling to rest and
-reheating on every gesture, a collision radius, and pinned nodes. So the
-arrangement expands into place, a new selection MOVES the nodes it shares with
-the old one instead of cutting to a new picture, a node can be dragged and
-stays where it is put, the wheel magnifies about the pointer and a drag on the
-field pans. Hovering dims everything the hovered node is not attached to, in
-CSS, off one attribute write. Positions are written straight to the DOM by the
-frame loop: React owns what exists, the loop owns where it is.
+**The drill (the demo's).** Opens at the crown (building, storeys with their
+element counts, the no-storey bucket, the site roster). Click a storey: it opens
+into class buckets AND becomes the filter (an Etasje chip, the board's own
+click). Click a bucket: it opens into its products (cap 400, then `+N`) and
+storey × class becomes the filter (a Celle chip). Click a product: it is
+selected, as a table row selects; Shift or Ctrl adds. Click the empty field:
+the selection clears. `Tøm alle` folds every drill. A selection made elsewhere
+(the 3D, a table) drills to where it lives. Drag a node and it stays put; drag
+the field to pan; the wheel zooms about the pointer.
 
-Determinism survives — start positions are still an FNV-1a hash of the node id
-and there is no randomness anywhere, so the same element settles into the same
-arrangement every time it is opened. The centre pull is split per axis from the
-tile's aspect, which is what stopped the drawing under-filling a wide tile.
+**Kept from the earlier ifc-check graph:** the selected element's relationships
+bloom out of its node (type and siblings, parent and parts, openings and host,
+materials, classifications, property and quantity sets, each behind its
+switch), every edge an `IfcRel*` the engine carries, the lit edges named with
+it; `ikke levert` as ONE node for an absent table; building → site, element
+containment outside a storey and `IfcProject` are not drawn because the engine
+does not carry them; no randomness (FNV seeded starts, fixed step); positions
+carry across rebuilds, so a new node is born at the node it grows from.
 
-**Why not d3-force**: ~26 kB for Barnes-Hut approximation that pays at
-thousands of nodes. This graph is capped at 180 by the build, deliberately, and
-180 nodes is 16 110 pairs per tick — a tenth of a frame. The exact sum is both
-cheaper than the import and more accurate than the approximation.
+**The look.** Canvas 2D on a dark field: round glowing nodes sized by weight
+(a storey by its count, a bucket by its members), class colours on one cool
+ramp sorted by name (the demo's `stableEntityPalette`), verdict colour on a
+product with findings (Avvik red, Advarsel amber, with an opacity floor) and a
+verdict ring on a storey or bucket that holds them, luminous threads that fade
+with length and depth, a z per node (far is smaller, dimmer, softer), parallax
+against the pointer, ambient drift, and a selection that lights its
+neighbourhood with pulses running outward while the rest sinks back. Labels:
+the crown always, buckets once there is room, the focus, and a tip on hover.
+Reduced motion: no drift, no pulses, the loop stops once settled.
 
-Labels are placed by a collision pass that reserves boxes in rank order: the
-centre and the spatial parents keep their names, a property set gives way, and
-edge labels go last and only on an edge long enough to hold one, which is what
-makes the wheel a legibility control. `src/ui/graph-paint.ts` holds the
-per-direction material — the drawing is identical in all four skins, what
-changes is glyph weight, whether an edge bows, whether a label rides a chip.
+**Physics** are the demo's d3-force settings written out (charge −120 with a
+reach of 240 through a uniform grid, link strength 0.5, collide r + 4, alpha
+decay 0.045, velocity decay 0.4) plus a weak centre pull for what no edge
+holds. Measured locally (node): 5 ms per tick at 2000 nodes. Headless Chrome:
+~80 fps with 580 nodes drawn.
 
-Caps: 12 members per relationship group then a `+N` node, 180 nodes total.
+**The 3D beside it.** `Modell | Graf` picks the main surface; the other sits
+in a window at the top right (top, because the derivation band covers the
+bottom). The board's own scene is LENT, not duplicated: `ViewerTile` registers
+its canvas under the model's mesh batches (`dock.ts`), the tab moves the canvas
+into its slot and sizes the scene there, and hands it back when the tab hides.
+One GPU copy, one selection. No viewer on the board (no mesh), no toggle.
 
-Edges, each labelled with the relationship it IS, and drawn only where the
-engine really carries it: `IfcRelContainedInSpatialStructure` (element →
-storey), `IfcRelAggregates` (storey → building), `IfcRelDefinesByType` (→ the
-type object, and a count node for the siblings sharing it),
-`IfcRelAggregates`/`IfcRelNests` (parent and children), `IfcRelVoidsElement`
-(both ends), `IfcRelAssociatesMaterial`, `IfcRelAssociatesClassification`, and
-`IfcRelDefinesByProperties` (a node per property set and per quantity set, each
-behind its own toggle). With nothing selected it draws the model's spatial
-structure with element counts.
+**Probe for scripts:** `window.__ifcCheckGraphs[i]()` returns every node's id,
+kind, label, count and last drawn canvas position. Read only.
 
-**Not drawn, because the engine does not carry it:** building → site (the graph
-has flat site/building rosters and `storey_building` is the only spatial
-aggregation edge), element containment in a site, building or space
-(`contained_in` is storey-only), and `IfcProject` (a count, no guids). A
-category whose table is absent gets ONE node reading `ikke levert`, so "nobody
-supplied this" never wears the clothes of "this element has none".
+## Typer and Materialer tabs (2026-09-25)
 
-**Clicking an element node selects it**, through the panel's own `onPick` — the
-same semantics as every other UI click. A press that MOVES is a drag, not a
-click, so pushing a node around never changes the selection. Non-element nodes
-(a material, a pset, a storey) carry no handler at all: they are not elements,
-and a faked selection would be worse than none.
+edkjo: *"I also want a tab for type extraction and a materials extraction tab.
+ifcfast."* Ports of the demo's Types and Materials views
+(`components/views/types-view.tsx`, `materials-view.tsx`), one model per panel.
 
-Photographed in a real browser at 1440 and 1920 in all three directions
-(`tmp/design-shot.mjs`), which is what caught the drawing under-filling its
-tile, the edge labels crowding each other near the hub, and, in c, the graph
-reading straight through the translucent derivation band on top of it.
+- **Typer** (`TypesTab.tsx`): IFC class × type name, instances, IsExternal and
+  LoadBearing as true · false · unset. A row is a Type chip. Openings are left
+  out, as everywhere else on the board.
+- **Materialer** (`MaterialsTab.tsx`): material names (the engine's
+  `ProductRowLite.materials`) with their classes and element count, a row makes
+  a `material` chip; and Layer sets from `materialsJson()` layer rows
+  (`profile.materialRows`), layers and thickness.
+
+Not exposed by the wasm engine, shown as absent: m³ and m² per type (the demo
+summed ifcfast's meshed take-off; `qtoJson()` is not read here), and
+`IfcMaterialLayerSet.Name` (`layer_set` is null on every HI90_ARK product), so a
+layer set row is its layer stack and the header says `ikke levert`.
 
 ## The dashboard grid — binding, not advisory
 
