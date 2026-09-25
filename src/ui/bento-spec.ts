@@ -24,8 +24,9 @@
  * named at the entry. A third, a raised `roster` ceiling, existed for half a
  * day and is reverted — see that entry.
  * Nothing structural moves: the span ladder, the bands, the seams, the fold
- * and the one-focal / one-gauge rules are untouched, and the focal here is
- * still exactly one 8×5.
+ * and the one-focal rule are untouched, and the focal here is still exactly
+ * one 8×5. The one-gauge rule is not: it is dropped locally (2026-09-25),
+ * see the validator.
  */
 
 import type { ReactNode } from "react";
@@ -342,7 +343,7 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
     // board whose focal is forty. 5x5 renders 1.05:1 on 13 tracks and 1.00:1
     // on 21, and at twenty-five cells it is the second-largest tile after the
     // focal, which is where the owner asked the 3D to sit. It is in no span
-    // CLASS, so it competes with neither the one focal nor the one gauge.
+    // CLASS, so it does not compete with the one focal.
     spans: [
       { w: 5, h: 2 },
       { w: 8, h: 2 },
@@ -542,8 +543,7 @@ export type BentoErrorCode =
   | "seam"
   | "fold"
   | "zone"
-  | "focal-count"
-  | "gauge-count";
+  | "focal-count";
 
 export interface BentoValidationError {
   code: BentoErrorCode;
@@ -705,7 +705,11 @@ export function validateBentoLayout(
     }
   }
 
-  // 9 · exactly one focal, and it is P0; exactly one gauge.
+  // 9 · exactly one focal, and it is P0. The upstream "exactly one gauge"
+  //     rule is dropped here (edkjo 2026-09-25): it forced the spatial chain,
+  //     four lamps that tell one fact when all is well, into a 5×3 block on
+  //     every board. A 5×3 is still a legal gauge span; it is just no longer
+  //     owed.
   const focals = tiles.filter((t) => bentoSpanClass(t.span) === "focal");
   if (focals.length !== 1) {
     errors.push({
@@ -717,14 +721,6 @@ export function validateBentoLayout(
       code: "focal-count",
       message: `the focal "${focals[0].id}" must be P0, not ${focals[0].priority}`,
       tileId: focals[0].id,
-    });
-  }
-
-  const gauges = tiles.filter((t) => bentoSpanClass(t.span) === "gauge");
-  if (gauges.length !== 1) {
-    errors.push({
-      code: "gauge-count",
-      message: `a canvas has exactly one gauge tile (5×3) — found ${gauges.length}`,
     });
   }
 

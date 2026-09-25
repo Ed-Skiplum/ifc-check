@@ -273,10 +273,10 @@ function buildTiles({
     plain("materials", "kpi.materials", formatCount(kpis.materials, lang)),
   ];
 
-  // 21 tracks only: the class bars. Beside a 5-wide model and a 5-wide gauge
-  // the only legal cut left is 3 tracks, and a board with a 3×5 hole in it
-  // reads as a void (edkjo, "bento box, not a matrix": the tiles close). The
-  // Klasser distribution is the tile whose kind owns 3×3; it is on the
+  // 21 tracks only: the class bars, 5×2 beside the 3×2 spatial lamps under
+  // the floor tile (2026-09-25; it was 3×3 beside a 5×3 gauge). A board with a
+  // hole in it reads as a void (edkjo, "bento box, not a matrix": the tiles
+  // close), and this is the tile whose kind owns the span. It is on the
   // Innhold tab as well, as upstream scales up by making more tiles visible.
   const classes: BentoTileSpec[] = wide
     ? [
@@ -284,7 +284,7 @@ function buildTiles({
           id: "classes",
           kind: "distribution",
           priority: "P1",
-          span: { w: 3, h: 3 },
+          span: { w: 5, h: 2 },
           label: t("tile.classes", lang),
           sub: formatCount(census.classes.length, lang),
           body: (
@@ -302,7 +302,7 @@ function buildTiles({
   return [
     ...classes,
     {
-      // A 1-row strip, 13 tracks on BOTH boards, on the LAST row: the four
+      // A 1-row strip on the LAST row, 13 tracks (21 on the wide board): the four
       // neutral counts. `tellTales` is the registry's strip kind (13×1
       // upstream too); the grid has no KPI-row kind, so the cards are cells of
       // this one tile. Quiet: no verdict colour and a small numeral, because a
@@ -311,7 +311,7 @@ function buildTiles({
       id: "kpis",
       kind: "tellTales",
       priority: "P2",
-      span: { w: 13, h: 1 },
+      span: { w: wide ? 21 : 13, h: 1 },
       body: <KpiRow cards={countCards} selected={selected} onFocus={onFocus} quiet />,
     },
     {
@@ -368,9 +368,12 @@ function buildTiles({
     {
       id: "spatial",
       kind: "gauge",
-      // Rows 6–8 on 13 tracks, 4–6 on 21: inside the fold on both boards.
+      // edkjo 2026-09-25: "this does not deserve this much space". Compact
+      // 3×2 on 21 tracks (about 1.5 : 1, not a strip). 13 tracks has no
+      // closed board with it smaller than 5×3; see `bento-layouts.ts`.
+      // Rows 6–8 on 13 tracks, 4–5 on 21: inside the fold on both boards.
       priority: "P1",
-      span: { w: 5, h: 3 },
+      span: wide ? { w: 3, h: 2 } : { w: 5, h: 3 },
       label: t("tile.spatial", lang),
       body: <SpatialGauge lang={lang} levels={chainLevels(profile)} />,
       click: {

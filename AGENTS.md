@@ -942,8 +942,10 @@ What that binds:
   measuring an uncapped box.
 - **Fibonacci spans only**, and bands must close: 13 → 8+5 · 5+3+5 · 3+5+5;
   21 → 8+5+8 · 13+8 · 5+8+8.
-- **Exactly one focal and one gauge**; P0/P1 never below the fold; air is the
-  gutter and empty structural tracks only.
+- **Exactly one focal**; P0/P1 never below the fold; air is the gutter and
+  empty structural tracks only. The upstream "exactly one 5×3 gauge" rule is
+  REMOVED here (local deviation, `validateBentoLayout`): edkjo 2026-09-25,
+  spatial structure is one compact tile, not a gauge block (below).
 - `validateBentoLayout` runs at render — dev throws with every fault at once,
   prod renders an error tile in the offending slot. Never a silent reflow.
 
@@ -954,10 +956,27 @@ viewer span meets the kind's own aspect bound). The former `matrix` full-band
 deviation is reverted: the census left the board for the Innhold tab
 (2026-09-21), and `matrix` is back to upstream's 8×5 / 13×8.
 
-Tab-1 layouts (2026-09-24): 13 tracks × 9 rows (`verify` 8×5 | `viewer` 5×5;
+Tab-1 layouts (2026-09-25): 13 tracks × 9 rows (`verify` 8×5 | `viewer` 5×5;
 `floors` 8×3 | `spatial` 5×3; the quiet `kpis` 13×1 last, P2) and 21 tracks ×
-6 rows (`floors` 8×3 over `spatial` 5×3 | `classes` 3×3, then `viewer` 5×5
-and `verify` 8×5 from row 1, `kpis` 13×1 under them on row 6). On 21 tracks the
+6 rows (`floors` 8×3 over `classes` 5×2 | `spatial` 3×2, then `viewer` 5×5
+and `verify` 8×5 from row 1, `kpis` 21×1 across row 6).
+
+**Romlig struktur is not a block** (edkjo 2026-09-25): *"this does not deserve
+this much space"*; with everything present the four lamps tell one fact. And
+the shape rule that came with it: wide/short and narrow/tall tiles are avoided
+unless the component itself is supposed to be that (a timeline, an elevation
+strip), so the lamps do not become a one-row band either. On 21 tracks they
+are a compact 3×2 gauge (~1.3 : 1 rendered). The freed cells went to
+`classes` (3×3 → 5×2) and the row-unit ceiling: with the class tile off 3×3
+the ceiling is the viewer's 1.11, so every tile, the focal and Etasjer
+included, grows 11 % taller into the band (514 → 454 px at 2112 × 1267). An
+exhaustive search with `spatial` at 3×2 finds exactly four closed 21-track
+boards, all six rows, all `classes` 5×2 and `kpis` 21×1. On 13 tracks it
+finds NONE: a 3-wide tile only fits in the left eight tracks, whose rows are
+the focal and the floor tile, so the floor tile would leave the fold; and the
+5×3 slot beside the floor tile has no other tile whose registry spans fill it.
+The 13-track board keeps `spatial` at 5×3 until a tile is registered for that
+slot or the lamps move into a header. Open, edkjo's call. On 21 tracks the
 focal CANNOT be top-left: an exhaustive search (every span, every seam-legal
 placement, 5–11 rows, focal at 8×5 or 13×8) finds no closed board with a 5×5
 viewer and the one 5×3 gauge that puts the focal in column 1, because the
@@ -966,7 +985,9 @@ validates both. Open upstream questions for sprucelab, not forked here:
 whether a KPI-row kind should exist, and whether the row unit's height flex
 (below) belongs upstream.
 
-**The KPI strip is 13×1 on BOTH boards** (2026-09-22). On 21 tracks it used to
+**The KPI strip was 13×1 on BOTH boards** (2026-09-22; 21×1 on the 21-track
+board since 2026-09-25, on the last row, where it no longer squeezes the floor
+tile). On 21 tracks it used to
 take the whole 21-track row, which left the Etasjer tile 8×2 — five floors of
 ten. Searched exhaustively (every span each kind admits, every seam-legal
 placement, 4–11 rows, one focal and one gauge): 21 tracks closes at six rows in
@@ -1025,9 +1046,9 @@ floor chart in the middle?"*
   that ceiling. Bound-safe by construction: no tile can be grown out of its
   usable range, and a shortfall is ignored rather than absorbed.
 - **What it is worth today.** 13 tracks: ceiling 1.11 (the 5×5 viewer), inert
-  in practice because nine rows already overflow a laptop. 21 tracks: ceiling
-  exactly 1.00, because the 3×3 `classes` tile is a `distribution` whose usable
-  aspect starts at 1.0. So on a 21-track board the surplus cannot be taken.
+  in practice because nine rows already overflow a laptop. 21 tracks: it was
+  exactly 1.00 while `classes` sat at 3×3 (a `distribution`, usable aspect from
+  1.0); since 2026-09-25 (`classes` 5×2) it is also the viewer's 1.11.
 - **That band is structural, not a sizing bug.** Six rows of a 21-track board
   render ~3.4 : 1; a 2112 × 1267 window gives the board ~2080 × 1095, i.e.
   ~1.9 : 1. The track is the width over a constant and the row is capped, so no
