@@ -31,7 +31,7 @@
  * filter is on cannot answer "what am I filtered to?".
  */
 
-import { useCallback, useMemo, type ReactNode } from "react";
+import { cloneElement, isValidElement, useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
 import type { Focus } from "./trace";
@@ -45,6 +45,7 @@ import { formatBytes, formatCount, formatMs } from "./format";
 import { census } from "./profile";
 import { Contents } from "./Contents";
 import { Dashboard } from "./Dashboard";
+import { ObjectPanel } from "./ObjectPanel";
 import { GraphTab } from "./GraphTab";
 import { FilterBar } from "./FilterBar";
 import { ReadoutStrip, type Readout } from "./forms";
@@ -211,9 +212,20 @@ export function ModelPanel({
     onClear: onClearChips,
   };
 
-  // `#design=a` docks the derivation in the board's inspector (a Linear-style
-  // master/detail) on Kontroll; every other view keeps the band at the foot.
-  const docked = design === "a" && tab === "checks";
+  // The design alternatives dock two panels on Kontroll (2026-09-25; edkjo:
+  // *"When clicking an object it makes no sense to open a table that hides
+  // half the page"*): Scope, the rows behind the last click, and Detail, the
+  // selected identity. Neither overlays the board and both are always there;
+  // empty, they show nothing. Innhold and Graf keep the band at the foot.
+  const docked = design !== null && tab === "checks";
+  const scope =
+    docked && isValidElement(trace)
+      ? cloneElement(trace as ReactElement<{ alone?: boolean }>, { alone: true })
+      : null;
+  const detail =
+    docked && view.selection.length > 0 ? (
+      <ObjectPanel lang={lang} model={model} selection={view.selection} />
+    ) : null;
 
   const rules = hasRuleset
     ? {
@@ -322,7 +334,8 @@ export function ModelPanel({
                 peers={ownFirst}
                 rules={rules}
                 design={design}
-                inspector={docked ? trace : undefined}
+                scope={scope}
+                detail={detail}
               />
             </div>
             <div role="tabpanel" hidden={tab !== "contents"} className="flex flex-col">

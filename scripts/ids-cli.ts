@@ -58,6 +58,7 @@ import {
 import { checkStoreyConfig } from "../src/engine/storey-config.ts";
 import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
 import { schemaFamily } from "../src/engine/standard-layer.ts";
+import { functionTree, systemTree, type TreeNode } from "../src/engine/code-tree.ts";
 import { psetInventory, requiredSetRefs } from "../src/engine/pset-inventory.ts";
 import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../src/codelists/mengdetype-ifcklasse.ts";
 import { MENGDETYPE_NS3457 } from "../src/codelists/mengdetype-ns3457.ts";
@@ -961,6 +962,57 @@ async function cmdSelftest(): Promise<number> {
     "not_evaluable",
     bare.find((r) => r.id === "phase")?.state ?? "absent",
   );
+
+  // The board's code treemaps (src/engine/code-tree.ts): nesting by level,
+  // deviating and missing values kept as their own cells, the PredefinedType
+  // fallback kept apart from the codes, and no object dropped.
+  {
+    const objects = [
+      { guid: "a", entity: "IfcWall", typeName: "W1", predefinedType: "STANDARD" },
+      { guid: "b", entity: "IfcWall", typeName: "W1", predefinedType: null },
+      { guid: "c", entity: "IfcSlab", typeName: null, predefinedType: "FLOOR" },
+      { guid: "d", entity: "IfcSlab", typeName: "S1", predefinedType: "FLOOR" },
+    ];
+    const readings = [
+      { guid: "a", value: "226", code: "226", state: "ok" as const },
+      { guid: "b", value: "227", code: "227", state: "ok" as const },
+      { guid: "c", value: "24-", code: null, state: "deviating" as const },
+      { guid: "d", value: null, code: null, state: "missing" as const },
+    ];
+    const describe = (nodes: TreeNode[]): string =>
+      nodes.map((n) => `${n.key}=${n.n}${n.children.length ? `(${describe(n.children)})` : ""}`).join(" ");
+    const leaves = (nodes: TreeNode[]): number =>
+      nodes.reduce((sum, n) => sum + (n.children.length ? leaves(n.children) : n.n), 0);
+    const sys = systemTree(objects, readings, { "2": "Bygning", "22": "Bæresystemer", "226": "x" });
+    record(
+      "code tree: system codes nest by level, deviating and missing keep their own cells",
+      "code:2=2(code:22=2(code:226=1 code:227=1)) dev:24-=1 missing=1",
+      describe(sys.root),
+    );
+    record("code tree: a code cell carries its list name", "Bæresystemer", sys.root[0].children[0].name ?? "");
+    const byClass = systemTree(objects, null, {});
+    record(
+      "code tree: no mapping groups by IFC class, then type name",
+      "class:IfcSlab=2(class:IfcSlab/type:S1=1 class:IfcSlab/type:=1) class:IfcWall=2(class:IfcWall/type:W1=2)",
+      describe(byClass.root),
+    );
+    const fn = functionTree(
+      objects,
+      [
+        { guid: "a", value: "QLD", code: "QLD", state: "ok" as const },
+        { guid: "b", value: null, code: null, state: "missing" as const },
+        { guid: "c", value: null, code: null, state: "missing" as const },
+        { guid: "d", value: "ZZ9", code: null, state: "deviating" as const },
+      ],
+      {},
+    );
+    record(
+      "code tree: no component code falls back to PredefinedType, per object, as its own kind",
+      "fb:FLOOR=1:fallback code:Q=1(code:QL=1(code:QLD=1)):code dev:ZZ9=1:deviating missing=1:missing",
+      fn.root.map((n) => `${describe([n])}:${n.kind}`).join(" "),
+    );
+    record("code tree: leaf counts sum to the objects handed in", "4,4,4", [leaves(sys.root), leaves(byClass.root), leaves(fn.root)].join(","));
+  }
 
   // Gap 2, the IFC-skjema allowlist. The fold matches HI90's skjema_grunn:
   // an IFC4 addendum is IFC4, IFC4X3 is its own family.

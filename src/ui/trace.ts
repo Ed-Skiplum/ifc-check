@@ -17,6 +17,9 @@ import type { StringKey } from "./i18n";
 import type { ModelEntry } from "./useModels";
 import { cellRows, storeyNames, storeyRows } from "./profile";
 import { typeGuids } from "./types/aggregate";
+import { reqDoor, treeDoor } from "./board-doors";
+import { labelOfRow } from "./requirements";
+import { findNode } from "../engine/code-tree";
 
 /** The two census numbers that have rows behind them but no check of their
  *  own. Everything else on the board drills to a check or to a rule. */
@@ -46,7 +49,14 @@ export type Focus =
    * object panel unreachable behind a number nobody clicked (edkjo,
    * 2026-09-23: *"where is the properties panel?"*). A real drill is never
    * re-targeted by a selection; see `App`. */
-  | { kind: "element"; guids: string[] };
+  | { kind: "element"; guids: string[] }
+  /** A requirement of the report contract (`requirements.ts`) that is neither
+   *  a check nor a rule (`ifc-schema`, `phase`, `material-product`), or one
+   *  VALUE of any requirement's fordeling: `value` present, `null` meaning
+   *  "no value". `id` is the row id, or the mapping role. */
+  | { kind: "req"; id: string; value?: string | null }
+  /** One cell of a code treemap (`src/engine/code-tree.ts`), by its key. */
+  | { kind: "tree"; axis: "system" | "function"; key: string };
 
 const KPIS: KpiFocus[] = ["products", "storeys"];
 
@@ -68,6 +78,13 @@ export function serialiseFocus(focus: Focus): string {
   // `+` is outside the GlobalId alphabet, the same separator the storey focus
   // uses, so a selection round-trips through the hash without escaping.
   if (focus.kind === "element") return `element:${focus.guids.join("+")}`;
+  // `|` follows the id; `=` prefixes a value and `-` is "no value", as the
+  // type focus spells its untyped remainder.
+  if (focus.kind === "req") {
+    if (focus.value === undefined) return `req:${focus.id}`;
+    return focus.value === null ? `req:${focus.id}|-` : `req:${focus.id}|=${focus.value}`;
+  }
+  if (focus.kind === "tree") return `tree:${focus.axis}|${focus.key}`;
   return `cell:${focus.storeyGuid ?? "-"}|${focus.entity}`;
 }
 
@@ -98,6 +115,21 @@ export function parseFocus(raw: string | null): Focus | null {
   if (kind === "element") {
     const guids = rest.split("+").filter((g) => g.length > 0);
     return guids.length > 0 ? { kind: "element", guids } : null;
+  }
+  if (kind === "req") {
+    const bar = rest.indexOf("|");
+    if (bar < 0) return rest ? { kind: "req", id: rest } : null;
+    const id = rest.slice(0, bar);
+    const v = rest.slice(bar + 1);
+    if (!id) return null;
+    if (v === "-") return { kind: "req", id, value: null };
+    return v.startsWith("=") ? { kind: "req", id, value: v.slice(1) } : null;
+  }
+  if (kind === "tree") {
+    const bar = rest.indexOf("|");
+    const axis = rest.slice(0, bar);
+    const key = rest.slice(bar + 1);
+    return bar > 0 && key && (axis === "system" || axis === "function") ? { kind: "tree", axis, key } : null;
   }
   if (kind === "cell") {
     const bar = rest.lastIndexOf("|");
@@ -257,6 +289,53 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
   }
 
   if (!profile) return null;
+
+  if (focus.kind === "req") {
+    const door = reqDoor(model, focus);
+    if (!door.row) return null;
+    const names = new Map(profile.rows.map((r) => [r.guid, r]));
+    const label = labelOfRow(door.row);
+    const rows: TraceRow[] = door.funn
+      ? door.funn.map((f) => ({
+          guid: f.guid,
+          entity: f.klasse,
+          name: names.get(f.guid)?.name ?? null,
+          // The contract's own code, and the value it found: data, not prose.
+          reason: f.verdi === null ? f.grunn : `${f.grunn} · ${f.verdi}`,
+        }))
+      : door.guids.map((g) => {
+          const r = names.get(g);
+          return { guid: g, entity: r?.entity ?? "", name: r?.name ?? null };
+        });
+    return {
+      ...base,
+      titleKey: label ?? undefined,
+      titleText:
+        focus.value === undefined ? (label ? undefined : door.row.id) : (focus.value ?? "—"),
+      detail: door.row.grunn,
+      notes: [],
+      stats: [{ label: "trace.elements", value: door.guids.length }],
+      rows,
+      rowsComplete: true,
+    };
+  }
+
+  if (focus.kind === "tree") {
+    const guids = treeDoor(model, focus);
+    const tree = model.board?.trees[focus.axis];
+    const node = tree ? findNode(tree.root, focus.key) : null;
+    if (!guids || !node) return null;
+    const chosen = new Set(guids);
+    const rows = profile.rows.filter((r) => chosen.has(r.guid));
+    return {
+      ...base,
+      titleText: [node.label ?? "—", node.name].filter(Boolean).join(" "),
+      notes: [],
+      stats: [{ label: "trace.elements", value: guids.length }],
+      rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),
+      rowsComplete: rows.length === guids.length,
+    };
+  }
 
   if (focus.kind === "element") {
     const chosen = new Set(focus.guids);

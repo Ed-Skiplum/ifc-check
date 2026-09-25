@@ -1132,6 +1132,81 @@ function copyObjectFilter(
   }
 }
 
+/* ------------------------------------------------ per-object code reading */
+
+/** One object a code-lookup rule judges, with what it read and how it was
+ *  judged. `code` is the extracted code, set only when the value matched the
+ *  extract. `state` is the value tally's own: `ok`, `deviating` (no match,
+ *  not in the list, reserved) or `missing` (empty). */
+export interface CodeLookupSubject {
+  guid: string;
+  entity: string;
+  value: string | null;
+  code: string | null;
+  state: ValueCount["state"];
+}
+
+/** Every object a code-lookup rule judges, by the path `codeLookup` takes:
+ *  the same universe and copy-object exclusion as `evaluateRuleset`, the same
+ *  selection, source, extract and list. A type subject is expanded to the
+ *  elements that use it. The copy-object mapping itself reads the unfiltered
+ *  universe and judges nothing, so its subjects are all `ok`, as its value
+ *  tally is. For the board's per-value doors and code treemaps, which must
+ *  count what the rule counted. Throws `Unsupported` where the rule would be
+ *  `not_evaluable`. */
+export function codeLookupSubjects(
+  ruleset: Ruleset,
+  rule: ExtendedRule,
+  graph: ModelGraph,
+): CodeLookupSubject[] {
+  const check = rule.check;
+  if (check.type !== "code-lookup") throw new Unsupported(`${rule.id} is not a code-lookup rule`);
+  const allProducts = selectableProducts(graph);
+  const byGuid = new Map(allProducts.map((p) => [p.guid, p]));
+  const index = buildIndex(graph);
+  const regex = compileExtract(check.extract);
+  const select = rule.select ?? {};
+  if (rule.mapping === "copy-object") {
+    return allProducts
+      .filter((p) => selects(select, p, byGuid, index, ruleset.ifcVersions))
+      .map((p) => {
+        const raw = codeValue(check.source, p, index).value;
+        const value = raw === "" ? null : raw;
+        const code = value === null ? null : (regex.exec(value)?.[1] ?? null);
+        return { guid: p.guid, entity: p.entity, value, code: code || null, state: "ok" as const };
+      });
+  }
+  const filter = copyObjectFilter(ruleset, allProducts, byGuid, index);
+  const products =
+    filter && filter.excluded.size > 0 ? allProducts.filter((p) => !filter.excluded.has(p.guid)) : allProducts;
+  const lookup = resolveLookup(check);
+  const judge = (value: string | null): { code: string | null; state: ValueCount["state"] } => {
+    if (value === null || value === "") return { code: null, state: "missing" };
+    const code = regex.exec(value)?.[1];
+    if (code === undefined || code === "") return { code: null, state: "deviating" };
+    if (!lookup.has(code) || lookup.reserved(code)) return { code, state: "deviating" };
+    return { code, state: "ok" };
+  };
+  const out: CodeLookupSubject[] = [];
+  if ((check.target ?? "occurrence") === "type") {
+    for (const subject of typeSubjects(select, products, check.source, byGuid, index, ruleset.ifcVersions)) {
+      const judged = judge(subject.value);
+      for (const guid of subject.members ?? []) {
+        const member = byGuid.get(guid);
+        out.push({ guid, entity: member?.entity ?? subject.entity, value: subject.value, ...judged });
+      }
+    }
+    return out;
+  }
+  for (const p of products) {
+    if (!selects(select, p, byGuid, index, ruleset.ifcVersions)) continue;
+    const raw = codeValue(check.source, p, index).value;
+    const value = raw === "" ? null : raw;
+    out.push({ guid: p.guid, entity: p.entity, value, ...judge(value) });
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------- evaluation */
 
 function cap(findings: Finding[], maxFindings: number): Finding[] {

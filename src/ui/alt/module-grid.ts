@@ -85,7 +85,7 @@ export function mgRowsIn(px: number): number {
  * and each says what in its CONTENT makes it that shape. Packing convenience
  * is not a reason; `scripts/module-grid-gate.mjs` allows these kinds and no
  * others. */
-export type MgKind = "panel" | "list" | "viewer" | "band";
+export type MgKind = "panel" | "list" | "viewer" | "chart";
 
 export const MG_ASPECT: Record<MgKind, { min: number; max: number; why: string }> = {
   panel: {
@@ -107,10 +107,12 @@ export const MG_ASPECT: Record<MgKind, { min: number; max: number; why: string }
       "a camera: the scene frames whatever box it gets, and a building read " +
       "in elevation is wider than tall, so up to 21 : 9",
   },
-  band: {
-    min: 0.4,
-    max: 2.4,
-    why: "the derivation table: rows × four columns beside the object panel",
+  chart: {
+    min: 0.5,
+    max: 3,
+    why:
+      "a bar chart over an ordered scale (the MMI levels): the bars read " +
+      "across, one per level, so it may be wider than tall",
   },
 };
 
@@ -124,11 +126,14 @@ export interface MgPlace {
   h: number;
 }
 
-/** A group's title line in `c` (a Grafana row): one row, full width, a title
- *  and nothing else, so it is a heading and not a tile. */
+/** A group's title line in `c` (a Grafana row): one row, a title and nothing
+ *  else, so it is a heading and not a tile. It spans its region, `x` to
+ *  `x + w`; the whole grid when the layout has one region. */
 export interface MgRowTitle {
   id: string;
   y: number;
+  x: number;
+  w: number;
 }
 
 export interface MgLayout {
@@ -137,42 +142,38 @@ export interface MgLayout {
   tiles: MgPlace[];
   titles: MgRowTitle[];
   rows: number;
+  /** The charts ride inside the list tile instead of taking tiles of their
+   *  own (the compact class, where 12 × 13 cells cannot seat seven tiles at
+   *  their aspect bounds). */
+  chartsInList: boolean;
 }
 
-/** What the content needs, measured in lines and px by the board. */
+/** What the board needs, measured by the board. */
 export interface MgNeeds {
-  /** The checks list's lines: its header, the checks, the rule section. */
-  checkLines: number;
-  /** The floor tile's lines (header and floors) and its content width. */
-  floorLines: number;
-  floorPx: number;
-  storeys: number;
-  classes: number;
-  /** Rows the viewport has left under the board's top edge. */
+  /** Rows the viewport has left under the board's top edge. The board is one
+   *  screen: every layout fills exactly these rows, and a tile's surplus
+   *  scrolls inside it. */
   rowsAvail: number;
-  bandOpen: boolean;
 }
 
 /** Content widths, px, at the alternatives' 13 px list type. */
 const PX = {
-  checks: 470, // name ~ 18 ch + the 18 em verdict cell + the % column
-  stat: 140, // a label and a figure such as "339 / 398"
-  statLead: 170, // a figure and its verdict badge, "182  ✗ AVVIK"
-  verdict: 200,
-  viewerMin: 340,
-  band: 700,
-  inspectorSplit: 1200,
-  storey: 150,
-  klass: 190,
-  // A multiple is 3 rows (128 px) tall, so 2 : 1 caps it at 256 px.
+  // A requirement row: status badge, the name, the dekning figure and its
+  // «x av N», with the fordeling chips wrapping under it.
+  reqList: 400,
+  // A chart tile (a treemap, the MMI bars): enough for a labelled cell.
+  chart: 240,
+  // A requirement panel in c: the name on one line and «2 555 av 3 138».
+  reqPanel: 150,
+  // Scope: GUID (25ch mono) and the class; name and reason ellipsize.
+  scope: 300,
+  // The object panel's lead cards, two up.
+  detail: 240,
+  // The check list without its % column: the longest check name, the 18em
+  // verdict cell at 13 px, one gap and the padding.
+  checks: 392,
   multipleMax: 256,
-  spatial: 240,
 };
-
-/** Rows for a list tile of `lines` 32 px lines under its head. */
-function listRows(lines: number): number {
-  return mgRowsFor(MG_HEAD + lines * MG_ROW);
-}
 
 /** The fewest rows that keep a tile of rendered width `px` at or under
  *  `max` : 1. */
@@ -180,76 +181,203 @@ function rowsForAspect(px: number, max: number): number {
   return mgRowsFor(px / max);
 }
 
-/* ── a · Linear work surface: list | inspector ───────────────────────────── */
+/** Split `total` rows over `n` tiles, the remainder to the first ones. */
+function splitRows(total: number, n: number): number[] {
+  const base = Math.floor(total / n);
+  return Array.from({ length: n }, (_, i) => base + (i < total % n ? 1 : 0));
+}
+
+/** Split `total` columns over `n` tiles, the remainder to the first ones. */
+function splitCols(total: number, n: number): number[] {
+  return splitRows(total, n);
+}
+
+/** The inspector block every alternative docks: the viewer on top, then
+ *  Scope and Detail. Side by side under the viewer when the block is wide
+ *  enough to seat both, else stacked. The viewer takes the rows that keep it
+ *  inside its own bound and never more than leaves Scope and Detail a usable
+ *  height. */
+function inspector(tiles: MgPlace[], x: number, y: number, w: number, h: number, pitch: number, stack = false) {
+  const px = mgWidth(w, pitch);
+  const sideBySide = !stack && px >= PX.scope + PX.detail + MG_GUTTER;
+  const minBelow = sideBySide ? 5 : 8;
+  const vh = Math.max(3, Math.min(h - minBelow, rowsForAspect(px, MG_ASPECT.viewer.max)));
+  tiles.push({ id: "viewer", kind: "viewer", x, y, w, h: vh });
+  const below = h - vh;
+  if (sideBySide) {
+    const sw = Math.max(mgSpan(PX.scope, pitch), Math.ceil(w / 2));
+    tiles.push({ id: "scope", kind: "list", x, y: y + vh, w: sw, h: below });
+    tiles.push({ id: "detail", kind: "list", x: x + sw, y: y + vh, w: w - sw, h: below });
+  } else {
+    const [sh, dh] = splitRows(below, 2);
+    tiles.push({ id: "scope", kind: "list", x, y: y + vh, w, h: sh });
+    tiles.push({ id: "detail", kind: "list", x, y: y + vh + sh, w, h: dh });
+  }
+}
+
+/** Scope over Detail in one column (b's rail, c's right region). */
+function rail(tiles: MgPlace[], x: number, y: number, w: number, h: number) {
+  const [sh, dh] = splitRows(h, 2);
+  tiles.push({ id: "scope", kind: "list", x, y, w, h: sh });
+  tiles.push({ id: "detail", kind: "list", x, y: y + sh, w, h: dh });
+}
+
+const CHARTS = [
+  { id: "tree-system", kind: "panel" as MgKind },
+  { id: "tree-function", kind: "panel" as MgKind },
+  { id: "mmi", kind: "chart" as MgKind },
+];
+
+/* ── a · Linear work surface: list | inspector | charts ─────────────────── */
 
 export function layoutA(width: number, needs: MgNeeds): MgLayout {
   const cols = mgColumns(width);
   const pitch = mgPitch(width, cols);
-  const listW = cols === 12 ? 6 : mgSpan(PX.checks + 70, pitch);
-  const iw = cols - listW;
-  // The screen's rows, never fewer than keep the model inside its bound.
-  const n = Math.max(12, needs.rowsAvail, rowsForAspect(mgWidth(iw, pitch), MG_ASPECT.viewer.max));
-  const tiles: MgPlace[] = [{ id: "list", kind: "list", x: 0, y: 0, w: listW, h: n }];
-  if (!needs.bandOpen) {
-    tiles.push({ id: "viewer", kind: "viewer", x: listW, y: 0, w: iw, h: n });
-  } else if (mgWidth(iw, pitch) >= PX.inspectorSplit) {
-    const bw = mgSpan(PX.band, pitch);
-    tiles.push({ id: "viewer", kind: "viewer", x: listW, y: 0, w: iw - bw, h: n });
-    tiles.push({ id: "band", kind: "band", x: cols - bw, y: 0, w: bw, h: n });
-  } else {
-    // Stacked: the viewer takes the rows that keep it inside its own bound,
-    // the band the rest.
-    const vh = Math.max(Math.ceil(n / 2), rowsForAspect(mgWidth(iw, pitch), MG_ASPECT.viewer.max));
-    tiles.push({ id: "viewer", kind: "viewer", x: listW, y: 0, w: iw, h: vh });
-    tiles.push({ id: "band", kind: "band", x: listW, y: vh, w: iw, h: Math.max(4, n - vh) });
+  const n = Math.max(10, needs.rowsAvail);
+  const tiles: MgPlace[] = [];
+  if (cols === 12) {
+    // Compact: the list (the charts inside it) | the inspector.
+    const lw = 5;
+    tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
+    inspector(tiles, lw, 0, cols - lw, n, pitch);
+    return { cols, pitch, tiles, titles: [], rows: n, chartsInList: true };
   }
-  return { cols, pitch, tiles, titles: [], rows: rowsOf(tiles) };
+  const lw = mgSpan(PX.reqList, pitch);
+  const cw = Math.max(mgSpan(PX.chart, pitch), Math.round(cols * 0.2));
+  tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
+  inspector(tiles, lw, 0, cols - lw - cw, n, pitch);
+  // The charts, one column at the right edge, a third of the height each.
+  const hs = splitRows(n, 3);
+  let y = 0;
+  CHARTS.forEach((c, i) => {
+    tiles.push({ id: c.id, kind: c.kind, x: cols - cw, y, w: cw, h: hs[i] });
+    y += hs[i];
+  });
+  return { cols, pitch, tiles, titles: [], rows: n, chartsInList: false };
 }
 
-/* ── b · Stripe summary: the numbers, then the report ───────────────────── */
+/* ── b · Stripe summary: the charts first, then the report ─────────────── */
 
 export function layoutB(width: number, needs: MgNeeds): MgLayout {
   const cols = mgColumns(width);
   const pitch = mgPitch(width, cols);
+  const n = Math.max(10, needs.rowsAvail);
   const tiles: MgPlace[] = [];
-  // The numbers: three verdict counts and four neutral counts, 3v + 4n = C.
-  // The neutral values are the longer strings ("339 / 398", "21,5 MB"), so on
-  // 36 columns they take the wider share; the verdicts lead by colour and
-  // numeral, not by width.
-  const [v, nn] = cols === 36 ? [4, 6] : cols === 24 ? [4, 3] : [4, 3];
-  const vPx = mgWidth(v, pitch);
-  const nPx = mgWidth(nn, pitch);
-  let y = 0;
   if (cols === 12) {
-    const h1 = Math.max(3, rowsForAspect(vPx, 2));
-    for (let i = 0; i < 3; i += 1) tiles.push({ id: `v${i}`, kind: "panel", x: i * v, y, w: v, h: h1 });
-    y += h1;
-    const h2 = Math.max(3, rowsForAspect(nPx, 2));
-    for (let i = 0; i < 4; i += 1) tiles.push({ id: `n${i}`, kind: "panel", x: i * nn, y, w: nn, h: h2 });
-    y += h2;
-  } else {
-    const h = Math.max(3, rowsForAspect(Math.max(vPx, nPx), 2));
-    for (let i = 0; i < 3; i += 1) tiles.push({ id: `v${i}`, kind: "panel", x: i * v, y, w: v, h });
-    for (let i = 0; i < 4; i += 1)
-      tiles.push({ id: `n${i}`, kind: "panel", x: 3 * v + i * nn, y, w: nn, h });
-    y += h;
+    const lw = 5;
+    tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
+    inspector(tiles, lw, 0, cols - lw, n, pitch);
+    return { cols, pitch, tiles, titles: [], rows: n, chartsInList: true };
   }
-  // The report: checks, then floors, down the main column; the model beside
-  // them as the evidence, as tall as the two.
-  const m = cols === 12 ? 6 : Math.max(mgSpan(PX.checks, pitch), mgSpan(needs.floorPx, pitch));
-  const hc = Math.max(listRows(needs.checkLines), rowsForAspect(mgWidth(m, pitch), 2));
-  let hf = Math.max(listRows(needs.floorLines), rowsForAspect(mgWidth(m, pitch), 2));
-  const vw = cols - m;
-  // Grow the floor tile (it scrolls) until the viewer beside the column is
-  // inside its bound.
-  while (mgWidth(vw, pitch) / mgHeight(hc + hf) > MG_ASPECT.viewer.max) hf += 1;
-  tiles.push({ id: "checks", kind: "panel", x: 0, y, w: m, h: hc });
-  tiles.push({ id: "floors", kind: "panel", x: 0, y: y + hc, w: m, h: hf });
-  tiles.push({ id: "viewer", kind: "viewer", x: m, y, w: vw, h: hc + hf });
-  return { cols, pitch, tiles, titles: [], rows: rowsOf(tiles) };
+  // The summary row: the two treemaps, then the MMI bars, which read across
+  // and take the widest share. Tall enough that a treemap stays inside 2 : 1.
+  const tw = Math.round(cols * 0.3);
+  const mw = cols - 2 * tw;
+  const ch = Math.max(4, rowsForAspect(mgWidth(tw, pitch), MG_ASPECT.panel.max), rowsForAspect(mgWidth(mw, pitch), MG_ASPECT.chart.max));
+  tiles.push({ id: "tree-system", kind: "panel", x: 0, y: 0, w: tw, h: ch });
+  tiles.push({ id: "tree-function", kind: "panel", x: tw, y: 0, w: tw, h: ch });
+  tiles.push({ id: "mmi", kind: "chart", x: 2 * tw, y: 0, w: mw, h: ch });
+  // Then the report down one column, the model beside it as the evidence,
+  // and the rail: Scope over Detail.
+  const h = n - ch;
+  const lw = mgSpan(PX.reqList + 60, pitch);
+  // The rail: wide enough for Scope, near 1.6 : 1 per half, and never past
+  // 2 : 1 for the shorter half.
+  let aspectCols = 1;
+  while (mgWidth(aspectCols + 1, pitch) <= MG_ASPECT.list.max * mgHeight(Math.floor(h / 2))) aspectCols += 1;
+  const rw = Math.max(mgSpan(PX.scope, pitch), Math.min(aspectCols, Math.max(mgSpan(PX.scope + 80, pitch), rowsToCols(h, pitch))));
+  const vw = cols - lw - rw;
+  tiles.push({ id: "reqs", kind: "list", x: 0, y: ch, w: lw, h });
+  tiles.push({ id: "viewer", kind: "viewer", x: lw, y: ch, w: vw, h });
+  rail(tiles, lw + vw, ch, rw, h);
+  return { cols, pitch, tiles, titles: [], rows: n, chartsInList: false };
 }
 
-/* ── c · Grafana / Datadog: grouped rows, small multiples ───────────────── */
+/** The fewest columns that keep a rail half of `h` rows at or under 2 : 1
+ *  is the wrong question; the rail is read down, so it needs only to be wide
+ *  enough for Scope. Kept as the width that makes each half near 1.6 : 1. */
+function rowsToCols(h: number, pitch: number): number {
+  return mgSpan(mgHeight(Math.floor(h / 2)) * 1.6, pitch);
+}
+
+/* ── c · Grafana / Datadog: the report's groups as rows of panels ──────── */
+
+export function layoutC(width: number, needs: MgNeeds & { ifc: number; std: number }): MgLayout {
+  const cols = mgColumns(width);
+  const pitch = mgPitch(width, cols);
+  const n = Math.max(10, needs.rowsAvail);
+  const tiles: MgPlace[] = [];
+  const titles: MgRowTitle[] = [];
+  if (cols === 12) {
+    // Compact: the groups and the charts in one scrolling list, the
+    // inspector beside it. 12 × 13 cells cannot seat eleven panels, three
+    // charts and the inspector at their bounds.
+    const lw = 5;
+    tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
+    inspector(tiles, lw, 0, cols - lw, n, pitch);
+    return { cols, pitch, tiles, titles, rows: n, chartsInList: true };
+  }
+  const rw = Math.round(cols / 4);
+  const lw = cols - rw;
+  let y = 0;
+  // One group row per report section, then the charts row. Panel heights
+  // keep every panel inside 2 : 1.
+  const group = (id: string, count: number, prefix: string) => {
+    titles.push({ id, y, x: 0, w: lw });
+    y += 1;
+    const ws = splitCols(lw, count);
+    const h = Math.max(3, rowsForAspect(mgWidth(Math.max(...ws), pitch), MG_ASPECT.panel.max));
+    let x = 0;
+    ws.forEach((w, i) => {
+      tiles.push({ id: `${prefix}${i}`, kind: "panel", x, y, w, h });
+      x += w;
+    });
+    y += h;
+  };
+  group("g-ifc", needs.ifc, "ifc");
+  group("g-std", needs.std, "std");
+  // The charts row carries no title: its tiles name themselves. The check
+  // list takes what its name and verdict columns need; the MMI bars a third
+  // of the rest (they turn into rows when narrow); the two treemaps split the
+  // remainder.
+  const ch = n - y;
+  const kw = mgSpan(PX.checks, pitch);
+  const rest = lw - kw;
+  // The treemaps side by side, or stacked in one column when side by side
+  // would make them tall and narrow: whichever puts a treemap nearer square.
+  const side = { tw: Math.floor((rest - Math.max(3, Math.round(rest / 3))) / 2), th: ch };
+  let stackTw = Math.ceil(rest * 0.55);
+  while (stackTw > 3 && mgWidth(stackTw, pitch) > MG_ASPECT.panel.max * mgHeight(Math.floor(ch / 2))) stackTw -= 1;
+  const off = (w: number, h: number) => Math.abs(Math.log(mgWidth(w, pitch) / mgHeight(h)));
+  const stacked = ch >= 6 && off(stackTw, Math.floor(ch / 2)) < off(side.tw, side.th);
+  if (stacked) {
+    const [h1, h2] = splitRows(ch, 2);
+    tiles.push({ id: "tree-system", kind: "panel", x: 0, y, w: stackTw, h: h1 });
+    tiles.push({ id: "tree-function", kind: "panel", x: 0, y: y + h1, w: stackTw, h: h2 });
+    tiles.push({ id: "mmi", kind: "chart", x: stackTw, y, w: rest - stackTw, h: ch });
+  } else {
+    const mw = rest - 2 * side.tw;
+    tiles.push({ id: "tree-system", kind: "panel", x: 0, y, w: side.tw, h: ch });
+    tiles.push({ id: "tree-function", kind: "panel", x: side.tw, y, w: side.tw, h: ch });
+    tiles.push({ id: "mmi", kind: "chart", x: 2 * side.tw, y, w: mw, h: ch });
+  }
+  tiles.push({ id: "checks", kind: "list", x: rest, y, w: kw, h: ch });
+  // The right region: the model over Scope over Detail.
+  const vh = Math.max(4, Math.min(Math.floor(n / 3), rowsForAspect(mgWidth(rw, pitch), MG_ASPECT.viewer.max)));
+  tiles.push({ id: "viewer", kind: "viewer", x: lw, y: 0, w: rw, h: vh });
+  rail(tiles, lw, vh, rw, n - vh);
+  return { cols, pitch, tiles, titles, rows: n, chartsInList: false };
+}
+
+/* ── kept, off the main dash ─────────────────────────────────────────────
+ *
+ * The small-multiple packers that laid out c's per-storey and per-class
+ * panels until 2026-09-25. The owner: *"I dont understand the obsession with
+ * floor vs ifcclass."* Those views left the main dash for the report's
+ * requirements; the storey and class numbers stay on Innhold (Klasser,
+ * Etasje × klasse) and the bento board. Kept for a drill-down that wants
+ * them back. */
+
 
 /** Small multiples: `count` equal panels per row, the per-row count chosen
  *  from the divisors of the region's columns so every panel is `minPx` to
@@ -301,150 +429,3 @@ export function rowMultiples(
   return { w: pick.w, perRow: pick.perRow, rows: Math.ceil(Math.max(1, count) / pick.perRow) };
 }
 
-/** Multiples that must fill a band of `height` rows beside a taller lead
- *  (the floor matrix): the row count whose panels land nearest 1.3 : 1 with
- *  the fewest empty slots, every panel inside 1 : 2 to 2 : 1. Null when no
- *  split qualifies. */
-function fitMultiples(
-  count: number,
-  region: number,
-  pitch: number,
-  height: number,
-): { w: number; perRow: number; rows: number } | null {
-  let best: { w: number; perRow: number; rows: number; score: number } | null = null;
-  for (let rows = 1; rows <= Math.min(count, Math.floor(height / 3)); rows += 1) {
-    const perRow = Math.ceil(count / rows);
-    const w = Math.floor(region / perRow);
-    if (w < 1) continue;
-    const aspect = mgWidth(w, pitch) / mgHeight(Math.floor(height / rows));
-    if (aspect < 0.5 || aspect > 2) continue;
-    const score = rows * perRow - count + Math.abs(Math.log(aspect / 1.3));
-    if (!best || score < best.score) best = { w, perRow, rows, score };
-  }
-  return best;
-}
-
-export function layoutC(
-  width: number,
-  needs: MgNeeds & { matrix: boolean },
-): MgLayout {
-  const cols = mgColumns(width);
-  const pitch = mgPitch(width, cols);
-  const tiles: MgPlace[] = [];
-  const titles: MgRowTitle[] = [];
-  let y = 0;
-
-  // Group 1, Verifikasjon: a block of stat panels (the three verdict counts
-  // and Romlig struktur in one column, the four neutral counts in the next),
-  // the checks, the model.
-  titles.push({ id: "g-verify", y });
-  y += 1;
-  const vw0 = mgSpan(PX.statLead, pitch);
-  const sw = mgSpan(PX.stat, pitch);
-  const cw = mgSpan(PX.checks, pitch);
-  const compact = cols - vw0 - sw - cw < mgSpan(PX.viewerMin, pitch);
-  const hc = listRows(needs.checkLines);
-  if (compact) {
-    // 12 columns: the stat block and the checks side by side, the model on
-    // its own row under them.
-    const half = cols / 2;
-    const h = Math.max(12, hc);
-    statBlock(tiles, 0, y, Math.floor(half / 2), Math.floor(half / 2), h);
-    tiles.push({ id: "checks", kind: "panel", x: half, y, w: cols - half, h });
-    y += h;
-    const vh = rowsForAspect(mgWidth(cols, pitch), 2);
-    tiles.push({ id: "viewer", kind: "viewer", x: 0, y, w: cols, h: vh });
-    y += vh;
-  } else {
-    const vw = cols - vw0 - sw - cw;
-    const h = Math.max(12, hc, rowsForAspect(mgWidth(vw, pitch), MG_ASPECT.viewer.max));
-    statBlock(tiles, 0, y, vw0, sw, h);
-    tiles.push({ id: "checks", kind: "panel", x: vw0 + sw, y, w: cw, h });
-    tiles.push({ id: "viewer", kind: "viewer", x: vw0 + sw + cw, y, w: vw, h });
-    y += h;
-  }
-
-  // Group 2, Etasjer: Romlig struktur (the chain from project to storey),
-  // then one panel per storey. With a floor config the configured matrix
-  // leads instead, with the chain as one line of lamps under its head. The lead
-  // panel takes the columns the storey panels leave, so the row closes.
-  titles.push({ id: "g-storeys", y });
-  y += 1;
-  const leadId = needs.matrix ? "matrix" : "spatial";
-  const leadMin = needs.matrix ? needs.floorPx : PX.spatial;
-  const lw0 = Math.min(cols - 1, mgSpan(leadMin, pitch));
-  let sm = rowMultiples(needs.storeys, cols - lw0, pitch, PX.storey);
-  const groupH = Math.max(sm.rows * 3, needs.matrix ? listRows(needs.floorLines) : 4);
-  if (groupH > sm.rows * 4) sm = fitMultiples(needs.storeys, cols - lw0, pitch, groupH) ?? sm;
-  // The columns the storeys leave: first to the lead while it stays inside
-  // 2 : 1 at the group's height, then one each to the storey columns from the
-  // first, so the row closes on content and never on air.
-  let lw = lw0;
-  let spare = cols - lw0 - sm.perRow * sm.w;
-  while (spare > 0 && mgWidth(lw + 1, pitch) / mgHeight(groupH) <= 2) {
-    lw += 1;
-    spare -= 1;
-  }
-  const colW = Array.from({ length: sm.perRow }, () => sm.w);
-  for (let k = 0; spare > 0; k = (k + 1) % sm.perRow, spare -= 1) colW[k] += 1;
-  const colX = colW.map((_, k) => lw + colW.slice(0, k).reduce((a, b) => a + b, 0));
-  const rowH = Math.floor(groupH / sm.rows);
-  const rowExtra = groupH % sm.rows;
-  const rowY = Array.from({ length: sm.rows }, (_, r) => r * rowH + Math.min(r, rowExtra));
-  tiles.push({ id: leadId, kind: "panel", x: 0, y, w: lw, h: groupH });
-  for (let i = 0; i < needs.storeys; i += 1) {
-    const k = i % sm.perRow;
-    const r = Math.floor(i / sm.perRow);
-    tiles.push({
-      id: `storey${i}`,
-      kind: "panel",
-      x: colX[k],
-      y: y + rowY[r],
-      w: colW[k],
-      h: rowH + (r < rowExtra ? 1 : 0),
-    });
-  }
-  y += groupH;
-
-  // Group 3, Klasser: one panel per IFC class.
-  if (needs.classes > 0) {
-    titles.push({ id: "g-classes", y });
-    y += 1;
-    const km = multiples(needs.classes, cols, pitch, PX.klass);
-    for (let i = 0; i < needs.classes; i += 1) {
-      tiles.push({
-        id: `class${i}`,
-        kind: "panel",
-        x: (i % km.perRow) * km.w,
-        y: y + Math.floor(i / km.perRow) * 3,
-        w: km.w,
-        h: 3,
-      });
-    }
-    y += km.rows * 3;
-  }
-  return { cols, pitch, tiles, titles, rows: y };
-}
-
-/** The stat block of `c`: two columns sharing the height `h` (the first
- *  panels take the remainder). Column one: the three verdict counts; column
- *  two: the four neutral counts. */
-function statBlock(tiles: MgPlace[], x: number, y: number, w0: number, w1: number, h: number) {
-  for (const [cx, w, ids] of [
-    [x, w0, ["v0", "v1", "v2"]],
-    [x + w0, w1, ["n0", "n1", "n2", "n3"]],
-  ] as const) {
-    let at = y;
-    const base = Math.floor(h / ids.length);
-    const extra = h % ids.length;
-    ids.forEach((id, i) => {
-      const hi = base + (i < extra ? 1 : 0);
-      tiles.push({ id, kind: "panel", x: cx, y: at, w, h: hi });
-      at += hi;
-    });
-  }
-}
-
-function rowsOf(tiles: MgPlace[]): number {
-  return tiles.reduce((max, t) => Math.max(max, t.y + t.h), 0);
-}

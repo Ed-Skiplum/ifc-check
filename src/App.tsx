@@ -205,6 +205,9 @@ export default function App() {
       if (seen[model.id] === key) continue;
       seen[model.id] = key;
       if (first) continue;
+      // The design alternatives dock a Detail panel that shows the selection
+      // itself, so a selection never re-targets their Scope (2026-09-25).
+      if (view.design) continue;
       const open = view.model === model.id ? parseFocus(view.focus) : null;
       // A drill in progress owns the band.
       if (open !== null && open.kind !== "element") continue;
@@ -222,7 +225,7 @@ export default function App() {
       seen[view.model] = `${cross.views[view.model]?.selectSeq ?? 0}|${restored.guids.join("+")}`;
       cross.setSelection(view.model, restored.guids);
     }
-  }, [cross, models, setView, view.focus, view.model]);
+  }, [cross, models, setView, view.focus, view.model, view.design]);
 
   const onRemove = useCallback(
     (id: string) => {

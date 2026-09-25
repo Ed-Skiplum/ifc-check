@@ -1,21 +1,132 @@
 {
   "formatVersion": 1,
-  "name": "TEST FIXTURE: HI90 project layer for ifc-schema, phase and material-product",
-  "description": "Test fixture, not a project config. Mirrors the ifc-schema, fase and materialprodukt entries of HI90 krav.yaml (blokker) so the report can be compared with the 22.09 reference. Not expressible here: HI90's exporter exception (IFC2X3 for Tekla), and its pattern source for a product code (pset matching ^MagiCAD Pset_, property ^product ?code$).",
-  "ifcVersions": ["IFC4"],
+  "name": "TEST FIXTURE: HI90 project layer and mappings",
+  "description": "Test fixture, not a project config. Mirrors the ifc-schema, fase and materialprodukt entries of HI90 krav.yaml (blokker), and the ns3451, ns3457_8 and mmi locations (HI90_Prosjektinfo, manual §4.2, MMI codes from manual §4.5), so the report and the board can be compared with the 22.09 reference. Not expressible here: HI90's exporter exception (IFC2X3 for Tekla), its pattern source for a product code (pset matching ^MagiCAD Pset_, property ^product ?code$), and HI90_Kopi objekt, whose values name the OWNING model per file (krav.yaml modeller.kopi_eier), which a copy-object list of codes cannot say.",
+  "ifcVersions": [
+    "IFC4"
+  ],
   "projectLayer": {
-    "ifc-schema": { "accepted": ["IFC4"] },
+    "ifc-schema": {
+      "accepted": [
+        "IFC4"
+      ]
+    },
     "phase": {
-      "sources": [{ "property": { "propertySet": "HI90_TFM", "name": "Fase" } }]
+      "sources": [
+        {
+          "property": {
+            "propertySet": "HI90_TFM",
+            "name": "Fase"
+          }
+        }
+      ]
     },
     "material-product": {
-      "mengdetype": [{ "property": { "propertySet": "NOSKI_Mengde", "name": "Mengdetype" } }],
-      "product": [{ "property": { "propertySet": "Identity Data", "name": "MC Product Code" } }],
+      "mengdetype": [
+        {
+          "property": {
+            "propertySet": "NOSKI_Mengde",
+            "name": "Mengdetype"
+          }
+        }
+      ],
+      "product": [
+        {
+          "property": {
+            "propertySet": "Identity Data",
+            "name": "MC Product Code"
+          }
+        }
+      ],
       "material": [
-        { "property": { "propertySet": "HI90_Prosjektinfo", "name": "HI90_Material" } },
-        { "property": { "propertySet": "HI90_Prosjektinfo_IFC", "name": "HI90_Material" } }
+        {
+          "property": {
+            "propertySet": "HI90_Prosjektinfo",
+            "name": "HI90_Material"
+          }
+        },
+        {
+          "property": {
+            "propertySet": "HI90_Prosjektinfo_IFC",
+            "name": "HI90_Material"
+          }
+        }
       ]
     }
   },
-  "rules": []
+  "rules": [
+    {
+      "id": "hi90-ns3451",
+      "kind": "extended",
+      "mapping": "system-classification",
+      "name": "HI90_NS3451",
+      "description": "Manual §4.2",
+      "check": {
+        "type": "code-lookup",
+        "list": "ns3451",
+        "source": {
+          "property": {
+            "propertySet": "HI90_Prosjektinfo",
+            "name": "HI90_NS3451"
+          }
+        },
+        "extract": "^(\\d{3})$"
+      }
+    },
+    {
+      "id": "hi90-ns3457-8",
+      "kind": "extended",
+      "mapping": "component-classification",
+      "name": "HI90_NS3457-8",
+      "description": "Manual §4.2",
+      "check": {
+        "type": "code-lookup",
+        "list": "ns3457-8",
+        "source": {
+          "property": {
+            "propertySet": "HI90_Prosjektinfo",
+            "name": "HI90_NS3457-8"
+          }
+        },
+        "extract": "^([A-Z]{2,3})"
+      }
+    },
+    {
+      "id": "hi90-mmi",
+      "kind": "extended",
+      "mapping": "progress-code",
+      "name": "HI90_MMI",
+      "description": "Manual §4.5 MMI-koder",
+      "check": {
+        "type": "code-lookup",
+        "values": [
+          "100",
+          "200",
+          "300",
+          "350",
+          "700",
+          "710",
+          "720",
+          "740",
+          "760",
+          "780",
+          "800",
+          "825",
+          "850",
+          "875",
+          "900",
+          "920",
+          "950",
+          "980"
+        ],
+        "source": {
+          "property": {
+            "propertySet": "HI90_Prosjektinfo",
+            "name": "HI90_MMI"
+          }
+        },
+        "extract": "^(\\d{3})$"
+      }
+    }
+  ]
 }

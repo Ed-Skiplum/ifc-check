@@ -46,11 +46,14 @@ import { t } from "./i18n";
 import { cellRows, storeyNames, storeyRows } from "./profile";
 import { serialiseFocus, type Focus } from "./trace";
 import { typeGuids } from "./types/aggregate";
+import { reqDoor, treeDoor } from "./board-doors";
+import { labelOfRow } from "./requirements";
+import { findNode } from "../engine/code-tree";
 import type { ModelEntry } from "./useModels";
 
 export type { Mode };
 
-export type ChipKind = "class" | "cell" | "check" | "rule" | "type" | "storey" | "element";
+export type ChipKind = "class" | "cell" | "check" | "rule" | "type" | "storey" | "element" | "tree";
 
 export interface FilterChip {
   /** `serialiseFocus(focus)` — the same key the hash view uses, so a chip and
@@ -110,6 +113,25 @@ export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip 
   if (focus.kind === "type") {
     return { key, kind: "type", label: focus.typeName ?? t("type.untyped", lang), focus };
   }
+  if (focus.kind === "req") {
+    // A requirement that was not answered stands for no elements, as a check
+    // that could not run does.
+    const door = reqDoor(model, focus);
+    if (!door.row) return null;
+    const state = door.row.state;
+    if (state === "not_configured" || state === "not_evaluable" || state === "not_applicable") return null;
+    if (focus.value !== undefined && door.guids.length === 0) return null;
+    const name = labelOfRow(door.row);
+    const head = name ? t(name, lang) : door.row.id;
+    const label = focus.value === undefined ? head : `${head} · ${focus.value ?? "—"}`;
+    return { key, kind: "check", label, focus };
+  }
+  if (focus.kind === "tree") {
+    const tree = model.board?.trees[focus.axis];
+    const node = tree ? findNode(tree.root, focus.key) : null;
+    if (!node) return null;
+    return { key, kind: "tree", label: node.label ?? "—", focus };
+  }
   // `kpi` and `element`: neither is a set to narrow to. See `guidsOf`.
   return null;
 }
@@ -151,6 +173,14 @@ function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
   if (focus.kind === "storey") {
     if (!profile) return null;
     return new Set(storeyRows(profile, focus.storeyGuids).map((r) => r.guid));
+  }
+  if (focus.kind === "req") {
+    const door = reqDoor(model, focus);
+    return door.row ? new Set(door.guids) : null;
+  }
+  if (focus.kind === "tree") {
+    const guids = treeDoor(model, focus);
+    return guids ? new Set(guids) : null;
   }
   // `kpi` and `element` never reach here. `chipOf` refuses both: a KPI focus
   // narrows nothing, and an `element` focus is the SELECTION — it opens the

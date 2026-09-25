@@ -20,6 +20,9 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   kpis.ts        the seven numbers on the board's KPI row
   report.ts      the report contract: one row per requirement × model
                  (see "Report contract")
+  code-tree.ts   the board's two code treemaps as data: system (NS 3451, or
+                 IFC class then type) and function (NS 3457-8, PredefinedType
+                 as a marked fallback); pure, selftested
   standard-layer.ts  the `ifc-schema`, `phase` and `material-product` report rows, with the
                  ruleset's `projectLayer` on top (see "The standard layer")
   storey-config.ts  `storey-config`: file storeys against the ruleset's floor
@@ -56,7 +59,14 @@ src/bcf/         BCF 2.1 export: topic plan, camera, spaces, XML, zip, XSD
                  validation (pure) + `browser.ts` (snapshots, download)
 src/design/      the design alternatives' component family (`#design=a|b|c`) and fonts
 src/ui/alt/      the design alternatives' layouts on the module grid (see
-                 "Design alternatives 2026-09-25")
+                 "Design alternatives 2026-09-25"): AltBoard, module-grid,
+                 Requirements (the three renderings of a requirement),
+                 Charts (treemaps, MMI bars), req-view, treemap (squarify)
+src/ui/requirements.ts  the report's eleven requirements, in its order, over
+                 the report contract rows (see "Round two" below)
+src/ui/report-rows.ts   what the workers build for the board: the contract
+                 rows, per-value doors of the mapping rows, the two treemaps
+src/ui/board-doors.ts   the elements behind a requirement, a value or a cell
 src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
   check-cli.ts   run the fundamentals headlessly
@@ -641,6 +651,10 @@ Chase these upstream rather than living with them silently:
 
 ## The band opens on a SELECTION (2026-09-23)
 
+(The design alternatives do not do this since 2026-09-25: their Detail panel
+shows the selection itself, so a selection never re-targets their Scope. See
+"Round two".)
+
 edkjo: *"where is the properties panel?"* The object panel lived only inside the
 derivation band, and the band only opened when a NUMBER was clicked, so
 selecting an element in the 3D tile showed nothing at all.
@@ -1199,7 +1213,10 @@ Aspect = rendered width / height in px at the viewport drawn at. `MG_ASPECT` in
 | `panel` | 1 : 2 to 2 : 1 | the rule: every stat, table tile, gauge and small multiple. 2 : 1 is where a tile stops reading as a card and starts reading as a strip |
 | `list` | 0.3 to 2 | a long ranked list that scrolls (a's master list): read down, the rows are the content |
 | `viewer` | 0.5 to 2.4 | a camera frames whatever box it gets; a building read in elevation is wider than tall, so up to 21 : 9 |
-| `band` | 0.4 to 2.4 | the derivation table: rows × four columns beside or over the object panel |
+| `chart` | 0.5 to 3 | the MMI bars over an ordered scale: one bar per level, read across, so it may be wider than tall (in a tile narrower than 26 px a level it turns into rows, read down) |
+
+Scope and Detail are `list` tiles: both are read down and scroll inside. The
+treemaps are `panel`s: square-ish is what a treemap wants.
 
 No strips: the 13×1 KPI strip and a full-width one-row bar do not exist in the
 alternatives. Romlig struktur is a compact panel in `c`, a group in `a`'s list,
@@ -1208,44 +1225,149 @@ header, which the owner allowed). A group title row in `c` is one row, full
 width, and a heading (label and count), not a tile; the gate checks its
 alignment only.
 
+### Round two (2026-09-25): the report's content, one screen, two docked panels
+
+edkjo on round one, all three live: *"the content dash still sucks. I dont
+understand the obsession with floor vs ifcclass"* · *"why not report on what
+matters first? Remember you're building with the pdf report, and they might
+have some more insight into what is important to report on."* · *"Fit to
+viewport for the dash"* · *"When clicking an object it makes no sense to open
+a table that hides half the page. Why not have a dedicated information panel
+with identities in scope and another with properties/info on a selected
+identity?"* He kept the direction: *"the bold step away from the previous"*.
+Then three additions the same day: a system treemap and a function treemap
+(*"treemap that defaults to ifctype/class, but when configured shows the
+project classification code for system. Another for component codes for
+function that can show predefined type as fallback"*), and *"MMI
+distribution"*, a chart, never a KPI, reading exactly «Statuskode ikke
+konfigurert» with no mapping.
+
+**The content order is the report's** (HI90
+`docs/rapport-rammeverk.md`, "Model report", sections 3 and 4, and the
+numbered list under it; names from `docs/begreper.md`). `src/ui/requirements.ts`:
+
+| # | Requirement | Report row it reads | Report reference |
+|---|---|---|---|
+| | **IFC-struktur** | | rapport-rammeverk §3 |
+| 0 | IFC-skjema | `ifc-schema` | a Nøkkeltall tile in the report (§1), begreper §0; it leads the group here because the board has no Nøkkeltall band |
+| 1 | Typeobjekt | `element-typed` | begreper §1 |
+| 2 | GUID | `guid-unique`, told as «Duplikater i fila» | begreper §9 |
+| 3 | Etasjedefinisjon | `storey-config` (ikke konfigurert with no floors) | begreper §10 |
+| 4 | Objekter i etasje | `storey-containment`, with `mesh-placement` as its span reading | begreper §10 |
+| | **Standardkrav** | | rapport-rammeverk §4 |
+| 5 | Systemkode NS 3451 | the `system-classification` mapping | begreper §2 |
+| 6 | Funksjonskode NS 3457-8 | the `component-classification` mapping | begreper §3 |
+| 7-8 | Materiale / Produkt | `material-product`, one row in the contract, so one requirement here; the open rulings print as «åpen» | begreper §4-6 |
+| 9 | Kopiobjekt | the `copy-object` mapping | begreper §8 |
+| 10 | MMI | the `progress-code` mapping, its fordeling sorted by code, never a big figure | begreper §7 |
+| 11 | Fase | `phase` | begreper §11 |
+
+Each requirement shows what the report block shows: the status (the row's
+`state`, glyph and word and colour; `not_configured` is «∅ ikke konfigurert»
+in grey, never green), the Dekning (presence: `grunnlag − mangler` over
+`grunnlag`, «n % · x av N» with `grunnlag_klasse`), the «fra» line (every
+`kilder` source with its layer tag, IFC or prosjekt, and its n, 0 included),
+and the fordeling (every value with its count, avvik amber, mangler red,
+«n unike verdier»). The engine's thresholds are not the report's
+(`standard.terskel`): the status is the engine's pass / warn / fail, and the
+report's OK / Kan brukes / Ikke oppfylt words are not borrowed for it. No
+number is computed on the board but a share of two of the row's own counts.
+A mapping with no rule is `not_configured`: the contract emits no row for an
+unconfigured classification mapping, and the board says what that is.
+
+Everything the engine runs that the report does not carry (Innlesing, Romlig
+struktur, Etasje i bygning, Etasjekoter, Navn på objekt, Typenavn, Type brukt
+én gang, Ubrukt type, Materiale, and the project rules that are not a
+mapping) follows the requirements as the existing verification list, less the
+rows a requirement already shows, then the four neutral counts.
+
+**The storey and class views left the main dash.** c's per-storey and
+per-class small multiples, the Etasjer tile (storey list, floor matrix), the
+Romlig struktur panel and the seven-number row are gone from the
+alternatives. Nothing was deleted: Innhold still carries Klasser and Etasje ×
+klasse, the bento board (no `#design`) is untouched, and the alternatives'
+`Multiple` / `Lamps` components and the `multiples` / `rowMultiples` packers
+stay exported for a drill-down that wants them back. A storey is still one
+click away: a storey value in Objekter i etasje's fordeling is a door to that
+storey.
+
+**Clicks.** A requirement, a figure's head, a fordeling value, a treemap cell
+or an MMI bar fills Scope and makes a chip, the same click grammar as the
+bento board (a second click on the same thing undoes it). A requirement that
+is a check or a rule keeps its `check:` / `rule:` focus; `ifc-schema`,
+`phase` and `material-product` open a `req:` focus over the row's `funn`; a
+value opens `req:<id>|=<value>` (`req:<id>|-` for no value): for a mapping row
+every object the rule read that value on (`BoardData.values`, read by the
+rule's own path `codeLookupSubjects`), for other rows the `funn` carrying it
+(so only a flagged value is a door there), and for Typeobjekt and Objekter i
+etasje the type or the storey it names. A treemap cell opens `tree:<axis>|<key>`
+and a `Klassifikasjon` chip. A `not_configured`, `not_evaluable` or
+`not_applicable` requirement makes no chip, as a check that could not run does
+not.
+
+**Scope and Detail.** Two tiles of the grid, always present, empty until used
+(no label, no placeholder). Scope is the derivation list (`TraceBand` with
+`alone`: no object panel beside it, the GUID kept whole, the other columns
+ellipsized with their text in `title`); Detail is `ObjectPanel` over the
+current selection. A Scope row selects, isolates, frames and fills Detail
+(`pickElement`, unchanged); a pick in the 3D fills Detail and moves nothing
+else: in the alternatives the "selection opens the band" effect of `App` is
+off, because Detail already shows the selection. Nothing overlays the board,
+and a click never moves a tile. Innhold and Graf keep the band at the foot.
+
+**One screen.** Every layout fills exactly the rows the viewport leaves under
+the tab strip (`useModuleBox`), and a tile's surplus scrolls inside it. At
+the compact class (12 columns) 12 × 13 cells cannot seat the eleven
+requirement panels, three charts and the inspector at their aspect bounds, so
+all three alternatives become the list (requirements, then the charts inline,
+then the other checks) beside the inspector; `MgLayout.chartsInList` says so.
+
+**Verified 2026-09-25, LOCAL `vite preview` builds in headless Chrome, not
+the deployed site.** `module-grid-gate`: all 108 states pass (KNM one model at
+all six classes, three models at 1440 and 2112, each at rest, with a
+requirement open, and with an element selected) and all 36 HI90_ARK states
+(without and with the fixture). `isolate-gate`: every assertion holds,
+phases 1-2 (bento) unchanged, plus D1-D7 on a, b and c. One gap stated rather
+than hidden: on KNM_ARK the requirement D2 opens (Typeobjekt, one untyped
+IfcRoof) has no mesh, so the framing half of D3 is skipped by design in the
+alternatives; framing itself is the unchanged `pickElement` path that phase 1
+asserts. The fixture `examples/hi90-project-layer.test.ruleset.json` now also
+carries the NS 3451, NS 3457-8 and MMI mappings on HI90_Prosjektinfo (manual
+§4.2 and §4.5); HI90_Kopi objekt stays out, since its values name the owning
+model per file (krav.yaml `kopi_eier`), which a copy-object code list cannot
+say. On HI90_ARK: NS 3451 fail (2 294 ok, 431 avvik, 413 mangler of 3 138),
+NS 3457-8 all mangler, MMI 134 on the list, 2 591 «Status ikke satt», 413
+mangler.
+
 ### The three alternatives
 
-**a · Linear work surface** (reference: Linear's 2026 refresh, "don't compete
-for attention you haven't earned"; master/detail after Linear's issue list →
-side panel, Figma UI3's docked panels, Vaadin master-detail; canon 2026-08-26
-"the detail panel appears only once a row is selected"). Two panes, the height
-of the screen, no page scroll. Left, one `list` tile: the three verdict counts
-as its head, then the checks and rules, Etasjer, Romlig struktur and the four
-counts as grouped sections with sticky group heads. Right, the inspector: the
-model; once a number is opened, the derivation band docks in it, under the
-model when the inspector is under 1200 px wide, beside it when wider (list
-over object panel there). The chrome recedes: the app bar sits on the ground
-with no shadow and muted words, the tab tray is flat, the cards are the
-flattest of the three.
+**a · Linear work surface** (Linear's issue list and side panel, Figma UI3's
+docked panels, master/detail). Three columns, the height of the screen: the
+requirements as one list tile with sticky group heads (IFC-struktur,
+Standardkrav, then Verifikasjon), each a dense row (status, name, Dekning,
+«fra», the fordeling values); the inspector (the model on top, as tall as
+keeps it inside 2.4 : 1, Scope and Detail side by side under it when the
+block seats 300 + 240 px, else stacked); the charts in a column at the right
+edge (system treemap, function treemap, MMI), a third of the height each.
+Flattest cards, receding chrome.
 
-**b · Stripe summary** (reference: Stripe's home, a few key numbers and no
-widget grid; Few, "upper-left is the most expensive real estate"; Sultanum &
-Setlur 2026, KPIs are read early when prominent). Top row: the seven numbers as
-seven panels, the three verdict counts first with their figure in the
-verdict's colour, glyph and word; then the report down one column (checks,
-then Etasjer with the chain lamps under its head) with the model beside it as
-the evidence, as tall as the column. The page scrolls; it reads top to bottom
-like the delivered report. Band at the foot.
+**b · Stripe summary** (Stripe's home, a few key visuals first; Few, "upper-left
+is the most expensive real estate"). The summary row first: the two treemaps
+(30 % of the columns each) and the MMI bars (the rest, read across), as tall
+as keeps a treemap inside 2 : 1. Under it the report as the PDF lays it out,
+one block per requirement down one column (a status square with glyph and
+word, the number, then Dekning / «fra» / Fordeling as labelled lines), the
+model beside it as the evidence, and a rail of Scope over Detail.
 
-**c · Grafana / Datadog overview → drill-down** (reference: Grafana rows,
-"most important top-left, one row per service" and repeated panels; Datadog
-groups; Tufte small multiples; Shneiderman overview → zoom → details). Titled
-groups. Verifikasjon: a stat block (the three verdict counts, the four counts)
-beside the checks and the model. Etasjer: Romlig struktur, then one panel per
-storey (name, kote, element count, a one-hue bar against the largest).
-With a floor config the floor matrix leads the Etasjer group instead, the
-chain as one line of lamps under its head, as in `b`.
-Klasser: one panel per IFC class. Every panel is a door: a click is the same
-focus and chip as on the bento board, and the band opens at the foot. The
-deepest cards; panels rise 2 px under the pointer. Small multiples keep one
-size so they compare; the per-row count is chosen so the last row ends full
-(storeys: the columns they leave go to the Romlig struktur panel, then one
-each to the storey columns, so the row closes on content).
+**c · Grafana / Datadog** (Grafana rows, one row per section; Tufte small
+multiples). Left three quarters: the report's two sections as titled rows,
+one panel per requirement (IFC-struktur: 5, Standardkrav: 6; name, status,
+Dekning, «x av N», the first values), each panel as tall as keeps it inside
+2 : 1; under them the charts row: the treemaps (side by side, or stacked when
+that puts them nearer square), the MMI bars, and the other checks (the list
+without its % column, which repeats the value's two counts). Right quarter:
+the model over Scope over Detail. Deepest cards; panels rise under the
+pointer.
 
 ### The shared component family (all three)
 
@@ -1277,7 +1399,7 @@ Smash's family, refined by the research's common denominators (research §1):
 ### `scripts/module-grid-gate.mjs`
 
 `npm run build && node scripts/module-grid-gate.mjs [--out dir] [--only
-1440x900,…] [--design a,b,c] [--scenario one|three]`. One headless Chrome
+1440x900,…] [--design a,b,c] [--scenario one,three,hi90,hi90-fixture]`. One headless Chrome
 (launched only with >= 4 GB free) on a LOCAL preview build, real KNM models
 (ARK alone; ARK + RIV + RIB with the test floor config at 1440 and 2112), at
 1100×800, 1280×800, 1440×900, 1920×1080, 2112×1267 and 2560×1440, for a, b and
@@ -1286,9 +1408,17 @@ is the rule's for the grid's width; every tile's left and top on a whole
 column / row pitch and its width and height a whole number of units, within
 1 px; nothing past the last column; every tile's rendered aspect inside its
 kind's bound, and no kind outside the vocabulary; group title rows full width
-and one row tall; no `[data-essential]` value cut inside a tile; no sideways
-page scroll. It prints every tile as `id w×h = px aspect`. Screenshots to
-`tmp/alternatives/` by default.
+and one row tall (spanning its region, `data-mg-span`); no `[data-essential]`
+value cut inside a tile; no sideways page scroll; **no vertical page scroll**
+(one model: `main` does not scroll; several: every model's board fits one
+screen). Then, per state, the docked panels: Scope and Detail empty at rest
+and no band anywhere; a requirement click fills Scope; a Scope row fills
+Detail; the tiles do not move through either. Scenarios: KNM_ARK at every
+class; KNM ARK + RIV + RIB with the test floor config at 1440 and 2112; HI90_ARK
+(22.09 export) without and with `examples/hi90-project-layer.test.ruleset.json`
+at 1440 and 2112. It prints every tile as `id w×h = px aspect`. Screenshots to
+`tmp/panels/` by default, `-selected` with a requirement open and an element
+selected.
 
 On its first runs it caught: verdict labels cut by the badge in a 142 px
 panel, `IfcBuildingStorey` cut in a 159 px chain panel, storey panels at
@@ -1846,8 +1976,10 @@ copy-object exclusions reach the fundamentals as in the browser worker.
   (see "The standard layer" below); every other row's `kilder` has one entry.
   `gren` (`mengdetype` / `telleobjekt` / `mengdeobjekt`) is set on
   `material-product` only, and `foretrukket` is then per branch.
-- `godtatte`: on `ifc-schema` and `phase` only, the accepted values the row
-  judged against (the standard's, or the project layer's replacement).
+- `godtatte`: the accepted values the row judged against, on `ifc-schema` and
+  `phase` (the standard's, or the project layer's replacement) and, since
+  2026-09-25, on a code-lookup rule with its own `values` (the MMI mapping),
+  which the board's MMI bars need for the levels at 0.
 - `fordeling`: every distinct value, uncollapsed, most frequent first.
   `verdi: null` = no value; `flagg` is `""`, `avvik` or `mangler` (or `åpen`,
   on `material-product` only, below). Per check:
