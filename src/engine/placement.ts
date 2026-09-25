@@ -82,6 +82,10 @@ export type PlacementBand = "green" | "yellow" | "red";
  *  storeys is not a mismatch for elements in either). */
 export const LEVEL_EPSILON_M = 0.001;
 
+/** Slack on the storey-band edges: none. edkjo 2026-09-25 ruled 0 mm, so an
+ *  element a float32 hair under its storey reads yellow, not green. */
+export const PLACEMENT_SLACK_M = 0;
+
 /** The framing rule's constants, moved here so camera and check share them. */
 export const FAR_SPREAD = 5;
 export const FAR_FLOOR_M = 1;
@@ -189,13 +193,13 @@ export interface Level {
 }
 
 /** The storey the mesh bottom falls in, lowest-first `levels`: the greatest
- *  elevation <= bottom, with the same 1 mm numerical slack as `storeyBand`.
+ *  elevation <= bottom, with the same slack as `storeyBand` (PLACEMENT_SLACK_M, 0).
  *  null = below every storey. Informational (the object panel's "storey by
  *  mesh"); the verdict is `storeyBand`. */
 function expectedLevel(levels: Level[], bottom: number): Level | null {
   let found: Level | null = null;
   for (const level of levels) {
-    if (level.elevation <= bottom + LEVEL_EPSILON_M) found = level;
+    if (level.elevation <= bottom + PLACEMENT_SLACK_M) found = level;
     else break;
   }
   return found;
@@ -212,14 +216,13 @@ function nextElevation(levels: Level[], stated: Level): number | null {
 /** edkjo's three-state storey rule (ifc-check#2), per element against its
  *  STATED storey. `levels` lowest first, metres.
  *
- *  Every edge is compared with LEVEL_EPSILON_M (1 mm) of slack, and that is
- *  numerical, not a tolerance: streamed vertices are float32, and a slab
- *  modelled exactly on its storey comes back a few micrometres under it.
- *  Measured on HI90_ARK (22.09 export): 723 elements read yellow with exact
- *  comparisons, 717 of them less than 0.1 mm under their storey and none
- *  between 0.1 mm and 10 mm. */
+ *  Edges are compared exactly (PLACEMENT_SLACK_M = 0, edkjo 2026-09-25).
+ *  Streamed vertices are float32, so a slab modelled exactly on its storey
+ *  can come back a few micrometres under it and read yellow: on HI90_ARK
+ *  22.09, 717 elements less than 0.1 mm under their storey. That is his
+ *  call over a 1 mm numerical slack. */
 export function storeyBand(levels: Level[], stated: Level, bottom: number, top: number): PlacementBand {
-  const eps = LEVEL_EPSILON_M;
+  const eps = PLACEMENT_SLACK_M;
   const elev = stated.elevation;
   const next = nextElevation(levels, stated);
   const belowNext = next === null || bottom < next - eps;

@@ -248,10 +248,11 @@ reason. Copy-object exclusions and openings are dropped exactly as in
   elevation (m). Red or far makes the check `fail` (Avvik); yellow alone makes
   it `review` (Advarsel, via `verdictOf`). The UI prints one sentence for both
   bands. `CheckResult.tally` carries green / yellow / red / far / no_storey /
-  unmeshed / band_ran. Every edge compares with 1 mm of slack
-  (`LEVEL_EPSILON_M`), which is numerical, not a tolerance: streamed vertices
-  are float32, and on HI90_ARK (22.09) exact comparison read 723 elements
-  yellow, 717 of them under 0.1 mm below their storey. Elevation is scaled by
+  unmeshed / band_ran. Every edge compares EXACTLY (`PLACEMENT_SLACK_M = 0`,
+  edkjo 2026-09-25, overruling a 1 mm numerical slack). Streamed vertices are
+  float32, so on HI90_ARK (22.09) 723 elements read yellow, 717 of them less
+  than 0.1 mm below their storey; that is accepted. `LEVEL_EPSILON_M` (1 mm)
+  still decides only whether two storey elevations are one level. Elevation is scaled by
   `unit_scale` (ifcfast#180). Refuses to run, and says so in `detail`, when
   fewer than two distinct elevations exist or when the elevation span and the
   mesh-bottom span do not overlap (elevations relative to a building placed

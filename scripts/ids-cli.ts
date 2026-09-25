@@ -931,7 +931,7 @@ async function cmdSelftest(): Promise<number> {
   const bandCases: [string, number, number, number, string][] = [
     ["bottom on the storey", 1, 3, 4, "green"],
     ["bottom inside the span", 1, 4.2, 5, "green"],
-    ["bottom a float32 hair under the storey", 1, 3 - 4e-6, 4, "green"],
+    ["bottom a float32 hair under the storey (0 mm slack, edkjo 2026-09-25)", 1, 3 - 4e-6, 4, "yellow"],
     ["bottom 0.05 m under, top above", 1, 2.95, 4, "yellow"],
     ["bottom 0.10 m under, top above", 1, 2.9, 4, "yellow"],
     ["bottom 0.05 m under, top also under", 1, 2.95, 2.99, "red"],
