@@ -1,13 +1,13 @@
 /* GENERATED FILE — do not edit by hand.
- * Source: scripts/gen-codelists.py, 2026-09-21.
- * NS 3457-8:2021: 909 codes from C:/workspace/resources/standards/ns3457/ns3457_pdf_extract.json
- * (sha256 8591d3e26af44c6888333e6ebb2fd9d418ba5b6189949919f815049e907c90e3).
+ * Source: scripts/gen-codelists.py, 2026-09-25.
+ * NS 3457-8:2021: 910 codes from C:/workspace/resources/standards/ns3457/ns3457_pdf_extract.json
+ * (sha256 b209735ee89518548dc0ed2677a0b086629717c8f396bb049b327a6513986445).
  */
 
 import type { CodeList } from "./types.ts";
 
 export const NS3457_8: CodeList = {
-  meta: {"id": "ns3457-8", "label": "NS 3457-8", "edition": "NS 3457-8:2021", "source": "C:/workspace/resources/standards/ns3457/ns3457_pdf_extract.json", "sha256": "8591d3e26af44c6888333e6ebb2fd9d418ba5b6189949919f815049e907c90e3", "crossChecked": "C:/workspace/resources/standards/ns3457/ns3457_table.csv", "generated": "2026-09-21", "count": 909},
+  meta: {"id": "ns3457-8", "label": "NS 3457-8", "edition": "NS 3457-8:2021", "source": "C:/workspace/resources/standards/ns3457/ns3457_pdf_extract.json", "sha256": "b209735ee89518548dc0ed2677a0b086629717c8f396bb049b327a6513986445", "crossChecked": "C:/workspace/resources/standards/ns3457/ns3457_table.csv", "corrections": [{"code": "AFC", "was": "Avstivningsfagverk", "now": "Avstivningsstag", "page": 12}, {"code": "BAD", "was": "Forankringer, innstøpningsgods", "now": "Knutepunkt, innstøpningsgods", "page": 15}, {"code": "BP", "was": "Avrettingsmasse", "now": "Avretningsmasse", "page": 16}, {"code": "BPZ", "was": "Avrettingsmasse", "now": "Avretningsmasse", "page": 16}, {"code": "CGC", "was": "Rampeposer", "now": "Ramperepos", "page": 16}, {"code": "OPZ", "was": null, "now": "PBX", "page": 41}, {"code": "QLD", "was": "Dempning på kanaler og rør", "now": "Lyddempning på kanaler og rør", "page": 43}, {"code": "QTB", "was": "Branntermostat", "now": "Branntermostater", "page": 44}, {"code": "RA", "was": "AV-utstyr", "now": "AV-opptakere", "page": 45}, {"code": "RAD", "was": "Securityscannere", "now": "Securityskannere", "page": 45}, {"code": "STB", "was": "Tilluftsventil med strømningsregulator", "now": "Tilluftsventiler med strømningsregulator", "page": 51}, {"code": "UEA", "was": "Stikkontakt", "now": "Uttak el", "page": 52}, {"code": "UED", "was": "Jordinguttak", "now": "Jordingsuttak", "page": 52}], "generated": "2026-09-25", "count": 910},
   codes: {
     "A": "Bærende, romdannende",
     "AB": "Bjelker",
@@ -24,7 +24,7 @@ export const NS3457_8: CodeList = {
     "AF": "Fagverk",
     "AFA": "Konstruktive fagverk",
     "AFB": "Ikke konstruktive fagverk",
-    "AFC": "Avstivningsfagverk",
+    "AFC": "Avstivningsstag",
     "AFD": "Innebygd konstruktivt fagverk",
     "AFE": "Innebygd ikke-konstruktivt bindingsverk",
     "AG": "Glassfelt",
@@ -70,7 +70,7 @@ export const NS3457_8: CodeList = {
     "BAA": "Armeringer, forsterkninger",
     "BAB": "Spunt",
     "BAC": "Støpeskjøter",
-    "BAD": "Forankringer, innstøpningsgods",
+    "BAD": "Knutepunkt, innstøpningsgods",
     "BB": "Beskyttende, stoppende",
     "BBZ": "Beskyttende, stoppende",
     "BC": "Begrensende",
@@ -82,8 +82,8 @@ export const NS3457_8: CodeList = {
     "BI": "Isolasjon",
     "BIA": "Bygningsmessig isolasjon",
     "BIB": "Isolasjon av tekniske installasjoner",
-    "BP": "Avrettingsmasse",
-    "BPZ": "Avrettingsmasse",
+    "BP": "Avretningsmasse",
+    "BPZ": "Avretningsmasse",
     "BS": "Spikerslag",
     "BSZ": "Spikerslag",
     "C": "Kompletterende, utspringende",
@@ -96,7 +96,7 @@ export const NS3457_8: CodeList = {
     "CG": "Ramper, repos",
     "CGA": "Baner",
     "CGB": "Rampeløp",
-    "CGC": "Rampeposer",
+    "CGC": "Ramperepos",
     "CGD": "Samling av ramper",
     "CK": "Komplette konstruksjoner",
     "CM": "Kjemiske stoffer",
@@ -538,6 +538,7 @@ export const NS3457_8: CodeList = {
     "OM": "Mottakere, sendere",
     "OMZ": "Mottakere, sendere",
     "OP": "PBX",
+    "OPZ": "PBX",
     "OQ": "Dataprogram, programvare",
     "OQZ": "Dataprogram, programvare",
     "OR": "Rutere, fordelere",
@@ -579,7 +580,7 @@ export const NS3457_8: CodeList = {
     "QLA": "Absorbenter",
     "QLB": "Lydfeller",
     "QLC": "Dempning av strukturlyd",
-    "QLD": "Dempning på kanaler og rør",
+    "QLD": "Lyddempning på kanaler og rør",
     "QM": "Mekanisk beskyttelse",
     "QMA": "Rekkverk",
     "QMB": "Sikring på tak",
@@ -601,7 +602,7 @@ export const NS3457_8: CodeList = {
     "QSZ": "Strømvakt",
     "QT": "Temperaturvakt",
     "QTA": "Frostvakt",
-    "QTB": "Branntermostat",
+    "QTB": "Branntermostater",
     "QTC": "Termostater",
     "QV": "Sikkerhetsventiler",
     "QVZ": "Sikkerhetsventiler",
@@ -615,11 +616,11 @@ export const NS3457_8: CodeList = {
     "QZC": "Branntetting av gjennomføringer",
     "QZD": "Brannhemmende overflatebehandling",
     "R": "Registrerende",
-    "RA": "AV-utstyr",
+    "RA": "AV-opptakere",
     "RAA": "Kameraer",
     "RAB": "Mikrofoner",
     "RAC": "Tekniske røntgenmaskiner",
-    "RAD": "Securityscannere",
+    "RAD": "Securityskannere",
     "RAE": "Medisinske røntgenapparater",
     "RAF": "MR",
     "RAG": "Ultralydapparater",
@@ -746,7 +747,7 @@ export const NS3457_8: CodeList = {
     "SSB": "Stengespjeld for motorstyring",
     "ST": "Tilluftsventiler",
     "STA": "Tilluftsventiler",
-    "STB": "Tilluftsventil med strømningsregulator",
+    "STB": "Tilluftsventiler med strømningsregulator",
     "SU": "Sugetrykksventiler",
     "SUZ": "Sugetrykksventiler",
     "SV": "Strupeventiler",
@@ -769,10 +770,10 @@ export const NS3457_8: CodeList = {
     "UDC": "Datauttak for koaksialkabel",
     "UDD": "Datauttak felles",
     "UE": "Uttak el",
-    "UEA": "Stikkontakt",
+    "UEA": "Uttak el",
     "UEB": "Ladeuttak",
     "UEC": "Ladeuttak for transportmidler",
-    "UED": "Jordinguttak",
+    "UED": "Jordingsuttak",
     "UF": "Felles datauttak",
     "UG": "Uttak for gass",
     "UGZ": "Uttak for gass",

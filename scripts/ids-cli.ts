@@ -628,6 +628,25 @@ async function cmdSelftest(): Promise<number> {
     "none",
     Object.entries(ns3451.codes).filter(([, n]) => damage.test(n)).map(([c]) => c).join(",") || "none",
   );
+  // NS 3457-8: the names re-read off the page renders (2026-09-25), OPZ which
+  // the transcription had dropped, and no mojibake anywhere.
+  const ns3457List = CODE_LISTS["ns3457-8"];
+  record("ns3457-8: 910 codes, meta count matches", "910 910", `${Object.keys(ns3457List.codes).length} ${ns3457List.meta.count}`);
+  record(
+    "ns3457-8: page-verified names",
+    "Avstivningsstag|Ramperepos|PBX|AV-opptakere|Uttak el|Oppbyggende, utforende",
+    ["AFC", "CGC", "OPZ", "RA", "UEA", "AO"].map((c) => ns3457List.codes[c]).join("|"),
+  );
+  record(
+    "ns3457-8: every correction in meta is what the list carries",
+    "13 true",
+    `${ns3457List.meta.corrections?.length} ${String(ns3457List.meta.corrections?.every((k) => ns3457List.codes[k.code] === k.now))}`,
+  );
+  record(
+    "ns3457-8: no mojibake in any name",
+    "none",
+    Object.entries(ns3457List.codes).filter(([, n]) => /Ã|â€|Â|\(cid:|�/.test(n)).map(([c]) => c).join(",") || "none",
+  );
   const nsGraph: ModelGraph = {
     ...graph,
     products: [wall("n1", "226"), wall("n2", "227"), wall("n3", "999"), wall("n4", "2344")],

@@ -31,6 +31,28 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# NS 3457-8 names the transcription had wrong, each re-read off the page render
+# (pdf_pages/page_NN.png, NN = page below) and fixed in the source JSON on
+# 2026-09-25. `was` None = the code was missing from the transcription. The
+# build stops unless the source now carries every `now`, so a later
+# re-transcription that brings an old reading back cannot pass silently.
+NS3457_CORRECTED = {
+    "AFC": ("Avstivningsfagverk", "Avstivningsstag", 12),
+    "BAD": ("Forankringer, innstøpningsgods", "Knutepunkt, innstøpningsgods", 15),
+    "BP": ("Avrettingsmasse", "Avretningsmasse", 16),
+    "BPZ": ("Avrettingsmasse", "Avretningsmasse", 16),
+    "CGC": ("Rampeposer", "Ramperepos", 16),
+    "OPZ": (None, "PBX", 41),
+    "QLD": ("Dempning på kanaler og rør", "Lyddempning på kanaler og rør", 43),
+    "QTB": ("Branntermostat", "Branntermostater", 44),
+    "RA": ("AV-utstyr", "AV-opptakere", 45),
+    "RAD": ("Securityscannere", "Securityskannere", 45),
+    "STB": ("Tilluftsventil med strømningsregulator", "Tilluftsventiler med strømningsregulator", 51),
+    "UEA": ("Stikkontakt", "Uttak el", 52),
+    "UED": ("Jordinguttak", "Jordingsuttak", 52),
+}
+
+
 def ns3457_8() -> dict:
     """NS 3457-8:2021 Komponentkoder, all three levels.
 
@@ -64,6 +86,12 @@ def ns3457_8() -> dict:
     empty = [c for c, name in codes.items() if not name.strip()]
     if empty:
         sys.exit(f"ns3457-8: codes without a name {empty}")
+    stale = [c for c, (_, now, _) in NS3457_CORRECTED.items() if codes.get(c) != now]
+    if stale:
+        sys.exit(f"ns3457-8: source lacks the page-verified name for {stale}")
+    damaged = [c for c, n in codes.items() if re.search(r"Ã|â€|Â|\(cid:", n)]
+    if damaged:
+        sys.exit(f"ns3457-8: mojibake in {damaged}")
 
     return {
         "id": "ns3457-8",
@@ -72,6 +100,10 @@ def ns3457_8() -> dict:
         "source": source.as_posix(),
         "sha256": sha256(source),
         "crossChecked": table.as_posix(),
+        "corrections": [
+            {"code": c, "was": was, "now": now, "page": page}
+            for c, (was, now, page) in sorted(NS3457_CORRECTED.items())
+        ],
         "codes": dict(sorted(codes.items())),
     }
 

@@ -1332,13 +1332,14 @@ built to avoid.
   allowed codes (lint rejects an empty list; the finding reads `is not in the
   allowed values (...)`). Same evaluator path as a bundled list.
 - `list` names a bundled list in `src/codelists/`. Two ship:
-  `ns3457-8` (NS 3457-8:2021, 909 codes, all three levels) and `ns3451`
+  `ns3457-8` (NS 3457-8:2021, 910 codes, all three levels) and `ns3451`
   (NS 3451:2022 tables 2–7, the bygningsdelstabell: 813 codes of 1 to 4
   digits, 125 of them reserved). Table 8 (Systemkoder, the 4-digit
   `2120`-style system codes) is a different list and is not bundled. Each
   generated module carries its provenance in `meta`: source file, SHA-256,
-  date, count, and for `ns3451` the corrections against the earlier table
-  with the page each was verified on. Lookups only: nothing enumerates a list
+  date, count, and `corrections` with the page each name was verified on
+  (for `ns3451` against the earlier table, for `ns3457-8` the names fixed in
+  the transcription after a re-read of the page renders). Lookups only: nothing enumerates a list
   into an IDS.
 - **Reserved codes** (`(Reservert)`, "Koden skal ikke benyttes") are in the
   list and named in `CodeList.reserved`, so a lookup tells a reserved code
