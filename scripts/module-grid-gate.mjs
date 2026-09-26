@@ -15,6 +15,12 @@
  *  - no sideways page scroll, and NO VERTICAL PAGE SCROLL (2026-09-25, the
  *    owner: "fit to viewport for the dash"): with one model the page does not
  *    scroll at all; with several, every model's board fits the screen
+ *  - every canvas (2026-09-26, the owner: "A viewer/canvas always needs to
+ *    have an aspect ratio that is in the range of square to monitor or phone
+ *    aspect ratios"): the 3D `<canvas>` and the graph `<canvas>` render inside
+ *    [9/16, 16/9], on Kontroll and on the Graf tab in both swap states
+ *  - no tile spans the full board width at under half the viewport height
+ *    (a strip); no kind in the vocabulary is an exception
  *  - the docked panels (2026-09-25): Scope and Detail are tiles of the grid,
  *    empty until used; a requirement click fills Scope, a Scope row fills
  *    Detail, and the tiles do not move while that happens (nothing overlays)
@@ -40,6 +46,7 @@ import { freemem } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MG_ASPECT, MG_GUTTER, MG_MIN_PITCH, MG_PITCH_Y, MG_ROW } from "../src/ui/alt/module-grid.ts";
+import { CANVAS_ASPECT } from "../src/ui/canvas-aspect.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PORT = 4181;
@@ -281,6 +288,26 @@ async function shot(name, v) {
   }
 }
 
+/** Every visible canvas, the 3D and the graph, against the canvas bound.
+ *  Reported as pseudo tiles (`canvas:<which>`) so the log shows them. */
+const CANVASES = `(() => {
+  const B = ${JSON.stringify(CANVAS_ASPECT)};
+  const fails = [], canvases = [];
+  const all = [...document.querySelectorAll('canvas[data-viewer-canvas], canvas[data-graph]')]
+    .filter((c) => c.getClientRects().length > 0 && !c.closest('[hidden]'));
+  for (const c of all) {
+    const r = c.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const which = c.hasAttribute('data-graph') ? 'graph' : 'viewer';
+    const a = r.width / r.height;
+    const id = 'canvas:' + which;
+    if (a < B.min - 0.005 || a > B.max + 0.005)
+      fails.push(id + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ': aspect ' + a.toFixed(2) + ' outside ' + B.min.toFixed(4) + '..' + B.max.toFixed(4));
+    canvases.push({ id, kind: which, x: 0, y: 0, w: 0, h: 0, px: [Math.round(r.width), Math.round(r.height)], aspect: +a.toFixed(2) });
+  }
+  return { fails, canvases };
+})()`;
+
 const MEASURE = `(() => {
   const ASPECT = ${JSON.stringify(MG_ASPECT)};
   const G = ${MG_GUTTER}, PY = ${MG_PITCH_Y}, ROW = ${MG_ROW}, MINP = ${MG_MIN_PITCH};
@@ -316,6 +343,8 @@ const MEASURE = `(() => {
         if (e.scrollWidth > e.clientWidth + 1)
           fails.push(at + ': value cut, "' + e.textContent.trim().slice(0, 40) + '"');
       }
+      if (w >= cols && r.height < innerHeight / 2)
+        fails.push(at + ': a strip, full width at ' + Math.round(r.height) + 'px, under half the viewport height');
       tiles.push({ id, kind, x: i, y: j, w, h, px: [Math.round(r.width), Math.round(r.height)], aspect: +aspect.toFixed(2) });
     }
     for (const el of grid.querySelectorAll(':scope > [data-mg-row]')) {
@@ -328,6 +357,9 @@ const MEASURE = `(() => {
       if (Math.abs(r.height - ROW) > 1) fails.push('row ' + el.dataset.mgRow + ': not one row tall');
     }
   }
+  const cv = ${CANVASES};
+  fails.push(...cv.fails);
+  tiles.push(...cv.canvases);
   if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) fails.push('page scrolls sideways');
   // Fit to the viewport: one model, no page scroll at all; several, each
   // model's board inside one screen of the page.
@@ -369,6 +401,46 @@ async function openEmpty(design) {
 async function setDesign(design) {
   await evaluate(`(() => { const h = new URLSearchParams(location.hash.slice(1)); h.set('design', ${JSON.stringify(design)}); h.delete('focus'); h.delete('model'); location.hash = h.toString(); document.querySelector('main')?.scrollTo(0, 0); return true; })()`);
   await sleep(600);
+}
+
+/** Click every model's tab named `re` (one per model panel). */
+async function tab(re) {
+  await evaluate(`(() => {
+    for (const b of document.querySelectorAll('[role=tab]')) if (${re}.test(b.textContent) && b.getAttribute('aria-selected') !== 'true') b.click();
+    document.querySelector('main')?.scrollTo(0, 0);
+    return true;
+  })()`);
+  await sleep(800);
+}
+
+/** The Graf tab in both swap states, then back to Kontroll. The graph and the
+ *  borrowed 3D canvas are measured in every model panel on the page. */
+async function graf(name, v) {
+  await tab("/^(Graf|Graph)$/");
+  for (const [i, state] of [[1, "graphmain"], [0, "modelmain"]]) {
+    await evaluate(`(() => {
+      for (const p of document.querySelectorAll('[role=tabpanel]:not([hidden])')) {
+        const b = p.querySelectorAll('[role=group] button[aria-pressed]')[${i}];
+        if (b && b.getAttribute('aria-pressed') !== 'true') b.click();
+      }
+      return true;
+    })()`);
+    await sleep(1200);
+    const m = await evaluate(CANVASES);
+    const n = m.canvases.length;
+    const want = await evaluate(`document.querySelectorAll('[role=tabpanel]:not([hidden]) [data-graph-field]').length`);
+    if (m.canvases.filter((c) => c.kind === "graph").length < want) m.fails.push(`graph canvas missing (${n} canvases, ${want} fields)`);
+    const gname = `${name}-graf-${state}`;
+    const { data } = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(resolve(OUT, `${gname}.png`), Buffer.from(data, "base64"));
+    results.push({ state: gname, ...m });
+    if (m.fails.length) failed = true;
+    console.log(
+      `${m.fails.length ? "FAIL" : "ok  "} ${gname}  ` + m.canvases.map((c) => `${c.id} ${c.px[0]}x${c.px[1]} ${c.aspect}`).join(" · ") +
+        (m.fails.length ? "\n  " + m.fails.join("\n  ") : ""),
+    );
+  }
+  await tab("/^(Kontroll|Checks)$/");
 }
 
 /* ---------------------------------------------------------------- run */
@@ -419,6 +491,9 @@ for (const scenario of SCENARIOS) {
       const m = await evaluate(MEASURE);
       await shot(name, v);
       report(name, m, v);
+      // The Graf tab at rest, both swap states: every canvas inside the bound.
+      await graf(name, v);
+      await settle();
 
       // The docked panels: a requirement fills Scope, a Scope row fills
       // Detail, and the grid does not move while it happens. Both empty

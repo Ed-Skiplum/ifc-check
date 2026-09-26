@@ -34,6 +34,11 @@
  * (`viewer/dock.ts`) rather than a second one mounted: one GPU copy of the
  * model, one selection. `Modell | Graf` says which surface is main; the other
  * sits in a window in the corner, still live.
+ *
+ * 2026-09-26, the canvas aspect rule (`canvas-aspect.ts`): both surfaces stay
+ * inside 9:16 to 16:9. The tab's field is wider than 16:9 on every desktop
+ * screen, so there the main takes the widest 16:9 box and the other sits
+ * beside it in the column left over, not over its corner.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -48,6 +53,7 @@ import type { Focus } from "./trace";
 import type { CheckResult } from "../engine/types";
 import type { MeshBatch } from "../viewer/mesh-stream";
 import { findDock, onDocksChanged } from "../viewer/dock";
+import { graphFieldLayout, type FieldRect } from "./canvas-aspect";
 import { GraphSim, fitView, seedOf, seededOffset, toSim, zoomAt, type GraphView } from "./graph-sim";
 import {
   buildDrill,
@@ -157,6 +163,7 @@ export function GraphTab({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [main, setMain] = useState<Main>("graph");
   const [shown, setShown] = useState(false);
+  const [fieldSize, setFieldSize] = useState<{ w: number; h: number } | null>(null);
   const [, bumpDocks] = useState(0);
 
   const field = useRef<HTMLDivElement>(null);
@@ -177,6 +184,11 @@ export function GraphTab({
       const rect = element.getBoundingClientRect();
       const visible = rect.width > 0 && rect.height > 0;
       setShown((current) => (current === visible ? current : visible));
+      if (visible) {
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+        setFieldSize((current) => (current && current.w === w && current.h === h ? current : { w, h }));
+      }
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -994,9 +1006,19 @@ export function GraphTab({
 
   /* ── Layout ───────────────────────────────────────────────────────────── */
 
+  // The canvas aspect rule (`canvas-aspect.ts`): the main surface is never
+  // wider than 16:9. On a field wider than that the second surface sits
+  // beside the main instead of over its corner.
+  const geo = fieldSize ? graphFieldLayout(fieldSize.w, fieldSize.h, hasViewer) : null;
+  const rect = (r: FieldRect | null | undefined) =>
+    r ? { left: r.left, top: r.top, width: r.width, height: r.height } : undefined;
+  const mainStyle = rect(geo?.main);
+  const secondStyle = rect(geo?.second);
   const windowed =
-    "absolute top-3 right-3 z-10 aspect-[4/3] w-[min(34%,26rem)] min-w-[13rem] overflow-hidden rounded-[10px] shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/15";
-  const full = "absolute inset-0";
+    "absolute z-10 overflow-hidden rounded-[10px] ring-1 ring-white/15 " +
+    (geo?.beside ? "" : "shadow-[0_10px_30px_rgba(0,0,0,0.45)] ") +
+    (secondStyle ? "" : "top-3 right-3 aspect-[4/3] w-[min(34%,26rem)] min-w-[13rem]");
+  const full = mainStyle ? "absolute" : "absolute inset-0";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
@@ -1053,7 +1075,7 @@ export function GraphTab({
           <div
             ref={graphBox}
             className={graphIsMain ? full : windowed}
-            style={graphIsMain ? undefined : { background: FIELD_BACKGROUND }}
+            style={graphIsMain ? mainStyle : { ...secondStyle, background: FIELD_BACKGROUND }}
           >
             <canvas
               ref={canvasRef}
@@ -1077,7 +1099,7 @@ export function GraphTab({
               ref={viewerSlot}
               data-graph-viewer
               className={graphIsMain ? windowed : full}
-              style={{ background: "var(--color-ground)" }}
+              style={{ ...(graphIsMain ? secondStyle : mainStyle), background: "var(--color-ground)" }}
             />
           ) : null}
         </div>
