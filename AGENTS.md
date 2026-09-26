@@ -58,8 +58,8 @@ src/builder/     rule builder UI (a strict subset of the JSON format)
 src/bcf/         BCF 2.1 export: topic plan, camera, spaces, XML, zip, XSD
                  validation (pure) + `browser.ts` (snapshots, download)
 src/design/      the design alternatives' component family (`#design=a|b|c`) and fonts
-src/ui/alt/      the design alternatives' layouts on the module grid (see
-                 "Design alternatives 2026-09-25"): AltBoard, module-grid,
+src/ui/alt/      the design alternatives' layouts on the canon's module grid
+                 (see "The module grid: the layout canon"): AltBoard, module-grid,
                  Requirements (the three renderings of a requirement),
                  Charts (treemaps, MMI bars), req-view, treemap (squarify)
 src/ui/requirements.ts  the report's eleven requirements, in its order, over
@@ -75,8 +75,9 @@ scripts/
   viewport-gate.mjs  real models in headless Chrome at every target viewport
   isolate-gate.mjs   what a CLICK does, driven with real mouse events
   zoom-gate.mjs      what the WHEEL does, driven with real CDP wheel events
-  module-grid-gate.mjs  the design alternatives on the module grid: tile edges
-                     on the grid, aspect bounds, cut values, per width class
+  module-grid-gate.mjs  the design alternatives against the layout canon
+                     (rules 1, 3 to 9) in headless Chrome, per viewport class
+  bento-pack-test.mjs   the module grid and the packer without a browser
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
@@ -1234,65 +1235,77 @@ scale up: Carbon and Atlassian add columns per class, Datadog duplicates the
 12-column grid side by side, Grafana stays at 24 and lets columns grow, Stripe
 and Carbon cap the content width.
 
-### The module grid (one grid, all three)
+### The module grid: the layout canon (2026-09-26)
 
-- **Base unit 8 px.** Row unit 32 px (4 units), which is also the dense table
-  row, so a tile of h rows holds whole list lines. Gutter 16 px (2 units) on
-  both axes, so the row pitch is 48 px and a tile h rows tall is 48h − 16 px.
-- **Columns: 12, 24 or 36**, the largest multiple of 12 whose column pitch
-  stays at or above 50.67 px (24 columns at 1200 px). So from 1200 px of grid
-  up the column is 51 to 76 px wide whatever the screen, and a wider screen gets
-  MORE columns rather than fatter ones (Datadog's 12 repeated, Carbon's
-  4 → 8 → 16). 12 columns is the compact fallback below 1200 px (the 1100 px
-  skiplum.com iframe, a tablet).
-- **Width cap 2400 px**, then the margins grow (Carbon max, Stripe). The
-  margin under the cap is the page's own 16 px padding.
-- **Width classes**, read off the GRID's own width (not the viewport, so the
-  iframe gets the layout its box carries): compact < 1200 (12 col), regular
-  1200 to 1807 (24), wide 1808 to 2400 (36). Measured: 1100 → 12 col at 90 px
-  pitch, 1280 → 24 at 52.7, 1440 → 24 at 59.3, 1920 → 36 at 52.9, 2112 →
-  36 at 58.2, 2560 → 36 at 67.1 (capped).
-- **Width from content, height from content.** A tile's span is the fewest
-  columns that seat its content (`mgSpan(px)`: the checks list 470 px, a
-  verdict stat 170, a count stat 140, a storey panel 150, a class panel 190);
-  the one fill tile of a row (the model, mostly) takes what is left. A tile's
-  rows are its lines; raised only where that keeps it inside its aspect bound.
-  Only `a`'s two panes take the rows the viewport has left (a screen per model
-  panel), which is the one place a viewport HEIGHT enters.
-- **Why not the 13/21 ladder here.** The bento track is `100cqw / divisor`, so
-  a tile's px size and its row height move with the screen width, and the
-  spans are Fibonacci cuts chosen for proportion, not for content. The research
-  says the opposite (a fixed row unit, fluid columns, fixed gutters), and the
-  owner asked for a fixed grid size. The default board keeps its ladder; the
-  question for sprucelab upstream is open.
+The canon is edkjo's LAYOUT SYSTEM in
+`C:\workspace\resources\design-system\data-workspace.md` (rules 1 to 10).
+It replaced the 8 px base / 32 px row / 12·24·36 column grid of 2026-09-25.
+Code: `src/ui/alt/module-grid.ts` (pure TS; the gates import it).
+
+- **Rule 6, the formulas.** Square module about 100 px, gap 16, margin 24.
+  `C = round((W − 48 + 16) / 116)`, `u = (W − 48 − (C−1)·16) / C`, row height
+  = u, `R = floor((H − chrome − 48 + 16) / (u + 16))`. W is `main`'s client
+  width (the window less a scrollbar); chrome is the grid's top edge less the
+  24 px top margin, measured per model panel, so a second model gets the same
+  board. The canon writes `floor` for C, but its own reference table (2112 →
+  18, 2560 → 22) is `round` (floor gives 17 and 21); the table wins, stated
+  here. Measured, local: 1440×900 → 12×6, 1920×1080 → 16×8, 2112×1267 →
+  18×10, 2560×1440 → 22×11, 3440×1440 → 29×11, 1280×800 → 11×5, 1100×800 →
+  9×5; chrome 72 px (the file line shares the tab row in the alternatives,
+  `ModelPanel`), u 97.5 to 102.7 px.
+- **Rule 1.** `main` pads 24 px at the sides and foot; the grid is the window
+  less 48 px, capped nowhere (the `BENTO_MAX_WIDTH` cap is off under
+  `#design`).
+- **Rule 7, sizes.** S 2×2 · M 3×2 / 2×3 · L 4×3 / 3×4 · XL 6×4 stepping to
+  8×5 · strip k×1 only for a named content: `MG_STRIPS` has one, the MMI bars
+  (a bar chart with few items). At most two XL.
+- **Rule 8, the packer (`mgPack`).** Each tile: sizes (its class, most wanted
+  first) and a priority (its order). A guillotine cover: the board is cut edge
+  to edge in two, recursively, until each part is one tile at a canon size;
+  the two parts take RUNS of the priority order (the first part the first
+  tiles; the reverse costs), so tiles read by priority, row-major, and line
+  up in clean stacks. The cheapest cover wins (a tile below its first size
+  costs, the hero most, so XL steps to 8×5 where it fits); ties go to the
+  first cut tried. Breaks: when nothing covers the board, tiles that are not
+  `required` move into a tab of a host (a bit mask over them, lowest priority
+  first); nothing shrinks below its sizes. When the content at its largest
+  cannot fill the board (a wide window), the board shrinks, whole modules at a
+  time, to the largest rectangle that keeps the grid's shape, centred on the
+  grid: no tile is ever stretched. Moved tiles render as tabs in the host's
+  head; into the requirements list they go inline after the rows (as the old
+  list did); the counts go back into the checks list. A dock that is a tab
+  comes forward when it fills. Deterministic: `scripts/bento-pack-test.mjs`.
+- **Rule 9's measurable part.** Every cell of the board rectangle is in
+  exactly one tile; the board is centred. Asserted by both tests. The look is
+  judged on screenshots.
+
+What the canon could not satisfy, stated rather than hidden:
+
+- **Wide windows do not fill.** The content at its canon sizes is at most
+  about 164 cells (two XL at 8×5, six L, four S, the MMI strip). 2112×1267 is
+  180 cells, 2560×1440 is 242, 3440×1440 is 319. So from about 2100 px the
+  board is smaller than the grid and centres with wider margins (a 16×10 of
+  18×10 at 2112 in a; 20×8 of 22×11 at 2560; 14×8 in b at 2112). Rule 1 holds
+  (columns grow, the module does not); "the board fills the viewport" does
+  not. Growing tiles past their class would break rules 5 and 7.
+- **Scope and Detail are empty glass until used** (the 2026-09-25 ruling: no
+  label, no placeholder), which rule 5 would call empty space.
+- **The narrow class (under 11 columns, and 11×5)** seats the model at 6×4,
+  the requirements and Scope at M, the MMI bars a strip; Detail is a tab of
+  Scope, the charts inline in the requirements list.
 
 ### The tile vocabulary and its aspect bounds
 
-Aspect = rendered width / height in px at the viewport drawn at. `MG_ASPECT` in
-`module-grid.ts` is the list; the gate allows these kinds and no others.
+Aspect = rendered width / height in px. `MG_ASPECT` is the list; the gate
+allows these kinds and no others. Every canon size renders inside 1:2 to 2:1
+at any module from 88 to 112 px, and an XL's canvas (the tile less its 32 px
+head) inside 9:16 to 16:9 (`bento-pack-test` asserts both).
 
-| Kind | Bound | Why this shape (the content, not the packing) |
+| Kind | Bound | What |
 |---|---|---|
-| `panel` | 1 : 2 to 2 : 1 | the rule: every stat, table tile, gauge and small multiple. 2 : 1 is where a tile stops reading as a card and starts reading as a strip |
-| `list` | 0.3 to 2 | a long ranked list that scrolls (a's master list): read down, the rows are the content |
-| `viewer` | 9 : 16 to 16 : 9 | the canvas aspect rule below; the tile AND the canvas inside it (the tile less its 32 px head) |
-| `graph` | 9 : 16 to 16 : 9 | the same rule, for a graph canvas placed as a tile (no alternative places one yet) |
-| `chart` | 0.5 to 3 | the MMI bars over an ordered scale: one bar per level, read across, so it may be wider than tall (in a tile narrower than 26 px a level it turns into rows, read down) |
-
-No tile of any kind may span the full board width at under half the
-viewport height (a strip); no kind is an exception in the alternatives. The
-`chart` ceiling of 3 stays: the MMI bars read across and never span the
-board (b's summary row puts them at about 2.5 : 1 beside the treemaps).
-
-Scope and Detail are `list` tiles: both are read down and scroll inside. The
-treemaps are `panel`s: square-ish is what a treemap wants.
-
-No strips: the 13×1 KPI strip and a full-width one-row bar do not exist in the
-alternatives. Romlig struktur is a compact panel in `c`, a group in `a`'s list,
-and one line under the Etasjer tile's head in `b` (merged into a neighbour's
-header, which the owner allowed). A group title row in `c` is one row, full
-width, and a heading (label and count), not a tile; the gate checks its
-alignment only.
+| `panel`, `list`, `chart` | 1 : 2 to 2 : 1 | every requirement panel, count, list, treemap |
+| `viewer`, `graph` | 9 : 16 to 16 : 9 | a canvas (rule 4), the tile and the canvas in it |
+| strip (MMI only) | k×1 | rule 3's named exception: a few-item bar chart, read across |
 
 ### The canvas aspect rule (2026-09-26)
 
@@ -1453,93 +1466,94 @@ say. On HI90_ARK: NS 3451 fail (2 294 ok, 431 avvik, 413 mangler of 3 138),
 NS 3457-8 all mangler, MMI 134 on the list, 2 591 «Status ikke satt», 413
 mangler.
 
-### The three alternatives
+### The three alternatives (2026-09-26, on the canon)
 
-**a · Linear work surface** (Linear's issue list and side panel, Figma UI3's
-docked panels, master/detail). Three columns, the height of the screen: the
-requirements as one list tile with sticky group heads (IFC-struktur,
-Standardkrav, then Verifikasjon), each a dense row (status, name, Dekning,
-«fra», the fordeling values); the inspector (the model on top, as tall as
-keeps its canvas inside 16 : 9, Scope and Detail side by side under it when the
-block seats 300 + 240 px, else stacked; beside the model as a rail when the
-block is too wide for its height); the charts in a column at the right
-edge (system treemap, function treemap, MMI), a third of the height each.
-Flattest cards, receding chrome.
+Same content, same measurement; they differ in priority order, hero choice
+and where Scope, Detail and the model sit (`layoutA/B/C`). Tile maps as
+measured locally with HI90_ARK and the fixture (tile, size, priority):
 
-**b · Stripe summary** (Stripe's home, a few key visuals first; Few, "upper-left
-is the most expensive real estate"). The summary row first: the two treemaps
-(30 % of the columns each) and the MMI bars (the rest, read across), as tall
-as keeps a treemap inside 2 : 1. Under it the report as the PDF lays it out,
-one block per requirement down one column (a status square with glyph and
-word, the number, then Dekning / «fra» / Fordeling as labelled lines), the
-model beside it as the evidence, and a rail of Scope over Detail.
+**a · Linear work surface.** Two heroes, the requirements list (XL) and the
+model (XL), side by side; Scope, Detail, the treemaps, the MMI bars, the other
+checks (L 4×3, it needs 400 px for its verdict column), four counts (S).
+1440: reqs XL 6×4 p0 (checks inline) · viewer XL 6×4 p1 · scope M p2 · detail
+M p3 · system M p4 (MMI tab) · function M p5. 2112: reqs XL 8×5 · viewer XL
+8×5 · scope, detail, system, function L 4×3 · MMI strip 4×1 · checks L 4×3 ·
+counts S; board 16×10 of 18×10.
 
-**c · Grafana / Datadog** (Grafana rows, one row per section; Tufte small
-multiples). Left three quarters: the report's two sections as titled rows,
-one panel per requirement (IFC-struktur: 5, Standardkrav: 6; name, status,
-Dekning, «x av N», the first values), each panel as tall as keeps it inside
-2 : 1; under them the charts row: the treemaps (side by side, or stacked when
-that puts them nearer square), the MMI bars, and the other checks (the list
-without its % column, which repeats the value's two counts). Right quarter:
-the model over Scope over Detail. Deepest cards; panels rise under the
-pointer.
+**b · Stripe summary.** One hero. The summary leads top-left (the treemaps,
+the MMI bars), the model beside it, then the report as blocks (L), Scope,
+Detail, the checks, the counts. 1440: system M p0 · function M p1 · MMI M p2 ·
+viewer XL 6×4 p3 · reqs L 3×4 p4 (checks inline) · scope L 3×4 p5 · detail M
+p6. 2112: system L 3×4 · function M · MMI M · viewer XL 6×4 · reqs, scope,
+detail, checks L 4×3 · counts S; board 14×8 of 18×10.
 
-### The shared component family (all three)
+**c · Grafana / Datadog.** One S panel per requirement, the report's two
+sections as blocks (IFC-struktur 5 in a band, Standardkrav 6 as 2 across),
+the model, Scope and Detail, the charts, the checks, the counts. Where eleven
+panels do not fit beside the model (1440) the requirements are one L list.
+1440: reqs L 3×4 p0 · viewer XL 6×4 p1 · scope L 3×4 p2 · detail M p3 ·
+system M · function M · MMI M (checks tab). 2112: 11 panels S · viewer XL 6×4
+· scope M · detail M · system L 3×4 · function L 3×4 · MMI strip 4×1 · checks
+L 4×3 · counts S; board 17×8 of 18×10.
 
-Smash's family, refined by the research's common denominators (research §1):
+**Graf tab** (all three): the graph and the model are two XL tiles side by
+side on the same grid (8×5 each where two fit, else 6×4; under 12 columns the
+second is an L 3×4), on the tab's own dark field, which is exactly the two
+tiles' rectangle. `Modell | Graf` swaps which is first. `graphTiles`.
 
-- **Surfaces:** ground `#eeebe4` → card `#fbfaf7` → inset `#f6f4ef`; a 1 px
-  ring `rgba(40,30,18,.09)` drawn as a shadow; hairline rules
-  `rgba(40,30,18,.10)`. Cards lift with ring + contact shade + a short soft
-  fall-off (`0 1px 2px .07`, `0 6px 14px -8px .22`); a real soft shadow only on
-  what overlays (app bar, pinned band). a flatter, c deeper. (Vercel ring,
-  Linear/Raycast surface ladder, Atlassian "raised only for what moves".)
-- **Rows 32 px** everywhere the alternatives own the row; rules, no zebra;
-  table heads sticky (they already were). (PostHog Lemon, Carbon sm, P&P.)
-- **Numbers:** right-aligned, `tnum`, mono for figures and identifiers.
-- **Colour for status only**, always glyph + word + value; one accent (amber
-  `#c25a10`) for focus, selection and the one primary. Magnitude bars are one
-  neutral ink hue. (Bloomberg, Carbon status pattern, Stripe.)
-- **Hierarchy** by weight and luminance: 11 px caps labels at +0.06 em weight
-  600; verdict figures scale with their panel (`container-type: size`,
-  `clamp(26px, min(30cqh, 19cqw), 64px)`), counts smaller.
-- **Motion:** 120 ms micro, 180 ms controls and lift, 280 ms panels, ease-out;
-  reduced motion honoured. (M3 durations, Fluent.)
-- **Radius** 6 px controls, 10 px cards; pills for tabs, chips and keys. Tabs
-  are a sunken tray with the active tab raised (Smash).
-- **Type:** Archivo + IBM Plex Mono for all three.
-- Unchanged binding rules: status is a traffic light, gold caps retired, no
-  edge-stripe state cues, never #fff or #000, the 3D field not skinned.
+### The shared surface: glass (rule 10)
 
-### `scripts/module-grid-gate.mjs`
+edkjo: *"im more into floating tiles and glassmorphism than the flat
+parchment style you've been going for."* One surface for a, b and c
+(`src/design/directions.css`):
+
+- **Field:** `--d-field`, a cool gradient `#e8edf3 → #dde3ea → #d6dde6` under
+  three soft ambient lights (blue top-left, warm right, teal foot), fixed.
+- **Tiles:** `rgba(246,249,252,.64)`, `backdrop-filter: blur(22px)
+  saturate(150%)`, solid `#edf1f5` without backdrop-filter or with reduced
+  transparency. Radius 14 px. A 1 px inner edge `rgba(250,252,255,.72)`, a
+  faint outer ring, then layered shadows (`0 1px 2px .06`, `0 8px 20px -6px
+  .14`, `0 26px 52px -20px .24`, shade `rgb(22,34,54)`). Doors rise 2 px.
+- **Text on the glass (WCAG, composited over the lightest, darkest and the
+  blue-lit field):** ink `#141a22` 14.2 to 16.0; muted `#536070` 5.2 to 5.9;
+  label `#475264` 6.4 to 7.2; warn ink `#7e560a` 5.3 to 6.0; accent `#a24808`
+  4.9 to 5.5. Status fills: cream on green 4.77, cream on red 5.13, ink on gold
+  5.10. Green and red as bare TEXT are 4.1 to 4.9 and are used only for large
+  verdict figures (3:1 applies).
+- Unchanged: Smash's raised keys and the sunken tab tray, 32 px rows, status
+  colour only for status, never #fff or #000, the 3D field not skinned.
+
+### `scripts/module-grid-gate.mjs` and `scripts/bento-pack-test.mjs`
+
+`node scripts/bento-pack-test.mjs` (no browser, a few seconds per hundred
+layouts): rule 6 against the canon's reference table, rule 1 (columns never
+drop as the window widens, the module stays 88 to 112 px), rule 7's
+vocabulary and every size's rendered aspect at modules 88 to 112 px, then for
+a, b and c over a sweep of windows: a layout exists, is deterministic (rule
+8), every tile a canon size or the named strip, at most two XL, no full-width
+tile, no overlap, no hole, the board centred (rule 9), the model, Scope, Detail
+and the requirements present, every moved tile hosted; the Graf tiles XL (L
+for the second under 12 columns) inside the canvas bound.
 
 `npm run build && node scripts/module-grid-gate.mjs [--out dir] [--only
-1440x900,…] [--design a,b,c] [--scenario one,three,hi90,hi90-fixture]`. One headless Chrome
-(launched only with >= 4 GB free) on a LOCAL preview build, real KNM models
-(ARK alone; ARK + RIV + RIB with the test floor config at 1440 and 2112), at
-1100×800, 1280×800, 1440×900, 1920×1080, 2112×1267 and 2560×1440, for a, b and
-c, and for a with a check opened (the docked band). Asserts: the column count
-is the rule's for the grid's width; every tile's left and top on a whole
-column / row pitch and its width and height a whole number of units, within
-1 px; nothing past the last column; every tile's rendered aspect inside its
-kind's bound, and no kind outside the vocabulary; group title rows full width
-and one row tall (spanning its region, `data-mg-span`); no `[data-essential]`
-value cut inside a tile; no sideways page scroll; **no vertical page scroll**
-(one model: `main` does not scroll; several: every model's board fits one
-screen). Then, per state, the docked panels: Scope and Detail empty at rest
-and no band anywhere; a requirement click fills Scope; a Scope row fills
-Detail; the tiles do not move through either. Scenarios: KNM_ARK at every
-class; KNM ARK + RIV + RIB with the test floor config at 1440 and 2112; HI90_ARK
-(22.09 export) without and with `examples/hi90-project-layer.test.ruleset.json`
-at 1440 and 2112. It prints every tile as `id w×h = px aspect`. Screenshots to
-`tmp/panels/` by default, `-selected` with a requirement open and an element
-selected.
-
-On its first runs it caught: verdict labels cut by the badge in a 142 px
-panel, `IfcBuildingStorey` cut in a 159 px chain panel, storey panels at
-2.34 : 1 and at 0.38 : 1 beside the floor matrix, the model at 2.67 : 1 in a
-second model's panel, and "339 / 398" cut at 142 px. Each was fixed in the
-layout rule, not by an exception.
+1440x900,…] [--design a,b,c] [--scenario one,three,hi90,hi90-fixture]`. One
+headless Chrome (only with >= 4 GB free) on a LOCAL preview build, at
+1100×800, 1280×800, 1440×900, 1920×1080, 2112×1267, 2560×1440 and 3440×1440.
+On the RENDERED board, per the canon: rule 6 (C, R and u by the formula from
+the window and the measured chrome, within 1 px, and the grid's own box C·u +
+(C−1)·16 by R·u + (R−1)·16); rule 1 (24 px margin, every tile edge on the
+grid within 1 px, nothing past it, no page scroll either way); rule 7 (every
+tile a canon size or the named strip, its `data-mg-size` true, at most two
+XL); rules 3 and 4 (aspect per kind, no full-width tile under half the
+viewport height, every canvas 9:16 to 16:9 on Kontroll and on the Graf tab in
+both swap states); rule 5 (no essential value cut); rule 8 (a resize round
+trip gives the same layout); rule 9 (no overlap, no hole, the board is the
+tiles' rectangle, centred). The Graf tab: both surfaces on the grid at canon
+sizes. Then the docks: empty at rest, a requirement fills Scope, a Scope row
+fills Detail (as a tab where Detail is one), the tiles do not move.
+Scenarios: KNM_ARK at every class; KNM ARK + RIV + RIB at 1440 and 2112;
+HI90_ARK at 1440 and 2112; HI90_ARK with the fixture at 1440, 1920, 2112,
+2560 and 3440.
 
 ### Research not applied, and why
 
@@ -1555,11 +1569,6 @@ layout rule, not by an exception.
 - The derivation band's rows stay 26 px: the row height is the windowing
   constant of `TraceBand`, and the band behaves as before.
 - Bloomberg's zero radius and dark ground: the owner chose Smash's family.
-
-Known limits, seen in the screenshots: in `a` at 1280 to 1440 px the docked
-band under the model is 8 rows, so its list shows about five findings above the
-object panel; `c`'s storey panels can differ by one column where the storeys
-do not divide the row (2112: six at 217 px, two at 159 px).
 
 ## IDS, and where it stops
 

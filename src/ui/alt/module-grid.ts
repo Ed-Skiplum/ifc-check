@@ -1,131 +1,150 @@
-/** THE MODULE GRID of the design alternatives (`#design=a|b|c`), 2026-09-25.
+/** THE MODULE GRID of the design alternatives (`#design=a|b|c`), 2026-09-26.
  *
- * edkjo: *"we want to build this around a fixed grid size that is dynamically
- * adjusted to monitors/viewports according to best practice"*, and *"tiles need
- * to have aspect ratios that lend themselves to this. wide/short and
- * narrow/tall is to be avoided"* … *"unless the chart or component explicitly is
- * supposed to be that."* The research and the sources are in AGENTS.md,
- * "Design alternatives 2026-09-25". What this file fixes:
+ * The canon is edkjo's LAYOUT SYSTEM in
+ * `C:\workspace\resources\design-system\data-workspace.md`. What this file
+ * implements, rule by rule:
  *
- *   base unit      8 px (Carbon mini unit, Atlassian space.100; Fluent's 4 px
- *                  ramp halves it)
- *   row unit       32 px = 4 units, the dense table row, so a tile of h rows
- *                  holds whole list lines (Grafana: a fixed 30 px row unit)
- *   gutter         16 px = 2 units, both axes; row pitch 48 px
- *   columns        a multiple of 12: 12 · 24 · 36, the largest whose column
- *                  pitch stays at or above 50.67 px (24 columns at 1200 px).
- *                  So the module stays 51–76 px wide from 1200 px up and a
- *                  wider screen gets MORE columns, not fatter ones (Datadog
- *                  high density; Carbon 4 → 8 → 16)
- *   width cap      2400 px; above it the margins grow (Carbon max, Stripe)
- *   height         fixed. A tile is h rows; only a FILL tile (the list and the
- *                  inspector of `a`) takes the rows the viewport has left.
+ *   1  One grid, sized to the window: a square module of about 100 px, a
+ *      16 px gap, a 24 px margin. A wider window gets MORE columns at the same
+ *      module, never fatter tiles.
+ *   6  The formulas, for a window W × H whose board starts `top` px down:
+ *        C = round((W − 48 + 16) / 116)
+ *        u = (W − 48 − (C − 1)·16) / C          the module, and the row height
+ *        R = floor((H − chrome − 48 + 16) / (u + 16)),  chrome = top − 24
+ *      The canon writes `floor` for C, and its own reference table
+ *      (2112 → 18, 2560 → 22) is `round`: floor gives 17 and 21 there. The
+ *      table is what the canon was checked against, so C rounds; u then stays
+ *      within about 93 to 108 px, "about 100". Stated in AGENTS.md.
+ *   7  Tile sizes in modules: S 2×2 · M 3×2 / 2×3 · L 4×3 / 3×4 · XL 6×4,
+ *      stepping to 8×5 · a strip k×1 / 1×k only for a named content (here the
+ *      MMI bars, a bar chart with few items). At most two XL.
+ *   8  `mgPack`: each tile has sizes (its canon size, largest first) and a
+ *      priority. Tiles pack by priority, row-major; the board is exactly
+ *      covered, no holes. Too little room moves the lowest priority into a tab
+ *      of a tile that stays; nothing shrinks below its size. More room than
+ *      the content fills at its sizes narrows the board (centred on the
+ *      grid, whole columns), never stretches a tile. Deterministic: a pure
+ *      function of its input.
  *
- * Every tile is placed at whole units (x, y, w, h). A tile's width comes from
- * its CONTENT: `mgSpan(px)` is the fewest columns that seat it, and the one
- * fill tile of a row takes what is left. Its height is its content's lines,
- * raised only where that is needed to keep the tile inside its aspect bounds.
- *
- * Pure TS, `.ts` imports only, so `scripts/module-grid-gate.mjs` imports the
- * same numbers and the same vocabulary it asserts.
+ * Pure TS, `.ts` imports only, so `scripts/module-grid-gate.mjs` and
+ * `scripts/bento-pack-test.mjs` import the same numbers they assert.
  */
 
 import { CANVAS_ASPECT } from "../canvas-aspect.ts";
 
-export const MG_UNIT = 8;
-export const MG_ROW = 4 * MG_UNIT; // 32
-export const MG_GUTTER = 2 * MG_UNIT; // 16
-export const MG_PITCH_Y = MG_ROW + MG_GUTTER; // 48
-/** The pitch of 24 columns at 1200 px: the smallest module allowed. */
-export const MG_MIN_PITCH = (1200 + MG_GUTTER) / 24;
-export const MG_MAX_WIDTH = 2400;
-/** A tile's own head: its label line. One row unit. */
-export const MG_HEAD = MG_ROW;
+export const MG_MODULE = 100;
+export const MG_GAP = 16;
+export const MG_MARGIN = 24;
+/** A tile's own head: its label line. */
+export const MG_HEAD = 32;
 
-export type MgColumns = 12 | 24 | 36;
-
-export function mgColumns(width: number): MgColumns {
-  const k = Math.floor((width + MG_GUTTER) / (12 * MG_MIN_PITCH));
-  return (12 * Math.min(3, Math.max(1, k))) as MgColumns;
+export interface MgGrid {
+  /** Columns of the window's grid (rule 6). */
+  cols: number;
+  /** The module: a column's width and a row's height, px. */
+  u: number;
+  rows: number;
 }
 
-export function mgPitch(width: number, cols: number): number {
-  return (width + MG_GUTTER) / cols;
+/** Rule 6. `width` is the window's width (the page's content box plus its two
+ *  24 px margins); `avail` is the height left for the board, margins
+ *  included: H − chrome. */
+export function mgGrid(width: number, avail: number): MgGrid {
+  const cols = Math.max(1, Math.round((width - 2 * MG_MARGIN + MG_GAP) / (MG_MODULE + MG_GAP)));
+  const u = (width - 2 * MG_MARGIN - (cols - 1) * MG_GAP) / cols;
+  const rows = Math.max(1, Math.floor((avail - 2 * MG_MARGIN + MG_GAP) / (u + MG_GAP)));
+  return { cols, u, rows };
 }
 
-/** The fewest columns whose span is at least `px` wide. */
-export function mgSpan(px: number, pitch: number): number {
-  return Math.max(1, Math.ceil((px + MG_GUTTER) / pitch - 1e-6));
+/** Rendered px of a span of `n` modules. */
+export function mgSpanPx(n: number, u: number): number {
+  return n * u + (n - 1) * MG_GAP;
 }
 
-/** Rendered width of a span of `w` columns. */
-export function mgWidth(w: number, pitch: number): number {
-  return w * pitch - MG_GUTTER;
+/* ── the tile vocabulary ───────────────────────────────────────────────── */
+
+export type MgSize = "S" | "M" | "L" | "XL" | "strip";
+export type Wh = readonly [number, number];
+
+export const SIZES: Record<Exclude<MgSize, "strip">, readonly Wh[]> = {
+  S: [[2, 2]],
+  M: [
+    [3, 2],
+    [2, 3],
+  ],
+  L: [
+    [4, 3],
+    [3, 4],
+  ],
+  XL: [
+    [8, 5],
+    [6, 4],
+  ],
+};
+
+/** The size class of `w × h` modules, or null when it is none. A strip is
+ *  only a size for a tile that names why (`MgTileSpec.strip`). */
+export function canonSize(w: number, h: number, strip = false): MgSize | null {
+  for (const [name, list] of Object.entries(SIZES) as [Exclude<MgSize, "strip">, readonly Wh[]][]) {
+    if (list.some(([a, b]) => a === w && b === h)) return name;
+  }
+  if (strip && (w === 1 || h === 1) && Math.max(w, h) >= 2) return "strip";
+  return null;
 }
 
-/** Rendered height of `h` rows. */
-export function mgHeight(h: number): number {
-  return h * MG_PITCH_Y - MG_GUTTER;
-}
-
-/** The fewest rows whose span is at least `px` tall. */
-export function mgRowsFor(px: number): number {
-  return Math.max(1, Math.ceil((px + MG_GUTTER) / MG_PITCH_Y - 1e-6));
-}
-
-/** How many whole rows fit in `px` of height. */
-export function mgRowsIn(px: number): number {
-  return Math.max(1, Math.floor((px + MG_GUTTER) / MG_PITCH_Y));
-}
-
-/* ── The tile vocabulary: kinds and their aspect bounds ────────────────────
- *
- * Aspect = rendered width / rendered height, in px, at the viewport it is
- * drawn at (not in grid units: a unit is 51–76 px wide and 48 px tall).
- *
- * `panel` is the rule: 1 : 2 to 2 : 1. Every other kind is a named exception,
- * and each says what in its CONTENT makes it that shape. Packing convenience
- * is not a reason; `scripts/module-grid-gate.mjs` allows these kinds and no
- * others. */
+/** What a tile holds, for its aspect bound (rule 3, in rendered px). */
 export type MgKind = "panel" | "list" | "viewer" | "graph" | "chart";
 
 export const MG_ASPECT: Record<MgKind, { min: number; max: number; why: string }> = {
-  panel: {
-    min: 0.5,
-    max: 2,
-    why: "every stat, table, gauge and small multiple",
-  },
-  list: {
-    min: 0.3,
-    max: 2,
-    why:
-      "a long ranked list that scrolls: the rows ARE the content and a list is " +
-      "read down, so it may be tall (a's master list, the checks of every rule)",
-  },
-  // 2026-09-26, edkjo: "A viewer/canvas always needs to have an aspect ratio
-  // that is in the range of square to monitor or phone aspect ratios." So
-  // 9 : 16 to 16 : 9, for the tile AND for the canvas inside it (the tile's
-  // head makes the canvas the wider of the two; the layouts size for it).
+  panel: { min: 0.5, max: 2, why: "the rule: 1 : 2 to 2 : 1" },
+  list: { min: 0.5, max: 2, why: "the rule: a list scrolls inside, it is not taller for it" },
   viewer: {
     min: CANVAS_ASPECT.min,
     max: CANVAS_ASPECT.max,
-    why: "a 3D canvas: phone portrait through square to a 16 : 9 monitor, never a strip",
+    why: "rule 4: a 3D canvas is phone to monitor shaped, 9 : 16 to 16 : 9, the tile and the canvas in it",
   },
-  graph: {
-    min: CANVAS_ASPECT.min,
-    max: CANVAS_ASPECT.max,
-    why: "a graph canvas: the same rule as the viewer",
-  },
-  chart: {
-    min: 0.5,
-    max: 3,
-    why:
-      "a bar chart over an ordered scale (the MMI levels): the bars read " +
-      "across, one per level, so it may be wider than tall",
-  },
+  graph: { min: CANVAS_ASPECT.min, max: CANVAS_ASPECT.max, why: "rule 4, the same as the viewer" },
+  chart: { min: 0.5, max: 2, why: "the rule, as any chart" },
 };
 
-/** One tile, in grid units. */
+/** The named strip exceptions (rule 3): content that thrives in a strip. */
+export const MG_STRIPS: Record<string, string> = {
+  mmi: "a bar chart with few items: one bar per MMI level, read across",
+};
+
+export interface MgTileSpec {
+  id: string;
+  kind: MgKind;
+  /** The sizes it may take, most wanted first; every one a canon size. */
+  sizes: readonly Wh[];
+  /** Never moved into a tab. */
+  required?: boolean;
+  /** Where it goes when it is moved into a tab: the first of these that
+   *  stayed. Else the lowest priority tile that stayed and is not required. */
+  hosts?: readonly string[];
+  /** Tiles of one series (the counts) are placed in their order, so the
+   *  packer never tries their permutations. */
+  series?: string;
+  /** A block of equal tiles, one per member, each `unit` modules, laid in
+   *  reading order in a block that holds exactly them (a report section's
+   *  requirement panels: 5 → 5 × 1 or 1 × 5). The block is not a tile; its
+   *  members are, each at the canon size `unit`. */
+  members?: readonly string[];
+  unit?: Wh;
+}
+
+/** A block spec for `members` at `unit`: every arrangement that holds them
+ *  exactly, the widest (one band) first. */
+export function mgBlock(id: string, kind: MgKind, members: readonly string[], unit: Wh): MgTileSpec {
+  const n = members.length;
+  const sizes: Wh[] = [];
+  for (let across = n; across >= 1; across -= 1) {
+    if (n % across === 0) sizes.push([across * unit[0], (n / across) * unit[1]]);
+  }
+  return { id, kind, sizes, required: true, members, unit };
+}
+
+/** One tile, in modules. `x` counts from the grid's own first column. */
 export interface MgPlace {
   id: string;
   kind: MgKind;
@@ -133,339 +152,413 @@ export interface MgPlace {
   y: number;
   w: number;
   h: number;
+  size: MgSize;
+  priority: number;
+  /** Tiles moved into this one, as tabs after its own body. */
+  tabs: string[];
 }
 
-/** A group's title line in `c` (a Grafana row): one row, a title and nothing
- *  else, so it is a heading and not a tile. It spans its region, `x` to
- *  `x + w`; the whole grid when the layout has one region. */
-export interface MgRowTitle {
-  id: string;
-  y: number;
-  x: number;
-  w: number;
-}
-
-export interface MgLayout {
-  cols: MgColumns;
-  pitch: number;
+export interface MgLayout extends MgGrid {
+  /** Columns the board covers (≤ cols) and its first one: it centres on the
+   *  grid in whole modules when the content cannot fill every one. */
+  used: number;
+  offset: number;
+  /** Rows the board covers (≤ rows) and its first one. */
+  usedRows: number;
+  top: number;
   tiles: MgPlace[];
-  titles: MgRowTitle[];
-  rows: number;
-  /** The charts ride inside the list tile instead of taking tiles of their
-   *  own (the compact class, where 12 × 13 cells cannot seat seven tiles at
-   *  their aspect bounds). */
-  chartsInList: boolean;
+  /** Tiles moved into a tab, lowest priority last. */
+  moved: string[];
 }
 
-/** What the board needs, measured by the board. */
-export interface MgNeeds {
-  /** Rows the viewport has left under the board's top edge. The board is one
-   *  screen: every layout fills exactly these rows, and a tile's surplus
-   *  scrolls inside it. */
-  rowsAvail: number;
+/* ── the packer (rule 8) ───────────────────────────────────────────────── */
+
+/** A cover of a rectangle by a run of tiles, as the packer builds it. */
+interface Cut {
+  cost: number;
+  /** A leaf: the run's one tile at size index `k`. */
+  k?: number;
+  /** Or two parts, cut `vertical`ly or not at `at` modules from the start;
+   *  `mid` splits the run. Unflipped the first part (left of or above the
+   *  cut) takes the run's first tiles; `flip` gives it the last ones. */
+  vertical?: boolean;
+  at?: number;
+  mid?: number;
+  flip?: boolean;
 }
 
-/** Content widths, px, at the alternatives' 13 px list type. */
-const PX = {
-  // A requirement row: status badge, the name, the dekning figure and its
-  // «x av N», with the fordeling chips wrapping under it.
-  reqList: 400,
-  // A chart tile (a treemap, the MMI bars): enough for a labelled cell.
-  chart: 240,
-  // A requirement panel in c: the name on one line and «2 555 av 3 138».
-  reqPanel: 150,
-  // Scope: GUID (25ch mono) and the class; name and reason ellipsize.
-  scope: 300,
-  // The object panel's lead cards, two up.
-  detail: 240,
-  // The check list without its % column: the longest check name, the 18em
-  // verdict cell at 13 px, one gap and the padding.
-  checks: 392,
-  multipleMax: 256,
-};
+type Placed = Omit<MgPlace, "priority" | "tabs">;
 
-/** The fewest rows that keep a tile of rendered width `px` at or under
- *  `max` : 1. */
-function rowsForAspect(px: number, max: number): number {
-  return mgRowsFor(px / max);
-}
+/** What a composition choice costs (the packer keeps the cheapest cover):
+ *  a tile below its first size, weighted by its rank (a hero most, then the
+ *  higher priorities), and a cut that reads a lower priority first. */
+const COST_FLIP = 6;
+const COST_HERO_STEP = 8;
 
-/** The fewest rows that keep a viewer tile of rendered width `px` inside the
- *  canvas bound: the canvas is the tile less its head. */
-function viewerRows(px: number): number {
-  return mgRowsFor(px / MG_ASPECT.viewer.max + MG_HEAD);
-}
-
-/** The canvas aspect of a viewer tile `w` columns by `h` rows. */
-function viewerCanvas(w: number, h: number, pitch: number): number {
-  return mgWidth(w, pitch) / (mgHeight(h) - MG_HEAD);
-}
-
-/** Split `total` rows over `n` tiles, the remainder to the first ones. */
-function splitRows(total: number, n: number): number[] {
-  const base = Math.floor(total / n);
-  return Array.from({ length: n }, (_, i) => base + (i < total % n ? 1 : 0));
-}
-
-/** Split `total` columns over `n` tiles, the remainder to the first ones. */
-function splitCols(total: number, n: number): number[] {
-  return splitRows(total, n);
-}
-
-/** The inspector block every alternative docks: the viewer and Scope and
- *  Detail. Stacked when that works: the viewer on top, as tall as keeps its
- *  canvas inside 16 : 9, Scope and Detail under it (side by side when the
- *  block seats both, else one over the other), each inside the list bound.
- *  When the block is too wide for its height to do that, the viewer takes
- *  the full height on the left and Scope over Detail a rail beside it: the
- *  canvas is never a strip (2026-09-26). */
-function inspector(tiles: MgPlace[], x: number, y: number, w: number, h: number, pitch: number, stack = false) {
-  const px = mgWidth(w, pitch);
-  const sideBySide = !stack && px >= PX.scope + PX.detail + MG_GUTTER;
-  const minBelow = sideBySide ? 5 : 8;
-  const vh = Math.max(3, viewerRows(px));
-  const below = h - vh;
-  const sw = Math.max(mgSpan(PX.scope, pitch), Math.ceil(w / 2));
-  const listOk = sideBySide
-    ? mgWidth(sw, pitch) / mgHeight(below) <= MG_ASPECT.list.max
-    : px / mgHeight(Math.floor(below / 2)) <= MG_ASPECT.list.max;
-  if (below >= minBelow && listOk) {
-    tiles.push({ id: "viewer", kind: "viewer", x, y, w, h: vh });
-    if (sideBySide) {
-      tiles.push({ id: "scope", kind: "list", x, y: y + vh, w: sw, h: below });
-      tiles.push({ id: "detail", kind: "list", x: x + sw, y: y + vh, w: w - sw, h: below });
-    } else {
-      const [sh, dh] = splitRows(below, 2);
-      tiles.push({ id: "scope", kind: "list", x, y: y + vh, w, h: sh });
-      tiles.push({ id: "detail", kind: "list", x, y: y + vh + sh, w, h: dh });
-    }
-    return;
-  }
-  // Beside: the rail as narrow as seats Scope, widened while the viewer
-  // would still be wider than 16 : 9.
-  let rw = mgSpan(PX.scope, pitch);
-  while (rw < w - 1 && viewerCanvas(w - rw, h, pitch) > MG_ASPECT.viewer.max) rw += 1;
-  tiles.push({ id: "viewer", kind: "viewer", x, y, w: w - rw, h });
-  rail(tiles, x + w - rw, y, rw, h);
-}
-
-/** Scope over Detail in one column (b's rail, c's right region). */
-function rail(tiles: MgPlace[], x: number, y: number, w: number, h: number) {
-  const [sh, dh] = splitRows(h, 2);
-  tiles.push({ id: "scope", kind: "list", x, y, w, h: sh });
-  tiles.push({ id: "detail", kind: "list", x, y: y + sh, w, h: dh });
-}
-
-const CHARTS = [
-  { id: "tree-system", kind: "panel" as MgKind },
-  { id: "tree-function", kind: "panel" as MgKind },
-  { id: "mmi", kind: "chart" as MgKind },
-];
-
-/* ── a · Linear work surface: list | inspector | charts ─────────────────── */
-
-export function layoutA(width: number, needs: MgNeeds): MgLayout {
-  const cols = mgColumns(width);
-  const pitch = mgPitch(width, cols);
-  const n = Math.max(10, needs.rowsAvail);
-  const tiles: MgPlace[] = [];
-  if (cols === 12) {
-    // Compact: the list (the charts inside it) | the inspector.
-    const lw = 5;
-    tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
-    inspector(tiles, lw, 0, cols - lw, n, pitch);
-    return { cols, pitch, tiles, titles: [], rows: n, chartsInList: true };
-  }
-  const lw = mgSpan(PX.reqList, pitch);
-  const cw = Math.max(mgSpan(PX.chart, pitch), Math.round(cols * 0.2));
-  tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
-  inspector(tiles, lw, 0, cols - lw - cw, n, pitch);
-  // The charts, one column at the right edge, a third of the height each.
-  const hs = splitRows(n, 3);
-  let y = 0;
-  CHARTS.forEach((c, i) => {
-    tiles.push({ id: c.id, kind: c.kind, x: cols - cw, y, w: cw, h: hs[i] });
-    y += hs[i];
+/** The cheapest guillotine cover of `cols × rows` by ALL of `specs`, in
+ *  their order, as placed tiles (x and y from 0), or null. */
+function coverRun(cols: number, rows: number, specs: readonly MgTileSpec[]): Placed[] | null {
+  const n = specs.length;
+  const areas = specs.map((s) => s.sizes.map(([w, h]) => w * h));
+  const minPre = [0];
+  const maxPre = [0];
+  specs.forEach((_, i) => {
+    minPre.push(minPre[i] + Math.min(...areas[i]));
+    maxPre.push(maxPre[i] + Math.max(...areas[i]));
   });
-  return { cols, pitch, tiles, titles: [], rows: n, chartsInList: false };
-}
+  if (cols * rows < minPre[n] || cols * rows > maxPre[n]) return null;
+  const weight = specs.map((s, i) =>
+    s.sizes.some(([w, h]) => canonSize(w, h) === "XL") ? COST_HERO_STEP : 1 + (2 * (n - i)) / n,
+  );
+  const memo = new Map<number, Cut | null>();
+  const fitsRun = (cells: number, i: number, j: number) =>
+    cells >= minPre[j] - minPre[i] && cells <= maxPre[j] - maxPre[i];
 
-/* ── b · Stripe summary: the charts first, then the report ─────────────── */
-
-export function layoutB(width: number, needs: MgNeeds): MgLayout {
-  const cols = mgColumns(width);
-  const pitch = mgPitch(width, cols);
-  const n = Math.max(10, needs.rowsAvail);
-  const tiles: MgPlace[] = [];
-  if (cols === 12) {
-    const lw = 5;
-    tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
-    inspector(tiles, lw, 0, cols - lw, n, pitch);
-    return { cols, pitch, tiles, titles: [], rows: n, chartsInList: true };
-  }
-  // The summary row: the two treemaps, then the MMI bars, which read across
-  // and take the widest share. Tall enough that a treemap stays inside 2 : 1.
-  const tw = Math.round(cols * 0.3);
-  const mw = cols - 2 * tw;
-  const ch = Math.max(4, rowsForAspect(mgWidth(tw, pitch), MG_ASPECT.panel.max), rowsForAspect(mgWidth(mw, pitch), MG_ASPECT.chart.max));
-  tiles.push({ id: "tree-system", kind: "panel", x: 0, y: 0, w: tw, h: ch });
-  tiles.push({ id: "tree-function", kind: "panel", x: tw, y: 0, w: tw, h: ch });
-  tiles.push({ id: "mmi", kind: "chart", x: 2 * tw, y: 0, w: mw, h: ch });
-  // Then the report down one column, the model beside it as the evidence,
-  // and the rail: Scope over Detail.
-  const h = n - ch;
-  const lw = mgSpan(PX.reqList + 60, pitch);
-  // The rail: wide enough for Scope, near 1.6 : 1 per half, and never past
-  // 2 : 1 for the shorter half.
-  let aspectCols = 1;
-  while (mgWidth(aspectCols + 1, pitch) <= MG_ASPECT.list.max * mgHeight(Math.floor(h / 2))) aspectCols += 1;
-  const rw = Math.max(mgSpan(PX.scope, pitch), Math.min(aspectCols, Math.max(mgSpan(PX.scope + 80, pitch), rowsToCols(h, pitch))));
-  // The viewer takes the rest, and never wider than 16 : 9: the report
-  // column takes any surplus (2026-09-26).
-  let lw2 = lw;
-  while (viewerCanvas(cols - lw2 - rw, h, pitch) > MG_ASPECT.viewer.max) lw2 += 1;
-  const vw = cols - lw2 - rw;
-  tiles.push({ id: "reqs", kind: "list", x: 0, y: ch, w: lw2, h });
-  tiles.push({ id: "viewer", kind: "viewer", x: lw2, y: ch, w: vw, h });
-  rail(tiles, lw2 + vw, ch, rw, h);
-  return { cols, pitch, tiles, titles: [], rows: n, chartsInList: false };
-}
-
-/** The fewest columns that keep a rail half of `h` rows at or under 2 : 1
- *  is the wrong question; the rail is read down, so it needs only to be wide
- *  enough for Scope. Kept as the width that makes each half near 1.6 : 1. */
-function rowsToCols(h: number, pitch: number): number {
-  return mgSpan(mgHeight(Math.floor(h / 2)) * 1.6, pitch);
-}
-
-/* ── c · Grafana / Datadog: the report's groups as rows of panels ──────── */
-
-export function layoutC(width: number, needs: MgNeeds & { ifc: number; std: number }): MgLayout {
-  const cols = mgColumns(width);
-  const pitch = mgPitch(width, cols);
-  const n = Math.max(10, needs.rowsAvail);
-  const tiles: MgPlace[] = [];
-  const titles: MgRowTitle[] = [];
-  if (cols === 12) {
-    // Compact: the groups and the charts in one scrolling list, the
-    // inspector beside it. 12 × 13 cells cannot seat eleven panels, three
-    // charts and the inspector at their bounds.
-    const lw = 5;
-    tiles.push({ id: "reqs", kind: "list", x: 0, y: 0, w: lw, h: n });
-    inspector(tiles, lw, 0, cols - lw, n, pitch);
-    return { cols, pitch, tiles, titles, rows: n, chartsInList: true };
-  }
-  const rw = Math.round(cols / 4);
-  const lw = cols - rw;
-  let y = 0;
-  // One group row per report section, then the charts row. Panel heights
-  // keep every panel inside 2 : 1.
-  const group = (id: string, count: number, prefix: string) => {
-    titles.push({ id, y, x: 0, w: lw });
-    y += 1;
-    const ws = splitCols(lw, count);
-    const h = Math.max(3, rowsForAspect(mgWidth(Math.max(...ws), pitch), MG_ASPECT.panel.max));
-    let x = 0;
-    ws.forEach((w, i) => {
-      tiles.push({ id: `${prefix}${i}`, kind: "panel", x, y, w, h });
-      x += w;
-    });
-    y += h;
+  const best = (w: number, h: number, i: number, j: number): Cut | null => {
+    const id = ((w * 64 + h) * 64 + i) * 64 + j;
+    const hit = memo.get(id);
+    if (hit !== undefined) return hit;
+    let out: Cut | null = null;
+    if (fitsRun(w * h, i, j)) {
+      if (j - i === 1) {
+        const k = specs[i].sizes.findIndex(([a, b]) => a === w && b === h);
+        if (k >= 0) out = { cost: k * weight[i], k };
+      } else {
+        for (const flip of [false, true]) {
+          for (const vertical of [true, false]) {
+            const span = vertical ? w : h;
+            const other = vertical ? h : w;
+            for (let at = 1; at < span; at += 1) {
+              const aCells = at * other;
+              for (let mid = i + 1; mid < j; mid += 1) {
+                // The first part's run: [i, mid) unflipped, [mid, j) flipped.
+                const [ai, aj, bi, bj] = flip ? [mid, j, i, mid] : [i, mid, mid, j];
+                if (!fitsRun(aCells, ai, aj)) continue;
+                const a = vertical ? best(at, h, ai, aj) : best(w, at, ai, aj);
+                if (!a) continue;
+                const b = vertical ? best(w - at, h, bi, bj) : best(w, h - at, bi, bj);
+                if (!b) continue;
+                const cost = a.cost + b.cost + (flip ? COST_FLIP : 0);
+                if (!out || cost < out.cost) out = { cost, vertical, at, mid, flip };
+              }
+            }
+          }
+        }
+      }
+    }
+    memo.set(id, out);
+    return out;
   };
-  group("g-ifc", needs.ifc, "ifc");
-  group("g-std", needs.std, "std");
-  // The charts row carries no title: its tiles name themselves. The check
-  // list takes what its name and verdict columns need; the MMI bars a third
-  // of the rest (they turn into rows when narrow); the two treemaps split the
-  // remainder.
-  const ch = n - y;
-  const kw = mgSpan(PX.checks, pitch);
-  const rest = lw - kw;
-  // The treemaps side by side, or stacked in one column when side by side
-  // would make them tall and narrow: whichever puts a treemap nearer square.
-  const side = { tw: Math.floor((rest - Math.max(3, Math.round(rest / 3))) / 2), th: ch };
-  let stackTw = Math.ceil(rest * 0.55);
-  while (stackTw > 3 && mgWidth(stackTw, pitch) > MG_ASPECT.panel.max * mgHeight(Math.floor(ch / 2))) stackTw -= 1;
-  const off = (w: number, h: number) => Math.abs(Math.log(mgWidth(w, pitch) / mgHeight(h)));
-  const stacked = ch >= 6 && off(stackTw, Math.floor(ch / 2)) < off(side.tw, side.th);
-  if (stacked) {
-    const [h1, h2] = splitRows(ch, 2);
-    tiles.push({ id: "tree-system", kind: "panel", x: 0, y, w: stackTw, h: h1 });
-    tiles.push({ id: "tree-function", kind: "panel", x: 0, y: y + h1, w: stackTw, h: h2 });
-    tiles.push({ id: "mmi", kind: "chart", x: stackTw, y, w: rest - stackTw, h: ch });
-  } else {
-    const mw = rest - 2 * side.tw;
-    tiles.push({ id: "tree-system", kind: "panel", x: 0, y, w: side.tw, h: ch });
-    tiles.push({ id: "tree-function", kind: "panel", x: side.tw, y, w: side.tw, h: ch });
-    tiles.push({ id: "mmi", kind: "chart", x: 2 * side.tw, y, w: mw, h: ch });
-  }
-  tiles.push({ id: "checks", kind: "list", x: rest, y, w: kw, h: ch });
-  // The right region: the model over Scope over Detail.
-  // As tall as keeps the canvas inside 16 : 9 (2026-09-26); the rail takes
-  // the rest.
-  const vh = Math.max(4, viewerRows(mgWidth(rw, pitch)));
-  tiles.push({ id: "viewer", kind: "viewer", x: lw, y: 0, w: rw, h: vh });
-  rail(tiles, lw, vh, rw, n - vh);
-  return { cols, pitch, tiles, titles, rows: n, chartsInList: false };
+
+  const root = best(cols, rows, 0, n);
+  if (!root) return null;
+  const out: Placed[] = [];
+  const walk = (cut: Cut, x: number, y: number, w: number, h: number, i: number, j: number) => {
+    if (cut.k !== undefined) {
+      const s = specs[i];
+      if (s.members && s.unit) {
+        const [uw, uh] = s.unit;
+        const across = w / uw;
+        s.members.forEach((id, m) => {
+          const cx = x + (m % across) * uw;
+          const cy = y + Math.floor(m / across) * uh;
+          out.push({ id, kind: s.kind, x: cx, y: cy, w: uw, h: uh, size: canonSize(uw, uh)! });
+        });
+        return;
+      }
+      out.push({ id: s.id, kind: s.kind, x, y, w, h, size: canonSize(w, h, s.id in MG_STRIPS)! });
+      return;
+    }
+    const at = cut.at!;
+    const mid = cut.mid!;
+    const [ai, aj, bi, bj] = cut.flip ? [mid, j, i, mid] : [i, mid, mid, j];
+    if (cut.vertical) {
+      walk(best(at, h, ai, aj)!, x, y, at, h, ai, aj);
+      walk(best(w - at, h, bi, bj)!, x + at, y, w - at, h, bi, bj);
+    } else {
+      walk(best(w, at, ai, aj)!, x, y, w, at, ai, aj);
+      walk(best(w, h - at, bi, bj)!, x, y + at, w, h - at, bi, bj);
+    }
+  };
+  walk(root, 0, 0, cols, rows, 0, n);
+  return out;
 }
 
-/* ── kept, off the main dash ─────────────────────────────────────────────
+/** Rule 8, `specs` in priority order, highest first.
  *
- * The small-multiple packers that laid out c's per-storey and per-class
- * panels until 2026-09-25. The owner: *"I dont understand the obsession with
- * floor vs ifcclass."* Those views left the main dash for the report's
- * requirements; the storey and class numbers stay on Innhold (Klasser,
- * Etasje × klasse) and the bento board. Kept for a drill-down that wants
- * them back. */
-
-
-/** Small multiples: `count` equal panels per row, the per-row count chosen
- *  from the divisors of the region's columns so every panel is `minPx` to
- *  `PX.multipleMax` wide, the one that leaves the fewest empty slots in the
- *  last row winning (ties: more per row). One size for all, so they compare;
- *  a last row that ends short keeps that size rather than stretching. */
-export function multiples(
-  count: number,
-  regionCols: number,
-  pitch: number,
-  minPx: number,
-): { w: number; perRow: number; rows: number } {
-  let best: { w: number; perRow: number; empty: number } | null = null;
-  for (let w = 1; w <= regionCols; w += 1) {
-    if (regionCols % w !== 0) continue;
-    const px = mgWidth(w, pitch);
-    if (px < minPx || px > PX.multipleMax) continue;
-    const perRow = regionCols / w;
-    const empty = count === 0 ? 0 : (perRow - (count % perRow)) % perRow;
-    if (!best || empty < best.empty || (empty === best.empty && perRow > best.perRow)) {
-      best = { w, perRow, empty };
+ *  THE COVER. The board is cut, edge to edge, into two rectangles, and each
+ *  of those again, until every rectangle is one tile at one of its canon
+ *  sizes (a guillotine cover: every tile edge runs on to a cut, so the tiles
+ *  line up into clean stacks and bands). The tiles are split between the two
+ *  parts as RUNS of the priority order: the first part (left of or above the
+ *  cut) takes the first tiles, the second the rest; the other way round
+ *  costs. So the tiles pack by priority, reading row-major. Of all covers
+ *  the packer keeps the cheapest: a tile below its first size costs, the
+ *  hero most (so it steps up to 8 × 5 where the board seats it), then by
+ *  priority; ties go to the first cut tried (unflipped, vertical, nearer the
+ *  start). Exact: every cell is inside one tile, no holes, no ragged edge.
+ *
+ *  THE BREAKS. When the tiles cannot cover the board, the lowest priority
+ *  tile that is not required moves into a tab of one that stays, then the
+ *  next lowest, until a cover exists: nothing shrinks below its sizes. When
+ *  the tiles kept cannot fill the board even at their largest (more room
+ *  than content), the board shrinks, whole modules at a time, to the largest
+ *  rectangle they do cover that keeps the grid's shape (by the smaller of
+ *  its column and row shares), centred on the grid: no
+ *  tile is stretched past its size.
+ *
+ *  `mirror` reads the board from the right edge (a composition choice: where
+ *  the first tiles sit). Pure and deterministic: the same input gives the
+ *  same layout, which `scripts/bento-pack-test.mjs` asserts. */
+export function mgPack(grid: MgGrid, specs: readonly MgTileSpec[], mirror = false): MgLayout {
+  const { cols, rows } = grid;
+  const largest = (s: MgTileSpec) => Math.max(...s.sizes.map(([w, h]) => w * h));
+  const smallest = (s: MgTileSpec) => Math.min(...s.sizes.map(([w, h]) => w * h));
+  const movable = specs.map((s, i) => (s.required ? -1 : i)).filter((i) => i >= 0);
+  const m = movable.length;
+  const settle = (found: Placed[], gone: Set<number>, used: number, usedRows: number): MgLayout => {
+    const offset = Math.floor((cols - used) / 2);
+    const top = Math.floor((rows - usedRows) / 2);
+    const tiles: MgPlace[] = found
+      .map((t) => ({
+        ...t,
+        x: offset + (mirror ? used - t.x - t.w : t.x),
+        y: top + t.y,
+        priority: specs.findIndex((s) => s.id === t.id || (s.members?.includes(t.id) ?? false)),
+        tabs: [] as string[],
+      }))
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+    const moved = [...gone].sort((a, b) => a - b).map((i) => specs[i].id);
+    for (const id of moved) {
+      const spec = specs.find((s) => s.id === id)!;
+      const byPriority = [...tiles].sort((a, b) => b.priority - a.priority);
+      const host =
+        spec.hosts?.map((h) => tiles.find((t) => t.id === h)).find((t) => t) ??
+        byPriority.find((t) => !specs[t.priority].required) ??
+        byPriority[0];
+      host.tabs.push(id);
+    }
+    return { ...grid, used, usedRows, offset, top, tiles, moved };
+  };
+  const keep = (gone: Set<number>) => specs.filter((_, i) => !gone.has(i));
+  // The set moved is a bit mask over the movable tiles, the LOWEST priority
+  // the least significant bit, tried in increasing order: a tile moves only
+  // when no cover keeps it with every tile of lower priority moved instead.
+  // Fixed caps keep it fast and deterministic.
+  const masks: number[] = [];
+  for (let mask = 0; mask < 1 << m && masks.length < 4096; mask += 1) masks.push(mask);
+  const goneOf = (mask: number) => new Set(movable.filter((_, j) => mask & (1 << (m - 1 - j))));
+  let tries = 0;
+  // The full board first.
+  for (const mask of masks) {
+    const kept = keep(goneOf(mask));
+    const cells = cols * rows;
+    if (kept.reduce((a, s) => a + largest(s), 0) < cells) continue;
+    if (kept.reduce((a, s) => a + smallest(s), 0) > cells) continue;
+    if ((tries += 1) > 80) break;
+    const found = coverRun(cols, rows, kept);
+    if (found) return settle(found, goneOf(mask), cols, rows);
+  }
+  // More room than the content: the tiles kept cannot fill the board even at
+  // their largest, so the board shrinks to the largest rectangle they cover
+  // that keeps the grid's shape (the smaller of its column and row shares
+  // first, then the area, then the width; an odd margin counts a little
+  // against), centred on the grid. Moving tiles out is tried lowest first,
+  // as a run.
+  const share = ([c, r]: [number, number]) =>
+    Math.min(c / cols, r / rows) - ((cols - c) % 2) * 0.04 - ((rows - r) % 2) * 0.04;
+  for (let drop = 0; drop <= m; drop += 1) {
+    const gone = new Set(movable.slice(m - drop));
+    const kept = keep(gone);
+    const most = kept.reduce((a, s) => a + largest(s), 0);
+    const boards: [number, number][] = [];
+    for (let c = cols; c >= 1; c -= 1) for (let r = rows; r >= 1; r -= 1) if (c * r <= most && c * r < cols * rows) boards.push([c, r]);
+    boards.sort((p, q) => share(q) - share(p) || q[0] * q[1] - p[0] * p[1] || q[0] - p[0]);
+    for (const [used, usedRows] of boards) {
+      const found = coverRun(used, usedRows, kept);
+      if (found) return settle(found, gone, used, usedRows);
     }
   }
-  const pick = best ?? { w: mgSpan(minPx, pitch), perRow: Math.max(1, Math.floor(regionCols / mgSpan(minPx, pitch))), empty: 0 };
-  return { w: pick.w, perRow: pick.perRow, rows: Math.ceil(Math.max(1, count) / pick.perRow) };
+  throw new Error(`mgPack: no cover of ${cols} × ${rows} for ${specs.map((s) => s.id).join(", ")}`);
 }
 
-/** Multiples beside a lead panel: the panel width that leaves the fewest
- *  empty cells in the last row (ties: more per row). The region need not be
- *  divisible; its leftover columns go to the lead panel, so they are content,
- *  not air. */
-export function rowMultiples(
-  count: number,
-  region: number,
-  pitch: number,
-  minPx: number,
-): { w: number; perRow: number; rows: number } {
-  let best: { w: number; perRow: number; waste: number } | null = null;
-  for (let w = mgSpan(minPx, pitch); w <= region; w += 1) {
-    if (mgWidth(w, pitch) > PX.multipleMax) break;
-    const perRow = Math.max(1, Math.min(count, Math.floor(region / w)));
-    const rows = Math.ceil(Math.max(1, count) / perRow);
-    const waste = (rows * perRow - count) * w;
-    if (!best || waste < best.waste || (waste === best.waste && perRow > best.perRow)) {
-      best = { w, perRow, waste };
-    }
+/* ── the three compositions ────────────────────────────────────────────── */
+
+/** Each tile's size class (rule 7), its orientations in preference order.
+ *  A tile keeps its class at every viewport; only the hero steps, 6 × 4 to
+ *  8 × 5, and only where the board seats it. */
+const XL: readonly Wh[] = [
+  [8, 5],
+  [6, 4],
+];
+const L: readonly Wh[] = SIZES.L;
+/** M landscape only: Scope's GUID column and Detail's lead cards need
+ *  the width a 2 × 3 does not have. */
+const M_WIDE: readonly Wh[] = [[3, 2]];
+/** L landscape only: a list whose rows need 400 px across (the requirement
+ *  rows and blocks, the checks with their verdict column). */
+const L_WIDE: readonly Wh[] = [[4, 3]];
+const S: readonly Wh[] = SIZES.S;
+/** A list or chart whose content scrolls or scales (Scope, Detail, the
+ *  treemaps, the other checks): L where it fits, else M landscape. Its class
+ *  is "L or M" because its content is: a scope of 3 rows or of 3 000. */
+const LM: readonly Wh[] = [...SIZES.L, [3, 2]];
+
+/** The MMI bars: M, or a strip (rule 3's named exception: a bar chart with
+ *  few items reads across a strip). */
+function mmiSizes(cols: number): Wh[] {
+  const strips: Wh[] = [];
+  for (let k = Math.min(cols - 1, 8); k >= 3; k -= 1) strips.push([k, 1]);
+  return [[3, 2], ...strips];
+}
+
+/** The narrow fallback: under 11 columns the lists step down to M, the only
+ *  way a 9 × 5 board seats the model beside them. */
+function narrow(grid: MgGrid): boolean {
+  return grid.cols < 11;
+}
+
+export interface MgContent {
+  /** Requirements per report group, for c's panels. */
+  ifc: number;
+  std: number;
+  /** The neutral counts (objects, types, …): S tiles, one fact each. */
+  counts: number;
+}
+
+function countTiles(content: MgContent): MgTileSpec[] {
+  return Array.from({ length: content.counts }, (_, i) => ({
+    id: `count${i}`,
+    kind: "panel" as MgKind,
+    sizes: S,
+    series: "count",
+  }));
+}
+
+/** The narrow fallback, the same for all three: the model first and at
+ *  6 × 4, the requirements and Scope as M beside it, the MMI bars a strip
+ *  under both; everything else in tabs of those. */
+function layoutNarrow(grid: MgGrid, content: MgContent, mirror: boolean): MgLayout {
+  return mgPack(
+    grid,
+    [
+      { id: "viewer", kind: "viewer", sizes: XL, required: true },
+      { id: "reqs", kind: "list", sizes: M_WIDE, required: true },
+      { id: "scope", kind: "list", sizes: M_WIDE, required: true },
+      { id: "mmi", kind: "chart", sizes: [...mmiSizes(grid.cols), [grid.cols, 1]], hosts: ["reqs"] },
+      { id: "detail", kind: "list", sizes: M_WIDE, hosts: ["scope"] },
+      { id: "tree-system", kind: "chart", sizes: M_WIDE, hosts: ["reqs"] },
+      { id: "tree-function", kind: "chart", sizes: M_WIDE, hosts: ["tree-system", "reqs"] },
+      { id: "checks", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
+      ...countTiles(content),
+    ],
+    mirror,
+  );
+}
+
+/** A composition, or the narrow fallback where the board cannot seat it
+ *  (two XL heroes need 12 columns). */
+function orNarrow(grid: MgGrid, content: MgContent, mirror: boolean, pack: () => MgLayout): MgLayout {
+  try {
+    return pack();
+  } catch {
+    return layoutNarrow(grid, content, mirror);
   }
-  const pick = best ?? { w: mgSpan(minPx, pitch), perRow: 1, waste: 0 };
-  return { w: pick.w, perRow: pick.perRow, rows: Math.ceil(Math.max(1, count) / pick.perRow) };
 }
 
+/** a · Linear work surface. Two heroes: the requirements list (the master)
+ *  top-left and the model beside it; Scope and Detail under them, then the
+ *  treemaps and the MMI bars, the other checks, the counts. */
+export function layoutA(grid: MgGrid, content: MgContent): MgLayout {
+  if (narrow(grid)) return layoutNarrow(grid, content, false);
+  return orNarrow(grid, content, false, () => mgPack(grid, [
+    { id: "reqs", kind: "list", sizes: XL, required: true },
+    { id: "viewer", kind: "viewer", sizes: XL, required: true },
+    { id: "scope", kind: "list", sizes: LM, required: true },
+    { id: "detail", kind: "list", sizes: LM, required: true },
+    { id: "tree-system", kind: "chart", sizes: LM },
+    { id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system"] },
+    { id: "mmi", kind: "chart", sizes: mmiSizes(grid.cols), hosts: ["tree-system"] },
+    { id: "checks", kind: "list", sizes: L_WIDE, hosts: ["reqs"] },
+    ...countTiles(content),
+  ]));
+}
+
+/** b · Stripe summary. The summary leads, top-left: the two treemaps and
+ *  the MMI bars; one hero, the model, beside them; then the report as
+ *  blocks, Scope and Detail, the other checks, the counts. */
+export function layoutB(grid: MgGrid, content: MgContent): MgLayout {
+  if (narrow(grid)) return layoutNarrow(grid, content, true);
+  return orNarrow(grid, content, true, () =>
+    mgPack(grid, [
+      { id: "tree-system", kind: "chart", sizes: LM, hosts: ["reqs"] },
+      { id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system", "reqs"] },
+      { id: "mmi", kind: "chart", sizes: mmiSizes(grid.cols), hosts: ["tree-system", "reqs"] },
+      { id: "viewer", kind: "viewer", sizes: XL, required: true },
+      { id: "reqs", kind: "list", sizes: L, required: true },
+      { id: "scope", kind: "list", sizes: LM, required: true },
+      { id: "detail", kind: "list", sizes: LM, required: true },
+      { id: "checks", kind: "list", sizes: L_WIDE, hosts: ["reqs"] },
+      ...countTiles(content),
+    ]),
+  );
+}
+
+/** c · Grafana / Datadog. One S panel per requirement in the report's order,
+ *  top-left; the model the hero; Scope and Detail beside it; then the
+ *  charts, the other checks, the counts. Where the board cannot seat the
+ *  panels beside the model and the two docks, the requirements are one list
+ *  instead. */
+export function layoutC(grid: MgGrid, content: MgContent): MgLayout {
+  if (narrow(grid)) return layoutNarrow(grid, content, true);
+  const ifc = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
+  const std = Array.from({ length: content.std }, (_, i) => `std${i}`);
+  const rest: MgTileSpec[] = [
+    { id: "viewer", kind: "viewer", sizes: XL, required: true },
+    { id: "scope", kind: "list", sizes: LM, required: true },
+    { id: "detail", kind: "list", sizes: LM, required: true },
+    { id: "tree-system", kind: "chart", sizes: LM },
+    { id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system"] },
+    { id: "mmi", kind: "chart", sizes: mmiSizes(grid.cols), hosts: ["tree-system"] },
+    { id: "checks", kind: "list", sizes: L_WIDE },
+    ...countTiles(content),
+  ];
+  return orNarrow(grid, content, true, () => {
+    try {
+      return mgPack(grid, [mgBlock("g-ifc", "panel", ifc, S[0]), mgBlock("g-std", "panel", std, S[0]), ...rest]);
+    } catch {
+      // No cover with the panels: the requirements are one list.
+      return mgPack(grid, [{ id: "reqs", kind: "list", sizes: L, required: true }, ...rest]);
+    }
+  });
+}
+
+/* ── the Graf tab: the graph and the model as two XL tiles ─────────────── */
+
+/** The two surfaces of the Graf tab on the same grid (rules 4 and 7), side
+ *  by side from the top-left corner of the board: both XL, at 8 × 5 where
+ *  the board seats two of them, else 6 × 4. Where two XL cannot sit side by
+ *  side (under 12 columns) the second is an L, 3 × 4, the largest canon size
+ *  left beside a 6 × 4. `main` is first; the swap only changes which surface
+ *  is which. Centred in whole columns. */
+export function graphTiles(grid: MgGrid): { main: MgPlace; second: MgPlace; used: number; offset: number } {
+  const { cols, rows } = grid;
+  const pair = ([w, h]: Wh) => 2 * w <= cols && h <= rows;
+  const xl = XL.find(pair);
+  const main: Wh = xl ?? [6, 4];
+  const second: Wh = xl ?? [3, 4];
+  const used = Math.min(cols, main[0] + second[0]);
+  const offset = Math.floor((cols - used) / 2);
+  const at = (id: string, x: number, [w, h]: Wh, priority: number): MgPlace => ({
+    id,
+    kind: "viewer",
+    x,
+    y: 0,
+    w,
+    h,
+    size: canonSize(w, h) ?? "XL",
+    priority,
+    tabs: [],
+  });
+  return { main: at("main", offset, main, 0), second: at("second", offset + main[0], second, 1), used, offset };
+}

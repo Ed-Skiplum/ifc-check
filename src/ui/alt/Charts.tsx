@@ -9,7 +9,7 @@
  *  nothing the mangler colour. A PredefinedType fallback is hatched and
  *  captioned as what it is, so it never reads as a code. */
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { CodeTree, TreeNode } from "../../engine/code-tree";
 import type { Requirement } from "../requirements";
 import type { DoorProps } from "./Requirements";
@@ -20,18 +20,21 @@ import { squarify, type Rect } from "./treemap";
 import { StateBadge } from "./Requirements";
 import { mmiBars, valueFocus } from "./req-view";
 
+/** The box of whichever element the chart renders; a callback ref, so a
+ *  chart that swaps its element (MMI columns and rows) keeps measuring the
+ *  one on screen. */
 function useBox() {
-  const ref = useRef<HTMLDivElement>(null);
+  const [el, ref] = useState<HTMLDivElement | null>(null);
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
-    const el = ref.current;
     if (!el) return;
-    const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+    const measure = () =>
+      setBox((prev) => (prev && prev.w === el.clientWidth && prev.h === el.clientHeight ? prev : { w: el.clientWidth, h: el.clientHeight }));
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [el]);
   return { ref, box };
 }
 
@@ -159,7 +162,9 @@ export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
   const peak = Math.max(1, ...bars.map((b) => b.n));
   // Columns while every level gets 26 px; else one row per level, read down,
   // which a narrow tile seats (and scrolls, past its height).
-  const across = box !== null && box.w / bars.length >= 26;
+  // A strip (one module tall, the canon's named exception) always reads
+  // across: rows would show three levels of nine.
+  const across = box !== null && (box.w / bars.length >= 26 || box.h < 140);
   if (!across) {
     return (
       <div ref={ref} data-mmi="rows" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1.5">

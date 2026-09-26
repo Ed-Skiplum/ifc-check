@@ -54,6 +54,7 @@ import type { CheckResult } from "../engine/types";
 import type { MeshBatch } from "../viewer/mesh-stream";
 import { findDock, onDocksChanged } from "../viewer/dock";
 import { graphFieldLayout, type FieldRect } from "./canvas-aspect";
+import { MG_GAP, MG_MARGIN, graphTiles, mgGrid, mgSpanPx, type MgGrid } from "./alt/module-grid";
 import { GraphSim, fitView, seedOf, seededOffset, toSim, zoomAt, type GraphView } from "./graph-sim";
 import {
   buildDrill,
@@ -195,6 +196,32 @@ export function GraphTab({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  // The design alternatives: the two surfaces are XL tiles on the window's
+  // module grid (the layout canon, 2026-09-26), measured as the Kontroll
+  // board measures it.
+  const gridWrap = useRef<HTMLDivElement>(null);
+  const [mg, setMg] = useState<MgGrid | null>(null);
+  useLayoutEffect(() => {
+    const el = gridWrap.current;
+    if (!design || !el || typeof ResizeObserver === "undefined") return;
+    const main = el.closest("main");
+    const measure = () => {
+      if (!main || el.getBoundingClientRect().width === 0) return;
+      const panel = el.closest("main > section") ?? el;
+      const above = el.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+      const padTop = parseFloat(getComputedStyle(main).paddingTop) || 0;
+      const next = mgGrid(main.clientWidth, main.clientHeight - padTop - above + MG_MARGIN);
+      setMg((prev) =>
+        prev && prev.cols === next.cols && prev.rows === next.rows && Math.abs(prev.u - next.u) < 0.01 ? prev : next,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    if (main) observer.observe(main);
+    return () => observer.disconnect();
+  }, [design]);
 
   // A selection made elsewhere (the 3D, a table) drills to where it lives, so
   // its node exists and its relationships can bloom.
@@ -1009,7 +1036,27 @@ export function GraphTab({
   // The canvas aspect rule (`canvas-aspect.ts`): the main surface is never
   // wider than 16:9. On a field wider than that the second surface sits
   // beside the main instead of over its corner.
-  const geo = fieldSize ? graphFieldLayout(fieldSize.w, fieldSize.h, hasViewer) : null;
+  const tiles = design && mg ? graphTiles(mg) : null;
+  const px = (n: number) => (mg ? mgSpanPx(n, mg.u) : 0);
+  const geo = tiles
+    ? {
+        main: { left: 0, top: 0, width: px(tiles.main.w), height: px(tiles.main.h) },
+        second: hasViewer
+          ? { left: px(tiles.main.w) + MG_GAP, top: 0, width: px(tiles.second.w), height: px(tiles.second.h) }
+          : null,
+        beside: true,
+      }
+    : fieldSize
+      ? graphFieldLayout(fieldSize.w, fieldSize.h, hasViewer)
+      : null;
+  const fieldBox =
+    tiles && mg
+      ? {
+          marginLeft: tiles.offset * (mg.u + MG_GAP),
+          width: hasViewer ? px(tiles.used) : px(tiles.main.w),
+          height: px(Math.max(tiles.main.h, hasViewer ? tiles.second.h : 0)),
+        }
+      : null;
   const rect = (r: FieldRect | null | undefined) =>
     r ? { left: r.left, top: r.top, width: r.width, height: r.height } : undefined;
   const mainStyle = rect(geo?.main);
@@ -1022,7 +1069,13 @@ export function GraphTab({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
-      <section className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border border-line bg-panel">
+      <section
+        className={
+          design
+            ? "alt-graf flex min-w-0 shrink-0 flex-col gap-2"
+            : "flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border border-line bg-panel"
+        }
+      >
         <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-2 pt-1.5 pb-1">
           <MicroLabel>{t("object.relations", lang)}</MicroLabel>
           {centreGuid ? (
@@ -1067,10 +1120,24 @@ export function GraphTab({
           ) : null}
         </div>
         <div
+          ref={gridWrap}
+          data-mg-graf={mg ? `${mg.cols},${mg.rows},${mg.u.toFixed(4)}` : undefined}
+          data-mg-graf-at={
+            tiles
+              ? [tiles.main, tiles.second].map((t) => `${t.x},${t.y},${t.w},${t.h}`).join(";")
+              : undefined
+          }
+          className={design ? "w-full min-w-0 shrink-0" : "flex min-h-0 min-w-0 flex-1 flex-col"}
+        >
+        <div
           ref={field}
           data-graph-field
-          className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
-          style={{ background: FIELD_BACKGROUND }}
+          className={
+            design
+              ? "alt-graf-field relative min-w-0 overflow-hidden"
+              : "relative min-h-0 min-w-0 flex-1 overflow-hidden"
+          }
+          style={{ background: FIELD_BACKGROUND, ...(design ? (fieldBox ?? { height: 0 }) : {}) }}
         >
           <div
             ref={graphBox}
@@ -1102,6 +1169,7 @@ export function GraphTab({
               style={{ ...(graphIsMain ? secondStyle : mainStyle), background: "var(--color-ground)" }}
             />
           ) : null}
+        </div>
         </div>
       </section>
     </div>

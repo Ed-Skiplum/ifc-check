@@ -239,12 +239,12 @@ export function ModelPanel({
       }
     : undefined;
 
-  return (
-    // Convergence is a PAGE property (sprucelab DESIGN.md §2): header, filter
-    // bar, tabs and board cap together at the canvas's own cap, so on an
-    // ultrawide the file line starts where the board starts.
-    <section className="mx-auto flex w-full shrink-0 flex-col gap-2" style={{ maxWidth: BENTO_MAX_WIDTH }}>
-      <div className="flex min-w-0 items-baseline gap-3">
+  // The design alternatives: the file line and the tab strip share one
+  // row, so the chrome over the module grid is one line (the layout canon,
+  // rule 6: the chrome is what the rows are counted under).
+  const oneLine = design !== null && ready && !!facts && !!ledger;
+  const nameLine = (
+      <div className={"flex min-w-0 items-baseline gap-3" + (oneLine ? " flex-1 overflow-hidden" : "")}>
         <span
           onDoubleClick={copyOnDoubleClick(model.fileName)}
           className="shrink-0 cursor-copy font-mono text-[13px] font-semibold break-all text-gold"
@@ -271,6 +271,17 @@ export function ModelPanel({
           {t("action.remove", lang)}
         </button>
       </div>
+  );
+
+  return (
+    // Convergence is a PAGE property (sprucelab DESIGN.md §2): header, filter
+    // bar, tabs and board cap together at the canvas's own cap, so on an
+    // ultrawide the file line starts where the board starts.
+    // The design alternatives lay out on the window's own module grid, which
+    // adds columns on a wider window rather than capping it (the layout
+    // canon, rule 1).
+    <section className="mx-auto flex w-full shrink-0 flex-col gap-2" style={{ maxWidth: design ? undefined : BENTO_MAX_WIDTH }}>
+      {oneLine ? null : nameLine}
 
       {reading ? (
         <div className="h-1 w-full overflow-hidden bg-line">
@@ -296,7 +307,7 @@ export function ModelPanel({
               empty end: it belongs to the model, not to a tab, so it sits
               outside the tab panels, and it no longer costs a line of its own
               above the board (2026-09-24). */}
-          <div className="relative shrink-0">
+          <div className={oneLine ? "flex min-w-0 shrink-0 items-center gap-4" : "relative shrink-0"}>
           <div role="tablist" className="flex shrink-0 items-end gap-px border-b border-line">
             {TABS.map((id) => (
               <button
@@ -316,7 +327,14 @@ export function ModelPanel({
               </button>
             ))}
           </div>
-            <div className="absolute inset-y-0 right-0 flex max-w-[calc(100%-16rem)] items-center overflow-x-auto">
+            {oneLine ? nameLine : null}
+            <div
+              className={
+                oneLine
+                  ? "flex max-w-[50%] shrink-0 items-center overflow-x-auto"
+                  : "absolute inset-y-0 right-0 flex max-w-[calc(100%-16rem)] items-center overflow-x-auto"
+              }
+            >
               <FilterBar {...filterProps} />
             </div>
           </div>

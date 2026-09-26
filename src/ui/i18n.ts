@@ -94,6 +94,10 @@ const STRINGS = {
   "tile.storeys": { nb: "Etasjer", en: "Storeys" },
   "tile.census": { nb: "Etasje × klasse", en: "Storey × class" },
   "tile.viewer": { nb: "Modell", en: "Model" },
+  // The docked panels named in a tab (the narrow board): the owner's own
+  // words for them, 2026-09-25.
+  "tile.scope": { nb: "Scope", en: "Scope" },
+  "tile.detail": { nb: "Detail", en: "Detail" },
 
   /* ----------------------------------------------------------------- tabs */
   "tab.checks": { nb: "Kontroll", en: "Checks" },
