@@ -20,6 +20,15 @@
  *   hidden     no tile hides content below or beside its box unless the box
  *              scrolls (a scroll container IS the affordance); `overflow:
  *              hidden` with more content than box is a failure
+ *   canvas     every visible 3D `<canvas>` and graph `<canvas>` renders inside
+ *              [9/16, 16/9] (2026-09-26, the owner: "A viewer/canvas always
+ *              needs to have an aspect ratio that is in the range of square
+ *              to monitor or phone aspect ratios"), on Kontroll and on the
+ *              Graf tab in both swap states
+ *   strip      a board tile spanning the full width at under half the
+ *              viewport height is REPORTED, not failed: the bento board's
+ *              rules are upstream's, and its one such tile (the KPI strip)
+ *              is named in AGENTS.md as an exception
  *
  * Screenshots per viewport and state go to tmp/viewports/: `<state>.png` is
  * the screen as seen, `<state>-full.png` the whole scrolled page (same width,
@@ -46,6 +55,7 @@ import { freemem } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runFundamentals } from "../src/engine/fundamentals.ts";
+import { CANVAS_ASPECT } from "../src/ui/canvas-aspect.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const OUT_BASE = resolve(ROOT, "tmp/viewports");
@@ -339,6 +349,24 @@ async function shot(name, v) {
 
 /* ----------------------------------------------------------- assertions */
 
+/** Every visible canvas, the 3D and the graph, against the canvas bound. */
+const CANVASES = `(() => {
+  const B = ${JSON.stringify(CANVAS_ASPECT)};
+  const fails = [], canvases = [];
+  const all = [...document.querySelectorAll('canvas[data-viewer-canvas], canvas[data-graph]')]
+    .filter((c) => c.getClientRects().length > 0 && !c.closest('[hidden]'));
+  for (const c of all) {
+    const r = c.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const which = c.hasAttribute('data-graph') ? 'graph' : 'viewer';
+    const a = r.width / r.height;
+    if (a < B.min - 0.005 || a > B.max + 0.005)
+      fails.push('canvas: ' + which + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' aspect ' + a.toFixed(2) + ' outside ' + B.min.toFixed(4) + '..' + B.max.toFixed(4));
+    canvases.push(which + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' ' + a.toFixed(2));
+  }
+  return { fails, canvases };
+})()`;
+
 /** Runs in the page. Returns a list of failure strings for the visible tab. */
 const MEASURE = (minRows) => `(() => {
   const MIN = ${JSON.stringify(minRows)};
@@ -410,6 +438,19 @@ const MEASURE = (minRows) => `(() => {
     }
   }
 
+  const cv = ${CANVASES};
+  fails.push(...cv.fails);
+  // strip — reported, never failed (the bento rules are upstream's).
+  const strips = [];
+  if (canvas) {
+    const cw = canvas.getBoundingClientRect().width;
+    for (const t of canvas.querySelectorAll('[data-tile-id]')) {
+      const r = t.getBoundingClientRect();
+      if (r.width >= cw - 1 && r.height > 0 && r.height < innerHeight / 2)
+        strips.push(t.getAttribute('data-tile-id') + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+    }
+  }
+
   // Tiles only exist on tab 1.
   const tiles = [...(panel?.querySelectorAll('[data-tile-id]') ?? [])].filter(visible);
   const stats = {};
@@ -470,7 +511,7 @@ const MEASURE = (minRows) => `(() => {
     }
     if (seen < need) fails.push('rows: ' + id + ' shows ' + seen + ' of ' + total + ', needs ' + need);
   }
-  return { fails, stats, board, tab: panel ? (panel.querySelector('[data-tile-id]') ? 'checks' : 'contents') : 'none' };
+  return { fails, stats, board, canvases: cv.canvases, strips, tab: panel ? (panel.querySelector('[data-tile-id]') ? 'checks' : 'contents') : 'none' };
 })()`;
 
 /** Open the app and empty it: the session a previous scenario left is
@@ -529,19 +570,32 @@ for (const scenario of SCENARIOS) {
 
   for (const v of VIEWPORTS) {
     await viewport(v);
-    for (const tab of ["checks", "contents"]) {
+    for (const tab of ["checks", "contents", "graph-graphmain", "graph-modelmain"]) {
       await evaluate(`(() => {
-        const want = ${JSON.stringify(tab)} === 'checks' ? /Kontroll|Checks/ : /Innhold|Contents/;
-        const b = [...document.querySelectorAll('[role=tab]')].find((x) => want.test(x.textContent));
-        if (b && b.getAttribute('aria-selected') !== 'true') b.click();
+        const t = ${JSON.stringify(tab)};
+        const want = t === 'checks' ? /^(Kontroll|Checks)$/ : t === 'contents' ? /^(Innhold|Contents)$/ : /^(Graf|Graph)$/;
+        for (const b of document.querySelectorAll('[role=tab]'))
+          if (want.test(b.textContent.trim()) && b.getAttribute('aria-selected') !== 'true') b.click();
         document.querySelector('main')?.scrollTo(0, 0);
         return true;
       })()`);
+      if (tab.startsWith("graph")) {
+        // Both swap states: Graf main, then Modell main, in every model panel.
+        await sleep(600);
+        await evaluate(`(() => {
+          for (const p of document.querySelectorAll('[role=tabpanel]:not([hidden])')) {
+            const b = p.querySelectorAll('[role=group] button[aria-pressed]')[${tab === "graph-graphmain" ? 1 : 0}];
+            if (b && b.getAttribute('aria-pressed') !== 'true') b.click();
+          }
+          return true;
+        })()`);
+        await sleep(1200);
+      }
       await settle();
       const m = await evaluate(MEASURE(minRowsFor(v)));
       const name = `${scenario.name}-${tab}-${v.w}x${v.h}${v.dpr ? `@${v.dpr}` : ""}${v.iframe ? "-iframe" : ""}`;
       await shot(name, v);
-      results.push({ state: name, fails: m.fails, tiles: m.stats, board: m.board });
+      results.push({ state: name, fails: m.fails, tiles: m.stats, board: m.board, canvases: m.canvases, strips: m.strips });
       if (m.fails.length) failed = true;
       const tiles = Object.entries(m.stats)
         .map(
@@ -557,8 +611,10 @@ for (const scenario of SCENARIOS) {
         b && b.band !== null
           ? `  board ${b.h}/${b.space}px${b.band > 24 ? ` band ${b.band}px @ row ${b.f}/${b.fmax}` : ""}`
           : "";
+      const cvs = m.canvases.length ? `  canvas ${m.canvases.join(" · ")}` : "";
+      const strips = m.strips.length ? `  strip (reported) ${m.strips.join(" · ")}` : "";
       console.log(
-        `${m.fails.length ? "FAIL" : "ok  "} ${name}${band}${tiles ? `  [${tiles}]` : ""}` +
+        `${m.fails.length ? "FAIL" : "ok  "} ${name}${band}${tiles ? `  [${tiles}]` : ""}${cvs}${strips}` +
           (m.fails.length ? "\n  " + m.fails.slice(0, 12).join("\n  ") : ""),
       );
     }

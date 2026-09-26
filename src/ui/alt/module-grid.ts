@@ -30,6 +30,8 @@
  * same numbers and the same vocabulary it asserts.
  */
 
+import { CANVAS_ASPECT } from "../canvas-aspect.ts";
+
 export const MG_UNIT = 8;
 export const MG_ROW = 4 * MG_UNIT; // 32
 export const MG_GUTTER = 2 * MG_UNIT; // 16
@@ -85,7 +87,7 @@ export function mgRowsIn(px: number): number {
  * and each says what in its CONTENT makes it that shape. Packing convenience
  * is not a reason; `scripts/module-grid-gate.mjs` allows these kinds and no
  * others. */
-export type MgKind = "panel" | "list" | "viewer" | "chart";
+export type MgKind = "panel" | "list" | "viewer" | "graph" | "chart";
 
 export const MG_ASPECT: Record<MgKind, { min: number; max: number; why: string }> = {
   panel: {
@@ -100,12 +102,19 @@ export const MG_ASPECT: Record<MgKind, { min: number; max: number; why: string }
       "a long ranked list that scrolls: the rows ARE the content and a list is " +
       "read down, so it may be tall (a's master list, the checks of every rule)",
   },
+  // 2026-09-26, edkjo: "A viewer/canvas always needs to have an aspect ratio
+  // that is in the range of square to monitor or phone aspect ratios." So
+  // 9 : 16 to 16 : 9, for the tile AND for the canvas inside it (the tile's
+  // head makes the canvas the wider of the two; the layouts size for it).
   viewer: {
-    min: 0.5,
-    max: 2.4,
-    why:
-      "a camera: the scene frames whatever box it gets, and a building read " +
-      "in elevation is wider than tall, so up to 21 : 9",
+    min: CANVAS_ASPECT.min,
+    max: CANVAS_ASPECT.max,
+    why: "a 3D canvas: phone portrait through square to a 16 : 9 monitor, never a strip",
+  },
+  graph: {
+    min: CANVAS_ASPECT.min,
+    max: CANVAS_ASPECT.max,
+    why: "a graph canvas: the same rule as the viewer",
   },
   chart: {
     min: 0.5,
@@ -181,6 +190,17 @@ function rowsForAspect(px: number, max: number): number {
   return mgRowsFor(px / max);
 }
 
+/** The fewest rows that keep a viewer tile of rendered width `px` inside the
+ *  canvas bound: the canvas is the tile less its head. */
+function viewerRows(px: number): number {
+  return mgRowsFor(px / MG_ASPECT.viewer.max + MG_HEAD);
+}
+
+/** The canvas aspect of a viewer tile `w` columns by `h` rows. */
+function viewerCanvas(w: number, h: number, pitch: number): number {
+  return mgWidth(w, pitch) / (mgHeight(h) - MG_HEAD);
+}
+
 /** Split `total` rows over `n` tiles, the remainder to the first ones. */
 function splitRows(total: number, n: number): number[] {
   const base = Math.floor(total / n);
@@ -192,27 +212,41 @@ function splitCols(total: number, n: number): number[] {
   return splitRows(total, n);
 }
 
-/** The inspector block every alternative docks: the viewer on top, then
- *  Scope and Detail. Side by side under the viewer when the block is wide
- *  enough to seat both, else stacked. The viewer takes the rows that keep it
- *  inside its own bound and never more than leaves Scope and Detail a usable
- *  height. */
+/** The inspector block every alternative docks: the viewer and Scope and
+ *  Detail. Stacked when that works: the viewer on top, as tall as keeps its
+ *  canvas inside 16 : 9, Scope and Detail under it (side by side when the
+ *  block seats both, else one over the other), each inside the list bound.
+ *  When the block is too wide for its height to do that, the viewer takes
+ *  the full height on the left and Scope over Detail a rail beside it: the
+ *  canvas is never a strip (2026-09-26). */
 function inspector(tiles: MgPlace[], x: number, y: number, w: number, h: number, pitch: number, stack = false) {
   const px = mgWidth(w, pitch);
   const sideBySide = !stack && px >= PX.scope + PX.detail + MG_GUTTER;
   const minBelow = sideBySide ? 5 : 8;
-  const vh = Math.max(3, Math.min(h - minBelow, rowsForAspect(px, MG_ASPECT.viewer.max)));
-  tiles.push({ id: "viewer", kind: "viewer", x, y, w, h: vh });
+  const vh = Math.max(3, viewerRows(px));
   const below = h - vh;
-  if (sideBySide) {
-    const sw = Math.max(mgSpan(PX.scope, pitch), Math.ceil(w / 2));
-    tiles.push({ id: "scope", kind: "list", x, y: y + vh, w: sw, h: below });
-    tiles.push({ id: "detail", kind: "list", x: x + sw, y: y + vh, w: w - sw, h: below });
-  } else {
-    const [sh, dh] = splitRows(below, 2);
-    tiles.push({ id: "scope", kind: "list", x, y: y + vh, w, h: sh });
-    tiles.push({ id: "detail", kind: "list", x, y: y + vh + sh, w, h: dh });
+  const sw = Math.max(mgSpan(PX.scope, pitch), Math.ceil(w / 2));
+  const listOk = sideBySide
+    ? mgWidth(sw, pitch) / mgHeight(below) <= MG_ASPECT.list.max
+    : px / mgHeight(Math.floor(below / 2)) <= MG_ASPECT.list.max;
+  if (below >= minBelow && listOk) {
+    tiles.push({ id: "viewer", kind: "viewer", x, y, w, h: vh });
+    if (sideBySide) {
+      tiles.push({ id: "scope", kind: "list", x, y: y + vh, w: sw, h: below });
+      tiles.push({ id: "detail", kind: "list", x: x + sw, y: y + vh, w: w - sw, h: below });
+    } else {
+      const [sh, dh] = splitRows(below, 2);
+      tiles.push({ id: "scope", kind: "list", x, y: y + vh, w, h: sh });
+      tiles.push({ id: "detail", kind: "list", x, y: y + vh + sh, w, h: dh });
+    }
+    return;
   }
+  // Beside: the rail as narrow as seats Scope, widened while the viewer
+  // would still be wider than 16 : 9.
+  let rw = mgSpan(PX.scope, pitch);
+  while (rw < w - 1 && viewerCanvas(w - rw, h, pitch) > MG_ASPECT.viewer.max) rw += 1;
+  tiles.push({ id: "viewer", kind: "viewer", x, y, w: w - rw, h });
+  rail(tiles, x + w - rw, y, rw, h);
 }
 
 /** Scope over Detail in one column (b's rail, c's right region). */
@@ -286,10 +320,14 @@ export function layoutB(width: number, needs: MgNeeds): MgLayout {
   let aspectCols = 1;
   while (mgWidth(aspectCols + 1, pitch) <= MG_ASPECT.list.max * mgHeight(Math.floor(h / 2))) aspectCols += 1;
   const rw = Math.max(mgSpan(PX.scope, pitch), Math.min(aspectCols, Math.max(mgSpan(PX.scope + 80, pitch), rowsToCols(h, pitch))));
-  const vw = cols - lw - rw;
-  tiles.push({ id: "reqs", kind: "list", x: 0, y: ch, w: lw, h });
-  tiles.push({ id: "viewer", kind: "viewer", x: lw, y: ch, w: vw, h });
-  rail(tiles, lw + vw, ch, rw, h);
+  // The viewer takes the rest, and never wider than 16 : 9: the report
+  // column takes any surplus (2026-09-26).
+  let lw2 = lw;
+  while (viewerCanvas(cols - lw2 - rw, h, pitch) > MG_ASPECT.viewer.max) lw2 += 1;
+  const vw = cols - lw2 - rw;
+  tiles.push({ id: "reqs", kind: "list", x: 0, y: ch, w: lw2, h });
+  tiles.push({ id: "viewer", kind: "viewer", x: lw2, y: ch, w: vw, h });
+  rail(tiles, lw2 + vw, ch, rw, h);
   return { cols, pitch, tiles, titles: [], rows: n, chartsInList: false };
 }
 
@@ -363,7 +401,9 @@ export function layoutC(width: number, needs: MgNeeds & { ifc: number; std: numb
   }
   tiles.push({ id: "checks", kind: "list", x: rest, y, w: kw, h: ch });
   // The right region: the model over Scope over Detail.
-  const vh = Math.max(4, Math.min(Math.floor(n / 3), rowsForAspect(mgWidth(rw, pitch), MG_ASPECT.viewer.max)));
+  // As tall as keeps the canvas inside 16 : 9 (2026-09-26); the rail takes
+  // the rest.
+  const vh = Math.max(4, viewerRows(mgWidth(rw, pitch)));
   tiles.push({ id: "viewer", kind: "viewer", x: lw, y: 0, w: rw, h: vh });
   rail(tiles, lw, vh, rw, n - vh);
   return { cols, pitch, tiles, titles, rows: n, chartsInList: false };

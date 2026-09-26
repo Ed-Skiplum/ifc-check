@@ -335,7 +335,12 @@ export const BENTO_KINDS: Record<BentoKind, BentoKindEntry> = {
     // roughly 1.3:1 per pane and degraded exactly as described when the split
     // halved it, so 0.9-2.2 matches the working reference rather than
     // contradicting it.
-    aspect: { min: 0.9, max: 2.2 },
+    //
+    // CEILING 2.2 → 16:9 (2026-09-26), a local tightening: edkjo, "A
+    // viewer/canvas always needs to have an aspect ratio that is in the range
+    // of square to monitor or phone aspect ratios." The one span either board
+    // places (5×5, about 1:1) is unaffected.
+    aspect: { min: 0.9, max: 16 / 9 },
     // DEVIATION FROM UPSTREAM (2 of 2). `5x5` is added because NONE of the
     // four upstream spans can satisfy this kind's own aspect bound on either
     // canvas: 5x2 renders 2.6:1, 8x3 2.8:1 and 8x2 4.2:1, all outside 2.2, and

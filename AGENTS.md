@@ -1228,8 +1228,14 @@ Aspect = rendered width / height in px at the viewport drawn at. `MG_ASPECT` in
 |---|---|---|
 | `panel` | 1 : 2 to 2 : 1 | the rule: every stat, table tile, gauge and small multiple. 2 : 1 is where a tile stops reading as a card and starts reading as a strip |
 | `list` | 0.3 to 2 | a long ranked list that scrolls (a's master list): read down, the rows are the content |
-| `viewer` | 0.5 to 2.4 | a camera frames whatever box it gets; a building read in elevation is wider than tall, so up to 21 : 9 |
+| `viewer` | 9 : 16 to 16 : 9 | the canvas aspect rule below; the tile AND the canvas inside it (the tile less its 32 px head) |
+| `graph` | 9 : 16 to 16 : 9 | the same rule, for a graph canvas placed as a tile (no alternative places one yet) |
 | `chart` | 0.5 to 3 | the MMI bars over an ordered scale: one bar per level, read across, so it may be wider than tall (in a tile narrower than 26 px a level it turns into rows, read down) |
+
+No tile of any kind may span the full board width at under half the
+viewport height (a strip); no kind is an exception in the alternatives. The
+`chart` ceiling of 3 stays: the MMI bars read across and never span the
+board (b's summary row puts them at about 2.5 : 1 beside the treemaps).
 
 Scope and Detail are `list` tiles: both are read down and scroll inside. The
 treemaps are `panel`s: square-ish is what a treemap wants.
@@ -1240,6 +1246,51 @@ and one line under the Etasjer tile's head in `b` (merged into a neighbour's
 header, which the owner allowed). A group title row in `c` is one row, full
 width, and a heading (label and count), not a tile; the gate checks its
 alignment only.
+
+### The canvas aspect rule (2026-09-26)
+
+edkjo, verbatim: *"tall/narrow and short/wide isnt good. Thats a relative
+term, and I would classify full width/half height as in the bad category. A
+viewer/canvas always needs to have an aspect ratio that is in the range of
+square to monitor or phone aspect ratios."*
+
+So every 3D viewer `<canvas>` and every graph `<canvas>`, on every surface,
+renders at width / height inside **[9/16, 16/9]**: phone portrait, through
+square, to a 16:9 monitor. `CANVAS_ASPECT` in `src/ui/canvas-aspect.ts` is the
+number; the module grid's `viewer` and `graph` kinds take it, and both gates
+import it. The TILE gets the shape: nothing letterboxes or scales inside a
+canvas. Where sizing cannot reach the bound, the composition changes (beside
+rather than above, a column rather than a row).
+
+What it changed:
+
+- **Graf tab.** The field (the tab's full width at 62vh, less the toolbar) is
+  wider than 16:9 on every desktop screen: the merge smoke measured the main
+  at 1886×635, 2.97. Now the main takes the widest 16:9 box and the other
+  surface sits beside it in the column left over, the column's width and as
+  tall as the field, no narrower than 3:4 and no wider than 16:9; on an
+  ultra-wide field the pair is centred. A field already inside the bound keeps
+  the old 4:3 corner window. Same geometry in both swap states
+  (`graphFieldLayout`).
+- **a.** The inspector's viewer was sized to 2.4:1 (2.23 to 2.36 measured).
+  It now takes the rows that keep its canvas at 16:9, Scope and Detail under
+  it; when that leaves them wider than the list bound (1920×1080), the viewer
+  takes the full height and Scope over Detail a rail beside it.
+- **b.** The viewer's width is capped at 16:9 of its canvas; the report column
+  takes any surplus. The compact class uses the inspector above.
+- **c.** The right region's viewer was capped at a third of the height (1.93
+  to 2.27 measured); it now takes the rows its canvas needs, the rail the rest.
+- **Bento board.** The `viewer` kind's ceiling goes 2.2 → 16:9, a local
+  tightening; the 5×5 it is placed at renders about 1:1 and is unaffected.
+  The one full-width tile under half the viewport height is the KPI strip
+  (`kpis`, 13×1 / 21×1): the four neutral counts read in one line, a strip by
+  content and upstream's own span class, so it stays and `viewport-gate`
+  reports it (never fails it). It is not a canvas.
+
+Gates: `module-grid-gate` measures every canvas at every class and state,
+Kontroll and the Graf tab in both swap states, and fails a full-width strip;
+`viewport-gate` measures every canvas on Kontroll, Innhold and Graf (both
+swap states) at every viewport, and reports bento strips.
 
 ### Round two (2026-09-25): the report's content, one screen, two docked panels
 
@@ -1362,8 +1413,9 @@ docked panels, master/detail). Three columns, the height of the screen: the
 requirements as one list tile with sticky group heads (IFC-struktur,
 Standardkrav, then Verifikasjon), each a dense row (status, name, Dekning,
 «fra», the fordeling values); the inspector (the model on top, as tall as
-keeps it inside 2.4 : 1, Scope and Detail side by side under it when the
-block seats 300 + 240 px, else stacked); the charts in a column at the right
+keeps its canvas inside 16 : 9, Scope and Detail side by side under it when the
+block seats 300 + 240 px, else stacked; beside the model as a rail when the
+block is too wide for its height); the charts in a column at the right
 edge (system treemap, function treemap, MMI), a third of the height each.
 Flattest cards, receding chrome.
 
