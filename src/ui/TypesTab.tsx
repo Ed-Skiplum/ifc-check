@@ -1,4 +1,10 @@
-/** Typer: the type extraction, one row per IFC class × type name.
+/** Typer: the type extraction, one CARD per IFC class × type name.
+ *
+ * A gallery since 2026-09-26 (owner: "the types and materials tabs need to be
+ * galleries, not rows"). Each card shows a small render of a representative
+ * element of the type (`viewer/thumbnails.ts`: one element's triangles from
+ * the streamed batches, one shared offscreen context, lazy and cached), then
+ * class, type name, instances, and IsExternal / LoadBearing as the row did.
  *
  * The ifcfast demo's Types view (`ifc-fast-demo/components/views/
  * types-view.tsx`), on this model's profile: how many elements carry each
@@ -15,14 +21,17 @@
  *     lives in one model's panel, so there is one model and no column for it.
  */
 
-import { useMemo } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
 import type { ModelProfile } from "./profile";
 import type { Focus } from "./trace";
 import { serialiseFocus } from "./trace";
+import type { MeshBatch } from "../viewer/mesh-stream";
+import { cachedThumb, requestThumb } from "../viewer/thumbnails";
+import { Gallery, GalleryCard, NoGeometryMark } from "./Gallery";
+import { useFillHeight } from "./useFillHeight";
 
 interface TypeRow {
   key: string;
@@ -30,6 +39,7 @@ interface TypeRow {
   typeName: string | null;
   source: string | null;
   count: number;
+  guids: string[];
   ext: [number, number, number];
   lb: [number, number, number];
 }
@@ -54,43 +64,21 @@ function typeRows(profile: ModelProfile): TypeRow[] {
         typeName,
         source: product.typeSource ?? null,
         count: 0,
+        guids: [],
         ext: [0, 0, 0],
         lb: [0, 0, 0],
       };
       rows.set(key, row);
     }
     row.count += 1;
+    row.guids.push(product.guid);
     bump(row.ext, product.isExternal);
     bump(row.lb, product.loadBearing);
   }
   return [...rows.values()].sort((a, b) => b.count - a.count);
 }
 
-export function Th({
-  children,
-  right,
-  center,
-  title,
-}: {
-  children: ReactNode;
-  right?: boolean;
-  center?: boolean;
-  title?: string;
-}) {
-  return (
-    <th
-      title={title}
-      className={
-        "sticky top-0 z-10 border-b border-line bg-panel px-2 py-1 align-bottom text-[length:var(--bento-label,10px)] font-semibold tracking-[0.12em] whitespace-nowrap text-gold uppercase " +
-        (right ? "text-right" : center ? "text-center" : "text-left")
-      }
-    >
-      {children}
-    </th>
-  );
-}
-
-/** true · false · unset, the demo's badge: one number when the whole row
+/** true · false · unset, the demo's badge: one number when the whole type
  *  agrees, the three counts when it does not. */
 function Tri({ value }: { value: [number, number, number] }) {
   const [yes, no, unset] = value;
@@ -100,86 +88,118 @@ function Tri({ value }: { value: [number, number, number] }) {
   return <span title={`${yes} ✓ · ${no} ✗ · ${unset} —`}>{`${yes}·${no}·${unset}`}</span>;
 }
 
+/** The render of a representative element, asked for when the card scrolls
+ *  into view; the dashed cube when the type has no streamed geometry. */
+function Thumb({ batches, row }: { batches: MeshBatch[] | undefined; row: TypeRow }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [url, setUrl] = useState<string | null | undefined>(() =>
+    batches ? cachedThumb(batches, row.key) : undefined,
+  );
+
+  useEffect(() => {
+    const el = box.current;
+    if (!batches || !el || url !== undefined) return;
+    let cancel: (() => void) | null = null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting) || cancel) return;
+        cancel = requestThumb(batches, row.key, row.guids, setUrl);
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      cancel?.();
+    };
+  }, [batches, row, url]);
+
+  return (
+    <div ref={box} data-thumb={url ? "render" : url === null ? "none" : "pending"} className="flex min-h-0 flex-1 items-center justify-center">
+      {url ? (
+        <img src={url} alt="" draggable={false} className="h-full w-full object-contain" />
+      ) : url === null ? (
+        <NoGeometryMark />
+      ) : null}
+    </div>
+  );
+}
+
 export function TypesTab({
   lang,
   profile,
+  meshBatches,
   selected,
   onFocus,
 }: {
   lang: Lang;
   profile: ModelProfile | null;
-  /** `serialiseFocus` key of the open derivation, to mark its row. */
+  /** The streamed geometry, for the card renders. */
+  meshBatches: MeshBatch[] | undefined;
+  /** `serialiseFocus` key of the open derivation, to mark its card. */
   selected: string | null;
   onFocus: (focus: Focus) => void;
 }) {
   const rows = useMemo(() => (profile ? typeRows(profile) : []), [profile]);
   const notSupplied = t("type.notSupplied", lang);
+  const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
 
   return (
-    <section className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border border-line bg-panel">
-      <div className="min-h-0 flex-1 overflow-auto bg-input">
-        <table className="w-full border-separate border-spacing-0 text-left">
-          <thead>
-            <tr>
-              <Th>{t("col.class", lang)}</Th>
-              <Th>{t("col.type", lang)}</Th>
-              <Th right>{t("col.instances", lang)}</Th>
-              <Th right>
-                m³<div className="font-normal tracking-normal normal-case text-muted">{notSupplied}</div>
-              </Th>
-              <Th right>
-                m²<div className="font-normal tracking-normal normal-case text-muted">{notSupplied}</div>
-              </Th>
-              <Th center title="IsExternal ✓ · ✗ · —">IsExternal</Th>
-              <Th center title="LoadBearing ✓ · ✗ · —">LoadBearing</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const focus: Focus = { kind: "type", typeName: row.typeName };
-              const active = selected === serialiseFocus(focus);
-              return (
-                <tr
-                  key={row.key}
-                  onClick={() => onFocus(focus)}
-                  aria-selected={active}
-                  className={
-                    "cursor-pointer " + (active ? "bg-palegreen" : "hover:bg-panel")
-                  }
-                >
-                  <td className="border-b border-line px-2 py-1.5 font-mono text-[12px] text-muted">
-                    {row.entity}
-                  </td>
-                  <td className="max-w-[28rem] truncate border-b border-line px-2 py-1.5 font-mono text-[12px] text-ink">
-                    {row.typeName ?? t("type.untyped", lang)}
-                    {row.source && row.source !== "ifctype" && row.typeName ? (
-                      <span className="ml-2 text-[9px] text-muted uppercase">{row.source}</span>
-                    ) : null}
-                  </td>
-                  <td className="border-b border-line px-2 py-1.5 text-right font-mono text-[12px] tabular-nums">
-                    {formatCount(row.count, lang)}
-                  </td>
-                  <td className="border-b border-line px-2 py-1.5" />
-                  <td className="border-b border-line px-2 py-1.5" />
-                  <td className="border-b border-line px-2 py-1.5 text-center font-mono text-[11px] tabular-nums">
-                    <Tri value={row.ext} />
-                  </td>
-                  <td className="border-b border-line px-2 py-1.5 text-center font-mono text-[11px] tabular-nums">
-                    <Tri value={row.lb} />
-                  </td>
-                </tr>
-              );
-            })}
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-2 py-6 text-center font-mono text-[11px] text-muted">
-                  {profile ? t("type.none", lang) : notSupplied}
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+    <section ref={fillRef} style={{ height: fillHeight ?? undefined }} className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-3 px-4 pt-1 font-mono text-[10px] text-muted tabular-nums">
+        <span>{`${formatCount(rows.length, lang)} · ${t("col.instances", lang)} ${formatCount(
+          rows.reduce((sum, r) => sum + r.count, 0),
+          lang,
+        )}`}</span>
+        <span className="ml-auto">{`m³ · m² ${notSupplied}`}</span>
       </div>
+      {rows.length === 0 ? (
+        <div className="px-2 py-6 text-center font-mono text-[11px] text-muted">
+          {profile ? t("type.none", lang) : notSupplied}
+        </div>
+      ) : (
+        <Gallery unit={[2, 2]} label="types">
+          {rows.map((row) => {
+            const focus: Focus = { kind: "type", typeName: row.typeName };
+            const active = selected === serialiseFocus(focus);
+            const name = row.typeName ?? t("type.untyped", lang);
+            return (
+              <GalleryCard
+                key={row.key}
+                active={active}
+                title={`${row.entity} · ${name}`}
+                onClick={() => onFocus(focus)}
+              >
+                <Thumb batches={meshBatches} row={row} />
+                <div className="flex shrink-0 flex-col gap-0.5 px-2.5 pt-1 pb-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted">{row.entity}</span>
+                    <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums">
+                      {formatCount(row.count, lang)}
+                    </span>
+                  </div>
+                  <div className="line-clamp-2 font-mono text-[11.5px] leading-snug break-all text-ink">
+                    {name}
+                    {row.source && row.source !== "ifctype" && row.typeName ? (
+                      <span className="ml-1.5 text-[9px] text-muted uppercase">{row.source}</span>
+                    ) : null}
+                  </div>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[10px] leading-[14px] text-muted tabular-nums">
+                    <dt>IsExternal</dt>
+                    <dd className="text-right">
+                      <Tri value={row.ext} />
+                    </dd>
+                    <dt>LoadBearing</dt>
+                    <dd className="text-right">
+                      <Tri value={row.lb} />
+                    </dd>
+                  </dl>
+                </div>
+              </GalleryCard>
+            );
+          })}
+        </Gallery>
+      )}
     </section>
   );
 }

@@ -384,7 +384,13 @@ export function ModelPanel({
               />
             </div>
             <div role="tabpanel" hidden={tab !== "types"} className="flex flex-col">
-              <TypesTab lang={lang} profile={profile ?? null} selected={selected} onFocus={focus} />
+              <TypesTab
+                lang={lang}
+                profile={profile ?? null}
+                meshBatches={model.meshBatches}
+                selected={selected}
+                onFocus={focus}
+              />
             </div>
             <div role="tabpanel" hidden={tab !== "materials"} className="flex flex-col">
               <MaterialsTab

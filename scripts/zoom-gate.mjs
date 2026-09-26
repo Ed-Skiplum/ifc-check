@@ -31,6 +31,14 @@
  *   6  the far outlier  framing a `far-from-model` element reaches it — the
  *                       box projects inside the viewport — and the wheel still
  *                       moves the radius out there
+ *   7  the page stays   (edkjo 2026-09-26: "the page scroller is active at the
+ *                       same time as model zoom") a wheel over the viewer —
+ *                       the canvas, a HUD chip, a camera button, the tile's
+ *                       head — and over the Graf tab's graph and its viewer,
+ *                       main and windowed, and over the viewer on a, b and c,
+ *                       leaves `<main>` where it was. `<main>` is made
+ *                       scrollable first (a spacer at its foot), so a wheel
+ *                       that leaked WOULD move it
  *
  * RAM: one Chrome at a time, launched only with >= 4 GB free physical memory;
  * kills only the Chrome and the preview server it started.
@@ -531,6 +539,94 @@ if (existsSync(resolve(outlierPath))) {
   }
 } else {
   console.log(`skip 6 — no outlier model at ${outlierPath}`);
+}
+
+/* ── phase 7: the wheel never scrolls the page ─────────────────────────── */
+
+const SCROLL = `(() => { const m = document.querySelector('main'); return { main: m ? m.scrollTop : -1, win: window.scrollY }; })()`;
+
+/** Make `<main>` scrollable, so a leaked wheel has somewhere to go. */
+async function armMain() {
+  return evaluate(`(() => {
+    const m = document.querySelector('main');
+    if (!m) return null;
+    let pad = document.querySelector('[data-gate-spacer]');
+    if (!pad) { pad = document.createElement('div'); pad.setAttribute('data-gate-spacer', ''); pad.style.cssText = 'height: 4000px; flex: none'; m.appendChild(pad); }
+    m.scrollTop = 0;
+    return { scrollable: m.scrollHeight > m.clientHeight };
+  })()`);
+}
+
+/** Three wheel notches DOWN at the centre of `expr`'s box; asserts that
+ *  neither `<main>` nor the window moved. */
+async function wheelStays(expr, label) {
+  const box = await evaluate(
+    `(() => { const el = ${expr}; if (!el) return null; const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; })()`,
+  );
+  if (!box) {
+    check(false, `7 ${label}: found on the page`);
+    return;
+  }
+  await armMain();
+  const before = await evaluate(SCROLL);
+  for (let n = 0; n < 3; n += 1) await wheelAt(box.x, box.y, TICK);
+  await sleep(150);
+  const after = await evaluate(SCROLL);
+  check(
+    after.main === before.main && after.win === before.win,
+    `7 ${label}: the page did not scroll (main ${before.main} -> ${after.main}, window ${before.win} -> ${after.win})`,
+  );
+}
+
+const VIEWER_TILE = `document.querySelector('[role=tabpanel]:not([hidden]) :is([data-tile-id=viewer], [data-mg-tile=viewer])')`;
+const CHIP = `?.querySelector('[data-viewer-canvas] + div span')`;
+const BUTTON = `?.querySelector('[data-viewer-canvas] ~ span button')`;
+const armed = await armMain();
+check(armed?.scrollable === true, `7 <main> is scrollable for the test`);
+await wheelStays(`${VIEWER_TILE}?.querySelector('[data-viewer-canvas]')`, "Kontroll: the canvas");
+await wheelStays(`${VIEWER_TILE}${CHIP}`, "Kontroll: a HUD chip over the canvas");
+await wheelStays(`${VIEWER_TILE}${BUTTON}`, "Kontroll: a camera button over the canvas");
+await wheelStays(`${VIEWER_TILE}?.firstElementChild`, "Kontroll: the tile's head");
+
+async function openTab(pattern) {
+  await evaluate(
+    `(() => { const b = [...document.querySelectorAll('[role=tab]')].find((x) => ${pattern}.test(x.textContent.trim())); b && b.click(); return !!b; })()`,
+  );
+  await sleep(1500);
+}
+await openTab(`/^(Graf|Graph)$/`);
+await until(`!!document.querySelector('[role=tabpanel]:not([hidden]) canvas[data-graph]')`, 30000, "graph tab");
+await armMain();
+const GRAPH = `document.querySelector('[role=tabpanel]:not([hidden]) canvas[data-graph]')`;
+const GRAF_VIEWER = `document.querySelector('[role=tabpanel]:not([hidden]) [data-graph-viewer] canvas')`;
+await wheelStays(GRAPH, "Graf: the graph, main");
+await wheelStays(GRAF_VIEWER, "Graf: the viewer, windowed");
+const swapped = await evaluate(
+  `(() => { const b = [...document.querySelectorAll('[role=tabpanel]:not([hidden]) button[aria-pressed=false]')].find((x) => /^(Modell|Model)$/.test(x.textContent.trim())); b && b.click(); return !!b; })()`,
+);
+await sleep(800);
+check(swapped, "7 Graf: the model/graph swap was found");
+if (swapped) {
+  await wheelStays(GRAF_VIEWER, "Graf: the viewer, main");
+  await wheelStays(GRAPH, "Graf: the graph, windowed");
+}
+await openTab(`/^(Kontroll|Checks)$/`);
+
+for (const design of (opt("design") ?? "a,b,c").split(",").filter(Boolean)) {
+  await evaluate(
+    `(() => { const h = new URLSearchParams(location.hash.slice(1)); h.set('design', '${design}'); location.hash = h.toString(); return true; })()`,
+  );
+  await until(
+    `!!document.querySelector('[role=tabpanel]:not([hidden]) [data-mg-tile=viewer] [data-viewer-canvas]')`,
+    60000,
+    `design ${design} viewer`,
+  );
+  await sleep(1500);
+  await armMain();
+  await wheelStays(`${VIEWER_TILE}?.querySelector('[data-viewer-canvas]')`, `${design}: the canvas`);
+  await wheelStays(`${VIEWER_TILE}${CHIP}`, `${design}: a HUD chip over the canvas`);
+  await wheelStays(`${VIEWER_TILE}${BUTTON}`, `${design}: a camera button over the canvas`);
 }
 
 console.log(failures === 0 ? "\nzoom gate: all assertions hold" : `\nzoom gate: ${failures} failed`);

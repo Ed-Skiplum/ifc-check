@@ -959,6 +959,13 @@ export class ModelScene {
     this.invalidate();
   };
 
+  /** A wheel that landed on something laid over the canvas (a HUD chip, a
+   *  camera button, a label): the host routes it here, so it zooms the scene
+   *  exactly as a wheel on the canvas does, and never scrolls the page. */
+  wheel(event: WheelEvent): void {
+    this.onWheel(event);
+  }
+
   private onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
   };

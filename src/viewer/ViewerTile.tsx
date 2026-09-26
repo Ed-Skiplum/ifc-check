@@ -166,6 +166,26 @@ export function ViewerTile({
     };
   }, []);
 
+  /* The wheel over the WHOLE viewer tile is the scene's, its head included. The canvas has its own
+     non-passive listener; what lies over it (the HUD chips, the camera
+     buttons) would otherwise pass the wheel up to the page, and `<main>`
+     scrolled while the model zoomed (edkjo 2026-09-26: "the page scroller is
+     active at the same time as model zoom"). Native and non-passive, because
+     React's onWheel is passive and its preventDefault is ignored. A wheel on
+     the canvas itself is left to the canvas, so nothing zooms twice. */
+  useEffect(() => {
+    const body = holder.current;
+    if (!body) return;
+    const box = body.closest<HTMLElement>("[data-tile-id], [data-mg-tile]") ?? body;
+    const onWheel = (event: WheelEvent) => {
+      if (event.target === canvas.current) return;
+      event.preventDefault();
+      scene.current?.wheel(event);
+    };
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => box.removeEventListener("wheel", onWheel);
+  }, []);
+
   // Computed here rather than inside the scene so the outlier count can reach
   // the HUD without a second pass over every vertex.
   const framing = useMemo(() => (set ? framingBox(set) : null), [set]);

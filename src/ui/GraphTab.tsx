@@ -915,8 +915,10 @@ export function GraphTab({
 
   const onWheel = useCallback(
     (event: WheelEvent) => {
-      if (!simRef.current) return;
+      // Always the graph's: over the field the wheel never scrolls the page,
+      // not even before there is a graph to zoom.
       event.preventDefault();
+      if (!simRef.current) return;
       const at = localPoint(event);
       viewRef.current = zoomAt(viewRef.current, at.x, at.y, Math.exp(-event.deltaY * 0.0016));
       framed.current = true;
@@ -928,12 +930,13 @@ export function GraphTab({
   // Native and non-passive: React attaches `onWheel` as a passive listener, so
   // its preventDefault is ignored and the page scrolled while the graph zoomed
   // (edkjo 2026-09-26: "the page scroller is active at the same time as model
-  // zoom").
+  // zoom"). On the graph's whole box, not the canvas alone, so a label laid
+  // over the canvas routes the wheel to the graph too.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => canvas.removeEventListener("wheel", onWheel);
+    const box = graphBox.current;
+    if (!box) return;
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => box.removeEventListener("wheel", onWheel);
   }, [onWheel]);
 
   const onPointerDown = useCallback(

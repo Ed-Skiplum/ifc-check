@@ -61,3 +61,60 @@ body {
 .ifc-sweep {
   animation: ifc-sweep 1.1s linear infinite;
 }
+
+/* ── Gallery cards (Typer, Materialer), 2026-09-26 ─────────────────────────
+ * Floating tiles (layout canon, rule 10): a lifted surface with a light edge
+ * and soft layered shade. Under `#design` they take the glass tokens; on the
+ * default board the same shape in its own palette. */
+.gallery-card {
+  border-radius: 14px;
+  background-color: var(--d-glass, var(--color-input));
+  -webkit-backdrop-filter: blur(var(--d-glass-blur, 0px)) saturate(150%);
+  backdrop-filter: blur(var(--d-glass-blur, 0px)) saturate(150%);
+  box-shadow: var(
+    --d-card-shadow,
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 0 0 1px rgba(35, 41, 30, 0.06),
+    0 1px 2px rgba(35, 41, 30, 0.07),
+    0 8px 20px -8px rgba(35, 41, 30, 0.2)
+  );
+  transition:
+    box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.gallery-door:hover {
+  transform: translateY(-2px);
+  box-shadow: var(
+    --d-card-shadow-hover,
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 0 0 1px rgba(35, 41, 30, 0.08),
+    0 2px 4px rgba(35, 41, 30, 0.08),
+    0 14px 28px -8px rgba(35, 41, 30, 0.26)
+  );
+}
+.gallery-door[aria-current="true"] {
+  outline: 2px solid var(--d-accent, var(--color-green));
+  outline-offset: -2px;
+}
+/* A material swatch: neutral, since the engine gives no material colour. */
+.gallery-swatch {
+  background: linear-gradient(145deg, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.11)), var(--color-panel);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+/* Layer strip: neutral shades so neighbouring layers read apart; colour is
+   for status only. */
+.gallery-layer + .gallery-layer {
+  border-left: 1px solid var(--color-input);
+}
+.gallery-layer[data-shade="0"] {
+  background: color-mix(in srgb, var(--color-muted) 55%, var(--color-panel));
+}
+.gallery-layer[data-shade="1"] {
+  background: color-mix(in srgb, var(--color-muted) 30%, var(--color-panel));
+}
+.gallery-layer[data-shade="2"] {
+  background: color-mix(in srgb, var(--color-muted) 75%, var(--color-panel));
+}
+.gallery-layer.gallery-layer-unknown {
+  background: repeating-linear-gradient(135deg, var(--color-panel) 0 4px, var(--color-line) 4px 8px);
+}

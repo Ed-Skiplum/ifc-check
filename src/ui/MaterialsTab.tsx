@@ -1,12 +1,19 @@
 /** Materialer: the material extraction, in the ifcfast demo's two views
- * (`ifc-fast-demo/components/views/materials-view.tsx`):
+ * (`ifc-fast-demo/components/views/materials-view.tsx`), as galleries since
+ * 2026-09-26 (owner: "the types and materials tabs need to be galleries, not
+ * rows"):
  *
- *   Materialer   every material name, the classes that carry it and how many
- *                elements. A row makes a chip, so the 3D isolates what is
- *                made of it.
- *   Layer sets   every material layer set, its layers and their thickness
- *                (`materialsJson()`, role `layer`), and how many elements use
- *                it. A row opens its layers.
+ *   Materialer   one card per material name: a swatch, the name, the classes
+ *                that carry it and how many elements. A card makes a chip,
+ *                so the 3D isolates what is made of it.
+ *   Layer sets   one S card per material layer set: its layers as a strip in
+ *                proportion to their thickness (`materialsJson()`, role
+ *                `layer`), each layer's thickness and material, and how many
+ *                elements use it.
+ *
+ * The swatch is neutral: the engine gives no IfcMaterial surface colour (the
+ * mesh colour is per PRODUCT and falls back to a per-class palette, so it is
+ * not the material's), and a colour that is not the file's would be made up.
  *
  * The names are the engine's (`ProductRowLite.materials`: layer-set materials
  * plus a direct `IfcMaterial`, the same set `element-material` judges). The
@@ -24,7 +31,8 @@ import { t } from "./i18n";
 import { formatCount } from "./format";
 import type { ModelProfile } from "./profile";
 import type { FilterChip } from "./cross-filter";
-import { Th } from "./TypesTab";
+import { Gallery, GalleryCard } from "./Gallery";
+import { useFillHeight } from "./useFillHeight";
 
 interface MaterialLine {
   name: string;
@@ -114,15 +122,15 @@ export function MaterialsTab({
   onToggleChip: (chip: FilterChip) => void;
 }) {
   const [view, setView] = useState<"materials" | "sets">("materials");
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const materials = useMemo(() => (profile ? materialLines(profile) : []), [profile]);
   const sets = useMemo(() => (profile ? layerSetLines(profile) : null), [profile]);
   const notSupplied = t("type.notSupplied", lang);
+  const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
   const active = new Set(chips.map((c) => c.key));
 
   return (
-    <section className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border border-line bg-panel">
-      <div className="flex shrink-0 items-center gap-2 px-2 pt-1.5 pb-1">
+    <section ref={fillRef} style={{ height: fillHeight ?? undefined }} className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-2 px-4 pt-1">
         <div role="group" className="flex shrink-0 overflow-hidden rounded-[6px] border border-line">
           {(
             [
@@ -152,109 +160,112 @@ export function MaterialsTab({
               : notSupplied}
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto bg-input">
-        {view === "materials" ? (
-          <table className="w-full border-separate border-spacing-0 text-left">
-            <thead>
-              <tr>
-                <Th>{t("col.materials", lang)}</Th>
-                <Th>{t("col.class", lang)}</Th>
-                <Th right>{t("col.elements", lang)}</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {materials.map((line) => {
-                const key = `material:${line.name}`;
-                const on = active.has(key);
-                return (
-                  <tr
-                    key={line.name}
-                    aria-selected={on}
-                    onClick={() =>
-                      onToggleChip({ key, kind: "material", label: line.name, guids: line.guids })
-                    }
-                    className={"cursor-pointer " + (on ? "bg-palegreen" : "hover:bg-panel")}
-                  >
-                    <td className="max-w-[28rem] truncate border-b border-line px-2 py-1.5 font-mono text-[12px] text-ink">
-                      {line.name}
-                    </td>
-                    <td className="max-w-[24rem] truncate border-b border-line px-2 py-1.5 font-mono text-[10px] text-muted">
-                      {line.entities.join(", ")}
-                    </td>
-                    <td className="border-b border-line px-2 py-1.5 text-right font-mono text-[12px] tabular-nums">
-                      {formatCount(line.guids.length, lang)}
-                    </td>
-                  </tr>
-                );
-              })}
-              {materials.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-2 py-6 text-center font-mono text-[11px] text-muted">
-                    {profile ? t("type.none", lang) : notSupplied}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        ) : sets === null ? (
-          <div className="px-2 py-6 text-center font-mono text-[11px] text-muted">
-            {`materialsJson() · ${notSupplied}`}
-          </div>
+      {view === "materials" ? (
+        materials.length === 0 ? (
+          <Empty>{profile ? t("type.none", lang) : notSupplied}</Empty>
         ) : (
-          <div>
-            {sets.map((set) => {
-              const isOpen = open.has(set.key);
+          <Gallery unit={[2, 2]} label="materials">
+            {materials.map((line) => {
+              const key = `material:${line.name}`;
               return (
-                <div key={set.key} className="border-b border-line">
-                  <button
-                    type="button"
-                    data-layer-set
-                    aria-expanded={isOpen}
-                    onClick={() =>
-                      setOpen((current) => {
-                        const next = new Set(current);
-                        if (next.has(set.key)) next.delete(set.key);
-                        else next.add(set.key);
-                        return next;
-                      })
-                    }
-                    className="flex w-full items-center gap-3 px-2 py-1.5 text-left hover:bg-panel"
-                  >
-                    <span className="w-3 text-center text-muted">{isOpen ? "▾" : "▸"}</span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">
-                      {set.name ?? set.layers.map((l) => l.material ?? "—").join(" · ")}
-                    </span>
-                    <span className="w-40 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted">
-                      {`${formatCount(set.layers.length, lang)} · ${set.total === null ? "—" : mm(set.total, lang)}`}
-                    </span>
-                    <span className="w-14 shrink-0 text-right font-mono text-[12px] tabular-nums">
-                      {formatCount(set.count, lang)}
-                    </span>
-                  </button>
-                  {isOpen ? (
-                    <div className="pb-2">
-                      {set.layers.map((layer, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-2 py-0.5 pr-2 pl-9 font-mono text-[11px] text-muted"
-                        >
-                          <span className="w-16 text-right tabular-nums text-ink">
-                            {layer.thickness === null ? "—" : mm(layer.thickness, lang)}
-                          </span>
-                          <span className="truncate">{layer.material ?? "—"}</span>
+                <GalleryCard
+                  key={line.name}
+                  title={line.name}
+                  active={active.has(key)}
+                  onClick={() => onToggleChip({ key, kind: "material", label: line.name, guids: line.guids })}
+                >
+                  <div className="gallery-swatch m-2.5 mb-0 h-16 shrink-0 rounded-[8px]" />
+                  <div className="flex min-h-0 flex-1 flex-col gap-1 px-2.5 pt-1.5 pb-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="line-clamp-2 min-w-0 flex-1 font-mono text-[11.5px] leading-snug break-all text-ink">
+                        {line.name}
+                      </span>
+                      <span
+                        className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums"
+                        title={t("col.elements", lang)}
+                      >
+                        {formatCount(line.guids.length, lang)}
+                      </span>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-hidden font-mono text-[10px] leading-[14px] text-muted" title={line.entities.join(", ")}>
+                      {line.entities.map((entity) => (
+                        <div key={entity} className="truncate">
+                          {entity}
                         </div>
                       ))}
                     </div>
-                  ) : null}
-                </div>
+                  </div>
+                </GalleryCard>
               );
             })}
-            {sets.length === 0 ? (
-              <div className="px-2 py-6 text-center font-mono text-[11px] text-muted">{t("type.none", lang)}</div>
-            ) : null}
-          </div>
-        )}
-      </div>
+          </Gallery>
+        )
+      ) : sets === null ? (
+        <Empty>{`materialsJson() · ${notSupplied}`}</Empty>
+      ) : sets.length === 0 ? (
+        <Empty>{t("type.none", lang)}</Empty>
+      ) : (
+        <Gallery unit={[2, 2]} label="sets">
+          {sets.map((set) => (
+            <GalleryCard key={set.key} title={set.name ?? undefined}>
+              <div data-layer-set className="flex min-h-0 flex-1 flex-col gap-1.5 px-2.5 pt-2 pb-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink">
+                    {set.name ?? set.layers.map((l) => l.material ?? "—").join(" · ")}
+                  </span>
+                  <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums">
+                    {formatCount(set.count, lang)}
+                  </span>
+                </div>
+                <LayerStrip layers={set.layers} lang={lang} />
+                <div className="font-mono text-[10px] text-muted tabular-nums">
+                  {`${formatCount(set.layers.length, lang)} · ${set.total === null ? "—" : mm(set.total, lang)}`}
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto">
+                  {set.layers.map((layer, i) => (
+                    <div key={i} className="flex items-baseline gap-2 font-mono text-[10.5px] leading-[15px] text-muted">
+                      <span className="w-14 shrink-0 text-right text-ink tabular-nums">
+                        {layer.thickness === null ? "—" : mm(layer.thickness, lang)}
+                      </span>
+                      <span className="min-w-0 truncate">{layer.material ?? "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </GalleryCard>
+          ))}
+        </Gallery>
+      )}
     </section>
+  );
+}
+
+function Empty({ children }: { children: string }) {
+  return <div className="px-2 py-6 text-center font-mono text-[11px] text-muted">{children}</div>;
+}
+
+/** The layers, side by side in the order of the set, each as wide as its
+ *  thickness is of the total. A layer with no thickness takes an equal share
+ *  and is hatched, so it cannot pass for a measure. */
+function LayerStrip({ layers, lang }: { layers: LayerSetLine["layers"]; lang: Lang }) {
+  const known = layers.filter((l) => l.thickness !== null && l.thickness > 0);
+  const sum = known.reduce((s, l) => s + (l.thickness ?? 0), 0);
+  const unknownShare = layers.length > 0 ? (layers.length - known.length) / layers.length : 0;
+  return (
+    <div className="flex h-7 shrink-0 overflow-hidden rounded-[6px] border border-line">
+      {layers.map((layer, i) => {
+        const has = layer.thickness !== null && layer.thickness > 0;
+        const share = has ? ((layer.thickness ?? 0) / sum) * (1 - unknownShare) : 1 / layers.length;
+        return (
+          <span
+            key={i}
+            title={`${layer.thickness === null ? "—" : mm(layer.thickness, lang)} · ${layer.material ?? "—"}`}
+            className={"gallery-layer h-full min-w-[3px]" + (has ? "" : " gallery-layer-unknown")}
+            data-shade={i % 3}
+            style={{ flex: `${Math.max(share, 0.0001)} 1 0` }}
+          />
+        );
+      })}
+    </div>
   );
 }
