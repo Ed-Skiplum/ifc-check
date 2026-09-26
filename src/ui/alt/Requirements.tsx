@@ -19,7 +19,7 @@ import type { Requirement } from "../requirements";
 import { t } from "../i18n";
 import { serialiseFocus } from "../trace";
 import { formatCount } from "../format";
-import { figures, orderedValues, secondFigure, stateLook, uniqueCount, valueFocus } from "./req-view";
+import { figures, mmiBars, orderedValues, secondFigure, stateLook, uniqueCount, valueFocus } from "./req-view";
 
 export interface DoorProps {
   lang: Lang;
@@ -336,6 +336,120 @@ export function ReqPanel({ req, ...door }: DoorProps & { req: Requirement }) {
           <Values req={req} max={4} wrap={false} {...door} />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/* ── a: the KPI band (2026-09-26) ───────────────────────────────────────────
+ *
+ * Owner: "add a row of KPI cards at the top rather than the dense left
+ * sidebar that needs scrolling". One S card per requirement where the row
+ * seats eleven; else one card per report section with its requirements as
+ * compact rows. The whole card (or row) is the requirement's door, as the
+ * list row's head was. MMI is never a single number (begreper.md §7): the
+ * owner's «Statuskode ikke konfigurert», or a mini distribution. */
+
+/** The MMI levels as a row of tiny columns, off-scale values flagged. */
+function MiniDist({ req, lang }: { req: Requirement; lang: Lang }) {
+  const bars = mmiBars(req);
+  if (bars.length === 0) return null;
+  const peak = Math.max(1, ...bars.map((b) => b.n));
+  return (
+    <span data-mmi="mini" className="flex h-full min-h-[18px] min-w-0 items-end gap-[2px]">
+      {bars.map((bar) => (
+        <span
+          key={String(bar.value)}
+          title={`${bar.value === null ? t("req.mangler", lang) : bar.value} ×${bar.n}`}
+          data-verdict={bar.flag === "avvik" ? "warn" : bar.flag === "mangler" ? "fail" : undefined}
+          className="alt-bar block w-[6px] min-w-[3px] shrink"
+          style={{ height: `${bar.n === 0 ? 0 : Math.max(8, (bar.n / peak) * 100)}%` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function MmiReading({ req, lang }: { req: Requirement; lang: Lang }) {
+  if (!req.row || req.state === "not_configured")
+    return <span className="truncate text-[11px] text-muted">{t("mmi.notConfigured", lang)}</span>;
+  return <MiniDist req={req} lang={lang} />;
+}
+
+/** One requirement, an S card. */
+export function ReqCard({ req, ...door }: DoorProps & { req: Requirement }) {
+  const { lang } = door;
+  const f = figures(req, lang);
+  return (
+    <HeadButton
+      req={req}
+      selected={door.selected}
+      onFocus={door.onFocus}
+      className="alt-stat alt-sized flex h-full min-h-0 w-full min-w-0 flex-col items-start gap-1.5 px-3 py-2.5 text-left"
+    >
+      <span className="w-full min-w-0 truncate text-[12px] font-semibold text-ink" title={t(req.label, lang)}>
+        {t(req.label, lang)}
+      </span>
+      <StateBadge state={req.state} lang={lang} />
+      <span className="mt-auto flex w-full min-w-0 flex-col gap-0.5">
+        {req.distribution ? (
+          <span className="flex h-9 w-full min-w-0 items-end">
+            <MmiReading req={req} lang={lang} />
+          </span>
+        ) : f ? (
+          <>
+            <span data-essential className="max-w-full truncate font-mono text-[22px] leading-none font-semibold tabular-nums">
+              {f.figure}
+            </span>
+            {f.label ? <span className="alt-label w-full truncate">{t(f.label, lang)}</span> : null}
+            {f.of ? <span className="w-full truncate font-mono text-[11px] tabular-nums text-muted">{f.of}</span> : null}
+          </>
+        ) : null}
+      </span>
+    </HeadButton>
+  );
+}
+
+/** One report section, an M or L card: its requirements as compact rows,
+ *  each its own door. Rows share the height; nothing scrolls. */
+export function ReqSection({ reqs, ...door }: DoorProps & { reqs: Requirement[] }) {
+  const { lang } = door;
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col py-1">
+      {reqs.map((req) => {
+        const f = figures(req, lang);
+        return (
+          <HeadButton
+            key={req.key}
+            req={req}
+            selected={door.selected}
+            onFocus={door.onFocus}
+            className="flex min-h-0 w-full min-w-0 flex-1 items-center gap-2 px-3 text-left"
+          >
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink" title={t(req.label, lang)}>
+              {t(req.label, lang)}
+            </span>
+            {req.distribution ? (
+              <span className="flex h-[18px] max-w-[60%] min-w-0 shrink items-end justify-end gap-1.5">
+                {req.state === "not_configured" ? (
+                  <span data-verdict={stateLook(req.state, lang).verdict} data-state={req.state} className="alt-lamp shrink-0">
+                    {stateLook(req.state, lang).glyph}
+                  </span>
+                ) : (
+                  <StateBadge state={req.state} lang={lang} />
+                )}
+                <MmiReading req={req} lang={lang} />
+              </span>
+            ) : (
+              <>
+                <StateBadge state={req.state} lang={lang} />
+                <span data-essential className="w-[7ch] shrink-0 text-right font-mono text-[13px] font-semibold whitespace-nowrap tabular-nums">
+                  {f ? f.figure : ""}
+                </span>
+              </>
+            )}
+          </HeadButton>
+        );
+      })}
     </div>
   );
 }

@@ -141,7 +141,14 @@ for (const [design, layout] of Object.entries(layouts)) {
     const ids = new Set(out.tiles.map((t) => t.id));
     check(ids.has("viewer") && ids.has("scope"), `${at}: the model or Scope is not a tile`);
     check(ids.has("detail") || out.tiles.some((t) => t.tabs.includes("detail")), `${at}: Detail is neither a tile nor a tab`);
-    check(ids.has("reqs") || ids.has("ifc0"), `${at}: the requirements have no tile`);
+    check(ids.has("reqs") || ids.has("ifc0") || ids.has("g-ifc"), `${at}: the requirements have no tile`);
+    // a: the requirements are a band on TOP of the board, never a side list.
+    if (design === "a" && !ids.has("reqs")) {
+      const band = out.tiles.filter((t) => /^(ifc|std)\d+$|^g-(ifc|std)$/.test(t.id));
+      check(band.length > 0 && band.every((t) => t.y === out.top), `${at}: a's requirement cards are not on the top row`);
+    }
+    if (design === "a" && [[1440, 900], [1920, 1080], [2112, 1267], [2560, 1440], [3440, 1440]].some(([a, b]) => a === w && b === h))
+      console.log(`  a ${w}×${h} ${grid.cols}×${grid.rows}: band ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
     // Rule 8: a tile moved into a tab has lower priority than every tile of
     // its kind that stayed is not asserted (a composition may keep a lower
     // one that fits); every moved tile has a host.

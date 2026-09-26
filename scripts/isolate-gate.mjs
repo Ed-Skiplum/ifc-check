@@ -963,7 +963,9 @@ for (const design of designs) {
   check(kAfter.scopeRows === kBefore.scopeRows && kAfter.hash === kBefore.hash, `D5 ${design}: Scope is untouched, the pick opens nothing there (${kAfter.scopeRows} rows)`);
   check(poseBefore !== null && poseAfter !== null && moved(poseBefore, poseAfter) < 1e-9, `D5 ${design}: the camera did not move`);
 
-  const value = await evaluate(`(() => { const b = document.querySelector('[data-mg-grid] [data-value-door]'); if (!b) return null; b.setAttribute('data-gate-value', ''); return b.textContent.trim(); })()`);
+  // a's KPI band shows one figure per requirement (2026-09-26), so there a
+  // fordeling's values are doors in the treemaps and the MMI bars.
+  const value = await evaluate(`(() => { const b = document.querySelector(${JSON.stringify(design === "a" ? "[data-mg-grid] :is(button[data-tree-cell], button[data-mmi-bar])" : "[data-mg-grid] [data-value-door]")}); if (!b) return null; b.setAttribute('data-gate-value', ''); return b.textContent.trim(); })()`);
   if (value === null) {
     check(false, `D7 ${design}: no value of a fordeling is a door`);
   } else {

@@ -18,8 +18,9 @@
  *
  * Scenarios: KNM_ARK alone; KNM ARK + RIV + RIB with the test floor config at
  * 1440 and 2112; HI90_ARK without and with
- * `examples/hi90-project-layer.test.ruleset.json` at 1440 and 2112 (when the
- * HI90 export is on this machine).
+ * `examples/hi90-project-layer.test.ruleset.json` (when the HI90 export is on
+ * this machine). On a, the requirements must be the KPI band on the board's
+ * top row, not a list tile, and no requirement card scrolls (2026-09-26).
  *
  * Screenshots to `--out` (default tmp/panels/):
  * `<design>-<scenario>-<w>x<h>.png`, and `-full.png` when the page is taller
@@ -84,7 +85,7 @@ const SCENARIOS = [
   },
   ...(existsSync(HI90_ARK)
     ? [
-        { name: "hi90", files: [HI90_ARK], ruleset: null, sizes: ["1440x900", "2112x1267"] },
+        { name: "hi90", files: [HI90_ARK], ruleset: null, sizes: ["1440x900", "1920x1080", "2112x1267", "2560x1440"] },
         {
           name: "hi90-fixture",
           files: [HI90_ARK],
@@ -561,6 +562,32 @@ for (const scenario of SCENARIOS) {
       await settle();
       const name = `${design}-${scenario.name}-${v.w}x${v.h}`;
       const m = await evaluate(MEASURE);
+      // a (2026-09-26): the requirements are a band of KPI cards on the TOP
+      // row of the board, never a list beside the model, and no card
+      // scrolls (owner: "add a row of KPI cards at the top rather than the
+      // dense left sidebar that needs scrolling").
+      if (design === "a") {
+        const band = await evaluate(`(() => {
+          const grid = document.querySelector('[data-mg-grid]');
+          const tiles = [...grid.querySelectorAll(':scope > [data-mg-tile]')];
+          const req = tiles.filter((t) => /^(ifc|std)\\d+$|^g-(ifc|std)$/.test(t.dataset.mgTile));
+          const top = Math.min(...tiles.map((t) => Number(t.dataset.mgAt.split(',')[1])));
+          const scrolls = req.filter((t) => [...t.querySelectorAll('*')].some((e) => e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY)));
+          return {
+            mode: grid.dataset.mgBand ?? null,
+            list: tiles.some((t) => t.dataset.mgTile === 'reqs'),
+            n: req.length,
+            onTop: req.every((t) => Number(t.dataset.mgAt.split(',')[1]) === top),
+            scrolls: scrolls.map((t) => t.dataset.mgTile),
+          };
+        })()`);
+        if (band.list) m.fails.push("a: the requirements are a list tile, not the KPI band");
+        else {
+          if (band.n === 0 || !band.onTop) m.fails.push(`a: the requirement cards are not on the top row (${JSON.stringify(band)})`);
+          if (band.scrolls.length) m.fails.push(`a: a requirement card scrolls (${band.scrolls.join(", ")})`);
+        }
+        console.log(`       a band: ${band.mode ?? "narrow fallback"} (${band.n} cards)`);
+      }
       await shot(name, v);
       // Rule 8, determinism: another window and back gives the same layout.
       const placeOf = (mm) => JSON.stringify(mm.tiles.filter((t) => !t.id.startsWith("canvas:")).map((t) => [t.id, t.x, t.y, t.w, t.h]));

@@ -15,8 +15,10 @@
  * (`module-grid.ts`), floating glass tiles (`directions.css`). The three
  * alternatives differ in composition only:
  *
- *   a  Linear work surface   two heroes, the requirements list and the model,
- *                            side by side; Scope and Detail, the charts under
+ *   a  Linear work surface   the requirements as a row of KPI cards on top
+ *                            (2026-09-26, replacing the list beside the
+ *                            model), the model the hero under it; Scope and
+ *                            Detail, the charts
  *   b  Stripe summary        the treemaps and the MMI bars lead top-left, the
  *                            model beside them; the report as blocks, Scope
  *                            and Detail under
@@ -45,7 +47,7 @@ import { ViewerTile } from "../../viewer/ViewerTile";
 import { VERDICT_GLYPH } from "../state-visuals";
 import { boardCards, claimedChecks } from "../board-data";
 import { REQ_GROUPS, requirementRowIds, requirements, type Requirement } from "../requirements";
-import { ReqBlock, ReqPanel, ReqRow } from "./Requirements";
+import { ReqBlock, ReqCard, ReqPanel, ReqRow, ReqSection } from "./Requirements";
 import { CodeTreemap, MmiChart } from "./Charts";
 import { treeTitle } from "./req-view";
 import {
@@ -167,6 +169,7 @@ export function AltBoard(props: AltBoardProps) {
         <div
           data-mg-grid
           data-mg-design={design}
+          data-mg-band={layout.band}
           data-mg-cols={grid.cols}
           data-mg-rows={grid.rows}
           data-mg-u={grid.u.toFixed(4)}
@@ -389,7 +392,20 @@ function tileBodies(props: AltBoardProps, reqs: Requirement[], counts: KpiCard[]
     const panel = /^(ifc|std)(\d+)$/.exec(id);
     if (panel) {
       const req = reqs.filter((r) => r.group === panel[1])[Number(panel[2])];
-      return req ? { bare: true, label: t(req.label, lang), body: <ReqPanel req={req} {...door} /> } : null;
+      if (!req) return null;
+      return {
+        bare: true,
+        label: t(req.label, lang),
+        body: design === "a" ? <ReqCard req={req} {...door} /> : <ReqPanel req={req} {...door} />,
+      };
+    }
+    const section = /^g-(ifc|std)$/.exec(id);
+    if (section) {
+      const group = REQ_GROUPS.find((g) => g.group === section[1])!;
+      return {
+        label: t(group.label, lang),
+        body: <ReqSection reqs={reqs.filter((r) => r.group === group.group)} {...door} />,
+      };
     }
     return null;
   };

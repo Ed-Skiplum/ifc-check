@@ -999,6 +999,31 @@ summed ifcfast's meshed take-off; `qtoJson()` is not read here), and
 `IfcMaterialLayerSet.Name` (`layer_set` is null on every HI90_ARK product), so a
 layer set row is its layer stack and the header says `ikke levert`.
 
+**Galleries, not rows (2026-09-26).** Owner: *"the types and materials tabs
+need to be galleries, not rows."* Both tabs are card galleries on the module
+grid (`Gallery.tsx`: rule-6 columns on the gallery's own width, uniform cards
+since a gallery is one collection, columns trimmed to whole cards and
+centred, overflow scrolls inside the tab; floating cards, `.gallery-card`).
+Every card is S 2×2 (types, materials, layer sets); the tab fills the window to its 24 px foot. Sorted by count as
+before; a click does what the row did (Type chip, material chip).
+
+- **Type card**: a render of a representative element (the MEDIAN by
+  triangles among the type's instances with geometry), class, type name,
+  instances, IsExternal and LoadBearing. Renders come from
+  `viewer/thumbnails.ts`: one shared offscreen WebGL context for all
+  thumbnails, one element's triangles per render read from the streamed
+  batches (positions a view, only that element's indices copied), rendered
+  once at 320×200, kept as a webp data URL per (batches, type), geometry
+  disposed at once. Lazy (a card asks when it nears view), three renders a
+  frame. Never a second copy of the model. A type with no streamed geometry
+  shows the dashed cube (sprucelab's placeholder), never a stand-in.
+- **Material card**: a NEUTRAL swatch, since the engine gives no
+  IfcMaterial surface colour (the mesh colour is per product and falls back
+  to a class palette), name, classes, element count.
+- **Layer set card**: the layers as one strip in proportion to their
+  thickness (a layer without one is hatched at an equal share), count, layer
+  count and total, then each layer's thickness and material.
+
 ## The dashboard grid — binding, not advisory
 
 The board is an INSTANCE of the house bento grid, not a layout of its own.
@@ -1472,13 +1497,37 @@ Same content, same measurement; they differ in priority order, hero choice
 and where Scope, Detail and the model sit (`layoutA/B/C`). Tile maps as
 measured locally with HI90_ARK and the fixture (tile, size, priority):
 
-**a · Linear work surface.** Two heroes, the requirements list (XL) and the
-model (XL), side by side; Scope, Detail, the treemaps, the MMI bars, the other
-checks (L 4×3, it needs 400 px for its verdict column), four counts (S).
-1440: reqs XL 6×4 p0 (checks inline) · viewer XL 6×4 p1 · scope M p2 · detail
-M p3 · system M p4 (MMI tab) · function M p5. 2112: reqs XL 8×5 · viewer XL
-8×5 · scope, detail, system, function L 4×3 · MMI strip 4×1 · checks L 4×3 ·
-counts S; board 16×10 of 18×10.
+**a · Linear work surface, KPI band (2026-09-26).** Owner: *"I like A best,
+but add a row of KPI cards at the top rather than the dense left sidebar that
+needs scrolling."* The requirements list is gone; the requirements are a band
+on the board's top row (`layoutA` / `aBand` in `module-grid.ts`), and under
+it by priority the model (hero), Scope, Detail, the treemaps, the MMI bars,
+the other checks, the counts. The band, first that seats a full board:
+
+1. **cards**: one S card per requirement in report order, one row (needs
+   2 × 11 = 22 columns: 2560 and wider). Name, status (glyph, word, colour),
+   the dekning figure; MMI reads «Statuskode ikke konfigurert» or a mini
+   distribution, never one number (`ReqCard`).
+2. **sections-m**: one M 3×2 card per report section, its requirements as
+   compact rows sharing the height, no scroll, each row its own door
+   (`ReqSection`).
+3. **sections-l**: the same at L 4×3.
+
+Each mode's first full cover is computed and the one covering the most of the
+window wins (rule 9: a board, not a strip in the middle of the screen), ties
+to the order above. Wrapping the S cards onto a second row was not taken: at
+16 to 18 columns it leaves two or three cards alone on a row, and at 12 it
+spends four of six rows. The rest of the band's row is filled from the tiles
+below (counts first, then the MMI bars and treemaps), so the band is one
+clean row; the board may narrow by whole columns, centred. Under 11 columns
+the shared narrow fallback (with its requirements list) still applies.
+Measured locally with HI90_ARK (module-grid-gate): 1440 sections-m + 3
+counts, body viewer 6×4 · scope · system · detail · function (MMI, checks, a
+count in tabs), board 12×6; 1920 and 2112 sections-l + both treemaps L on
+top, viewer 8×5 · scope · detail L · four counts, board 16×8; 2560 cards
+(11 S), viewer 6×4 · scope · detail · treemaps L 3×4 · MMI strip · checks,
+board 22×6; 3440 cards + a count, board 24×6. The search costs 5 to 75 ms
+under 22 columns and 100 to 300 ms at 22 and wider, once per window size.
 
 **b · Stripe summary.** One hero. The summary leads top-left (the treemaps,
 the MMI bars), the model beside it, then the report as blocks (L), Scope,

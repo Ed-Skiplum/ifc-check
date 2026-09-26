@@ -169,6 +169,8 @@ export interface MgLayout extends MgGrid {
   tiles: MgPlace[];
   /** Tiles moved into a tab, lowest priority last. */
   moved: string[];
+  /** Design a: how the requirement band was composed (`layoutA`). */
+  band?: string;
 }
 
 /* ── the packer (rule 8) ───────────────────────────────────────────────── */
@@ -311,6 +313,17 @@ function coverRun(cols: number, rows: number, specs: readonly MgTileSpec[]): Pla
  *  the first tiles sit). Pure and deterministic: the same input gives the
  *  same layout, which `scripts/bento-pack-test.mjs` asserts. */
 export function mgPack(grid: MgGrid, specs: readonly MgTileSpec[], mirror = false): MgLayout {
+  return packImpl(grid, specs, mirror, false)!;
+}
+
+/** `mgPack` on the FULL board only: the cover of exactly `cols × rows`, with
+ *  tiles moved into tabs as needed, or null where none exists. Never shrinks
+ *  the board. */
+export function mgPackExact(grid: MgGrid, specs: readonly MgTileSpec[]): MgLayout | null {
+  return packImpl(grid, specs, false, true);
+}
+
+function packImpl(grid: MgGrid, specs: readonly MgTileSpec[], mirror: boolean, exact: boolean): MgLayout | null {
   const { cols, rows } = grid;
   const largest = (s: MgTileSpec) => Math.max(...s.sizes.map(([w, h]) => w * h));
   const smallest = (s: MgTileSpec) => Math.min(...s.sizes.map(([w, h]) => w * h));
@@ -359,6 +372,7 @@ export function mgPack(grid: MgGrid, specs: readonly MgTileSpec[], mirror = fals
     const found = coverRun(cols, rows, kept);
     if (found) return settle(found, goneOf(mask), cols, rows);
   }
+  if (exact) return null;
   // More room than the content: the tiles kept cannot fill the board even at
   // their largest, so the board shrinks to the largest rectangle they cover
   // that keeps the grid's shape (the smaller of its column and row shares
@@ -466,22 +480,159 @@ function orNarrow(grid: MgGrid, content: MgContent, mirror: boolean, pack: () =>
   }
 }
 
-/** a · Linear work surface. Two heroes: the requirements list (the master)
- *  top-left and the model beside it; Scope and Detail under them, then the
- *  treemaps and the MMI bars, the other checks, the counts. */
+/** a · Linear work surface, with the requirements as a row of KPI cards on
+ *  top (owner, 2026-09-26: "I like A best, but add a row of KPI cards at the
+ *  top rather than the dense left sidebar that needs scrolling"). Under the
+ *  band, by priority: the model (the hero), Scope and Detail, the treemaps
+ *  and the MMI bars, the other checks, the counts.
+ *
+ *  THE BAND. Nothing in it scrolls and nothing shrinks below S. Three modes;
+ *  of each one's first full cover the one covering the most of the window
+ *  wins, ties in this order:
+ *    1  one S card per requirement, in the report's order, in ONE row
+ *       (2 modules × 11 = 22 columns, so from about 2560 px);
+ *    2  one card per report section (IFC-struktur, Standardkrav) at M 3 × 2,
+ *       its requirements as compact rows inside;
+ *    3  the same at L 4 × 3.
+ *  Wrapping the S cards onto a second row was tried on paper and left out:
+ *  at 16 to 18 columns it leaves two or three cards alone on a row, and at
+ *  12 it takes four of the six rows. Where a band is narrower than the board,
+ *  the rest of its row is filled from the tiles below (the counts first,
+ *  then the MMI bars and the treemaps), so the band stays one clean row.
+ *  The board may narrow by whole columns, centred, so band and body share
+ *  one edge (rule 9). Under 11 columns the narrow fallback applies. */
 export function layoutA(grid: MgGrid, content: MgContent): MgLayout {
   if (narrow(grid)) return layoutNarrow(grid, content, false);
-  return orNarrow(grid, content, false, () => mgPack(grid, [
-    { id: "reqs", kind: "list", sizes: XL, required: true },
+  return aBand(grid, content) ?? layoutNarrow(grid, content, false);
+}
+
+/** The tiles under the band, in priority order. */
+function aBody(grid: MgGrid, content: MgContent): MgTileSpec[] {
+  return [
     { id: "viewer", kind: "viewer", sizes: XL, required: true },
     { id: "scope", kind: "list", sizes: LM, required: true },
     { id: "detail", kind: "list", sizes: LM, required: true },
     { id: "tree-system", kind: "chart", sizes: LM },
     { id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system"] },
     { id: "mmi", kind: "chart", sizes: mmiSizes(grid.cols), hosts: ["tree-system"] },
-    { id: "checks", kind: "list", sizes: L_WIDE, hosts: ["reqs"] },
+    { id: "checks", kind: "list", sizes: L_WIDE, hosts: ["tree-system"] },
     ...countTiles(content),
-  ]));
+  ];
+}
+
+/** Every subset of `pool` (by index), fewest non-count tiles first, then
+ *  the fewest tiles, then the pool's order: the band takes counts before
+ *  charts. */
+function fillerSets(pool: readonly MgTileSpec[]): MgTileSpec[][] {
+  const sets: MgTileSpec[][] = [];
+  const n = Math.min(pool.length, 10);
+  for (let mask = 0; mask < 1 << n; mask += 1) sets.push(pool.filter((_, i) => i < n && mask & (1 << i)));
+  const charts = (set: MgTileSpec[]) => set.filter((t) => t.series !== "count").length;
+  return sets
+    .map((set, i) => ({ set, i }))
+    .sort((p, q) => charts(p.set) - charts(q.set) || p.set.length - q.set.length || p.i - q.i)
+    .map((e) => e.set);
+}
+
+function aBand(grid: MgGrid, content: MgContent): MgLayout | null {
+  const { cols } = grid;
+  const n = content.ifc + content.std;
+  const cards = [
+    ...Array.from({ length: content.ifc }, (_, i) => `ifc${i}`),
+    ...Array.from({ length: content.std }, (_, i) => `std${i}`),
+  ];
+  const modes: { name: string; h: number; specs: MgTileSpec[] }[] = [];
+  if (cols >= 2 * n) {
+    modes.push({ name: "cards", h: 2, specs: [{ ...mgBlock("kpis", "panel", cards, S[0]), sizes: [[2 * n, 2]] }] });
+  }
+  modes.push({
+    name: "sections-m",
+    h: 2,
+    specs: [
+      { id: "g-ifc", kind: "list", sizes: M_WIDE, required: true },
+      { id: "g-std", kind: "list", sizes: M_WIDE, required: true },
+    ],
+  });
+  modes.push({
+    name: "sections-l",
+    h: 3,
+    specs: [
+      { id: "g-ifc", kind: "list", sizes: L_WIDE, required: true },
+      { id: "g-std", kind: "list", sizes: L_WIDE, required: true },
+    ],
+  });
+  const body = aBody(grid, content);
+  // What may fill the band beside the cards: the counts, the MMI bars, the
+  // treemaps. Never the model, Scope or Detail.
+  const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => ["mmi", "tree-system", "tree-function"].includes(t.id))];
+  const sets = fillerSets(pool);
+  const MIN_BODY = 4;
+  // Each mode's first cover; the one that covers the most of the window
+  // wins (rule 9: a board that fills the screen, not a strip in the middle
+  // of it), ties to the mode order.
+  let best: MgLayout | null = null;
+  for (const mode of modes) {
+    const found = aMode(grid, mode, body, sets, MIN_BODY);
+    if (found && (!best || found.used * found.usedRows > best.used * best.usedRows)) best = found;
+  }
+  return best;
+}
+
+function aMode(
+  grid: MgGrid,
+  mode: { name: string; h: number; specs: MgTileSpec[] },
+  body: MgTileSpec[],
+  sets: MgTileSpec[][],
+  MIN_BODY: number,
+): MgLayout | null {
+  const { cols, rows } = grid;
+  {
+    if (rows - mode.h < MIN_BODY) return null;
+    const cardCols = mode.specs.reduce((a, t) => a + t.sizes[0][0], 0);
+    for (let used = cols; used >= Math.max(cardCols, cols - 8); used -= 1) {
+      // The first few fillings that close the band; each costs a body pack.
+      let tried = 0;
+      for (const fill of sets) {
+        if (tried >= 4) break;
+        const bandSpecs = [...mode.specs, ...fill.map((t) => ({ ...t, sizes: t.sizes.filter(([, h]) => h <= mode.h) }))];
+        if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
+        const bandCover = coverRun(used, mode.h, bandSpecs);
+        if (!bandCover) continue;
+        tried += 1;
+        const rest = body.filter((t) => !fill.includes(t));
+        for (let r = rows - mode.h; r >= MIN_BODY; r -= 1) {
+          const lower = mgPackExact({ cols: used, rows: r, u: grid.u }, rest);
+          if (!lower) continue;
+          const offset = Math.floor((cols - used) / 2);
+          const top = Math.floor((rows - mode.h - r) / 2);
+          const bandTiles: MgPlace[] = bandCover.map((t, i) => ({
+            ...t,
+            x: offset + t.x,
+            y: top + t.y,
+            priority: i,
+            tabs: [],
+          }));
+          const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({
+            ...t,
+            x: offset + t.x,
+            y: top + mode.h + t.y,
+            priority: bandTiles.length + t.priority,
+          }));
+          return {
+            ...grid,
+            used,
+            usedRows: mode.h + r,
+            offset,
+            top,
+            tiles: [...bandTiles, ...lowerTiles].sort((p, q) => p.y - q.y || p.x - q.x),
+            moved: lower.moved,
+            band: mode.name,
+          };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /** b · Stripe summary. The summary leads, top-left: the two treemaps and
