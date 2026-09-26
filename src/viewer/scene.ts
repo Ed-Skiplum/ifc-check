@@ -74,6 +74,7 @@ import {
   elementRows,
   partitionFaces,
   pivotBounds,
+  robustBounds,
   type FramingBox,
   type MeshSet,
 } from "./mesh-stream";
@@ -202,6 +203,10 @@ export class ModelScene {
   private wheelFocus: Vector3 | null = null;
 
   private selection: string[] = [];
+  /** True while the orbit centre IS the selection's centre. The wheel reads it:
+   *  with a selection the dolly goes toward the selection, not the cursor, so
+   *  nothing but a new or cleared selection moves what the orbit turns about. */
+  private orbitsSelection = false;
   private hover: string | null = null;
   private mode: Mode = "filter";
   private matched: Set<string> | null = null;
@@ -490,6 +495,12 @@ export class ModelScene {
      *  point through a zoom needs a world coordinate; the NDC box's centre is
      *  not one — which corner is extreme changes as the camera moves. */
     world: { min: [number, number, number]; max: [number, number, number] } | null;
+    /** The orbit centre the next drag turns about, and whether it is the
+     *  selection's. `pivot-gate.mjs` asserts every path that can change a
+     *  selection, or move the camera under one, against these. */
+    pivot: [number, number, number] | null;
+    orbitsSelection: boolean;
+    selection: string[];
   } {
     const eye = this.turntable.eye();
     const target = this.turntable.target;
@@ -528,6 +539,11 @@ export class ModelScene {
             max: [bounds.max.x, bounds.max.y, bounds.max.z],
           }
         : null,
+      pivot: this.turntable.pivot
+        ? [this.turntable.pivot.x, this.turntable.pivot.y, this.turntable.pivot.z]
+        : null,
+      orbitsSelection: this.orbitsSelection,
+      selection: [...this.selection],
     };
   }
 
@@ -779,30 +795,40 @@ export class ModelScene {
    * nothing must not drop the pivot on the origin or on a NaN.
    */
   private updatePivot(): void {
-    const bounds = this.pivotBox();
-    if (!bounds) return;
-    const centre = new Vector3().addVectors(bounds.min, bounds.max).multiplyScalar(0.5);
-    if (this.turntable.setPivot(centre)) this.invalidate();
+    const found = this.pivotBox();
+    this.orbitsSelection = false;
+    if (!found) return;
+    const centre = new Vector3().addVectors(found.min, found.max).multiplyScalar(0.5);
+    if (this.turntable.setPivot(centre)) {
+      this.orbitsSelection = found.selection;
+      this.invalidate();
+    }
   }
 
   /**
-   * The box the pivot is taken from. The precedence and the outlier rule are
-   * `pivotBounds` / `robustBounds` in `mesh-stream` — pure and exported so the
-   * headless gate runs the same arithmetic the viewer does.
+   * The box the pivot is taken from, and whether it is the selection's. The
+   * precedence and the outlier rule are `pivotBounds` / `robustBounds` in
+   * `mesh-stream` — pure and exported so the headless gate runs the same
+   * arithmetic the viewer does.
    */
-  private pivotBox(): { min: Vector3; max: Vector3 } | null {
+  private pivotBox(): { min: Vector3; max: Vector3; selection: boolean } | null {
     const framing = this.framing;
     // No framing pass means no outlier verdict to inherit; the honest answer is
     // the true box rather than a guess at which elements are broken.
     if (!framing) {
       if (this.selection.length > 0) {
         const chosen = this.bounds(this.selection);
-        if (chosen) return chosen;
+        if (chosen) return { ...chosen, selection: true };
       }
-      return this.bounds(this.matched === null ? null : [...this.matched]);
+      const rest = this.bounds(this.matched === null ? null : [...this.matched]);
+      return rest ? { ...rest, selection: false } : null;
     }
     const box = pivotBounds(framing, this.boxRow, this.selection, this.matched);
-    return box ? { min: new Vector3(...box.min), max: new Vector3(...box.max) } : null;
+    if (!box) return null;
+    const selection =
+      this.selection.length > 0 &&
+      robustBounds(framing.elements, this.boxRow, this.selection) !== null;
+    return { min: new Vector3(...box.min), max: new Vector3(...box.max), selection };
   }
 
   /* -------------------------------------------------------------- picking */
@@ -902,6 +928,20 @@ export class ModelScene {
 
   private onWheel = (event: WheelEvent) => {
     event.preventDefault();
+    const pixels = wheelPixels(event.deltaY, event.deltaMode);
+    // "We always have to orbit selected objects" (edkjo, 2026-09-26). With a
+    // selection the dolly goes toward the SELECTION's centre, not the cursor:
+    // the eye slides along the eye->pivot line, so the selection keeps its
+    // place on screen and stays what the next drag turns about. A cursor
+    // anchor here would carry the camera past or away from it. With nothing
+    // selected the cursor rule below is unchanged.
+    const pivot = this.turntable.pivot;
+    if (this.orbitsSelection && pivot) {
+      this.wheelFocus = null;
+      this.turntable.zoom(pixels, pivot);
+      this.invalidate();
+      return;
+    }
     const ndc = this.ndc(event);
     const now = performance.now();
     const newBurst = now - this.lastWheelAt > 300 || this.wheelFocus === null;
@@ -915,7 +955,7 @@ export class ModelScene {
       this.wheelFocus = hit ? hit.point : this.turntable.planePoint(ndc, this.camera);
     }
     const focus = this.wheelFocus ?? this.turntable.planePoint(ndc, this.camera);
-    this.turntable.zoom(wheelPixels(event.deltaY, event.deltaMode), focus);
+    this.turntable.zoom(pixels, focus);
     this.invalidate();
   };
 

@@ -653,6 +653,53 @@ Chase these upstream rather than living with them silently:
 | placement | `ObjectPlacement`, and the core's `drift_distance_m` (row count only) |
 | types | a type object's own property rows — ifcfast folds them onto the occurrences that inherit them |
 
+## The orbit is the selection (2026-09-26)
+
+edkjo: *"we always have to orbit selected objects."* Whenever something is
+selected, the orbit centre is the selection's centre, and it stays there until
+the selection changes or is cleared. Nothing else moves it: not a wheel, not a
+pan, not a set chip, not the viewer moving between Kontroll and Graf. The
+older rules hold beside it: a SET never moves the camera, one element (a band
+or Scope row) frames, a canvas pick does not move the eye. Only the orbit
+centre changes.
+
+- **The pivot.** `ModelScene.updatePivot` takes the selection first
+  (`pivotBounds`), and now records whether it did (`orbitsSelection`).
+  `Turntable.setPivot` stores the centre and moves nothing. `probe()` reports
+  `pivot`, `orbitsSelection` and `selection` so a gate can read all three.
+- **The wheel, the one path that broke.** Measured before the fix
+  (`pivot-gate.mjs` B2): the pivot itself stayed on the selection, but the
+  dolly anchored on the CURSOR, so four ticks with the pointer away from the
+  selection carried it 0.83 NDC across the screen, toward the edge or past the
+  eye. The next drag still turned about it, just about a point the camera had
+  been driven away from. Now, with a selection, `onWheel` anchors the dolly on
+  the pivot: the eye slides along the eye to selection line and the selection
+  keeps its screen place (5e-16 NDC). With nothing selected the cursor rule is
+  unchanged (B14). A zoom never touches `pivot`; the lerp moves the look-at
+  `target`.
+- **Every other path already held**, and the gate now says so rather than
+  assuming it: canvas pick, pan, treemap cell, requirement, Scope row, Shift
+  second click (drops only that element, the orbit returns to the rest), the
+  lone row again (clears, and the pivot lets go), a chip's ✕, Kontroll to
+  Graf with the viewer windowed and main, a graph pick in both layouts, and
+  Graf back to Kontroll. The lent canvas is the same `ModelScene`, and
+  `resize` never touches the pivot.
+
+`scripts/pivot-gate.mjs` phase 2 (B1 to B14) drives each path with real CDP
+events on `#design=a` against `dist/` and asserts two things off the live scene
+per path: the pivot IS the selection's centre, and a real left-drag moves the
+eye while the selection's centre stays put on screen (< 1e-3 NDC). Phase 1
+gained assertion 10 (a dolly toward the pivot keeps it fixed).
+
+```bash
+npm run build && node scripts/pivot-gate.mjs /c/workspace/skiplum/client-projects/10016-kistefos/underprosjekter/KNM_Mottakskontroll/02_arbeid/KNM_RIB.ifc
+node scripts/pivot-gate.mjs model.ifc --no-browser     # arithmetic only
+```
+
+Run on `KNM_Mottakskontroll/02_arbeid/KNM_RIB.ifc`: the Void-demo exports fail
+phase 1 assertion 6, which is pre-existing and unrelated (their stray element is
+476 m out, not the hundred bulk widths the assertion expects).
+
 ## The band opens on a SELECTION (2026-09-23)
 
 (The design alternatives do not do this since 2026-09-25: their Detail panel

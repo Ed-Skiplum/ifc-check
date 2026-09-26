@@ -26,9 +26,13 @@
  * -- Why zoom cannot saturate here ---------------------------------------
  * A percentage dolly against a fixed mid-air target asymptotes to zero while
  * the surface is still far away. So the target ADVANCES: on every wheel the
- * pivot is lerped toward the point under the cursor by the same fraction the
+ * look-at `target` is lerped toward the anchor by the same fraction the
  * radius shrank. Distance-to-surface, not distance-to-an-abstract-point, is
- * what sets the speed, and the approach stays smooth all the way in.
+ * what sets the speed, and the approach stays smooth all the way in. The
+ * orbit centre, `pivot`, is never touched by a zoom. The anchor is the point
+ * under the cursor when nothing is selected, and the selection's centre when
+ * something is (`ModelScene.onWheel`): "we always have to orbit selected
+ * objects", so the wheel dollies toward the selection rather than away from it.
  *
  * -- Re-targeting without a camera move ----------------------------------
  * The pose is (target, phi, theta, radius): `target` is the LOOK-AT point on
