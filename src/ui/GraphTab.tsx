@@ -914,7 +914,7 @@ export function GraphTab({
   );
 
   const onWheel = useCallback(
-    (event: React.WheelEvent<HTMLCanvasElement>) => {
+    (event: WheelEvent) => {
       if (!simRef.current) return;
       event.preventDefault();
       const at = localPoint(event);
@@ -924,6 +924,17 @@ export function GraphTab({
     },
     [localPoint, wake],
   );
+
+  // Native and non-passive: React attaches `onWheel` as a passive listener, so
+  // its preventDefault is ignored and the page scrolled while the graph zoomed
+  // (edkjo 2026-09-26: "the page scroller is active at the same time as model
+  // zoom").
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [onWheel]);
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1148,7 +1159,6 @@ export function GraphTab({
               ref={canvasRef}
               data-graph
               className="block h-full w-full touch-none select-none"
-              onWheel={onWheel}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={endGesture}
