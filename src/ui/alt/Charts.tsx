@@ -159,7 +159,7 @@ export function MeasureSwitch({
 
 /** The source split under a volume or area map: Qto · beregnet · mangler,
  *  the parts that are not zero. */
-function SourceLine({ split, lang }: { split: SourceSplit; lang: Lang }) {
+export function SourceLine({ split, lang }: { split: SourceSplit; lang: Lang }) {
   const parts: string[] = [];
   if (split.qto) parts.push(`Qto ${formatCount(split.qto, lang)}`);
   if (split.computed) parts.push(`${t("object.derived", lang).toLocaleLowerCase(locale(lang))} ${formatCount(split.computed, lang)}`);

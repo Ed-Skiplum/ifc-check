@@ -725,3 +725,54 @@ export function graphTiles(grid: MgGrid): { main: MgPlace; second: MgPlace; used
   });
   return { main: at("main", offset, main, 0), second: at("second", offset + main[0], second, 1), used, offset };
 }
+
+/* ── the Rom tab: the spaces and their schedule ────────────────────────── */
+
+/** The Rom tab on the same grid: the spatial view (3D or plan) as an XL,
+ *  8 × 5 where that leaves the schedule 4 columns, else 6 × 4, else an L
+ *  (4 × 3); the schedule beside it at the same height, the columns left,
+ *  capped where it would pass the list bound (2 : 1), never under 3. Centred
+ *  in whole columns. Under 7 columns the two stack, both L. */
+export function roomTiles(grid: MgGrid): { spatial: MgPlace; schedule: MgPlace; used: number; offset: number } {
+  const { cols, rows, u } = grid;
+  const px = (n: number) => mgSpanPx(n, u);
+  const place = (id: string, kind: MgKind, x: number, y: number, [w, h]: Wh, priority: number): MgPlace => ({
+    id,
+    kind,
+    x,
+    y,
+    w,
+    h,
+    size: canonSize(w, h) ?? (w >= 6 ? "XL" : "L"),
+    priority,
+    tabs: [],
+  });
+  // Each spatial size with the schedule columns it must leave.
+  const options: readonly [Wh, number][] = [
+    [XL[0], 4],
+    [XL[1], 3],
+    [[4, 3], 3],
+  ];
+  for (const [fit, keep] of options) {
+    const h = fit[1];
+    if (cols - fit[0] < keep || h > Math.max(rows, 3)) continue;
+    let sw = cols - fit[0];
+    while (sw > keep && px(sw) > MG_ASPECT.list.max * px(h)) sw -= 1;
+    const used = fit[0] + sw;
+    const offset = Math.floor((cols - used) / 2);
+    return {
+      spatial: place("spatial", "viewer", offset, 0, fit, 0),
+      schedule: place("schedule", "list", offset + fit[0], 0, [sw, h], 1),
+      used,
+      offset,
+    };
+  }
+  const w = Math.min(cols, 4);
+  const offset = Math.floor((cols - w) / 2);
+  return {
+    spatial: place("spatial", "viewer", offset, 0, [w, 3], 0),
+    schedule: place("schedule", "list", offset, 3, [w, 3], 1),
+    used: w,
+    offset,
+  };
+}

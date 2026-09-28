@@ -101,6 +101,8 @@ import {
 } from "../src/ui/chart-colors.ts";
 import { classRamp } from "../src/ui/graph-paint.ts";
 import { layerSection, PX_PER_MM, sectionOrientation, UNKNOWN_PX } from "../src/ui/layer-section.ts";
+import { roomSchedule, spaceLongNames } from "../src/engine/rooms.ts";
+import { shapeOf } from "../src/ui/room-plan.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -1123,6 +1125,75 @@ async function cmdSelftest(): Promise<number> {
       fn.root.map((n) => `${describe([n])}:${n.kind}`).join(" "),
     );
     record("code tree: leaf counts sum to the objects handed in", "4,4,4", [leaves(sys.root), leaves(byClass.root), leaves(fn.root)].join(","));
+
+    // The Rom tab (src/engine/rooms.ts, src/ui/room-plan.ts): spaces are
+    // out of both treemaps, with or without a mapping.
+    const withSpace = [...objects, { guid: "r", entity: "IfcSpace", typeName: null, predefinedType: "INTERNAL" }];
+    record(
+      "rooms: IfcSpace is in neither treemap, mapped or not",
+      "4,4,4,4",
+      [
+        leaves(systemTree(withSpace, null, {}).root),
+        leaves(systemTree(withSpace, [...readings, { guid: "r", value: "2", code: "2", state: "ok" as const }], {}).root),
+        leaves(functionTree(withSpace, null, {}).root),
+        systemTree(withSpace, null, {}).n,
+      ].join(","),
+    );
+    const spaceStep = new TextEncoder().encode(
+      [
+        "#1=IFCSPACE('g1',#2,'',$,$,#3,#4,'M\\X\\F8terom',.ELEMENT.,.INTERNAL.,0.);",
+        "#5=IFCSPACE('g2',#2,'101','d',$,#3,#4,$,.ELEMENT.,.INTERNAL.,$);",
+        "#6=IFCSPACETYPE('t1',#2,'Type',$,$,$,$,$,$,.SPACE.,$);",
+        "#7=IFCSPACE('g3',#2,'102',$,$,#3,#4,'K\\X2\\00F8\\X0\\kken (it''s)',.ELEMENT.,.INTERNAL.,0.);",
+      ].join("\n"),
+    );
+    const longNames = spaceLongNames(spaceStep, 50);
+    record(
+      "rooms: LongName read from the STEP bytes across chunks, escapes decoded, $ is null, a space type is not a space",
+      "g1=Møterom g2=null g3=Køkken (it's) t1=absent",
+      `g1=${longNames.g1} g2=${longNames.g2} g3=${longNames.g3} t1=${"t1" in longNames ? "present" : "absent"}`,
+    );
+    const roomRows = [
+      { guid: "a", name: "1", longName: "WC", storeyGuid: "s1" },
+      { guid: "b", name: "2", longName: "WC", storeyGuid: "s2" },
+      { guid: "c", name: "3", longName: null, storeyGuid: "s2" },
+      { guid: "d", name: null, longName: null, storeyGuid: null },
+    ];
+    const roomQ: Record<string, ElementQuantity> = {
+      a: [30, 0, 10, 0, null, 2],
+      b: [12, 1, 4, 1, null, 2],
+      c: [null, 2, null, 3, null, 2],
+    };
+    const roomStoreys = [
+      { guid: "s1", name: "01", elevation: 0 },
+      { guid: "s2", name: "02", elevation: 3 },
+    ];
+    const show = (gs: ReturnType<typeof roomSchedule>) =>
+      gs.map((g) => `${g.label}:${g.guids.length}:${g.area.value}/${g.area.missing}/${g.area.pending}:${g.volume.value}/${g.volume.missing}/${g.volume.pending}`).join(" ");
+    record(
+      "rooms: the schedule by name (LongName, else Name) and by storey (top first); sums leave missing and pending out and count them",
+      "WC:2:14/0/0:42/0/0 3:1:0/0/1:0/1/0 null:1:0/0/1:0/0/1 | 02:2:4/0/1:12/1/0 01:1:10/0/0:30/0/0 null:1:0/0/1:0/0/1",
+      `${show(roomSchedule(roomRows, "name", roomQ, roomStoreys))} | ${show(roomSchedule(roomRows, "storey", roomQ, roomStoreys))}`,
+    );
+    {
+      // The 2 x 3 x 4 box below, one foreign vertex first: its plan is its
+      // floor, a 2 x 3 rectangle, outlined by four edges.
+      const corners = [[0, 0, 0], [2, 0, 0], [2, 3, 0], [0, 3, 0], [0, 0, 4], [2, 0, 4], [2, 3, 4], [0, 3, 4]];
+      const faces = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+      const pos: number[] = [9, 9, 9];
+      const idx: number[] = [];
+      for (const f of faces) {
+        const base = pos.length / 3;
+        for (const c of f) pos.push(...corners[c]);
+        idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+      const plan = shapeOf("x", new Float32Array(pos), new Uint32Array(idx), 0, 36);
+      record(
+        "rooms: a space's plan is its floor (lower half, horizontal faces), outlined by its boundary edges",
+        "2,4,6,1,1.5",
+        plan ? [plan.tris.length / 6, plan.outline.length / 4, plan.area, ...plan.centre].join(",") : "null",
+      );
+    }
 
     // The treemap measures (src/engine/quantities.ts).
     const step = new TextEncoder().encode(

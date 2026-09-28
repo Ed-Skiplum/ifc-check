@@ -394,12 +394,14 @@ loaded it drops to the outlined style of the other bar controls. Then:
    the 3D beside it (below).
 4. **Typer** (`TypesTab.tsx`) and 5. **Materialer** (`MaterialsTab.tsx`): the
    type and material extraction (below).
-6. **Prosjekt** (`alt/ProjectBoard.tsx`): project specifics and the IDS: the
+6. **Rom** (`RoomsTab.tsx`): the spaces, apart from the treemaps (see "The
+   Rom tab").
+7. **Prosjekt** (`alt/ProjectBoard.tsx`): project specifics and the IDS: the
    Standardkrav KPI cards, the IDS table, the mapped treemaps, the MMI bars
    and the model (see "The project tab board", "The IDS view"). The tab's name is pending the owner and
    lives in one key, `tab.project`.
 
-The tab is `tab=contents` / `graph` / `types` / `materials` / `project` in the URL hash (absent = Kontroll), one
+The tab is `tab=contents` / `graph` / `types` / `materials` / `rooms` / `project` in the URL hash (absent = Kontroll), one
 for all panels, pushed to history so Back/Forward walk it. Both tabs stay mounted and
 the inactive one is `hidden`, so the 3D scene and its camera survive a tab
 switch. The derivation band opens INSIDE the panel of the model it belongs to,
@@ -1868,8 +1870,54 @@ triangles. In a LOCAL `vite preview` build in headless Chrome
 board data at 2.37 s median, painted 2.52 s, Volum and Areal enabled 2.85 s.
 HEAD alone: 3.2 s / 3.5 s on its one uncontended run; the other four ran
 while the box was loaded (mesh pass 15 to 49 s), so the before side is not a
-clean median. IfcSpace is in the treemaps' object set (`physicalProducts`), so
-on Volum the rooms (17 100 m³ of about 17 600) fill the map.
+clean median. IfcSpace WAS in the treemaps' object set, so on Volum the rooms
+(17 100 m³ of about 17 600) filled the map. Since 2026-09-28 both trees leave
+IfcSpace out (`TREE_EXCLUDED` in `code-tree.ts`, mapped or not; owner:
+*"spaces should be kept separate from the treemap"*); the spaces are the Rom
+tab's. A mapped tree's cell count can therefore be lower than its
+requirement's count by the spaces the mapping reads.
+
+### The Rom tab (2026-09-28)
+
+Owner: *"I think it could be cool to add a tab for spaces in fact. Spacial with
+an aggregated room/space schedule"*; grouped by room name and by storey; the
+spatial view both a 3D and a plan per storey, toggled.
+
+- **Layout** (`roomTiles` in `module-grid.ts`): the spatial tile XL (8 × 5
+  where that leaves the schedule 4 columns, else 6 × 4, else 4 × 3), the
+  schedule beside it at the same height, capped at the list bound 2 : 1.
+  Measured locally in headless Chrome with HI90_ARK: 1440×900 8×5 + 4×5,
+  canvas 1.71; 1100×800 6×4 + 3×4, canvas 1.63; 1920×1080 8×5 + 8×5;
+  2112×1267 8×5 + 9×5, canvas 1.72. No page scroll. The foot band is not
+  drawn on this tab: the two tiles fit the window.
+- **Room name** is LongName, else Name. The wasm graph has no LongName, so the
+  parse worker reads it from the STEP bytes (`spaceLongNames` in
+  `engine/rooms.ts`, chunked, ISO 10303-21 string escapes decoded) onto the
+  graph as `space_long_names` (`CACHE_FORMAT` 5) and the profile rows as
+  `longName`. On HI90_ARK every IfcSpace.Name is '' and LongName carries the
+  function, so without it the schedule would be one unnamed group. An ifczip
+  has no readable bytes: the schedule then says `LongName · ikke levert`.
+- **Schedule** (`roomSchedule`): count, area, volume per group from the
+  treemaps' resolved quantities (`elementQuantities`: BaseQuantities first,
+  the closed-mesh estimate second). A sum counts only rooms with the value;
+  pending shows `…`, all missing `—`, the split is in the cell title and under
+  the table (`SourceLine`). By name, largest group first; by storey, top floor
+  first. A group opens to its rooms.
+- **3D** is the board's scene, lent, under a `SceneLens`: only the spaces are
+  drawn, in their group's colour (vertex colours repainted, restored on
+  release), and spaces are pickable while it is held. The filter applies
+  inside the lens; the camera frames and orbits the lens ∩ filter.
+- **Plan** (`room-plan.ts`) is SVG, not the scene: each space's floor (the
+  horizontal faces in the lower half of its height) projected down, outlined
+  by its boundary edges, labelled where the room is wide enough. It is the
+  footprint, not a mesh cut at a height. Storey picker; a choice on another
+  storey brings that storey up; the view frames the selection, else the
+  filter, else the storey.
+- **Clicks**: a group row is origin `rooms` (filter kind `room`, the whole
+  group's guids), a room row an element pick from `rooms`, a room in the plan
+  one from `room-plan`, a room in the 3D the canvas's own (`viewer`). The
+  origin keeps its items and dims the rest; the schedule and the plan isolate
+  (the plan by `Vis kun / Uthev`).
 
 ### The Overview (2026-09-28): b is the one board
 

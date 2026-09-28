@@ -47,6 +47,7 @@ import { profileOf } from "../storage/rehydrate.ts";
 import { withTypeFacts } from "./types/facts";
 import type { ModelProfile } from "./profile";
 import { quantityUnits, type MeshMeasure } from "../engine/quantities";
+import { spaceLongNames } from "../engine/rooms";
 import {
   MeasureChannel,
   MeasureState,
@@ -200,6 +201,8 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     const view = new Uint8Array(bytes);
     const zipped = view[0] === 0x50 && view[1] === 0x4b;
     const units = zipped ? undefined : quantityUnits(view);
+    // The spaces' LongName, the room's function, likewise (the Rom tab).
+    const longNames = zipped ? undefined : spaceLongNames(view);
 
     // Geometry first, then the graph — see `streamMeshes`. A mesh failure is
     // reported as itself and does NOT take the checks down with it: the board
@@ -235,6 +238,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     graph.quantities = quantities;
     graph.materials = materials;
     if (units) graph.quantity_units = units;
+    if (longNames) graph.space_long_names = longNames;
     model.free();
     measures = new MeasureChannel(new MeasureState(graph, withheld, summary.unit_resolved ? summary.unit_scale : null));
 

@@ -168,6 +168,10 @@ export interface IfcGraph {
    *  BaseQuantities are then not used for the treemap measures, never read
    *  as if they were metres. */
   quantity_units?: QuantityUnits;
+  /** Every IfcSpace's LongName by GlobalId (`spaceLongNames`, read from the
+   *  STEP bytes by the parse worker; the wasm graph has no LongName). A space
+   *  with none is null. Absent = not read (a CLI, an ifczip). */
+  space_long_names?: Record<string, string | null>;
 }
 
 /** One material assignment row — `materialsJson()`, long format.
