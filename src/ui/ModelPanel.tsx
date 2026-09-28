@@ -49,6 +49,7 @@ import { ObjectPanel } from "./ObjectPanel";
 import { GraphTab } from "./GraphTab";
 import { TypesTab } from "./TypesTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { IdsResults, type IdsSession } from "./IdsResults";
 import type { Reveal } from "./TypesTab";
 import { catalogue as buildCatalogue } from "./type-links";
 import { FilterBar } from "./FilterBar";
@@ -58,14 +59,15 @@ import { aggregateTypes, meshIndex } from "./types";
 import type { FloorConfig } from "../engine/storey-config";
 import type { FloorPeer } from "./FloorSetup";
 
-export type Tab = "checks" | "contents" | "graph" | "types" | "materials";
-const TABS: readonly Tab[] = ["checks", "contents", "graph", "types", "materials"];
+export type Tab = "checks" | "contents" | "graph" | "types" | "materials" | "project";
+const TABS: readonly Tab[] = ["checks", "contents", "graph", "types", "materials", "project"];
 const TAB_LABEL: Record<Tab, StringKey> = {
   checks: "tab.checks",
   contents: "tab.contents",
   graph: "tab.graph",
   types: "tile.types",
   materials: "col.materials",
+  project: "tab.project",
 };
 
 interface ModelPanelProps {
@@ -99,6 +101,11 @@ interface ModelPanelProps {
   onTab: (tab: Tab) => void;
   /** The derivation band, when the open number is this model's. */
   trace: ReactNode;
+  /** The loaded `.ids` (Prosjekt tab), shared by every panel. */
+  ids: IdsSession | null;
+  idsError: string | null;
+  onIdsFile: (file: File) => void;
+  onClearIds: () => void;
 }
 
 export function ModelPanel({
@@ -124,6 +131,10 @@ export function ModelPanel({
   tab,
   onTab,
   trace,
+  ids,
+  idsError,
+  onIdsFile,
+  onClearIds,
 }: ModelPanelProps) {
   const profile = model.profile;
   const facts = useMemo(() => (profile ? census(profile) : null), [profile]);
@@ -432,6 +443,18 @@ export function ModelPanel({
                 reveal={revealMaterial}
                 onSelect={onSelect}
                 onOpenType={openType}
+              />
+            </div>
+            <div role="tabpanel" hidden={tab !== "project"} className="flex flex-col">
+              <IdsResults
+                lang={lang}
+                model={model}
+                session={ids}
+                error={idsError}
+                selected={selected}
+                onFocus={focus}
+                onFile={onIdsFile}
+                onClear={onClearIds}
               />
             </div>
             {/* Pinned to the bottom of the scrolling page while this panel

@@ -9,8 +9,10 @@ export interface ModelProduct {
   /** Where the row came from. `spatial` rows are synthesized from the graph's
    *  site / building / storey / space tables, which carry a GUID and a name and
    *  nothing else — so a check that needs any other field reports
-   *  not_evaluable for them rather than guessing. Absent means `product`. */
-  source?: "product" | "spatial";
+   *  not_evaluable for them rather than guessing. `type` rows are the declared
+   *  type objects (`type_objects`), synthesized the same way for IDS rules
+   *  only; they carry GlobalId, class and Name. Absent means `product`. */
+  source?: "product" | "spatial" | "type";
   guid: string;
   entity: string;
   name: string | null;
@@ -61,6 +63,31 @@ export interface ModelTypeObject {
   name: string | null;
 }
 
+/** One authored quantity (`quantitiesJson()`): an `IfcElementQuantity`
+ *  entry, keyed by its owner like a property row. IDS reads a quantity set as
+ *  a property set, so the evaluator folds these into the property index.
+ *  `quantity_type` is ifcfast's short kind (`Length`, `Area`, `Volume`, ...). */
+export interface ModelQuantity {
+  guid: string;
+  qto_name: string;
+  quantity_name: string;
+  value: string | null;
+  quantity_type: string | null;
+  source?: string;
+}
+
+/** One material assignment (`materialsJson()`): every
+ *  `IfcRelAssociatesMaterial`, direct, list, layer or unresolved (`role`
+ *  `unknown`: constituent and profile sets), instance or inherited from the
+ *  type. `ModelProduct.materials` carries the layer-set materials only. */
+export interface ModelMaterial {
+  guid: string;
+  role: string;
+  material_name: string | null;
+  category: string | null;
+  source?: string;
+}
+
 export interface ModelGraph {
   schema: string;
   products: ModelProduct[];
@@ -79,6 +106,8 @@ export interface ModelGraph {
   psets?: ModelProperty[];
   classifications?: ModelClassification[];
   type_objects?: ModelTypeObject[];
+  quantities?: ModelQuantity[];
+  materials?: ModelMaterial[];
 }
 
 export interface ModelSummary {

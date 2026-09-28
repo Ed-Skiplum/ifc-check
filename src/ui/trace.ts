@@ -56,7 +56,10 @@ export type Focus =
    *  "no value". `id` is the row id, or the mapping role. */
   | { kind: "req"; id: string; value?: string | null }
   /** One cell of a code treemap (`src/engine/code-tree.ts`), by its key. */
-  | { kind: "tree"; axis: "system" | "function"; key: string };
+  | { kind: "tree"; axis: "system" | "function"; key: string }
+  /** One specification of the loaded `.ids`, by its 0-based position in the
+   *  file (the Prosjekt tab). */
+  | { kind: "ids"; index: number };
 
 const KPIS: KpiFocus[] = ["products", "storeys"];
 
@@ -85,6 +88,7 @@ export function serialiseFocus(focus: Focus): string {
     return focus.value === null ? `req:${focus.id}|-` : `req:${focus.id}|=${focus.value}`;
   }
   if (focus.kind === "tree") return `tree:${focus.axis}|${focus.key}`;
+  if (focus.kind === "ids") return `ids:${focus.index}`;
   return `cell:${focus.storeyGuid ?? "-"}|${focus.entity}`;
 }
 
@@ -130,6 +134,10 @@ export function parseFocus(raw: string | null): Focus | null {
     const axis = rest.slice(0, bar);
     const key = rest.slice(bar + 1);
     return bar > 0 && key && (axis === "system" || axis === "function") ? { kind: "tree", axis, key } : null;
+  }
+  if (kind === "ids") {
+    const index = Number(rest);
+    return rest !== "" && Number.isInteger(index) && index >= 0 ? { kind: "ids", index } : null;
   }
   if (kind === "cell") {
     const bar = rest.lastIndexOf("|");
@@ -254,6 +262,27 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
     const check = checkOf(model, focus.checkId);
     if (!check) return null;
     return traceOfCheck(base, check);
+  }
+
+  if (focus.kind === "ids") {
+    const spec = model.ids?.specs[focus.index];
+    if (!spec) return null;
+    return {
+      ...base,
+      titleKey: "ids.heading",
+      titleText: spec.name,
+      state: spec.state,
+      detail: spec.detail,
+      reason: spec.reason,
+      notes: spec.notes ?? [],
+      stats: [
+        { label: "trace.applicable", value: spec.applicable },
+        { label: "trace.passed", value: spec.passed },
+        { label: "trace.failed", value: spec.failed },
+      ],
+      rows: spec.findings.map((f) => ({ guid: f.guid, entity: f.entity, name: f.name, reason: f.reason })),
+      rowsComplete: true,
+    };
   }
 
   const profile = model.profile;

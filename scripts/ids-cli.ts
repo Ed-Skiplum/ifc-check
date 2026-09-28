@@ -8,6 +8,7 @@
  *   node scripts/ids-cli.ts lint   my.ruleset.json
  *   node scripts/ids-cli.ts emit   my.ruleset.json --out dist-rules
  *   node scripts/ids-cli.ts run    my.ruleset.json model.ifc [...]
+ *   node scripts/ids-cli.ts ids    my.ids model.ifc [...] [--max-findings N]
  *   node scripts/ids-cli.ts report [--ruleset my.ruleset.json] model.ifc [...]
  *   node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] model.ifc [...]
  *   node scripts/ids-cli.ts selftest
@@ -40,12 +41,15 @@ import { validateXML } from "xmllint-wasm";
 
 import { CODE_LISTS } from "../src/codelists/index.ts";
 import { evaluateRuleset } from "../src/ids/evaluate.ts";
+import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
+import { emitIdsXml } from "../src/ids/emit.ts";
+import { evaluateIds, type IdsModelResult } from "../src/ids/ids-report.ts";
 import { exportRuleset, partitionRules } from "../src/ids/export.ts";
 import { BOOLEAN_VALUES, hasErrors, lintRuleset } from "../src/ids/lint.ts";
 import { RULESET_JSON_SCHEMA } from "../src/ids/schema.ts";
 import { SAMPLE_RULESET } from "../src/ids/sample.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
-import type { Ruleset } from "../src/ids/types.ts";
+import type { IdsRule, Ruleset } from "../src/ids/types.ts";
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
 import { runFundamentals } from "../src/engine/fundamentals.ts";
 import {
@@ -305,6 +309,69 @@ async function cmdRun(args: string[]): Promise<number> {
   }
   emit({ command: "run", ruleset: ruleset.name, totals, models, lint: issues });
 
+  if (totals.fail > 0 || totals.error > 0) return 1;
+  return totals.not_evaluable > 0 ? 3 : 0;
+}
+
+/* ------------------------------------------------------------------- ids */
+
+/** Run a buildingSMART `.ids` as written: import it (`src/ids/import.ts`),
+ *  evaluate it per model (`src/ids/ids-report.ts`), one row per specification
+ *  in file order. `--max-findings N` caps the findings PRINTED per row (default
+ *  20; 0 prints every one); the counts are never capped. Exit codes as `run`. */
+async function cmdIds(args: string[]): Promise<number> {
+  const paths = positionals(args);
+  const idsPath = paths[0];
+  if (!idsPath) fail("ids needs an .ids path");
+  let imported: ImportedIds;
+  try {
+    imported = importIds(readFileSync(idsPath, "utf8"), basename(idsPath));
+  } catch (error) {
+    return fail(`cannot import ${idsPath}: ${(error as Error).message}`);
+  }
+  const modelPaths = paths.slice(1);
+  if (modelPaths.length === 0) fail("ids needs at least one .ifc path");
+  const shown = Number(flagValue(args, "--max-findings") ?? 20);
+
+  const IfcModel = await loadWasm();
+  const models: (IdsModelResult | { model: string; error: string })[] = [];
+  for (const path of modelPaths) {
+    const name = basename(path);
+    try {
+      note(`ids: ${name}`);
+      const parsed = IfcModel.fromBytes(new Uint8Array(readFileSync(path)), name);
+      const summary = JSON.parse(parsed.summaryJson()) as ModelSummary;
+      const graph = JSON.parse(parsed.graphJson()) as ModelGraph;
+      // The same tables the parse worker attaches (`model-worker.ts`).
+      graph.psets = JSON.parse(parsed.psetsJson());
+      graph.classifications = JSON.parse(parsed.classificationsJson());
+      graph.quantities = JSON.parse(parsed.quantitiesJson());
+      graph.materials = JSON.parse(parsed.materialsJson());
+      graph.type_objects = JSON.parse(parsed.typeObjectsJson());
+      parsed.free();
+      const result = evaluateIds(imported, graph, summary, name);
+      for (const spec of result.specs) {
+        if (shown > 0) spec.findings = spec.findings.slice(0, shown);
+      }
+      models.push(result);
+    } catch (error) {
+      models.push({ model: name, error: (error as Error).message });
+    }
+  }
+  const totals = { pass: 0, fail: 0, not_applicable: 0, not_evaluable: 0, error: 0 };
+  for (const model of models) {
+    if ("error" in model) totals.error += 1;
+    else for (const key of ["pass", "fail", "not_applicable", "not_evaluable"] as const) totals[key] += model.counts[key];
+  }
+  await emitUtf8({
+    command: "ids",
+    ids: imported.fileName,
+    title: imported.title,
+    specifications: imported.specs.length,
+    unreadable: imported.specs.filter((s) => s.unreadable).map((s) => ({ index: s.index, name: s.name, reason: s.unreadable })),
+    totals,
+    models,
+  });
   if (totals.fail > 0 || totals.error > 0) return 1;
   return totals.not_evaluable > 0 ? 3 : 0;
 }
@@ -1536,6 +1603,119 @@ async function cmdSelftest(): Promise<number> {
     record(name, "rejected", bad.valid ? "accepted" : "rejected");
   }
 
+  // The IDS importer (src/ids/import.ts) and the IDS tab's run
+  // (src/ids/ids-report.ts). The emitted sample round-trips: imported and
+  // emitted again, the document is the same.
+  const roundTrip = importIds(good, "sample.ids");
+  record(
+    "import: the emitted sample round-trips to the same document",
+    "same",
+    emitIdsXml(roundTrip.ruleset, roundTrip.ruleset.rules.filter((r): r is IdsRule => r.kind === "ids")) === good
+      ? "same"
+      : "differs",
+  );
+  const spec = (name: string, body: string) =>
+    `<specification name="${name}" ifcVersion="IFC4">${body}</specification>`;
+  const entity = (cls: string) => `<entity><name><simpleValue>${cls}</simpleValue></name></entity>`;
+  const idsDoc = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xs="http://www.w3.org/2001/XMLSchema">',
+    "<info><title>T &amp; S</title></info><specifications>",
+    // 0: a pass
+    spec("wall name", `<applicability>${entity("IFCWALL")}</applicability><requirements><attribute cardinality="required"><name><simpleValue>Name</simpleValue></name></attribute></requirements>`),
+    // 1: nothing matches: NOT APPLIED, never a pass
+    spec("doors", `<applicability>${entity("IFCDOOR")}</applicability><requirements><attribute cardinality="required"><name><simpleValue>Name</simpleValue></name></attribute></requirements>`),
+    // 2: the type object itself (ifcfast spells it IfcWalltype)
+    spec("type name", `<applicability>${entity("IFCWALLTYPE")}</applicability><requirements><attribute cardinality="prohibited"><name><simpleValue>Name</simpleValue></name><value><xs:restriction base="xs:string"><xs:enumeration value="Default"/></xs:restriction></value></attribute></requirements>`),
+    // 3: a boolean compared in the XSD lexical space ("True" is true)
+    spec("is external", `<applicability>${entity("IFCWALL")}</applicability><requirements><property dataType="IFCBOOLEAN" cardinality="required"><propertySet><xs:restriction base="xs:string"><xs:pattern value="Pset_.*Common"/></xs:restriction></propertySet><baseName><simpleValue>IsExternal</simpleValue></baseName><value><xs:restriction base="xs:boolean"><xs:enumeration value="true"/><xs:enumeration value="false"/></xs:restriction></value></property></requirements>`),
+    // 4: a quantity read as a property, compared as a number
+    spec("length", `<applicability>${entity("IFCWALL")}</applicability><requirements><property cardinality="required"><propertySet><simpleValue>Qto_WallBaseQuantities</simpleValue></propertySet><baseName><simpleValue>Length</simpleValue></baseName><value><simpleValue>3</simpleValue></value></property></requirements>`),
+    // 5: any material association, from the materials table
+    spec("material", `<applicability>${entity("IFCWALL")}</applicability><requirements><material cardinality="required"/></requirements>`),
+    // 6: a part of a contained assembly is contained, and in the building
+    spec("contained", `<applicability>${entity("IFCMEMBER")}</applicability><requirements><partOf relation="IFCRELCONTAINEDINSPATIALSTRUCTURE" cardinality="required">${entity("IFCBUILDING")}</partOf></requirements>`),
+    // 7: a relation the parser does not expose
+    spec("grouped", `<applicability>${entity("IFCWALL")}</applicability><requirements><partOf relation="IFCRELASSIGNSTOGROUP" cardinality="required">${entity("IFCSYSTEM")}</partOf></requirements>`),
+    // 8: an XSD facet the model has no field for: this spec only is unreadable
+    spec("white space", `<applicability><entity><name><xs:restriction base="xs:string"><xs:whiteSpace value="collapse"/></xs:restriction></name></entity></applicability>`),
+    // 9: a type object's own property set is not in the parsed tables
+    spec("type pset", `<applicability>${entity("IFCWALLTYPE")}</applicability><requirements><property cardinality="required"><propertySet><simpleValue>Pset_WallCommon</simpleValue></propertySet><baseName><simpleValue>Reference</simpleValue></baseName></property></requirements>`),
+    "</specifications></ids>",
+  ].join("");
+  const imported = importIds(idsDoc, "t.ids");
+  record(
+    "import: default namespace, entities decoded, one unreadable spec kept in place",
+    "T & S|10|9|8:whiteSpace",
+    `${imported.title}|${imported.specs.length}|${imported.ruleset.rules.length}|` +
+      imported.specs.filter((s) => s.unreadable).map((s) => `${s.index}:${/whiteSpace/.test(s.unreadable ?? "") ? "whiteSpace" : s.unreadable}`).join(","),
+  );
+  let strict = "accepted";
+  try {
+    parseIdsXml(idsDoc, "t.ids");
+  } catch (error) {
+    strict = /whiteSpace/.test((error as Error).message) ? "refused" : (error as Error).message;
+  }
+  record("import: the strict ruleset form refuses the whole file", "refused", strict);
+  const idsProduct = (guid: string, entity: string, extra: Record<string, unknown> = {}) => ({
+    guid, entity, name: guid, predefined_type: null, object_type: null, tag: null,
+    storey_guid: null, parent_guid: null, type_name: null, typed: false, materials: [],
+    is_external: null, fire_rating: null, load_bearing: null, ...extra,
+  });
+  const idsGraph: ModelGraph = {
+    schema: "IFC4",
+    products: [
+      idsProduct("w1", "IfcWall", { type_guid: "t1", typed: true }),
+      idsProduct("w2", "IfcWall"),
+      idsProduct("cw", "IfcCurtainWall"),
+      idsProduct("m1", "IfcMember"),
+    ],
+    contained_in: [{ product_guid: "cw", storey_guid: "s1" }],
+    aggregates: [{ child_guid: "m1", parent_guid: "cw", parent_kind: "product" }],
+    storey_building: [{ storey_guid: "s1", building_guid: "b1" }],
+    voids: [], storeys: [{ guid: "s1", name: "01" }], buildings: [{ guid: "b1", name: "B" }], sites: [], spaces: [],
+    type_objects: [{ guid: "t1", entity: "IfcWalltype", name: "Default" }],
+    psets: [
+      { guid: "w1", pset_name: "Pset_WallCommon", prop_name: "IsExternal", value: "True", value_type: "IfcBoolean" },
+      { guid: "w2", pset_name: "Pset_WallCommon", prop_name: "IsExternal", value: "False", value_type: "IfcBoolean" },
+    ],
+    classifications: [],
+    quantities: [{ guid: "w1", qto_name: "Qto_WallBaseQuantities", quantity_name: "Length", value: "3.", quantity_type: "Length" }],
+    materials: [{ guid: "w1", role: "unknown", material_name: null, category: null, source: "type" }],
+  };
+  const idsRun = evaluateIds(imported, idsGraph, { ...summary, products: 4 }, "t");
+  const row = (i: number) => {
+    const s = idsRun.specs[i];
+    return `${s.state} ${s.applicable}/${s.passed}/${s.failed}`;
+  };
+  record("ids: a pass", "pass 2/2/0", row(0));
+  record("ids: zero applicable is not_applicable (NOT APPLIED), never pass", "not_applicable 0/0/0", row(1));
+  record(
+    "ids: an IFCWALLTYPE entity selects the declared type object, its finding carries the elements using it",
+    "fail 1/0/1 w1",
+    `${row(2)} ${idsRun.specs[2].findings[0]?.members?.join(",")}`,
+  );
+  record("ids: an IfcBoolean \"True\" / \"False\" satisfies xs:boolean true, false", "pass 2/2/0", row(3));
+  record("ids: a quantity is a property, \"3.\" equals 3; absent fails", "fail 2/1/1 w2", `${row(4)} ${idsRun.specs[4].findings.map((f) => f.guid).join(",")}`);
+  record("ids: any material association counts, even an unresolved one from the type", "fail 2/1/1 w2", `${row(5)} ${idsRun.specs[5].findings.map((f) => f.guid).join(",")}`);
+  record("ids: a part of a contained assembly is contained, up to the building", "pass 1/1/0", row(6));
+  record(
+    "ids: IFCRELASSIGNSTOGROUP is not_evaluable with the reason",
+    "not_evaluable IFCRELASSIGNSTOGROUP",
+    `${idsRun.specs[7].state} ${/IFCRELASSIGNSTOGROUP is not exposed/.test(idsRun.specs[7].reason ?? "") ? "IFCRELASSIGNSTOGROUP" : idsRun.specs[7].reason}`,
+  );
+  record(
+    "ids: an unreadable spec is not_evaluable in its place, with the import reason",
+    "not_evaluable whiteSpace",
+    `${idsRun.specs[8].state} ${/whiteSpace/.test(idsRun.specs[8].reason ?? "") ? "whiteSpace" : idsRun.specs[8].reason}`,
+  );
+  record("ids: a type object's own pset is not_evaluable, not a fail", "not_evaluable", idsRun.specs[9].state);
+  record(
+    "ids: counts per state",
+    "pass 3 fail 3 not_applicable 1 not_evaluable 3",
+    `pass ${idsRun.counts.pass} fail ${idsRun.counts.fail} not_applicable ${idsRun.counts.not_applicable} not_evaluable ${idsRun.counts.not_evaluable}`,
+  );
+
   const ok = assertions.every((a) => a.ok);
   emit({
     command: "selftest",
@@ -1565,6 +1745,9 @@ switch (command) {
   case "report":
     code = await cmdReport(rest);
     break;
+  case "ids":
+    code = await cmdIds(rest);
+    break;
   case "psets":
     code = await cmdPsets(rest);
     break;
@@ -1581,7 +1764,7 @@ switch (command) {
     break;
   default:
     note(
-      "usage: node scripts/ids-cli.ts <lint|emit|run|report|psets|schema|sample|selftest> [args]",
+      "usage: node scripts/ids-cli.ts <lint|emit|run|ids|report|psets|schema|sample|selftest> [args]",
     );
     code = 2;
 }

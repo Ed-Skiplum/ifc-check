@@ -38,6 +38,8 @@ import type { CheckResult } from "../engine/types";
 import type { ModelResult } from "../ids/evaluate.ts";
 import type { BoardData } from "./report-rows";
 import type { Ruleset } from "../ids/types.ts";
+import type { ImportedIds } from "../ids/import.ts";
+import type { IdsModelResult } from "../ids/ids-report.ts";
 import {
   cacheKeyOf,
   clearBoard,
@@ -94,6 +96,11 @@ export interface ModelEntry {
   evaluation?: ModelResult;
   evaluationError?: string;
   evaluating?: boolean;
+  /** Present once the loaded `.ids` has been run against this model (the
+   *  Prosjekt tab). Separate from `evaluation`: an IDS is not the ruleset. */
+  ids?: IdsModelResult;
+  idsError?: string;
+  idsEvaluating?: boolean;
   /** The treemap measures' geometry pass: batches measured of those handed
    *  back, refreshed with the measures (throttled). Absent before it starts. */
   measureProgress?: { done: number; total: number; complete: boolean };
@@ -117,6 +124,7 @@ interface Controller {
   restore: () => void;
   open: (cacheKey: string) => Promise<boolean>;
   setRuleset: (ruleset: Ruleset | null) => void;
+  setIds: (ids: ImportedIds | null) => void;
 }
 
 /** What a parse has produced so far, held until it is complete enough to cache.
@@ -176,6 +184,7 @@ function createController(setModels: SetModels): Controller {
   let active = 0;
   let counter = 0;
   let ruleset: Ruleset | null = null;
+  let ids: ImportedIds | null = null;
   let restored = false;
 
   function patch(id: string, next: Partial<ModelEntry>) {
@@ -257,6 +266,12 @@ function createController(setModels: SetModels): Controller {
     worker.postMessage({ kind: "evaluate", ruleset });
   }
 
+  function askIds(id: string, worker: Worker) {
+    if (!ids) return;
+    patch(id, { idsEvaluating: true });
+    worker.postMessage({ kind: "ids", imported: ids });
+  }
+
   /** Write the record, once the parse has produced every part of it. */
   function commit(id: string) {
     const draft = drafts.get(id);
@@ -316,6 +331,7 @@ function createController(setModels: SetModels): Controller {
           commit(id);
         }
         ask(id, worker);
+        askIds(id, worker);
         // The board is on screen; the geometric measures follow behind it.
         feed(id, worker);
       } else if (message.kind === "measured") {
@@ -392,6 +408,10 @@ function createController(setModels: SetModels): Controller {
               : m,
           ),
         );
+      } else if (message.kind === "ids-evaluated") {
+        patch(id, { idsEvaluating: false, ids: message.result, idsError: undefined });
+      } else if (message.kind === "ids-error") {
+        patch(id, { idsEvaluating: false, ids: undefined, idsError: message.message });
       } else {
         patch(id, { evaluating: false, evaluation: undefined, evaluationError: message.message });
       }
@@ -656,6 +676,17 @@ function createController(setModels: SetModels): Controller {
       }
       for (const [id, worker] of workers) ask(id, worker);
     },
+
+    setIds(next: ImportedIds | null) {
+      ids = next;
+      if (next === null) {
+        setModels((current) =>
+          current.map((m) => ({ ...m, ids: undefined, idsError: undefined, idsEvaluating: false })),
+        );
+        return;
+      }
+      for (const [id, worker] of workers) askIds(id, worker);
+    },
   };
 }
 
@@ -689,8 +720,11 @@ export function useModels() {
     (cacheKey: string) => controller.current?.open(cacheKey) ?? Promise.resolve(false),
     [],
   );
+  const applyIds = useCallback((ids: ImportedIds | null) => {
+    controller.current?.setIds(ids);
+  }, []);
 
-  return { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, openCached };
+  return { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached };
 }
 
 /** Per-element world boxes from cached mesh batches, the same fold the parse

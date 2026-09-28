@@ -34,6 +34,8 @@ import { evaluateRuleset } from "../ids/evaluate.ts";
 import type { ModelResult } from "../ids/evaluate.ts";
 import type { ModelGraph, ModelSummary } from "../ids/model.ts";
 import type { Ruleset } from "../ids/types.ts";
+import type { ImportedIds } from "../ids/import.ts";
+import { evaluateIds, type IdsModelResult } from "../ids/ids-report.ts";
 // The graph -> profile reduction is shared with the restore worker, which must
 // not import this module: it would pull the wasm parser into a worker whose
 // whole point is that it never parses anything.
@@ -56,6 +58,8 @@ import {
 export type ModelWorkerRequest =
   | { kind: "parse"; fileName: string; bytes: ArrayBuffer }
   | { kind: "evaluate"; ruleset: Ruleset }
+  /** An imported `.ids`, run as written (the Prosjekt tab). */
+  | { kind: "ids"; imported: ImportedIds }
   /** One mesh batch handed back for the treemap measures, or null for "no
    *  more" (`measure-state.ts`). */
   | { kind: "measure"; batch: MeasureBatch | null; total: number };
@@ -77,6 +81,8 @@ export type ModelWorkerResponse =
    *  excludes nothing, filtered when it excludes reference objects. */
   | { kind: "evaluated"; result: ModelResult; checks: CheckResult[]; board: BoardData }
   | { kind: "evaluate-error"; message: string }
+  | { kind: "ids-evaluated"; result: IdsModelResult }
+  | { kind: "ids-error"; message: string }
   | MeasuredMessage;
 
 let ready: Promise<unknown> | null = null;
@@ -287,9 +293,25 @@ function evaluate(ruleset: Ruleset) {
   }
 }
 
+/** The IDS tab's run: the imported specifications against the held graph,
+ *  by the same evaluator as a ruleset. Independent of any ruleset: it
+ *  excludes no reference objects and re-runs no checks. */
+function evaluateIdsHere(imported: ImportedIds) {
+  if (heldGraph === null || heldSummary === null) {
+    send({ kind: "ids-error", message: "no parsed model in this worker" });
+    return;
+  }
+  try {
+    send({ kind: "ids-evaluated", result: evaluateIds(imported, heldGraph, heldSummary, heldName) });
+  } catch (err) {
+    send({ kind: "ids-error", message: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 self.onmessage = (event: MessageEvent<ModelWorkerRequest>) => {
   const message = event.data;
   if (message.kind === "parse") void parse(message.fileName, message.bytes);
+  else if (message.kind === "ids") evaluateIdsHere(message.imported);
   else if (message.kind === "measure") {
     if (measures) send(measures.feed(message.batch, message.total));
   } else evaluate(message.ruleset);

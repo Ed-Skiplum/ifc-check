@@ -23,6 +23,8 @@ import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/t
 import { evaluateRuleset } from "../ids/evaluate.ts";
 import type { ModelGraph, ModelSummary } from "../ids/model.ts";
 import type { Ruleset } from "../ids/types.ts";
+import type { ImportedIds } from "../ids/import.ts";
+import { evaluateIds } from "../ids/ids-report.ts";
 import type { ModelWorkerResponse } from "../ui/model-worker";
 import { profileOf } from "./rehydrate.ts";
 // A restored board must carry the same type facts a freshly parsed one does,
@@ -49,6 +51,7 @@ export type RestoreWorkerRequest =
       noGeometry?: string;
     }
   | { kind: "evaluate"; ruleset: Ruleset }
+  | { kind: "ids"; imported: ImportedIds }
   | { kind: "measure"; batch: MeasureBatch | null; total: number };
 
 let heldGraph: IfcGraph | null = null;
@@ -126,9 +129,23 @@ function evaluate(ruleset: Ruleset) {
   }
 }
 
+/** The IDS tab's run, as the parse worker does it (`model-worker.ts`). */
+function evaluateIdsHere(imported: ImportedIds) {
+  if (heldGraph === null || heldSummary === null) {
+    post({ kind: "ids-error", message: "no restored model in this worker" });
+    return;
+  }
+  try {
+    post({ kind: "ids-evaluated", result: evaluateIds(imported, heldGraph, heldSummary, heldName) });
+  } catch (err) {
+    post({ kind: "ids-error", message: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 self.onmessage = (event: MessageEvent<RestoreWorkerRequest>) => {
   const message = event.data;
   if (message.kind === "restore") restore(message);
+  else if (message.kind === "ids") evaluateIdsHere(message.imported);
   else if (message.kind === "measure") {
     if (measures) post(measures.feed(message.batch, message.total));
   } else evaluate(message.ruleset);

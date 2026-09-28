@@ -35,7 +35,7 @@ export interface ViewState {
   page: "setup" | null;
   /** The model panel's tab. null is the first tab, Kontroll; it is left out
    *  of the hash so a bare URL and a board link stay short. */
-  tab: "contents" | "graph" | "types" | "materials" | null;
+  tab: "contents" | "graph" | "types" | "materials" | "project" | null;
   /** The visual direction, or null for the shipped default. */
   design: Design | null;
 }
@@ -96,6 +96,7 @@ function readTab(hash: URLSearchParams): ViewState["tab"] {
   if (tab === "graph") return "graph";
   if (tab === "types") return "types";
   if (tab === "materials") return "materials";
+  if (tab === "project") return "project";
   return null;
 }
 

@@ -135,6 +135,7 @@ const STRINGS = {
   "filter.kind.element": { nb: "Element", en: "Element" },
   "filter.kind.material": { nb: "Materialer", en: "Materials" },
   "filter.kind.tree": { nb: "Klassifikasjon", en: "Classification" },
+  "filter.kind.ids": { nb: "IDS", en: "IDS" },
 
   /* -------------------------------------------------------------- columns */
   "col.class": { nb: "IFC-klasse", en: "IFC class" },
@@ -345,6 +346,16 @@ const STRINGS = {
 
   /* ----------------------------------------------------------------- graph */
   "tab.graph": { nb: "Graf", en: "Graph" },
+
+  /* ------------------------------------------------------------- project */
+  // The tab's name is pending the owner (2026-09-28): one key, so a rename
+  // is one line.
+  "tab.project": { nb: "Prosjekt", en: "Project" },
+  "ids.heading": { nb: "IDS", en: "IDS" },
+  "action.openIds": { nb: "Åpne IDS", en: "Open IDS" },
+  // A specification whose applicability matched nothing. Never a pass.
+  "ids.notApplied": { nb: "Ikke anvendt", en: "Not applied" },
+  "error.ids": { nb: "IDS-feil", en: "IDS error" },
   "graph.quantitySets": { nb: "Mengdesett", en: "Quantity sets" },
 
   /* ---------------------------------------------------------------- errors */
