@@ -106,6 +106,18 @@ blokker:
     krav: ["<FROM PROJECT: krav id this block answers for>"]
     sted: {pset: "<FROM PROJECT: property set>", egenskap: "<FROM PROJECT: property>"}
     # optional: unntatt {modell: [label]}, krav_tekst, gyldige, kodetabell, kodeliste, aapne
+    # Table paths (kodetabell, kodeliste.fil, mengdetype[].tabell): a bare name found in
+    # ../standard/, else relative to this file, or absolute.
+
+# The project property set bep_egenskapskontroll counts per object, on the object or its type.
+# Absent: none of it is measured, and a krav reading it reports «ikke konfigurert».
+prosjektpsett:
+  navn: "<FROM PROJECT: property set name; matched without spaces and case>"
+  egenskaper:   # in report order
+    - navn: "<FROM PROJECT: property name>"
+      regel: "<FROM PROJECT: tre_sifre | fagkode (a value from fagkoder) | lik_typenavn (= IfcTypeObject.Name) | utfylt>"
+  # optional: krav (the krav id measuring the set itself, named in other krav's `krever`),
+  # navnedel (sets whose name contains it are listed as found instead of the required one)
 
 # Discipline codes that get no report (models built by the coordinator).
 uten_rapport: ["<FROM PROJECT: fagkode>"]

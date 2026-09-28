@@ -1,17 +1,12 @@
-"""Per-element check of the BIM-manual's HI90_Prosjektinfo requirements on delivered models.
+"""Per-element check of the project property set on delivered models.
 
-The file-level modellkontroll (bygg_modellkontroll_xlsx.py) says whether a property set
-exists in a file. This one says on how many elements, and whether the values have the form
-the manual and the downstream flow need. Every check is a share of counted elements, so a
-model is greenlit by numbers, not by a glance.
-
-Rules quoted from BIM- og merkemanual 1.2 (converted copy
-../HI90_BEP/02_arbeid/tmp/manual_2026-09-02.md, lines 1006-1070): HI90_Prosjektinfo with
-HI90_MMI, HI90_Type, HI90_NS3457-8, HI90_NS3451, HI90_Material, HI90_Kopi objekt.
+The property set, its properties and the rule each one is held to are the project config's
+`prosjektpsett` (konfig.prosjektpsett); a project without one gets the generic checks only.
+Every check is a share of counted elements, so a model is greenlit by numbers, not by a glance.
 Quantities and typing are what Reduzer and the QTO need, checked alongside.
 
     python bep_egenskapskontroll.py --prosjekt krav.yaml --runde runde.json --cache CACHE --ut UT
-    python bep_egenskapskontroll.py ... HI90_RIE              # one model
+    python bep_egenskapskontroll.py ... LABEL                 # one model
     python bep_egenskapskontroll.py ... --ny                  # ignore the cache
 
 The round -- source folder, models, firma, versjon -- is read from the round config.
@@ -39,6 +34,7 @@ from openpyxl.utils import get_column_letter
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 HER = Path(__file__).resolve().parent
 sys.path.insert(0, str(HER))
+import konfig  # noqa: E402
 import stier  # noqa: E402
 
 # Counted set: every IfcProduct carrying a 3D body representation, whatever its class.
@@ -47,31 +43,36 @@ import stier  # noqa: E402
 BODY_ID = {"body", "body-fallback"}
 SOLID_TYPE = {"Brep", "AdvancedBrep", "SweptSolid", "CSG", "Clipping", "SurfaceModel",
               "Tessellation", "SolidModel", "AdvancedSweptSolid"}
-PSET = "hi90_prosjektinfo"
-EGENSKAPER = ["HI90_MMI", "HI90_Type", "HI90_NS3457-8", "HI90_NS3451", "HI90_Material", "HI90_Kopi objekt"]
 TRE_SIFRE = re.compile(r"^\d{3}$")
-FAG = {"ARK", "RIB", "RIV", "RIE", "RIVA", "RIBR", "LARK", "IARK", "RIAKU", "RIBFY"}
 
 # Bumped whenever a check is added or its rule changes, so a cache written by an older set of
 # checks is not a hit -- it would silently blank the new check in the report.
 # 3 (2026-09-28): the counted set is ifcfast's `has_body` minus IfcFeatureElementSubtraction.
 SJEKK_VERSJON = 3
 
-SJEKKER = [
-    ("Type", "IfcRelDefinesByType til et IfcTypeObject med navn"),
-    ("Typet", "IfcRelDefinesByType til et IfcTypeObject, med eller uten navn"),
-    ("Plassert i etasje", "IfcRelContainedInSpatialStructure til en IfcBuildingStorey"),
-    ("HI90_Prosjektinfo", "egenskapssettet finnes på objektet eller typen"),
-    ("HI90_MMI", "finnes og er tre sifre"),
-    ("HI90_NS3451", "finnes og er tre sifre"),
-    ("HI90_Type", "finnes og er lik IfcTypeObject.Name"),
-    ("HI90_NS3457-8", "finnes, ikke tom"),
-    ("HI90_Material", "finnes, ikke tom"),
-    ("HI90_Kopi objekt", "finnes; verdien er en fagkode"),
-    ("Mengdesett", "IfcElementQuantity med NetVolume og areal eller lengde"),
-    ("Materiale", "IfcRelAssociatesMaterial; lagdelte med tykkelse"),
-    ("GUID unik", "ingen GlobalId forekommer to ganger i fila"),
-]
+REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdien er en fagkode",
+               "lik_typenavn": "finnes og er lik IfcTypeObject.Name", "utfylt": "finnes, ikke tom"}
+# Rules whose values are tallied in `verdier`.
+TELLES = ("tre_sifre", "fagkode")
+
+
+def sjekker(ps: dict | None) -> list[tuple[str, str]]:
+    """The checks in report order: the generic ones around the project property set's, which are
+    there only when the project declares one."""
+    ut = [("Type", "IfcRelDefinesByType til et IfcTypeObject med navn"),
+          ("Typet", "IfcRelDefinesByType til et IfcTypeObject, med eller uten navn"),
+          ("Plassert i etasje", "IfcRelContainedInSpatialStructure til en IfcBuildingStorey")]
+    if ps:
+        ut.append((ps["navn"], "egenskapssettet finnes på objektet eller typen"))
+        ut += [(e["navn"], REGEL_TEKST[e["regel"]]) for e in ps.get("egenskaper") or []]
+    return ut + [("Mengdesett", "IfcElementQuantity med NetVolume og areal eller lengde"),
+                 ("Materiale", "IfcRelAssociatesMaterial; lagdelte med tykkelse"),
+                 ("GUID unik", "ingen GlobalId forekommer to ganger i fila")]
+
+
+def konfig_nokkel(ps: dict | None, fagkoder: list[str]) -> str:
+    """What the checks read from the project config, as a cache key."""
+    return hashlib.sha256(json.dumps([ps, fagkoder], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
 FYLL = {"ok": "C6EFCE", "delvis": "FFEB9C", "mangler": "FFC7CE", "tom": "D9D9D9"}
 HODE = PatternFill("solid", fgColor="1F3864")
 HODE_FONT = Font(bold=True, color="FFFFFF")
@@ -135,15 +136,17 @@ def telte(sti: Path) -> tuple[list[int], dict]:
     return ids, info
 
 
-def prosjektinfo(psets: dict) -> dict:
+def prosjektinfo(psets: dict, navn: str) -> dict:
+    """The properties of the set `navn`, matched without spaces and case; {} when absent."""
+    n = navn.replace(" ", "").lower()
     for k, v in psets.items():
-        if k.replace(" ", "").lower() == PSET.replace(" ", ""):
+        if k.replace(" ", "").lower() == n:
             return v
     return {}
 
 
 def hent(pi: dict, navn: str):
-    """Property value, tolerant of spacing/case in the name (HI90_Kopi objekt vs HI90_KopiObjekt)."""
+    """Property value, tolerant of spacing/case in the name («Kopi objekt» vs «KopiObjekt»)."""
     n = navn.replace(" ", "").lower()
     for k, v in pi.items():
         if k.replace(" ", "").lower() == n:
@@ -161,7 +164,7 @@ def finnes_nokkel(pi: dict, navn: str) -> bool:
     return any(k.replace(" ", "").lower() == n for k in pi)
 
 
-def kontroll(label: str, sti: Path) -> dict:
+def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dict:
     f = ifcopenshell.open(str(sti))
     h = f.header
     ut: dict = {"label": label, "fil": sti.name, "sha256": sha(sti), "bytes": sti.stat().st_size,
@@ -185,17 +188,23 @@ def kontroll(label: str, sti: Path) -> dict:
                                   and not p.is_a("IfcBuildingStorey"))
     if utenfor:
         raise SystemExit(f"FEIL: {label}: IfcProduct uten rad i ifcfast: {dict(utenfor)}")
+    egenskaper = (ps or {}).get("egenskaper") or []
+    regel = {e["navn"]: e["regel"] for e in egenskaper}
+    fag = {str(f).upper() for f in fagkoder}
+    kopi_navn = konfig.psett_egenskap(ps, "fagkode")
+    type_navn = konfig.psett_egenskap(ps, "lik_typenavn")
+    navnedel = str((ps or {}).get("navnedel") or "").lower()
     treff = collections.Counter()
     per_klasse: dict = collections.defaultdict(collections.Counter)
-    verdier = {k: collections.Counter() for k in ("HI90_MMI", "HI90_NS3451", "HI90_Kopi objekt")}
+    verdier = {e["navn"]: collections.Counter() for e in egenskaper if e["regel"] in TELLES}
     # Alongside sjekk (valid values): does the key exist at all, and is it filled in.
     finnes = collections.Counter()
     utfylt = collections.Counter()
-    avvik = {k: collections.Counter() for k in EGENSKAPER}
+    avvik = {e["navn"]: collections.Counter() for e in egenskaper}
     psetnavn = collections.Counter()
     guids = collections.Counter(e.GlobalId for e in elementer)
     guid_kopi: dict[str, str] = {}
-    par = collections.Counter()  # (IfcTypeObject.Name, HI90_Type) -> elements, for the 1:1 check
+    par = collections.Counter()  # (IfcTypeObject.Name, lik_typenavn value) -> elements, for the 1:1 check
     upar = collections.Counter()
     typebruk = collections.Counter()  # IfcTypeObject -> instances, for instances per type
     hierarki = collections.Counter()  # where in the spatial tree the elements hang
@@ -204,7 +213,7 @@ def kontroll(label: str, sti: Path) -> dict:
         per_klasse[kl]["n"] += 1
         psets = ue.get_psets(e) or {}
         for k in psets:
-            if "prosjektinfo" in k.lower():
+            if navnedel and navnedel in k.lower():
                 psetnavn[k] += 1
         t = ue.get_type(e)
         type_name = (t.Name or "").strip() if t is not None else ""
@@ -220,12 +229,12 @@ def kontroll(label: str, sti: Path) -> dict:
         if plass == "etasje":
             treff["Plassert i etasje"] += 1
             per_klasse[kl]["Plassert i etasje"] += 1
-        pi = prosjektinfo(psets)
+        pi = prosjektinfo(psets, ps["navn"]) if ps else {}
         if pi:
-            treff["HI90_Prosjektinfo"] += 1
-            per_klasse[kl]["HI90_Prosjektinfo"] += 1
-        hi90_type = ""
-        for navn in EGENSKAPER:
+            treff[ps["navn"]] += 1
+            per_klasse[kl][ps["navn"]] += 1
+        egen_type = ""
+        for navn in regel:
             v = hent(pi, navn)
             s = str(v).strip() if v not in (None, "") else ""
             har = finnes_nokkel(pi, navn)
@@ -235,13 +244,13 @@ def kontroll(label: str, sti: Path) -> dict:
                     utfylt[navn] += 1
             if navn in verdier:
                 verdier[navn][s or "(tom)"] += 1
-            # HI90_Type: same string as IfcTypeObject.Name (IfcRoot.Name), not merely non-empty.
-            if navn in ("HI90_MMI", "HI90_NS3451"):
+            # lik_typenavn: same string as IfcTypeObject.Name (IfcRoot.Name), not merely non-empty.
+            if regel[navn] == "tre_sifre":
                 ok = bool(s) and TRE_SIFRE.match(s) is not None
-            elif navn == "HI90_Kopi objekt":
-                ok = bool(s) and s.upper() in FAG
-            elif navn == "HI90_Type":
-                hi90_type = s
+            elif regel[navn] == "fagkode":
+                ok = bool(s) and s.upper() in fag
+            elif regel[navn] == "lik_typenavn":
+                egen_type = s
                 ok = bool(s) and bool(type_name) and s == type_name
             else:
                 ok = bool(s)
@@ -262,22 +271,24 @@ def kontroll(label: str, sti: Path) -> dict:
             per_klasse[kl]["Materiale"] += 1
             if mat.is_a("IfcMaterialLayerSetUsage") or mat.is_a("IfcMaterialLayerSet"):
                 treff["Materiale_lag"] += 1
-        kopi_v = hent(pi, "HI90_Kopi objekt")
+        kopi_v = hent(pi, kopi_navn) if kopi_navn else None
         guid_kopi[e.GlobalId] = str(kopi_v).strip() if kopi_v not in (None, "") else ""
-        if type_name and hi90_type:
-            par[(type_name, hi90_type)] += 1
-        elif not type_name and not hi90_type:
+        if type_navn is None:
+            pass   # no type property configured: no Type 1:1 pairing
+        elif type_name and egen_type:
+            par[(type_name, egen_type)] += 1
+        elif not type_name and not egen_type:
             upar["begge"] += 1
         else:
-            upar["uten_hi90_type" if type_name else "uten_typenavn"] += 1
+            upar["uten_verdi" if type_name else "uten_typenavn"] += 1
     dup = sum(c - 1 for c in guids.values() if c > 1)
     treff["GUID unik"] = n - dup
     ut["klasser"] = {k: dict(v) for k, v in sorted(per_klasse.items(), key=lambda x: -x[1]["n"])}
-    ut["sjekk"] = {navn: treff.get(navn, 0) for navn, _ in SJEKKER}
+    ut["sjekk"] = {navn: treff.get(navn, 0) for navn, _ in sjekker(ps)}
     ut["sjekk"]["Materiale_lag"] = treff.get("Materiale_lag", 0)
     ut["verdier"] = {k: dict(v.most_common(12)) for k, v in verdier.items()}
-    ut["finnes"] = {navn: finnes.get(navn, 0) for navn in EGENSKAPER}
-    ut["utfylt"] = {navn: utfylt.get(navn, 0) for navn in EGENSKAPER}
+    ut["finnes"] = {navn: finnes.get(navn, 0) for navn in regel}
+    ut["utfylt"] = {navn: utfylt.get(navn, 0) for navn in regel}
     # The single most common value that exists but does not satisfy the rule, so the report can
     # name what is actually in the file instead of showing a bare 0 %.
     ut["vanligste_avvik"] = {navn: (list(c.most_common(1)[0]) if c else None) for navn, c in avvik.items()}
@@ -286,6 +297,7 @@ def kontroll(label: str, sti: Path) -> dict:
     ut["guid_kopi"] = guid_kopi
     ut["type_1til1"] = en_til_en(par, upar)
     ut["sjekk_versjon"] = SJEKK_VERSJON
+    ut["konfig"] = konfig_nokkel(ps, fagkoder)
     ut["hierarki"] = dict(hierarki)
     en_instans = sum(1 for c in typebruk.values() if c == 1)
     ut["typebruk"] = {"typer": len(typebruk), "instanser": sum(typebruk.values()),
@@ -296,9 +308,10 @@ def kontroll(label: str, sti: Path) -> dict:
 
 
 def en_til_en(par: collections.Counter, upar: collections.Counter, maks: int | None = 12) -> dict:
-    """Cardinality between IfcTypeObject.Name and HI90_Type, both directions.
+    """Cardinality between IfcTypeObject.Name and the project's type property (rule lik_typenavn),
+    both directions.
 
-    Aggregating on type only holds when each type name carries exactly one HI90_Type value
+    Aggregating on type only holds when each type name carries exactly one value
     (otherwise: splitt) and each value belongs to exactly one type name (otherwise: samling).
     Only elements that carry both sides can be paired; the rest are counted, never assumed 1:1.
     Grouping is case- and whitespace-insensitive, so «Vegg 200» and «vegg 200» are one name and
@@ -331,7 +344,7 @@ def en_til_en(par: collections.Counter, upar: collections.Counter, maks: int | N
             "splitt": splitt[:maks], "samling": samling[:maks],
             "splitt_n": len(splitt), "samling_n": len(samling),
             "splitt_skrivemate": splitt_skrivemate, "samling_skrivemate": samling_skrivemate,
-            "rene_typenavn": rene, "uten_hi90_type": upar["uten_hi90_type"],
+            "rene_typenavn": rene, "uten_verdi": upar["uten_verdi"],
             "uten_typenavn": upar["uten_typenavn"], "mangler_begge": upar["begge"]}
 
 
@@ -365,28 +378,30 @@ def status(a: float) -> str:
     return "ok" if a >= 0.999 else "delvis" if a > 0 else "mangler"
 
 
-def skriv(resultater: list, dato: str, ut: Path, kode: str) -> None:
+def skriv(resultater: list, dato: str, ut: Path, kode: str, ps: dict | None) -> None:
+    liste = sjekker(ps)
+    type_navn = konfig.psett_egenskap(ps, "lik_typenavn")
     ut.mkdir(parents=True, exist_ok=True)
     xlsx = ut / f"{kode}_BEP-egenskapskontroll_{dato}.xlsx"
     md = ut / f"{kode}_BEP-egenskapskontroll_{dato}.md"
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Sammendrag"
-    hdr = ["Modell", "Fag", "Versjon", "Elementer telt"] + [s for s, _ in SJEKKER]
+    hdr = ["Modell", "Fag", "Versjon", "Elementer telt"] + [s for s, _ in liste]
     ws.append(hdr)
     for c in ws[1]:
         c.fill, c.font, c.alignment = HODE, HODE_FONT, Alignment(wrap_text=True, vertical="center")
     for r in resultater:
         fag, ver = r["firma"], r["versjon"]
-        row = [r["label"], fag, ver, r["n"]] + [round(andel(r, s) * 100, 1) for s, _ in SJEKKER]
+        row = [r["label"], fag, ver, r["n"]] + [round(andel(r, s) * 100, 1) for s, _ in liste]
         ws.append(row)
-        for i, (s, _) in enumerate(SJEKKER, start=5):
+        for i, (s, _) in enumerate(liste, start=5):
             cell = ws.cell(row=ws.max_row, column=i)
             cell.fill = PatternFill("solid", fgColor=FYLL[status(andel(r, s))])
             cell.number_format = "0.0"
     ws.append([])
     ws.append(["Tall er prosent av telte objekter (IfcProduct med 3D-geometri, uten åpninger). Grønn = 100 %, gul = delvis, rød = 0."])
-    ws.append(["Krav", *[f"{s}: {k}" for s, k in SJEKKER]])
+    ws.append(["Krav", *[f"{s}: {k}" for s, k in liste]])
     ws.freeze_panes = "E2"
     for i in range(1, len(hdr) + 1):
         ws.column_dimensions[get_column_letter(i)].width = 16
@@ -394,7 +409,7 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str) -> None:
     # per model: per class
     for r in resultater:
         w2 = wb.create_sheet(r["label"][:28])
-        hdr2 = ["IFC-klasse", "n"] + [s for s, _ in SJEKKER if s != "GUID unik"]
+        hdr2 = ["IFC-klasse", "n"] + [s for s, _ in liste if s != "GUID unik"]
         w2.append(hdr2)
         for c in w2[1]:
             c.fill, c.font = HODE, HODE_FONT
@@ -409,14 +424,15 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str) -> None:
             w2.append([navn] + [f"{k}: {v}" for k, v in vals.items()])
         w2.append(["Pset-navn funnet"] + [f"{k}: {v}" for k, v in r["psetnavn"].items()])
         k1 = r.get("type_1til1") or {}
-        w2.append([])
-        w2.append(["Type 1:1", f"typenavn {k1.get('typenavn', 0)}", f"HI90_Type {k1.get('verdier', 0)}",
-                   f"splitt {k1.get('splitt_n', 0)}", f"samling {k1.get('samling_n', 0)}",
-                   f"parret {k1.get('parret', 0)}", f"uten HI90_Type {k1.get('uten_hi90_type', 0)}",
-                   f"uten typenavn {k1.get('uten_typenavn', 0)}"])
+        if type_navn:
+            w2.append([])
+            w2.append(["Type 1:1", f"typenavn {k1.get('typenavn', 0)}", f"{type_navn} {k1.get('verdier', 0)}",
+                       f"splitt {k1.get('splitt_n', 0)}", f"samling {k1.get('samling_n', 0)}",
+                       f"parret {k1.get('parret', 0)}", f"uten {type_navn} {k1.get('uten_verdi', 0)}",
+                       f"uten typenavn {k1.get('uten_typenavn', 0)}"])
         for retning, nokkel in (("ett typenavn, flere verdier", "splitt"),
                                 ("én verdi, flere typenavn", "samling")):
-            for b in k1.get(nokkel, []):
+            for b in (k1.get(nokkel, []) if type_navn else []):
                 w2.append([retning, b["nokkel"], b["objekter"],
                            " | ".join(f"{v} ×{n}" for v, n in b["motparter"].items())])
         w2.append(["Fil", r["fil"], "sha256", r["sha256"], "schema", r["schema"], "eksportert", r["eksportert"], r["system"]])
@@ -429,27 +445,29 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str) -> None:
 
     L = [f"# BEP-egenskapskontroll {dato}", "",
          "Telte objekter: alle IfcProduct med 3D-geometri, uten åpninger. Prosent = andel av telte objekter som oppfyller kravet.", "",
-         "| Krav | " + " | ".join(r["label"].replace("HI90_", "") for r in resultater) + " |",
+         "| Krav | " + " | ".join(r["label"].replace(f"{kode}_", "") for r in resultater) + " |",
          "|---|" + "--:|" * len(resultater)]
-    for s, _ in SJEKKER:
+    for s, _ in liste:
         L.append(f"| {s} | " + " | ".join(f"{andel(r, s) * 100:.0f} %" for r in resultater) + " |")
     L.append("| Elementer telt | " + " | ".join(str(r["n"]) for r in resultater) + " |")
     L += ["", "## Verdier", ""]
+    telles = [e["navn"] for e in (ps or {}).get("egenskaper") or [] if e["regel"] in TELLES]
     for r in resultater:
-        for navn in ("HI90_MMI", "HI90_NS3451", "HI90_Kopi objekt"):
+        for navn in telles:
             v = r["verdier"].get(navn, {})
             L.append(f"- {r['label']} {navn}: " + ", ".join(f"{k} ×{n}" for k, n in v.items()))
-    L += ["", "## Type 1:1", "",
-          "Ett IfcTypeObject.Name skal bære én HI90_Type-verdi, og én verdi skal høre til ett typenavn.", "",
-          "| Modell | Typenavn | HI90_Type-verdier | Ett navn, flere verdier | Én verdi, flere navn | Parret | Uten HI90_Type |",
-          "|---|--:|--:|--:|--:|--:|--:|"]
-    for r in resultater:
+    if type_navn:
+        L += ["", "## Type 1:1", "",
+              f"Ett IfcTypeObject.Name skal bære én {type_navn}-verdi, og én verdi skal høre til ett typenavn.", "",
+              f"| Modell | Typenavn | {type_navn}-verdier | Ett navn, flere verdier | Én verdi, flere navn | Parret | Uten {type_navn} |",
+              "|---|--:|--:|--:|--:|--:|--:|"]
+    for r in (resultater if type_navn else []):
         k = r.get("type_1til1") or {}
         L.append(f"| {r['label']} | {k.get('typenavn', 0)} | {k.get('verdier', 0)} | "
                  f"{k.get('splitt_n', 0)} | {k.get('samling_n', 0)} | {k.get('parret', 0)} | "
-                 f"{k.get('uten_hi90_type', 0)} |")
+                 f"{k.get('uten_verdi', 0)} |")
     L.append("")
-    for r in resultater:
+    for r in (resultater if type_navn else []):
         k = r.get("type_1til1") or {}
         for retning, nokkel in (("flere verdier", "splitt"), ("flere typenavn", "samling")):
             for b in k.get(nokkel, [])[:5]:
@@ -468,7 +486,11 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str) -> None:
 
 def kjør(prosjekt: Path, runde_sti: Path, cache: Path, ut: Path, ifc: Path | None = None,
          valgte: list[str] | None = None, ny: bool = False) -> int:
-    kode = yaml.safe_load(prosjekt.read_text(encoding="utf-8"))["prosjekt"]["kode"]
+    y = yaml.safe_load(prosjekt.read_text(encoding="utf-8"))
+    kode = y["prosjekt"]["kode"]
+    ps = konfig.prosjektpsett(y)
+    fagkoder = [str(f) for f in y.get("fagkoder") or []]
+    nokkel = konfig_nokkel(ps, fagkoder)
     runde = les_runde(runde_sti, prosjekt.resolve().parent, ifc)
     dato = runde["dato"]
     tmp = cache / "bep" / dato
@@ -485,22 +507,23 @@ def kjør(prosjekt: Path, runde_sti: Path, cache: Path, ut: Path, ifc: Path | No
         cachefil = tmp / f"{label}.json"
         if cachefil.exists() and not ny:
             r = json.loads(cachefil.read_text(encoding="utf-8"))
-            if r.get("sha256") == sha(sti) and r.get("sjekk_versjon") == SJEKK_VERSJON:
+            if (r.get("sha256") == sha(sti) and r.get("sjekk_versjon") == SJEKK_VERSJON
+                    and r.get("konfig") == nokkel):
                 r["firma"], r["versjon"], r["lastet_opp"] = m["firma"], m["versjon"], m["lastet_opp"]
                 resultater.append(r)
                 print(f"{label}: fra cache")
                 continue
         print(f"{label}: leser {sti.name} ({sti.stat().st_size / 1e6:.1f} MB)")
-        r = kontroll(label, sti)
+        r = kontroll(label, sti, ps, fagkoder)
         if r["sha256"] != m["sha16"]:
             print(f"   NB: sha256[:16] {r['sha256']} != konfig {m['sha16']}")
         r["firma"], r["versjon"], r["lastet_opp"] = m["firma"], m["versjon"], m["lastet_opp"]
         cachefil.write_text(json.dumps(r, ensure_ascii=False, indent=1), encoding="utf-8")
         resultater.append(r)
-        print("   " + ", ".join(f"{s} {andel(r, s) * 100:.0f}%" for s, _ in SJEKKER))
+        print("   " + ", ".join(f"{s} {andel(r, s) * 100:.0f}%" for s, _ in sjekker(ps)))
     (tmp / "data.json").write_text(json.dumps(resultater, ensure_ascii=False, indent=1), encoding="utf-8")
     print(tmp / "data.json")
-    skriv(resultater, dato, ut, kode)
+    skriv(resultater, dato, ut, kode, ps)
     return 0
 
 

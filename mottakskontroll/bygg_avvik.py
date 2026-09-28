@@ -14,7 +14,7 @@ Etasje · Egenskap · Funnet verdi · Årsak. Sheets follow the report's numberi
 
 A data export, not IFC processing: it reads only what is cached from the round,
     <ut>/data/beregnet.json                    requirements, their order and locations, etasjematrise
-    <cache>/bep/<dato>/data.json               every counted GlobalId with its HI90_Kopi objekt value
+    <cache>/bep/<dato>/data.json               every counted GlobalId with its copy-object value (prosjektpsett, rule fagkode)
     <cache>/blokker/<dato>/prosjekt/<modell>.json  per-element findings of each requirement at its one
                                                location (blokkdata 6), with class, name, type, storey
 Where a requirement has no per-element list in these caches, its sheet says so in one visible row;
@@ -166,12 +166,16 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
                     kl, navn, tn, et = objekt(m["label"], guid)
                     etikett, st = AARSAK[kode]
                     rader.append([m["label"], m["fag"], guid, kl, navn, tn, et, sted, verdi, B.E(etikett), st])
+        elif bid == "kopiobjekt" and not B.konfig.psett_egenskap(reg.prosjektpsett, "fagkode"):
+            # the per-GUID values come from the project property set's fagkode property
+            rader = [["alle", "", "", "", "", "", "", "", "", B.E("ikke_konfigurert"), "na"]]
         elif bid == "kopiobjekt":
+            kopi_navn = B.konfig.psett_egenskap(reg.prosjektpsett, "fagkode")
             godtatte = {f.upper() for f in reg.fagkoder}
             sanne = {str(x).lower() for x in reg.forventet["kopi_objekt"]["sanne_verdier"]}
             for m in R["modeller"]:
                 d = data[m["label"]]
-                finnes = int((d.get("finnes") or {}).get("HI90_Kopi objekt", 0))
+                finnes = int((d.get("finnes") or {}).get(kopi_navn, 0))
                 for guid, verdi in (d.get("guid_kopi") or {}).items():
                     v = (verdi or "").strip()
                     if not v:

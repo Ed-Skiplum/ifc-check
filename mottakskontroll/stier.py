@@ -36,6 +36,23 @@ def finnes(*stier: Path) -> None:
             raise SystemExit(f"FEIL: mangler {p}")
 
 
+def tabell_sti(navn: str, rot: Path | None) -> Path:
+    """A code table named in the config. Absolute: as given. A bare file name that exists in
+    standard/: the standard layer's table. Any other relative path: against `rot`, the project
+    config's directory. A bare name present in both places is an error, not a choice."""
+    p = Path(navn)
+    if p.is_absolute():
+        return p
+    std = STANDARD / p
+    if len(p.parts) == 1 and std.exists():
+        if rot is not None and (rot / p).exists() and (rot / p).resolve() != std.resolve():
+            raise SystemExit(f"FEIL: tabell {navn} finnes både i {STANDARD} og i {rot}")
+        return std
+    if rot is None:
+        raise SystemExit(f"FEIL: tabell {navn} finnes ikke i {STANDARD}")
+    return (rot / p).resolve()
+
+
 def ifc_sti(m: dict, kilde: str, rot: Path, ifc: Path | None = None) -> Path:
     """Where a round model's file lies: in `ifc` when given (the whole round in one folder), else
     in the model's own `kilde` or the round's, relative to `rot` (the project config's directory)."""

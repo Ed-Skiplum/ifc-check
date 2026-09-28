@@ -31,6 +31,32 @@ PROSJEKT = "prosjekt"
 MAL_MERKE = "<FROM PROJECT"
 
 
+# The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
+PSETT_REGLER = ("tre_sifre", "fagkode", "lik_typenavn", "utfylt")
+
+
+def prosjektpsett(y: dict) -> dict | None:
+    """The project property set (`prosjektpsett`), checked. None when the project declares none:
+    nothing of it is measured, and a requirement reading it reports «ikke konfigurert»."""
+    ps = y.get("prosjektpsett")
+    if not ps:
+        return None
+    egenskaper = ps.get("egenskaper") or []
+    feil = [e.get("navn") for e in egenskaper if e.get("regel") not in PSETT_REGLER]
+    if feil or not ps.get("navn"):
+        raise SystemExit(f"FEIL: prosjektpsett: mangler navn, eller ukjent regel på {feil} "
+                         f"(gyldige: {', '.join(PSETT_REGLER)})")
+    for r in ("fagkode", "lik_typenavn"):
+        if sum(1 for e in egenskaper if e["regel"] == r) > 1:
+            raise SystemExit(f"FEIL: prosjektpsett: mer enn én egenskap med regel {r}")
+    return ps
+
+
+def psett_egenskap(ps: dict | None, regel: str) -> str | None:
+    """The name of the project property carrying `regel`, or None when none is configured."""
+    return next((e["navn"] for e in (ps or {}).get("egenskaper") or [] if e["regel"] == regel), None)
+
+
 def ikke_konfigurert(b: dict) -> bool:
     """No location for the requirement in either layer."""
     return not any(b.get(k) for k in STEDER)
@@ -105,4 +131,6 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
     ut["terskel_gyldig"] = {**(std.get("terskel_gyldig") or {}),
                             **({} if kun_standard else (prj.get("terskel_gyldig") or {}))}
     ut["_lag"] = {"standard": str(STANDARD_STI), "prosjekt": None if kun_standard else str(krav_sti)}
+    # Relative table paths in the project config resolve here (stier.tabell_sti).
+    ut["_rot"] = None if kun_standard else krav_sti.resolve().parent
     return ut

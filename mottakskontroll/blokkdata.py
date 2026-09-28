@@ -182,8 +182,9 @@ def les_register(prosjekt: Path, kun_standard: bool = False) -> dict:
     return {"y": y, "blokker": blokker, "kun_standard": kun_standard}
 
 
-def tabell(navn: str, nokkel: str) -> dict:
-    rader = yaml.safe_load((stier.STANDARD / navn).read_text(encoding="utf-8"))
+def tabell(navn: str, nokkel: str, rot: Path | None) -> dict:
+    """A code table as named in the config (stier.tabell_sti), keyed by `nokkel`."""
+    rader = yaml.safe_load(stier.tabell_sti(navn, rot).read_text(encoding="utf-8"))
     return {str(r[nokkel]): r for r in rader}
 
 
@@ -193,12 +194,14 @@ def registerhash(reg: dict) -> str:
     h.update(json.dumps(reg["y"]["blokker"], ensure_ascii=False, sort_keys=True).encode())
     for k in ("mmi", "fase", "typenavn"):
         h.update(json.dumps(reg["y"]["forventet"].get(k), ensure_ascii=False, sort_keys=True).encode())
+    h.update(json.dumps(konfig.prosjektpsett(reg["y"]), ensure_ascii=False, sort_keys=True).encode())
+    rot = reg["y"]["_rot"]
     for b in reg["y"]["blokker"]:
         for s in b.get("mengdetype") or []:
             if s.get("tabell"):
-                h.update((stier.STANDARD / s["tabell"]).read_bytes())
+                h.update(stier.tabell_sti(s["tabell"], rot).read_bytes())
         if b.get("kodetabell"):
-            h.update((stier.STANDARD / b["kodetabell"]).read_bytes())
+            h.update(stier.tabell_sti(b["kodetabell"], rot).read_bytes())
     return h.hexdigest()[:16]
 
 
@@ -311,18 +314,23 @@ class Blokk:
 def mål(label: str, sti: Path, reg: dict) -> dict:
     y = reg["y"]
     bl = reg["blokker"]
-    klasse_tab = tabell("mengdetype_ifcklasse.yaml", "klasse")
-    kode_tab = tabell("mengdetype_ns3457.yaml", "kode")
-    kodetabell_3457 = {str(k).strip().upper() for k in kode_tab}
+    rot = y["_rot"]
+    mp = bl["materialprodukt"]
+    # The mengdetype tables are the ones the Produkt/Materiale config names, per analysis step.
+    mt_tab = {o.ifc: o.spec.get("tabell") for o in mp["_mengdetype"]}
+    klasse_tab = tabell(mt_tab["ifcklasse"], "klasse", rot) if mt_tab.get("ifcklasse") else {}
+    kode_tab = tabell(mt_tab["komponentkode"], "kode", rot) if mt_tab.get("komponentkode") else {}
+    funk_tab = bl["funksjonskode"].get("kodetabell")
+    kodetabell_3457 = {str(k).strip().upper() for k in tabell(funk_tab, "kode", rot)} if funk_tab else set()
+    ps = konfig.prosjektpsett(y)
+    type_egenskap = konfig.psett_egenskap(ps, "lik_typenavn")
     sk = bl["systemkode"]
     gyldig_3451 = re.compile(sk["gyldig"]) if sk.get("gyldig") else None
-    mp = bl["materialprodukt"]
     ikke_mat = [re.compile(p, re.I) for p in mp["ikke_materiale"]]
     fase_via_mmi = bool(bl["fase"].get("mmi_fase"))
     fase_gyldig = {str(x).casefold() for x in bl["fase"].get("gyldige") or []}
     mmi_koder = {str(x) for x in ((y["forventet"].get("mmi") or {}).get("koder") or [])}
     mmi_fase = {str(k): v for k, v in (bl["fase"].get("mmi_fase") or {}).items()}
-    funk_tab = bl["funksjonskode"].get("kodetabell")
 
     f = ifcopenshell.open(str(sti))
     skala_mm = uu.calculate_unit_scale(f) * 1000.0
@@ -638,16 +646,17 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             for felt in ("systemkode", "funksjonskode", "materiale", "produkt", "mengdetype", "mmi", "fase"):
                 tr[felt][rad.get(felt, "")] += 1
 
-        # Type 1:1, the same pairing as bep_egenskapskontroll, kept whole for the workbook
-        pi = B.prosjektinfo(psets)
-        hv = B.hent(pi, "HI90_Type")
-        hi90_type = str(hv).strip() if hv not in (None, "") else ""
-        if typenavn and hi90_type:
-            par[(typenavn, hi90_type)] += 1
-        elif not typenavn and not hi90_type:
-            upar["begge"] += 1
-        else:
-            upar["uten_hi90_type" if typenavn else "uten_typenavn"] += 1
+        # Type 1:1, the same pairing as bep_egenskapskontroll, kept whole for the workbook; only
+        # with a project type property (prosjektpsett, rule lik_typenavn)
+        if type_egenskap:
+            hv = B.hent(B.prosjektinfo(psets, ps["navn"]), type_egenskap)
+            egen_type = str(hv).strip() if hv not in (None, "") else ""
+            if typenavn and egen_type:
+                par[(typenavn, egen_type)] += 1
+            elif not typenavn and not egen_type:
+                upar["begge"] += 1
+            else:
+                upar["uten_verdi" if typenavn else "uten_typenavn"] += 1
 
     typeliste = []
     for tr in sorted(typer.values(), key=lambda x: (-x["instanser"], x["klasse"], x["navn"])):

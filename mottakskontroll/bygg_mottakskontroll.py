@@ -179,6 +179,13 @@ class Register:
         self.kpi_alle: list[dict] = y.get("kpi_alle") or []
         self.kpi_terskler: dict = y.get("kpi_terskler") or {}
         self.merknader_modell: dict = y.get("merknader_modell") or {}
+        self.rot: Path | None = y["_rot"]
+        # The project property set (konfig.prosjektpsett); its `krav` is the requirement that
+        # measures the set itself, the one others name in `krever`. None: not configured.
+        self.prosjektpsett: dict | None = konfig.prosjektpsett(y)
+        self.psett_krav: str | None = (self.prosjektpsett or {}).get("krav")
+        if self.psett_krav and self.psett_krav not in self.pr_id:
+            raise SystemExit(f"FEIL: prosjektpsett.krav {self.psett_krav} finnes ikke i `krav`")
         self._filnavn: re.Pattern | None = None
 
     def i_seksjon(self, *seksjoner: str) -> list[dict]:
@@ -345,8 +352,9 @@ def krever_mangler(reg: Register, d: dict, krav: dict) -> str | None:
 
 def pset_funnet(reg: Register, d: dict) -> str:
     """The property set name the file carries instead of the required one, or ''."""
-    krav = reg.pr_id["pset"]
-    navn = krav["datanokkel"]
+    if not reg.psett_krav:
+        return ""
+    navn = reg.pr_id[reg.psett_krav]["datanokkel"]
     andre = [k for k in (d.get("psetnavn") or {}) if k != navn]
     return andre[0] if andre else ""
 
@@ -354,9 +362,13 @@ def pset_funnet(reg: Register, d: dict) -> str:
 def vurder_data(reg: Register, d: dict, krav: dict) -> Vurdering:
     """A requirement measured against data.json: share, or a count with a denominator."""
     n = d["n"] or 0
+    if hent_tall(d, krav["datanokkel"]) is None:
+        # Not measured: the project config does not declare what it reads (e.g. `prosjektpsett`).
+        return Vurdering("na", VERDIKT_ORD["ikke_konfigurert"])
     grunn = krever_mangler(reg, d, krav)
     if grunn:
-        sub = [brytbar(pset_funnet(reg, d))] if krav.get("krever") == "pset" and pset_funnet(reg, d) else []
+        sub = ([brytbar(pset_funnet(reg, d))] if reg.psett_krav and krav.get("krever") == reg.psett_krav
+               and pset_funnet(reg, d) else [])
         return Vurdering("na", "", [grunn] + sub)
     v = hent_tall(d, krav["datanokkel"]) or 0
     if krav.get("enhet") == "tall":
@@ -1015,7 +1027,7 @@ class Modellberegning:
     """The ten blocks, the KPI band, the hygiene strip and the type register of one model."""
 
     def __init__(self, reg: Register, r: Runde, label: str, d: dict, bd: dict, s: dict,
-                 alle_guid: dict, tok: dict, kodetabell: set[str], geo: dict):
+                 alle_guid: dict, tok: dict, kodetabell: set[str] | None, geo: dict):
         self.reg, self.r, self.label, self.d, self.bd, self.s = reg, r, label, d, bd, s
         self.geo = geo
         m = r.cfg[label]
@@ -1398,6 +1410,8 @@ class Modellberegning:
         return self.ford_verdier(bb), False
 
     def ford_funksjonskode(self, bb):
+        if self.kodetabell is None:
+            return self.ford_verdier(bb), False
         return self.ford_verdier(bb, lambda v: v.strip().upper() not in self.kodetabell), False
 
     def ford_materialprodukt(self, bb):
@@ -1623,7 +1637,7 @@ class Modellberegning:
             bb_ = self.bd["blokker"].get(kl["id"]) or {}
             tp = bb_.get("typer_per_verdi") or {}
             tellinger = [(v, n, tp.get(v, 0)) for v, n, _ in bb_.get("verdier") or []]
-            ut.append({**kl, "rader": kodeliste_rader(tellinger, last_kodetabell(kl["ref"]))})
+            ut.append({**kl, "rader": kodeliste_rader(tellinger, last_kodetabell(kl["ref"], self.reg.rot))})
         return ut
 
     def komponenter(self, blokker: list[dict]) -> dict:
@@ -1697,8 +1711,10 @@ def celle_blokk(b: dict) -> dict:
 
 def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict, geo: dict) -> dict:
     tok = les_tokens()
-    kodetabell = {str(x["kode"]).upper() for x in
-                  yaml.safe_load((stier.STANDARD / "mengdetype_ns3457.yaml").read_text(encoding="utf-8"))}
+    # Funksjonskode's accepted values: the code table its config names; None when it names none.
+    ft = next((b.get("kodetabell") for b in reg.blokker if b["id"] == "funksjonskode"), None)
+    kodetabell = ({str(x["kode"]).upper() for x in
+                   yaml.safe_load(stier.tabell_sti(ft, reg.rot).read_text(encoding="utf-8"))} if ft else None)
     labels = r.hoved(reg)
     alle_guid = guid_forekomster(data, labels)
     modeller = []
@@ -2104,11 +2120,10 @@ def er_materiale(navn: str, ikke_materiale: list[str]) -> bool:
     return not any(re.search(p, navn or "", re.I) for p in ikke_materiale)
 
 
-def last_kodetabell(ref: dict) -> dict[str, str]:
+def last_kodetabell(ref: dict, rot: Path | None) -> dict[str, str]:
     """A code table from its config reference {kilde, fil, felt: {kode, navn}}: a YAML or JSON list,
-    relative to the standard layer (standard/) or absolute. Code -> name."""
-    sti = Path(ref["fil"])
-    sti = sti if sti.is_absolute() else stier.STANDARD / sti
+    found by stier.tabell_sti (`rot` is the project config's directory). Code -> name."""
+    sti = stier.tabell_sti(ref["fil"], rot)
     tekst = sti.read_text(encoding="utf-8")
     rader = json.loads(tekst) if sti.suffix.lower() == ".json" else yaml.safe_load(tekst)
     fk, fn = (ref.get("felt") or {}).get("kode", "kode"), (ref.get("felt") or {}).get("navn", "navn")
@@ -2537,7 +2552,7 @@ def skriv_xlsx(R: dict, reg: Register, sti: Path) -> None:
                         ws.cell(row=ws.max_row, column=5).fill = fyll["warn"]
 
     # Type 1:1: a project-layer sheet, there only when a project requirement reads type_1til1
-    # (HI90: HI90_Type = typenavn). Omitted in a run without it.
+    # (a project type property equal to the type name). Omitted in a run without it.
     type_1til1 = any(str(k.get("datanokkel", "")).startswith("type_1til1") for k in reg.krav)
     if type_1til1:
         ws = ark(E("ark_type_1til1"), [E(k) for k in ("modell", "retning", "nokkel", "objekter_kolonne", "motparter",

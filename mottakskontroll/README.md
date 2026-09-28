@@ -75,14 +75,16 @@ May declare:
 | `blokker[]` by standard id | `sted` / `sted_telleobjekt` / `sted_mengdeobjekt` REPLACE the standard location; any other key overrides. Unknown id: error |
 | `forventet.etasjer`, `forventet.typenavn` | storey table and type-name rule; absent: not checked |
 | `forventet.mmi.fase` | MMI code -> phase; Fase is then read at the MMI location |
+| `prosjektpsett` | the project property set `bep_egenskapskontroll.py` counts: `navn`, `egenskaper[]` `{navn, regel}` with `regel` one of `tre_sifre`, `fagkode` (a value from `fagkoder`), `lik_typenavn` (equals `IfcTypeObject.Name`, and the Type 1:1 pairing), `utfylt`; optional `krav` (the krav id measuring the set, named in other krav's `krever`) and `navnedel` (sets whose name contains it are listed as found instead). Absent: nothing of it is measured, and a krav reading it is «ikke konfigurert» |
 | `uten_rapport`, `faggrupper` | fagkoder with no report; avvik workbook groups (unlisted model = own group) |
 | `skjema` | accepted/recommended schemas, replaces the standard's |
 | `merknader`, `merknader_modell` | the report's only sentences |
 | `etiketter`, `verdiktord`, `kpi_terskler`, `terskel_gyldig` | merged key by key over the standard |
 | `standard`, `kpi_band`, `kpi_alle` | replace the standard's whole |
 
-Relative table paths (`kodetabell`, `kodeliste.fil`, `mengdetype[].tabell`) resolve in
-`standard/`; a project table is given as an absolute path.
+Table paths (`kodetabell`, `kodeliste.fil`, `mengdetype[].tabell`): absolute as given; a bare
+name that exists in `standard/` is the standard's table; any other relative path resolves against
+the project config's directory. A bare name present in both places is an error.
 
 ## Round config
 
@@ -94,9 +96,3 @@ One JSON per round, in the project repo.
 | `eksport` | export name, printed |
 | `kilde` | folder of the export, relative to the project config's directory; its name is printed |
 | `modeller[]` | `label`, `fil`, `sha16` (first 16 of sha256; a mismatch stops the build), `firma`, `versjon`, `lastet_opp`, `merknad`, optional `kilde` |
-
-## Not yet config
-
-Project names still in the measuring code, moved as-is: the `HI90_Prosjektinfo` set and its
-`HI90_*` properties in `bep_egenskapskontroll.py`, `HI90_Type` in `blokkdata.py`,
-`HI90_Kopi objekt` in `bygg_avvik.py`, and the `pset` requirement id in `bygg_mottakskontroll.py`.
