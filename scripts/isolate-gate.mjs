@@ -281,6 +281,18 @@ async function clickAt(x, y) {
   await sleep(500);
 }
 
+/** A double-click as the browser sees one: two presses, the second with
+ *  clickCount 2, which fires `dblclick`. */
+async function dblClickAt(x, y) {
+  for (const clickCount of [1, 2]) {
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: 1, clickCount });
+    }
+  }
+  await park();
+  await sleep(500);
+}
+
 async function park() {
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 3, y: 3, buttons: 0 });
   await sleep(250);
@@ -1125,8 +1137,9 @@ async function typesPhase() {
   check(pick !== null, `T1 a type with 3 to 60 instances exists (${pick?.key} ×${pick?.n})`);
   if (!pick) return;
   await sleep(600);
+  // A double-click opens the full type view (2026-09-28).
   const cardAt = await centre(`document.querySelector('[data-gate-type]')`);
-  await clickAt(cardAt.x, cardAt.y);
+  await dblClickAt(cardAt.x, cardAt.y);
   await sleep(1500);
   const o1 = await evaluate(OPEN);
   check(o1 !== null && o1.key === pick.key, `T1 the card opens its instance mode (${o1?.key})`);

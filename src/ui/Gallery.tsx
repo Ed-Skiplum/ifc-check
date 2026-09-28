@@ -24,8 +24,7 @@ export function Gallery({
 }: {
   /** The card's canon size in modules: S [2, 2], M [3, 2]. */
   unit: readonly [number, number];
-  /** Or a function of how many cards fit across, for a card that grows. */
-  children: ReactNode | ((across: number) => ReactNode);
+  children: ReactNode;
   label?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -64,11 +63,9 @@ export function Gallery({
             gap: MG_GAP,
             gridTemplateColumns: `repeat(${cards}, ${cardW}px)`,
             gridAutoRows: `${cardH}px`,
-            // A grown card leaves holes before it; the cards after fill them.
-            gridAutoFlow: "row dense",
           }}
         >
-          {typeof children === "function" ? children(cards) : children}
+          {children}
         </div>
       ) : null}
     </div>
@@ -81,30 +78,27 @@ export function Gallery({
  * card can carry doors of its own (the link chips, the instance controls) and
  * a button inside a button is not valid HTML. Enter and Space open it when the
  * card itself has focus; a click on an inner control stops there.
- *
- * `span` is the card's size in gallery cells, for the one card that grows (the
- * open type, 2026-09-28). */
+ * `onDoubleClick` is the type card's second door, its full type view. */
 export function GalleryCard({
   children,
   onClick,
+  onDoubleClick,
   active,
   title,
-  span,
   cardRef,
   data,
 }: {
   children: ReactNode;
   onClick?: () => void;
+  onDoubleClick?: () => void;
   active?: boolean;
   title?: string;
-  span?: readonly [number, number];
   cardRef?: Ref<HTMLDivElement>;
   data?: Record<`data-${string}`, string | number | undefined>;
 }) {
   const className =
-    "gallery-card flex min-h-0 min-w-0 flex-col overflow-hidden text-left" +
+    "gallery-card flex min-h-0 min-w-0 flex-col overflow-hidden text-left select-none" +
     (onClick ? " gallery-door cursor-pointer" : "");
-  const style = span ? { gridColumn: `span ${span[0]}`, gridRow: `span ${span[1]}` } : undefined;
   return (
     <div
       ref={cardRef}
@@ -113,6 +107,7 @@ export function GalleryCard({
       tabIndex={onClick ? 0 : undefined}
       aria-current={onClick && active ? "true" : undefined}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onKeyDown={
         onClick
           ? (e) => {
@@ -123,7 +118,6 @@ export function GalleryCard({
           : undefined
       }
       className={className}
-      style={style}
       {...data}
     >
       {children}

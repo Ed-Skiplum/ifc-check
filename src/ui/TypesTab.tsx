@@ -9,24 +9,25 @@
  * The ifcfast demo's Types view (`ifc-fast-demo/components/views/
  * types-view.tsx`), on this model's profile: how many elements carry each
  * type, and whether they agree on IsExternal and LoadBearing (true · false ·
- * unset). A card is a door, as every row on the board is: it makes a Type chip
- * through the board's own click, so the 3D isolates that type.
+ * unset).
  *
- * ── Instance mode (2026-09-28) ───────────────────────────────────────────
- * Owner: *"For types: Single instance selector like in lca_qto, with a toggle
- * for all instances of type. So either see them one by one with a navigation
- * "next/former" or see all."* The reference is the G55 QTO-LCA type viewer
+ * ── The viewer and the type view (2026-09-28) ────────────────────────────
+ * Owner: *"you didnt add a viewer to my types and materials dash"*, then on
+ * the card that grew in place: *"this doesnt work. Open a full page type view
+ * on doubleclick rather than this inline card viewer."*
+ *
+ * The board's ONE 3D scene sits beside the gallery (`BoardViewer.tsx`, lent
+ * through `viewer/dock.ts` as the Graf tab lends it). A click on a card
+ * selects the type's instances there, and the viewer frames every new
+ * selection. A double-click opens the TYPE VIEW over the tab: the viewer as
+ * the hero, the instance navigator of the G55 QTO-LCA type viewer
  * (`10027-grønland-55/underprosjekter/G55_QTO-LCA/02_arbeid/verify_app.html`,
- * worklog 2026-06-17-22-40): a `Per forekomst | Alle forekomster` toggle, ‹ ›
- * titled `Forrige (↑)` / `Neste (↓)`, ↑ ↓ step the instances and ← → the
- * types. Mirrored here, labels verbatim.
- *
- * Opening a card grows it to XL (3 × 2 cards, 6 × 4 modules) in place and
- * lends it the board's ONE 3D scene (`viewer/dock.ts`, as the Graf tab does).
- * Per forekomst selects one instance, and the viewer frames every new
- * selection; Alle forekomster selects all N. The order is `type-links.ts`'s:
- * by storey from the lowest, then GlobalId. The card lists the materials the
- * type's instances carry, each a link to that material's card.
+ * worklog 2026-06-17-22-40: `Per forekomst | Alle forekomster`, ‹ › titled
+ * `Forrige (↑)` / `Neste (↓)`, ↑ ↓ step the instances and ← → the types), the
+ * current instance, the type's facts, and its materials as links. Back or Esc
+ * returns to the gallery, which stays mounted under it, so its scroll holds.
+ * The instance order is `type-links.ts`'s: by storey from the lowest, then
+ * GlobalId.
  *
  * What the demo had that the engine here does not give:
  *   · m³ and m² per type. The demo summed ifcfast's MESHED take-off
@@ -38,18 +39,16 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent, Ref } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
 import type { ModelProfile } from "./profile";
-import type { Focus } from "./trace";
-import { serialiseFocus } from "./trace";
-import type { FilterChip } from "./cross-filter";
 import type { MeshBatch } from "../viewer/mesh-stream";
 import { cachedThumb, requestThumb } from "../viewer/thumbnails";
-import { findDock, onDocksChanged } from "../viewer/dock";
 import { Gallery, GalleryCard, LinkChip, NoGeometryMark } from "./Gallery";
+import { LentViewer, WithViewer, useTabGrid, viewerSpan } from "./BoardViewer";
+import { MG_GAP } from "./alt/module-grid";
 import { useFillHeight } from "./useFillHeight";
 import type { Catalogue, TypeCard } from "./type-links";
 
@@ -118,12 +117,8 @@ export function TypesTab({
   profile,
   catalogue,
   meshBatches,
-  selected,
-  chips,
   selection,
   reveal,
-  onFocus,
-  onRemoveChip,
   onSelect,
   onOpenMaterial,
 }: {
@@ -133,14 +128,9 @@ export function TypesTab({
   catalogue: Catalogue | null;
   /** The streamed geometry, for the card renders and the lent 3D. */
   meshBatches: MeshBatch[] | undefined;
-  /** `serialiseFocus` key of the open derivation, to mark its card. */
-  selected: string | null;
-  chips: FilterChip[];
-  /** The panel's `view.selection`, printed on the open card for scripts. */
+  /** The panel's `view.selection`, to mark the picked card and for scripts. */
   selection: string[];
   reveal: Reveal | null;
-  onFocus: (focus: Focus) => void;
-  onRemoveChip: (key: string) => void;
   onSelect: (guids: string[]) => void;
   onOpenMaterial: (name: string) => void;
 }) {
@@ -148,6 +138,7 @@ export function TypesTab({
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
+  const [picked, setPicked] = useState<string | null>(null);
   const [open, setOpen] = useState<Open | null>(null);
   const card = open ? (byKey.get(open.key) ?? null) : null;
   const storeyName = useMemo(
@@ -156,31 +147,26 @@ export function TypesTab({
   );
   const rowOf = useMemo(() => new Map((profile?.rows ?? []).map((r) => [r.guid, r])), [profile]);
 
-  const focusOf = (row: TypeCard): Focus => ({ kind: "type", typeName: row.typeName });
+  // A selection cleared elsewhere unmarks the card.
+  useEffect(() => {
+    if (selection.length === 0) setPicked(null);
+  }, [selection.length]);
 
-  /** Open a card, or close the open one (`row` null). The Type chip and the
-   *  derivation follow as they did before the mode existed: opening is the
-   *  card's old click, closing undoes it. */
-  const openCard = useCallback(
-    (row: TypeCard | null) => {
-      const prev = open ? byKey.get(open.key) : undefined;
-      const prevKey = prev ? serialiseFocus(focusOf(prev)) : null;
-      const nextKey = row ? serialiseFocus(focusOf(row)) : null;
-      const has = (key: string) => chips.some((c) => c.key === key);
-      if (prevKey && prevKey !== nextKey && has(prevKey)) {
-        if (row) onRemoveChip(prevKey);
-        else onFocus(focusOf(prev!));
-      }
-      if (row && nextKey && !has(nextKey)) onFocus(focusOf(row));
-      if (!row) {
-        setOpen(null);
-        onSelect([]);
-        return;
-      }
+  const pick = useCallback(
+    (row: TypeCard) => {
+      setPicked(row.key);
+      onSelect(row.guids);
+    },
+    [onSelect],
+  );
+
+  const openView = useCallback(
+    (row: TypeCard) => {
+      setPicked(row.key);
       setOpen({ key: row.key, pos: 0, all: false });
       onSelect(row.guids.slice(0, 1));
     },
-    [open, byKey, chips, onFocus, onRemoveChip, onSelect],
+    [onSelect],
   );
 
   const step = useCallback(
@@ -208,26 +194,19 @@ export function TypesTab({
       if (!open) return;
       const at = rows.findIndex((r) => r.key === open.key);
       const next = rows[at + delta];
-      if (next) openCard(next);
+      if (next) openView(next);
     },
-    [open, rows, openCard],
+    [open, rows, openView],
   );
 
-  const openRef = useRef<HTMLDivElement>(null);
-
-  // Another tab asked for a card (a material's type link).
+  // Another tab asked for a type (a material's type link): its view opens.
   const handled = useRef(0);
   useEffect(() => {
     if (!reveal || reveal.seq === handled.current) return;
     handled.current = reveal.seq;
     const row = byKey.get(reveal.key);
-    if (row && open?.key !== row.key) openCard(row);
-    // Already open: bring it back into view and give it the keys.
-    else if (row) {
-      openRef.current?.scrollIntoView({ block: "nearest" });
-      openRef.current?.querySelector<HTMLElement>("[tabindex='-1']")?.focus({ preventScroll: true });
-    }
-  }, [reveal, byKey, open, openCard]);
+    if (row) openView(row);
+  }, [reveal, byKey, openView]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (!open) return;
@@ -237,23 +216,25 @@ export function TypesTab({
     else if (e.key === "ArrowUp") step(-1);
     else if (e.key === "ArrowRight") stepType(1);
     else if (e.key === "ArrowLeft") stepType(-1);
-    else if (e.key === "Escape") openCard(null);
+    else if (e.key === "Escape") setOpen(null);
     else return;
     e.preventDefault();
   };
 
-  // The open card keeps its place in view as it grows or as ← → move it.
+  // The picked card back in view when the gallery returns.
+  const pickedRef = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
   useLayoutEffect(() => {
-    openRef.current?.scrollIntoView({ block: "nearest" });
-    openRef.current?.querySelector<HTMLElement>("[tabindex='-1']")?.focus({ preventScroll: true });
-  }, [open?.key]);
+    if (wasOpen.current && !open) pickedRef.current?.focus({ preventScroll: true });
+    wasOpen.current = open !== null;
+  }, [open]);
 
   return (
     <section
       ref={fillRef}
       style={{ height: fillHeight ?? undefined }}
       onKeyDown={onKeyDown}
-      className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
+      className="relative flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
     >
       <div className="flex shrink-0 items-center gap-3 px-4 pt-1 font-mono text-[10px] text-muted tabular-nums">
         <span>{`${formatCount(rows.length, lang)} · ${t("col.instances", lang)} ${formatCount(
@@ -267,52 +248,48 @@ export function TypesTab({
           {profile ? t("type.none", lang) : notSupplied}
         </div>
       ) : (
-        <Gallery unit={[2, 2]} label="types">
-          {(across) =>
-            rows.map((row) => {
+        <WithViewer meshBatches={meshBatches} active={open === null}>
+          <Gallery unit={[2, 2]} label="types">
+            {rows.map((row) => {
               const name = row.typeName ?? t("type.untyped", lang);
-              if (card && open && row.key === card.key) {
-                return (
-                  <OpenCard
-                    key={row.key}
-                    cardRef={openRef}
-                    lang={lang}
-                    row={card}
-                    name={name}
-                    open={open}
-                    across={across}
-                    meshBatches={meshBatches}
-                    selection={selection}
-                    materials={catalogue?.typeMaterials.get(card.key) ?? []}
-                    storeyOf={(guid) => {
-                      const r = rowOf.get(guid);
-                      return r?.storeyGuid ? (storeyName.get(r.storeyGuid) ?? r.storeyGuid) : null;
-                    }}
-                    nameOf={(guid) => rowOf.get(guid)?.name ?? null}
-                    onClose={() => openCard(null)}
-                    onStep={step}
-                    onAll={setAll}
-                    onOpenMaterial={onOpenMaterial}
-                  />
-                );
-              }
-              const active = selected === serialiseFocus(focusOf(row));
               return (
                 <GalleryCard
                   key={row.key}
-                  active={active}
+                  active={picked === row.key}
                   title={`${row.entity} · ${name}`}
-                  onClick={() => openCard(row)}
+                  onClick={() => pick(row)}
+                  onDoubleClick={() => openView(row)}
+                  cardRef={picked === row.key ? pickedRef : undefined}
                   data={{ "data-type-card": row.key, "data-type-count": row.count }}
                 >
                   <Thumb batches={meshBatches} row={row} />
                   <CardFoot lang={lang} row={row} name={name} />
                 </GalleryCard>
               );
-            })
-          }
-        </Gallery>
+            })}
+          </Gallery>
+        </WithViewer>
       )}
+      {card && open ? (
+        <TypeView
+          lang={lang}
+          row={card}
+          name={card.typeName ?? t("type.untyped", lang)}
+          open={open}
+          meshBatches={meshBatches}
+          selection={selection}
+          materials={catalogue?.typeMaterials.get(card.key) ?? []}
+          storeyOf={(guid) => {
+            const r = rowOf.get(guid);
+            return r?.storeyGuid ? (storeyName.get(r.storeyGuid) ?? r.storeyGuid) : null;
+          }}
+          nameOf={(guid) => rowOf.get(guid)?.name ?? null}
+          onClose={() => setOpen(null)}
+          onStep={step}
+          onAll={setAll}
+          onOpenMaterial={onOpenMaterial}
+        />
+      ) : null}
     </section>
   );
 }
@@ -346,15 +323,23 @@ function CardFoot({ lang, row, name }: { lang: Lang; row: TypeCard; name: string
   );
 }
 
-/** The open type: XL in place, the lent 3D on the left, the instance controls,
- *  the current instance and the material links on the right. */
-function OpenCard({
-  cardRef,
+/** A tile of the type view: M, 3 × 2 modules. */
+function Tile({ children, data }: { children: ReactNode; data?: Record<`data-${string}`, string | number | undefined> }) {
+  return (
+    <div className="gallery-card flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden p-2.5" style={{ gridColumn: "span 3", gridRow: "span 2" }} {...data}>
+      {children}
+    </div>
+  );
+}
+
+/** The type view: over the whole tab, on the tab's grid. The lent 3D is the
+ *  hero (XL); the instance navigator, the type's facts and its materials are
+ *  M tiles beside it, or under it where the tab is too narrow. */
+function TypeView({
   lang,
   row,
   name,
   open,
-  across,
   meshBatches,
   selection,
   materials,
@@ -365,12 +350,10 @@ function OpenCard({
   onAll,
   onOpenMaterial,
 }: {
-  cardRef: Ref<HTMLDivElement>;
   lang: Lang;
   row: TypeCard;
   name: string;
   open: Open;
-  across: number;
   meshBatches: MeshBatch[] | undefined;
   selection: string[];
   materials: { key: string; n: number }[];
@@ -381,154 +364,161 @@ function OpenCard({
   onAll: (all: boolean) => void;
   onOpenMaterial: (name: string) => void;
 }) {
-  const wide = Math.min(3, across);
   const guid = row.guids[open.pos];
   const n = row.guids.length;
+  const { ref: gridRef, grid } = useTabGrid<HTMLDivElement>();
+  // The hero keeps one M tile beside it; under 9 columns it spans the row and
+  // the tiles go under it.
+  const [hw, hh] = grid ? (grid.cols >= 9 ? viewerSpan(grid, 3) : viewerSpan({ ...grid, rows: 99 }, 0)) : [0, 0];
 
-  /* ── The viewer, borrowed (as GraphTab borrows it) ─────────────────────── */
-  const slot = useRef<HTMLDivElement>(null);
-  const [, bumpDocks] = useState(0);
-  useEffect(() => onDocksChanged(() => bumpDocks((k) => k + 1)), []);
-  const dock = findDock(meshBatches);
-  const [shown, setShown] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const el = slot.current;
-    if (!el) return;
-    const measure = () => {
-      const r = el.getBoundingClientRect();
-      setShown(r.width > 0 && r.height > 0);
-    };
-    // The observer reports once on observe, so no synchronous first call.
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  useLayoutEffect(() => {
-    const el = slot.current;
-    if (!dock || !el || !shown) return;
-    el.appendChild(dock.canvas);
-    const size = () => {
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) dock.scene.resize(r.width, r.height);
-    };
-    size();
-    const observer = new ResizeObserver(size);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      dock.restore();
-    };
-  }, [dock, shown]);
+    root.current?.focus({ preventScroll: true });
+  }, [row.key]);
 
   const pill = (on: boolean) =>
     "px-2 py-0.5 text-[11px] " + (on ? "bg-ink text-panel" : "bg-input text-muted hover:text-ink");
   const nav =
     "flex h-6 w-6 items-center justify-center rounded-[6px] border border-line bg-input text-[13px] text-ink disabled:opacity-40";
+  const facts = "grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-[10px] leading-[14px] tabular-nums";
 
   return (
-    <GalleryCard
-      cardRef={cardRef}
-      span={[wide, 2]}
-      title={`${row.entity} · ${name}`}
-      data={{
-        "data-type-card": row.key,
-        "data-type-open": "",
-        "data-instance-mode": open.all ? "all" : "one",
-        "data-instance-pos": `${open.pos + 1}/${n}`,
-        "data-instance-guid": open.all ? "" : guid,
-        "data-selection-count": selection.length,
-        "data-selection-first": selection[0] ?? "",
-      }}
+    <div
+      ref={root}
+      tabIndex={-1}
+      className="absolute inset-0 z-10 flex flex-col bg-ground outline-none"
+      data-type-view={row.key}
+      data-type-card={row.key}
+      data-type-open=""
+      data-instance-mode={open.all ? "all" : "one"}
+      data-instance-pos={`${open.pos + 1}/${n}`}
+      data-instance-guid={open.all ? "" : guid}
+      data-selection-count={selection.length}
+      data-selection-first={selection[0] ?? ""}
     >
-      <div tabIndex={-1} className={"flex min-h-0 flex-1 outline-none " + (wide >= 2 ? "flex-row" : "flex-col")}>
-        <div
-          ref={slot}
-          data-type-viewer
-          className={"relative min-h-0 min-w-0 overflow-hidden rounded-[10px] bg-panel " + (wide >= 2 ? "m-2 mr-0 flex-[2_1_0]" : "m-2 mb-0 flex-1")}
+      <div className="flex shrink-0 items-center gap-3 px-4 pt-1">
+        <button
+          type="button"
+          title={t("inst.close", lang)}
+          onClick={onClose}
+          data-type-back
+          className="flex h-6 w-6 items-center justify-center rounded-[6px] border border-line bg-input text-[13px] text-ink hover:border-ink"
         >
-          {dock ? null : (
-            <div className="flex h-full items-center justify-center">
-              <NoGeometryMark />
-            </div>
-          )}
-        </div>
-        <div className="flex min-h-0 min-w-0 flex-[1_1_0] flex-col gap-2 p-2.5">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-mono text-[10px] text-muted">{row.entity}</div>
-              <div className="line-clamp-2 font-mono text-[12px] leading-snug break-all text-ink">{name}</div>
-            </div>
-            <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums">
-              {formatCount(n, lang)}
-            </span>
-            <button
-              type="button"
-              title={t("inst.close", lang)}
-              onClick={onClose}
-              className="shrink-0 rounded-[6px] px-1 text-[12px] text-muted hover:text-ink"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div role="group" className="flex shrink-0 self-start overflow-hidden rounded-[6px] border border-line">
-            <button type="button" aria-pressed={!open.all} data-instance-one onClick={() => onAll(false)} className={pill(!open.all)}>
-              {t("inst.one", lang)}
-            </button>
-            <button type="button" aria-pressed={open.all} data-instance-all onClick={() => onAll(true)} className={pill(open.all)}>
-              {t("inst.all", lang)}
-            </button>
-          </div>
-
-          {open.all ? (
-            <div className="font-mono text-[11px] text-ink tabular-nums" data-instance-counter>
-              {`${formatCount(n, lang)} / ${formatCount(n, lang)}`}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button type="button" title={t("inst.prev", lang)} data-instance-prev disabled={open.pos === 0} onClick={() => onStep(-1)} className={nav}>
-                ‹
-              </button>
-              <span className="min-w-[4.5rem] text-center font-mono text-[11px] text-ink tabular-nums" data-instance-counter>
-                {`${open.pos + 1} / ${n}`}
-              </span>
-              <button type="button" title={t("inst.next", lang)} data-instance-next disabled={open.pos >= n - 1} onClick={() => onStep(1)} className={nav}>
-                ›
-              </button>
-            </div>
-          )}
-
-          {open.all ? null : (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-[10px] leading-[14px] tabular-nums">
-              <dt className="text-muted">{t("col.name", lang)}</dt>
-              <dd className="truncate text-ink" title={nameOf(guid) ?? ""}>{nameOf(guid) ?? "—"}</dd>
-              <dt className="text-muted">{t("col.guid", lang)}</dt>
-              <dd className="truncate text-ink" title={guid}>{guid}</dd>
-              <dt className="text-muted">{t("col.storey", lang)}</dt>
-              <dd className="truncate text-ink">{storeyOf(guid) ?? t("matrix.noStorey", lang)}</dd>
-            </dl>
-          )}
-
-          <div className="flex min-h-0 flex-1 flex-col gap-1">
-            <div className="font-mono text-[10px] text-muted">{t("col.materials", lang)}</div>
-            <div className="flex min-h-0 flex-wrap content-start gap-1 overflow-auto" data-type-materials>
-              {materials.length === 0 ? (
-                <span className="font-mono text-[10px] text-muted">—</span>
-              ) : (
-                materials.map((m) => (
-                  <LinkChip
-                    key={m.key}
-                    label={m.key}
-                    n={m.n}
-                    onOpen={() => onOpenMaterial(m.key)}
-                    data={{ "data-link-material": m.key }}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+          ‹
+        </button>
+        <span className="shrink-0 font-mono text-[10px] text-muted">{row.entity}</span>
+        <span className="min-w-0 truncate font-mono text-[12px] text-ink">{name}</span>
       </div>
-    </GalleryCard>
+      <div ref={gridRef} className="min-h-0 flex-1 overflow-auto">
+        {grid ? (
+          <div
+            className="grid justify-center"
+            data-type-view-grid={`${grid.cols},${grid.rows},${hw}x${hh}`}
+            style={{
+              padding: MG_GAP,
+              gap: MG_GAP,
+              gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
+              gridAutoRows: `${grid.u}px`,
+              gridAutoFlow: "row dense",
+            }}
+          >
+            <LentViewer
+              meshBatches={meshBatches}
+              active
+              style={{ gridColumn: `1 / span ${hw}`, gridRow: `1 / span ${hh}` }}
+              data={{ "data-type-viewer": "", "data-viewer-span": `${hw}x${hh}` }}
+            />
+
+            <Tile data={{ "data-type-instance": "" }}>
+              <div role="group" className="flex shrink-0 self-start overflow-hidden rounded-[6px] border border-line">
+                <button type="button" aria-pressed={!open.all} data-instance-one onClick={() => onAll(false)} className={pill(!open.all)}>
+                  {t("inst.one", lang)}
+                </button>
+                <button type="button" aria-pressed={open.all} data-instance-all onClick={() => onAll(true)} className={pill(open.all)}>
+                  {t("inst.all", lang)}
+                </button>
+              </div>
+              {open.all ? (
+                <div className="font-mono text-[11px] text-ink tabular-nums" data-instance-counter>
+                  {`${formatCount(n, lang)} / ${formatCount(n, lang)}`}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <button type="button" title={t("inst.prev", lang)} data-instance-prev disabled={open.pos === 0} onClick={() => onStep(-1)} className={nav}>
+                      ‹
+                    </button>
+                    <span className="min-w-[4.5rem] text-center font-mono text-[11px] text-ink tabular-nums" data-instance-counter>
+                      {`${open.pos + 1} / ${n}`}
+                    </span>
+                    <button type="button" title={t("inst.next", lang)} data-instance-next disabled={open.pos >= n - 1} onClick={() => onStep(1)} className={nav}>
+                      ›
+                    </button>
+                  </div>
+                  <dl className={facts}>
+                    <dt className="text-muted">{t("col.name", lang)}</dt>
+                    <dd className="truncate text-ink" title={nameOf(guid) ?? ""}>{nameOf(guid) ?? "—"}</dd>
+                    <dt className="text-muted">{t("col.guid", lang)}</dt>
+                    <dd className="truncate text-ink" title={guid}>{guid}</dd>
+                    <dt className="text-muted">{t("col.storey", lang)}</dt>
+                    <dd className="truncate text-ink">{storeyOf(guid) ?? t("matrix.noStorey", lang)}</dd>
+                  </dl>
+                </>
+              )}
+            </Tile>
+
+            <Tile data={{ "data-type-facts": "" }}>
+              <div className="flex items-baseline gap-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted">{row.entity}</span>
+                <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums">{formatCount(n, lang)}</span>
+              </div>
+              <div className="line-clamp-2 font-mono text-[12px] leading-snug break-all text-ink">
+                {name}
+                {row.source && row.source !== "ifctype" && row.typeName ? (
+                  <span className="ml-1.5 text-[9px] text-muted uppercase">{row.source}</span>
+                ) : null}
+              </div>
+              <dl className={facts}>
+                {row.typeGuids.length > 0 ? (
+                  <>
+                    <dt className="text-muted">{t("col.guid", lang)}</dt>
+                    <dd className="truncate text-ink" title={row.typeGuids.join("\n")}>
+                      {row.typeGuids.length > 1 ? `${row.typeGuids[0]} +${row.typeGuids.length - 1}` : row.typeGuids[0]}
+                    </dd>
+                  </>
+                ) : null}
+                <dt className="text-muted">IsExternal</dt>
+                <dd className="text-right">
+                  <Tri value={row.ext} />
+                </dd>
+                <dt className="text-muted">LoadBearing</dt>
+                <dd className="text-right">
+                  <Tri value={row.lb} />
+                </dd>
+              </dl>
+            </Tile>
+
+            <Tile data={{ "data-type-materials-tile": "" }}>
+              <div className="font-mono text-[10px] text-muted">{t("col.materials", lang)}</div>
+              <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-auto" data-type-materials>
+                {materials.length === 0 ? (
+                  <span className="font-mono text-[10px] text-muted">—</span>
+                ) : (
+                  materials.map((m) => (
+                    <LinkChip
+                      key={m.key}
+                      label={m.key}
+                      n={m.n}
+                      onOpen={() => onOpenMaterial(m.key)}
+                      data={{ "data-link-material": m.key }}
+                    />
+                  ))
+                )}
+              </div>
+            </Tile>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }

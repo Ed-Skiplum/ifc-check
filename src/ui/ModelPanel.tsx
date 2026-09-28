@@ -416,12 +416,8 @@ export function ModelPanel({
                 profile={profile ?? null}
                 catalogue={catalogue}
                 meshBatches={model.meshBatches}
-                selected={selected}
-                chips={view.chips}
                 selection={view.selection}
                 reveal={revealType}
-                onFocus={focus}
-                onRemoveChip={onRemoveChip}
                 onSelect={onSelect}
                 onOpenMaterial={openMaterial}
               />
@@ -431,12 +427,11 @@ export function ModelPanel({
                 lang={lang}
                 profile={profile ?? null}
                 catalogue={catalogue}
-                chips={view.chips}
+                meshBatches={model.meshBatches}
+                selection={view.selection}
                 reveal={revealMaterial}
+                onSelect={onSelect}
                 onOpenType={openType}
-                onToggleChip={(chip) =>
-                  view.chips.some((c) => c.key === chip.key) ? onRemoveChip(chip.key) : onAddChip(chip)
-                }
               />
             </div>
             {/* Pinned to the bottom of the scrolling page while this panel

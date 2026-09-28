@@ -52,7 +52,7 @@ import type { Design } from "./useHashView";
 import type { Focus } from "./trace";
 import type { CheckResult } from "../engine/types";
 import type { MeshBatch } from "../viewer/mesh-stream";
-import { findDock, onDocksChanged } from "../viewer/dock";
+import { findDock, lend, onDocksChanged } from "../viewer/dock";
 import { graphFieldLayout, type FieldRect } from "./canvas-aspect";
 import { MG_GAP, MG_MARGIN, graphTiles, mgGrid, mgSpanPx, type MgGrid } from "./alt/module-grid";
 import { GraphSim, fitView, seedOf, seededOffset, toSim, zoomAt, type GraphView } from "./graph-sim";
@@ -254,18 +254,7 @@ export function GraphTab({
   useLayoutEffect(() => {
     const slot = viewerSlot.current;
     if (!dock || !slot || !shown) return;
-    slot.appendChild(dock.canvas);
-    const size = () => {
-      const rect = slot.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) dock.scene.resize(rect.width, rect.height);
-    };
-    size();
-    const observer = new ResizeObserver(size);
-    observer.observe(slot);
-    return () => {
-      observer.disconnect();
-      dock.restore();
-    };
+    return lend(dock, slot);
   }, [dock, shown]);
 
   /* ── The live part ─────────────────────────────────────────────────────

@@ -6,12 +6,13 @@
  *   Materialer   one card per material name: a swatch, the name, how many
  *                elements, and the types that carry it (a class's untyped
  *                elements by the class name), each a link to its Typer
- *                card. A card makes a chip, so the 3D isolates what is made
- *                of it.
+ *                card. A click selects what is made of it in the board's 3D,
+ *                which sits beside the gallery (`BoardViewer.tsx`).
  *   Layer sets   one S card per material layer set: its layers as a strip in
  *                proportion to their thickness (`materialsJson()`, role
  *                `layer`), each layer's thickness and material, how many
- *                elements use it, and the types that do, as links.
+ *                elements use it, and the types that do, as links. A click
+ *                selects those elements.
  *
  * The collections and the links are `type-links.ts`'s, computed once per
  * profile by the panel (2026-09-28); this file only draws them.
@@ -35,8 +36,9 @@ import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
 import type { ModelProfile } from "./profile";
-import type { FilterChip } from "./cross-filter";
+import type { MeshBatch } from "../viewer/mesh-stream";
 import { Gallery, GalleryCard, LinkChip } from "./Gallery";
+import { WithViewer } from "./BoardViewer";
 import { useFillHeight } from "./useFillHeight";
 import type { Catalogue, LayerSetCard, Link, TypeCard } from "./type-links";
 import type { Reveal } from "./TypesTab";
@@ -81,20 +83,23 @@ export function MaterialsTab({
   lang,
   profile,
   catalogue,
-  chips,
+  meshBatches,
+  selection,
   reveal,
-  onToggleChip,
+  onSelect,
   onOpenType,
 }: {
   lang: Lang;
   profile: ModelProfile | null;
   /** `type-links.ts`, computed once per profile by the panel. */
   catalogue: Catalogue | null;
-  /** The panel's chips, to mark the rows that are filtering. */
-  chips: FilterChip[];
+  /** The streamed geometry, for the lent 3D. */
+  meshBatches: MeshBatch[] | undefined;
+  /** The panel's `view.selection`, to unmark the card when it is cleared. */
+  selection: string[];
   /** A material card another tab asked for (a type's material link). */
   reveal: Reveal | null;
-  onToggleChip: (chip: FilterChip) => void;
+  onSelect: (guids: string[]) => void;
   onOpenType: (key: string) => void;
 }) {
   const [view, setView] = useState<"materials" | "sets">("materials");
@@ -103,7 +108,16 @@ export function MaterialsTab({
   const types = useMemo(() => new Map((catalogue?.types ?? []).map((c) => [c.key, c])), [catalogue]);
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
-  const active = new Set(chips.map((c) => c.key));
+  // A card click selects the elements using it (2026-09-28); the card stays
+  // marked until the selection is cleared or another card is clicked.
+  const [picked, setPicked] = useState<string | null>(null);
+  useEffect(() => {
+    if (selection.length === 0) setPicked(null);
+  }, [selection.length]);
+  const pick = (key: string, guids: string[]) => {
+    setPicked(key);
+    onSelect(guids);
+  };
 
   // A type's material link lands here: the Materialer view, that card in
   // view and marked until the next request.
@@ -152,6 +166,7 @@ export function MaterialsTab({
               : notSupplied}
         </span>
       </div>
+      <WithViewer meshBatches={meshBatches} active>
       {view === "materials" ? (
         materials.length === 0 ? (
           <Empty>{profile ? t("type.none", lang) : notSupplied}</Empty>
@@ -163,8 +178,8 @@ export function MaterialsTab({
                 <GalleryCard
                   key={line.name}
                   title={`${line.name} · ${line.entities.join(", ")}`}
-                  active={active.has(key)}
-                  onClick={() => onToggleChip({ key, kind: "material", label: line.name, guids: line.guids })}
+                  active={picked === key}
+                  onClick={() => pick(key, line.guids)}
                   cardRef={revealed === line.name ? revealRef : undefined}
                   data={{ "data-material-card": line.name, "data-revealed": revealed === line.name ? "" : undefined }}
                 >
@@ -197,7 +212,13 @@ export function MaterialsTab({
       ) : (
         <Gallery unit={[2, 2]} label="sets">
           {sets.map((set) => (
-            <GalleryCard key={set.key} title={set.name ?? undefined}>
+            <GalleryCard
+              key={set.key}
+              title={set.name ?? undefined}
+              active={picked === `set:${set.key}`}
+              onClick={() => pick(`set:${set.key}`, set.guids)}
+              data={{ "data-set-card": set.key }}
+            >
               <div data-layer-set className="flex min-h-0 flex-1 flex-col gap-1.5 px-2.5 pt-2 pb-2">
                 <div className="flex items-baseline gap-2">
                   <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink">
@@ -229,6 +250,7 @@ export function MaterialsTab({
           ))}
         </Gallery>
       )}
+      </WithViewer>
     </section>
   );
 }

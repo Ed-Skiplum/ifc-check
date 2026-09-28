@@ -55,6 +55,8 @@ export interface LayerSetCard {
   layers: { material: string | null; thickness: number | null }[];
   total: number | null;
   count: number;
+  /** The elements using it, for a card click's selection. */
+  guids: string[];
 }
 
 /** One end of a link and how many elements carry both ends. */
@@ -211,10 +213,12 @@ export function catalogue(profile: ModelProfile): Catalogue {
           layers,
           total: known ? layers.reduce((sum, l) => sum + (l.thickness ?? 0), 0) : null,
           count: 0,
+          guids: [],
         };
         byKey.set(key, set);
       }
       set.count += 1;
+      set.guids.push(product.guid);
       if (!product.isOpening) count(setType, key, typeKeyOf(product));
     }
     sets = [...byKey.values()].sort((a, b) => b.count - a.count);

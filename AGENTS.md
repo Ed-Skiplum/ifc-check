@@ -1062,14 +1062,9 @@ all."*
 `Per forekomst | Alle forekomster`, ‹ › titled `Forrige (↑)` / `Neste (↓)`,
 ↑ ↓ step the instances, ← → the types, Esc closes. Labels verbatim (`inst.*`).
 
-- **Instance mode** (`TypesTab.tsx`): a type card click opens it. The card
-  grows in place to XL (3 × 2 cards, 6 × 4 modules; fewer across on a narrow
-  gallery, `grid-auto-flow: row dense` fills the holes) and borrows the
-  board's one 3D scene (`viewer/dock.ts`, as Graf does). Per forekomst selects
-  ONE instance (`onSelect` = `cross.setSelection`; the viewer frames every new
-  selection), counter `n / N`, Navn · GlobalId · Etasje of the current one.
-  Alle forekomster selects all N; the Type chip (the card's old click, kept)
-  isolates. Back to Per forekomst returns to the instance it was on.
+- **Instance mode**: first built as a card that grew in place to XL with the
+  3D inside. Owner, same day: *"this doesnt work. Open a full page type view on
+  doubleclick rather than this inline card viewer."* Replaced, see below.
 - **Order:** by storey, lowest elevation first, storeys without elevation
   after, elements in no storey last; then GlobalId, plain string order.
 - **Links** (`type-links.ts`, pure, `catalogue(profile)`, once per profile in
@@ -1079,10 +1074,43 @@ all."*
   (`materialsJson()`). Type ↔ material and layer set → type are the union over
   the products, each link counted in elements. A class's untyped elements are
   the card `entity::` and link under the class name.
-- **Drawn as chips** (`LinkChip`): the open type lists its materials, a
+- **Drawn as chips** (`LinkChip`): the type view lists its materials, a
   material card its types, a layer set card its types. A chip switches tab and
-  opens / marks (`data-revealed`) the linked card. `GalleryCard` is a
-  `div role=button` now, since a card holds doors of its own.
+  opens the type view / marks (`data-revealed`) the material card.
+  `GalleryCard` is a `div role=button`, since a card holds doors of its own.
+
+**The viewer beside the gallery, the type view (2026-09-28).** Owner: *"you
+didnt add a viewer to my types and materials dash"*, then the double-click
+ask above.
+
+- **Both tabs** (`BoardViewer.tsx`, `WithViewer`): the board's ONE scene sits
+  permanently right of the gallery, lent through `dock.ts` as Graf lends it
+  (no second copy). The tab's grid is rule 6 on the tab body with the
+  gallery's 16 px padding as margin, so the gallery (its own rule-6 pass on
+  the narrower width) lands on the same module. The viewer is XL, 8 × 5 when
+  that leaves a card column, else 6 × 4 (smaller canon sizes only on a tab too
+  short for XL). The gallery scrolls in its own area; the tab fills to the
+  window foot, no page scroll.
+- **Click** a type card: its instances are selected. A material card or a
+  layer set card: the elements using it (`LayerSetCard.guids`, new). The
+  viewer frames and pivots on it as on every selection. The card stays marked
+  until the selection clears. The Type chip and material chip the cards used
+  to make are gone from these tabs (the click is a selection now).
+- **Double-click** a type card: the TYPE VIEW covers the tab (absolute over
+  the tab section, not a modal), on the tab's grid: the lent 3D as the XL hero
+  (one M column kept beside it from 9 columns, else the tiles go under), then
+  three M tiles: the navigator (Per forekomst / Alle forekomster, ‹ › Forrige
+  (↑) / Neste (↓), `n / N`) with Navn · GlobalId · Etasje of the current
+  instance; the type's facts (class, name, count, type GlobalId, IsExternal,
+  LoadBearing); its materials as chips. ↑ ↓ step instances, ← → step types.
+  ‹ (titled `Lukk (Esc)`) or Esc returns; the gallery stays mounted under the
+  view, so its scroll is kept. Opening selects the first instance.
+- **dock.ts `lend(dock, slot)`** now hands the canvas home only while it is
+  still in that slot, so two surfaces trading it (Graf to Typer, gallery to
+  type view) cannot pull it out of the one that just took it. GraphTab uses it.
+
+Verified: tsc, selftest, `vite build`. The isolate-gate T phase opens the
+view by a double-click now (`dblClickAt`); NOT re-run. Not seen live.
 
 Verified: selftest (order across storeys and no storey, type → materials,
 material → types with an untyped class, layer set → types, type_guid per

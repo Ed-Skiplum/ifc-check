@@ -50,6 +50,25 @@ export function onDocksChanged(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Move the canvas into `slot` and keep the scene sized to it. The release
+ *  hands it home only while it is still in `slot`: when two surfaces trade it
+ *  (Graf to Typer, the Typer gallery to its type view) the one letting go
+ *  must not pull it out of the one that has just taken it. */
+export function lend(dock: Dock, slot: HTMLElement): () => void {
+  slot.appendChild(dock.canvas);
+  const size = () => {
+    const rect = slot.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) dock.scene.resize(rect.width, rect.height);
+  };
+  size();
+  const observer = new ResizeObserver(size);
+  observer.observe(slot);
+  return () => {
+    observer.disconnect();
+    if (dock.canvas.parentElement === slot) dock.restore();
+  };
+}
+
 /** True while the canvas is somewhere other than its own tile. */
 export function isLent(dock: Dock): boolean {
   return dock.canvas.parentElement !== dock.home;
