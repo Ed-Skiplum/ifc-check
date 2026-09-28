@@ -36,7 +36,8 @@ import type { MeshBatch } from "../viewer/mesh-stream";
 import { LentViewer, useTabGrid } from "./BoardViewer";
 import { MG_GAP } from "./alt/module-grid";
 import { LinkChip } from "./Gallery";
-import { LayerStrip, mm } from "./MaterialsTab";
+import { LayerSection } from "./MaterialsTab";
+import { layerSection, sectionFrame, sectionOrientation } from "./layer-section.ts";
 import { typeObjectClass, type CodeLine, type Link } from "./type-links";
 import type { Absent, InstanceRow, PropLine, QtoLine, TypePage as Page, ValueCount } from "./type-page";
 import type { Focus } from "./trace";
@@ -50,7 +51,9 @@ export interface Open {
 
 /* ── layout ───────────────────────────────────────────────────────────── */
 
-type TileId = "identity" | "typeProps" | "instProps" | "qto" | "dist" | "reqs";
+type TileId = "identity" | "typeProps" | "instProps" | "qto" | "dist" | "reqs" | "layers";
+/** The 1:20 layer section is there only when the type has a layer set. */
+type Tiles = Record<Exclude<TileId, "layers">, Place> & { layers?: Place };
 interface Place {
   c: number;
   r: number;
@@ -68,30 +71,32 @@ export function pageLayout(
   cols: number,
   rows: number,
   want: Record<TileId, number>,
-): { hero: Place; list: Place; tiles: Record<TileId, Place>; rows: number } {
+): { hero: Place; list: Place; tiles: Tiles; rows: number } {
   const [hw, hh] = cols >= 16 ? [8, 5] : cols >= 12 ? [6, 4] : cols >= 8 ? [4, 3] : [cols, Math.max(2, Math.round(cols * 0.6))];
   const right = cols - hw;
   const stacks: { w: number; ids: TileId[] }[] =
     right >= 14
       ? [
           { w: 4, ids: ["identity", "typeProps"] },
-          { w: right - 8, ids: ["instProps"] },
+          { w: right - 8, ids: ["layers", "instProps"] },
           { w: 4, ids: ["dist", "qto", "reqs"] },
         ]
       : right >= 8
         ? [
             { w: 4, ids: ["identity", "typeProps", "dist", "qto"] },
-            { w: right - 4, ids: ["instProps", "reqs"] },
+            { w: right - 4, ids: ["layers", "instProps", "reqs"] },
           ]
         : right >= 6
           ? [
               { w: 3, ids: ["identity", "typeProps", "dist", "qto"] },
-              { w: right - 3, ids: ["instProps", "reqs"] },
+              { w: right - 3, ids: ["layers", "instProps", "reqs"] },
             ]
           : [];
   const minH = (w: number) => Math.max(1, Math.ceil(w / 2));
   const total = Math.max(rows, hh + 3);
-  const tiles = {} as Record<TileId, Place>;
+  const tiles = {} as Tiles;
+  const present = (id: TileId) => id !== "layers" || want.layers > 0;
+  for (const stack of stacks) stack.ids = stack.ids.filter(present);
   let c = hw;
   let used = total;
   for (const stack of stacks) {
@@ -119,7 +124,7 @@ export function pageLayout(
   if (stacks.length === 0) {
     // Narrow: every tile under the list, full width, in order.
     let r = total;
-    for (const id of ["identity", "instProps", "typeProps", "qto", "dist", "reqs"] as TileId[]) {
+    for (const id of (["identity", "layers", "instProps", "typeProps", "qto", "dist", "reqs"] as TileId[]).filter(present)) {
       const h = Math.max(2, Math.min(want[id], 5));
       tiles[id] = { c: 0, r, w: cols, h };
       r += h;
@@ -366,8 +371,11 @@ export function TypePage({
   const tp = "lines" in page.typeProps ? page.typeProps.lines : null;
   const ip = "lines" in page.instanceProps ? page.instanceProps.lines : null;
   const psetCount = (lines: PropLine[] | null) => (lines ? new Set(lines.map((l) => l.pset)).size : 0);
+  const stack = page.stacks?.[0] ?? null;
+  const sectionPx = stack ? sectionFrame(layerSection(stack.layers), sectionOrientation(page.entity), []).height : 0;
   const want: Record<TileId, number> = {
-    identity: rowsFor(9 + (page.stacks?.[0]?.layers.length ?? 0) + Math.min(4, "absent" in page.classifications ? 1 : page.classifications.length) + 2, u),
+    identity: rowsFor(9 + Math.min(4, "absent" in page.classifications ? 1 : page.classifications.length) + 2, u),
+    layers: stack ? Math.max(2, Math.ceil((26 + sectionPx + 12 + MG_GAP) / (u + MG_GAP))) : 0,
     typeProps: rowsFor(tp ? tp.length + psetCount(tp) + 1 : 2, u),
     instProps: rowsFor((ip ? ip.length + psetCount(ip) : 1) + page.readings.length + page.required.length + 3, u),
     qto: rowsFor(6, u),
@@ -574,20 +582,6 @@ export function TypePage({
               </div>
               {page.stacks === null ? (
                 <div className="text-muted">{`materialsJson() · ${t("type.notSupplied", lang)}`}</div>
-              ) : page.stacks.length > 0 ? (
-                <div className="mt-0.5 flex flex-col gap-1" data-type-layers>
-                  <LayerStrip layers={page.stacks[0].layers} lang={lang} />
-                  {page.stacks[0].layers.map((l, i) => (
-                    <div key={i} className="flex items-baseline gap-2">
-                      <span className="w-14 shrink-0 text-right text-ink tabular-nums">{l.thickness === null ? "—" : mm(l.thickness, lang)}</span>
-                      <span className="min-w-0 truncate text-muted">{l.material ?? "—"}</span>
-                    </div>
-                  ))}
-                  <div className="text-muted tabular-nums">
-                    {`${page.stacks[0].total === null ? "—" : mm(page.stacks[0].total, lang)} · ${formatCount(page.stacks[0].n, lang)} / ${formatCount(n, lang)}`}
-                    {page.stacks.length > 1 ? ` · +${page.stacks.length - 1}` : ""}
-                  </div>
-                </div>
               ) : null}
               <div className="mt-1 flex flex-wrap gap-1" data-type-materials>
                 {materials.map((m) => (
@@ -595,6 +589,19 @@ export function TypePage({
                 ))}
               </div>
             </Tile>
+
+            {/* The layer set cut at 1:20, the most used stack among the
+                instances; it scrolls in its tile rather than rescale. */}
+            {stack && layout.tiles.layers ? (
+              <Tile
+                place={layout.tiles.layers}
+                head={`${t("inst.composition", lang)} · ${formatCount(stack.layers.length, lang)} ${t("inst.layers", lang)} · ${formatCount(stack.n, lang)} / ${formatCount(n, lang)}${page.stacks && page.stacks.length > 1 ? ` · +${page.stacks.length - 1}` : ""}`}
+                figure="1:20"
+                data={{ "data-type-layers": "" }}
+              >
+                <LayerSection layers={stack.layers} entity={page.entity} lang={lang} />
+              </Tile>
+            ) : null}
 
             <Tile
               place={layout.tiles.typeProps}
