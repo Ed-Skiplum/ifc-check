@@ -133,7 +133,9 @@ function matchesRestriction(r: Restriction, value: string): boolean {
   return true;
 }
 
-function nameMatches(ref: IdsValue, name: string): boolean {
+/** A literal matches exactly, a restriction by its pattern / enumeration /
+ *  length. Shared with the Typer type page's required-property marks. */
+export function nameMatches(ref: IdsValue, name: string): boolean {
   if (typeof ref === "string") return ref === name;
   if (ref && typeof ref === "object" && "restriction" in ref) return matchesRestriction(ref.restriction, name);
   return false;

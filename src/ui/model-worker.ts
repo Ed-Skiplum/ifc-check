@@ -236,7 +236,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     graph.materials = materials;
     if (units) graph.quantity_units = units;
     model.free();
-    measures = new MeasureChannel(new MeasureState(graph, withheld));
+    measures = new MeasureChannel(new MeasureState(graph, withheld, summary.unit_resolved ? summary.unit_scale : null));
 
     heldGraph = graph;
     heldSummary = summary;

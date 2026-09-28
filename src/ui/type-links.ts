@@ -27,6 +27,7 @@
  */
 
 import type { ModelProfile, ProductRowLite } from "./profile";
+import type { CodeTree, TreeNode } from "../engine/code-tree";
 
 export interface TypeCard {
   key: string;
@@ -73,6 +74,9 @@ export interface Catalogue {
   typeMaterials: Map<string, Link[]>;
   materialTypes: Map<string, Link[]>;
   setTypes: Map<string, Link[]>;
+  /** Type → layer sets, the reverse of setTypes (the gallery's material
+   *  cards under the viewer, 2026-09-28). */
+  typeSets: Map<string, Link[]>;
 }
 
 export const typeKeyOf = (row: Pick<ProductRowLite, "entity" | "typeName">) =>
@@ -145,6 +149,7 @@ export function catalogue(profile: ModelProfile): Catalogue {
   const typeMat = new Map<string, Map<string, number>>();
   const matType = new Map<string, Map<string, number>>();
   const setType = new Map<string, Map<string, number>>();
+  const typeSet = new Map<string, Map<string, number>>();
 
   for (const product of profile.rows) {
     if (product.isOpening) continue;
@@ -219,7 +224,10 @@ export function catalogue(profile: ModelProfile): Catalogue {
       }
       set.count += 1;
       set.guids.push(product.guid);
-      if (!product.isOpening) count(setType, key, typeKeyOf(product));
+      if (!product.isOpening) {
+        count(setType, key, typeKeyOf(product));
+        count(typeSet, typeKeyOf(product), key);
+      }
     }
     sets = [...byKey.values()].sort((a, b) => b.count - a.count);
   }
@@ -237,5 +245,113 @@ export function catalogue(profile: ModelProfile): Catalogue {
     typeMaterials: ranked(typeMat),
     materialTypes: ranked(matType),
     setTypes: ranked(setType),
+    typeSets: ranked(typeSet),
   };
+}
+
+/* ── The two classification lines of a type card (2026-09-28) ──────────────
+ *
+ * Owner: *"the type cards need to show the system classification and function
+ * classification: ns3451 vs ns3457-8 (or their fallback values ifctypeobject
+ * and predefined type)"*. Read off the board's two code trees (`boardData`,
+ * built through `codeLookupSubjects`, the path the Systemkode and
+ * Funksjonskode requirements count by), so a card and the treemap cannot
+ * disagree. Per instance: the code the mapping read (with its name in the
+ * bundled list), or the raw value it did not accept (`deviating`); with no
+ * mapping or no value, the fallback: the type object's IFC class for system,
+ * PredefinedType for function. The type's line is the majority value, the
+ * others kept with their counts, never hidden. */
+
+export interface CodeValue {
+  kind: "code" | "deviating" | "fallback" | "missing";
+  /** The code, the raw value, or the fallback; null on `missing`. */
+  value: string | null;
+  /** The code's name in the bundled list, on `code`. */
+  name: string | null;
+  n: number;
+}
+
+export interface CodeLine extends CodeValue {
+  /** The other values the instances carry, largest first. */
+  others: CodeValue[];
+}
+
+export interface TypeCodes {
+  system: CodeLine;
+  function: CodeLine;
+}
+
+/** ifcfast spells a type class `IfcWalltype` (ifcfast#186). When it is the
+ *  instance class plus `type` / `style`, give it the IFC spelling; otherwise
+ *  as the engine gave it. */
+export function typeObjectClass(typeEntity: string | null | undefined, entity: string): string | null {
+  if (!typeEntity) return null;
+  const base = entity.replace(/(StandardCase|ElementedCase)$/, "");
+  const lower = typeEntity.toLowerCase();
+  if (lower === `${base.toLowerCase()}type`) return `${base}Type`;
+  if (lower === `${base.toLowerCase()}style`) return `${base}Style`;
+  return typeEntity;
+}
+
+/** Per GlobalId, the deepest node of a code tree that holds it. */
+function readingsOf(tree: CodeTree | null | undefined): Map<string, TreeNode> {
+  const out = new Map<string, TreeNode>();
+  const walk = (nodes: readonly TreeNode[]) => {
+    for (const node of nodes) {
+      for (const guid of node.guids) out.set(guid, node);
+      walk(node.children);
+    }
+  };
+  if (tree) walk(tree.root);
+  return out;
+}
+
+function lineOf(values: CodeValue[]): CodeLine {
+  const tally = new Map<string, CodeValue>();
+  for (const v of values) {
+    const k = `${v.kind}\u0000${v.value ?? ""}`;
+    const at = tally.get(k);
+    if (at) at.n += 1;
+    else tally.set(k, { ...v, n: 1 });
+  }
+  const order = (v: CodeValue) => (v.kind === "missing" ? 1 : 0);
+  const sorted = [...tally.values()].sort(
+    (a, b) => b.n - a.n || order(a) - order(b) || String(a.value ?? "").localeCompare(String(b.value ?? "")),
+  );
+  const [top, ...others] = sorted;
+  return top ? { ...top, others } : { kind: "missing", value: null, name: null, n: 0, others: [] };
+}
+
+export function typeCodes(
+  profile: ModelProfile,
+  types: readonly TypeCard[],
+  trees: { system: CodeTree; function: CodeTree } | null | undefined,
+): Map<string, TypeCodes> {
+  const rowOf = new Map(profile.rows.map((r) => [r.guid, r]));
+  const system = trees?.system.by === "mapping" ? readingsOf(trees.system) : new Map<string, TreeNode>();
+  const fn = trees?.function.by === "mapping" ? readingsOf(trees.function) : new Map<string, TreeNode>();
+  const out = new Map<string, TypeCodes>();
+  for (const card of types) {
+    const sys: CodeValue[] = [];
+    const fun: CodeValue[] = [];
+    for (const guid of card.guids) {
+      const row = rowOf.get(guid);
+      const s = system.get(guid);
+      if (s && (s.kind === "code" || s.kind === "deviating")) {
+        sys.push({ kind: s.kind, value: s.label, name: s.kind === "code" ? s.name : null, n: 1 });
+      } else {
+        const cls = row ? typeObjectClass(row.typeEntity, row.entity) : null;
+        sys.push(cls ? { kind: "fallback", value: cls, name: null, n: 1 } : { kind: "missing", value: null, name: null, n: 1 });
+      }
+      const f = fn.get(guid);
+      if (f && (f.kind === "code" || f.kind === "deviating")) {
+        fun.push({ kind: f.kind, value: f.label, name: f.kind === "code" ? f.name : null, n: 1 });
+      } else {
+        const pre = row?.predefinedType ?? null;
+        fun.push(pre ? { kind: "fallback", value: pre, name: null, n: 1 } : { kind: "missing", value: null, name: null, n: 1 });
+      }
+    }
+    out.set(card.key, { system: lineOf(sys), function: lineOf(fun) });
+  }
+  return out;
 }

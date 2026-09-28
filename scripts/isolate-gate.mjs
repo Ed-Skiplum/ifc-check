@@ -1111,6 +1111,11 @@ async function typesPhase() {
     `(() => { const b = [...document.querySelectorAll('button')].find((x) => /^(Tøm alle|Clear all)$/.test(x.textContent.trim())); b && b.click(); return true; })()`,
   );
   await until(`!document.querySelector('[role=tablist]')`, 30000, "empty landing");
+  // `--ruleset`: the type page's requirement and MMI lines have one to read.
+  if (opt("ruleset")) {
+    await setFiles('input[type=file][accept=".ids,.xml,.json"]', [resolve(opt("ruleset"))]);
+    await sleep(800);
+  }
   await setFiles('input[type=file][accept=".ifc,.ifczip"]', [resolve(modelPath)]);
   await until(
     `(() => { const t = document.body.innerText; return !/Leser|I kø/.test(t) && !!document.querySelector('canvas'); })()`,
@@ -1165,7 +1170,30 @@ async function typesPhase() {
   check(hashType === pick.key, `TP a double-click: the hash carries the type (${hashType})`);
   check(!(await evaluate(GALLERY_SHOWN)), `TP the gallery is gone`);
   const drawnPage = await evaluate(DRAWN);
-  check(drawnPage === pick.n, `TP the page's viewer draws ${drawnPage} = ${pick.n} instances`);
+  // Per forekomst ISOLATES the current instance (owner 2026-09-28: "remember
+  // to isolate the per instance view"): the viewer draws ONE element.
+  check(drawnPage === 1, `TP Per forekomst: the page's viewer draws ${drawnPage} = 1 element`);
+  // The type page, looked at: one screenshot of the whole tab.
+  {
+    const pageShots = resolve(ROOT, "tmp/type-page");
+    mkdirSync(pageShots, { recursive: true });
+    await sleep(2500);
+    const rect = await evaluate(`(() => { const r = document.querySelector('[data-type-open]').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height), scale: 1 }; })()`);
+    const { data } = await send("Page.captureScreenshot", { format: "png", clip: rect });
+    writeFileSync(resolve(pageShots, "type-page.png"), Buffer.from(data, "base64"));
+    const facts = await evaluate(`(() => { const p = document.querySelector('[data-type-open]'); return {
+      tiles: [...p.querySelectorAll('[data-type-tile]')].map((t) => t.getAttribute('data-tile-span')).join(' '),
+      grid: p.querySelector('[data-type-view-grid]')?.getAttribute('data-type-view-grid'),
+      rows: p.querySelector('[data-type-view-grid]')?.getAttribute('data-type-layout-rows'),
+      typeProps: p.querySelector('[data-type-props]')?.getAttribute('data-type-props'),
+      instanceRows: p.querySelectorAll('[data-instance-row]').length,
+      reqs: p.querySelectorAll('[data-type-req]').length,
+      qto: p.querySelector('[data-type-qto]')?.getAttribute('data-type-qto'),
+      pageScroll: document.scrollingElement.scrollHeight > window.innerHeight + 1,
+    }; })()`);
+    console.log(`info TP page: ${JSON.stringify(facts)}`);
+    check(facts.instanceRows === pick.n, `TP Instanser lists every instance (${facts.instanceRows} = ${pick.n})`);
+  }
   const o1 = await evaluate(OPEN);
   check(o1 !== null && o1.key === pick.key, `T1 the card opens its instance mode (${o1?.key})`);
   if (!o1) return;
@@ -1186,6 +1214,8 @@ async function typesPhase() {
   const o2 = await evaluate(OPEN);
   check(o2 && o2.pos === `2/${pick.n}` && o2.guid !== o1.guid, `T2 Neste steps to 2 / ${pick.n} and a different GlobalId (${o2?.guid})`);
   check(o2 && o2.count === 1 && o2.first === o2.guid, `T2 the selection follows it (${o2?.first})`);
+  const drawnNext = await evaluate(DRAWN);
+  check(drawnNext === 1, `T2 Neste re-isolates: the viewer draws ${drawnNext} = 1 element`);
 
   await key("ArrowUp", 38);
   const o3 = await evaluate(OPEN);
@@ -1199,6 +1229,8 @@ async function typesPhase() {
   await sleep(1200);
   const o4 = await evaluate(OPEN);
   check(o4 && o4.mode === "all" && o4.count === pick.n, `T4 Alle forekomster selects all N (${o4?.count} = ${pick.n})`);
+  const drawnAllInst = await evaluate(DRAWN);
+  check(drawnAllInst === pick.n, `T4 Alle forekomster: the viewer draws ${drawnAllInst} = ${pick.n} instances`);
   await shot("2-all-instances", `document.querySelector('[data-type-open]')`);
   const oneAt = await centre(`document.querySelector('[data-type-open] [data-instance-one]')`);
   await clickAt(oneAt.x, oneAt.y);

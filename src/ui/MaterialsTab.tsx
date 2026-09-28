@@ -32,6 +32,7 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Ref } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
@@ -40,10 +41,10 @@ import type { MeshBatch } from "../viewer/mesh-stream";
 import { Gallery, GalleryCard, LinkChip } from "./Gallery";
 import { WithViewer } from "./BoardViewer";
 import { useFillHeight } from "./useFillHeight";
-import type { Catalogue, LayerSetCard, Link, TypeCard } from "./type-links";
+import type { Catalogue, LayerSetCard, Link, MaterialCard, TypeCard } from "./type-links";
 import type { Reveal } from "./TypesTab";
 
-const mm = (value: number, lang: Lang) =>
+export const mm = (value: number, lang: Lang) =>
   `${value.toLocaleString(lang === "nb" ? "nb-NO" : "en-GB", { maximumFractionDigits: 0 })} mm`;
 
 /** The types behind a material or a layer set, as links to their cards
@@ -172,37 +173,20 @@ export function MaterialsTab({
           <Empty>{profile ? t("type.none", lang) : notSupplied}</Empty>
         ) : (
           <Gallery unit={[2, 2]} label="materials">
-            {materials.map((line) => {
-              const key = `material:${line.name}`;
-              return (
-                <GalleryCard
-                  key={line.name}
-                  title={`${line.name} · ${line.entities.join(", ")}`}
-                  active={picked === key}
-                  onClick={() => pick(key, line.guids)}
-                  cardRef={revealed === line.name ? revealRef : undefined}
-                  data={{ "data-material-card": line.name, "data-revealed": revealed === line.name ? "" : undefined }}
-                >
-                  <div className="gallery-swatch m-2.5 mb-0 h-10 shrink-0 rounded-[8px]" />
-                  <div className="flex min-h-0 flex-1 flex-col gap-1 px-2.5 pt-1.5 pb-2">
-                    <div className="flex items-baseline gap-2">
-                      <span className="line-clamp-2 min-w-0 flex-1 font-mono text-[11.5px] leading-snug break-all text-ink">
-                        {line.name}
-                      </span>
-                      <span
-                        className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums"
-                        title={t("col.elements", lang)}
-                      >
-                        {formatCount(line.guids.length, lang)}
-                      </span>
-                    </div>
-                    <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-auto" data-material-types>
-                      <TypeLinks links={catalogue?.materialTypes.get(line.name) ?? []} types={types} onOpenType={onOpenType} />
-                    </div>
-                  </div>
-                </GalleryCard>
-              );
-            })}
+            {materials.map((line) => (
+              <MaterialCardView
+                key={line.name}
+                lang={lang}
+                line={line}
+                links={catalogue?.materialTypes.get(line.name) ?? []}
+                types={types}
+                active={picked === `material:${line.name}`}
+                revealed={revealed === line.name}
+                cardRef={revealed === line.name ? revealRef : undefined}
+                onClick={() => pick(`material:${line.name}`, line.guids)}
+                onOpenType={onOpenType}
+              />
+            ))}
           </Gallery>
         )
       ) : sets === null ? (
@@ -212,46 +196,116 @@ export function MaterialsTab({
       ) : (
         <Gallery unit={[2, 2]} label="sets">
           {sets.map((set) => (
-            <GalleryCard
+            <SetCardView
               key={set.key}
-              title={set.name ?? undefined}
+              lang={lang}
+              set={set}
+              links={catalogue?.setTypes.get(set.key) ?? []}
+              types={types}
               active={picked === `set:${set.key}`}
               onClick={() => pick(`set:${set.key}`, set.guids)}
-              data={{ "data-set-card": set.key }}
-            >
-              <div data-layer-set className="flex min-h-0 flex-1 flex-col gap-1.5 px-2.5 pt-2 pb-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink">
-                    {set.name ?? set.layers.map((l) => l.material ?? "—").join(" · ")}
-                  </span>
-                  <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums">
-                    {formatCount(set.count, lang)}
-                  </span>
-                </div>
-                <LayerStrip layers={set.layers} lang={lang} />
-                <div className="font-mono text-[10px] text-muted tabular-nums">
-                  {`${formatCount(set.layers.length, lang)} · ${set.total === null ? "—" : mm(set.total, lang)}`}
-                </div>
-                <div className="min-h-0 flex-[3_1_0] overflow-auto">
-                  {set.layers.map((layer, i) => (
-                    <div key={i} className="flex items-baseline gap-2 font-mono text-[10.5px] leading-[15px] text-muted">
-                      <span className="w-14 shrink-0 text-right text-ink tabular-nums">
-                        {layer.thickness === null ? "—" : mm(layer.thickness, lang)}
-                      </span>
-                      <span className="min-w-0 truncate">{layer.material ?? "—"}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex min-h-0 flex-[2_1_0] flex-wrap content-start gap-1 overflow-auto" data-set-types>
-                  <TypeLinks links={catalogue?.setTypes.get(set.key) ?? []} types={types} onOpenType={onOpenType} />
-                </div>
-              </div>
-            </GalleryCard>
+              onOpenType={onOpenType}
+            />
           ))}
         </Gallery>
       )}
       </WithViewer>
     </section>
+  );
+}
+
+/** One material card (the Materialer tab, and under the Typer viewer). */
+export function MaterialCardView({
+  lang,
+  line,
+  links,
+  types,
+  active,
+  revealed,
+  cardRef,
+  onClick,
+  onOpenType,
+}: {
+  lang: Lang;
+  line: MaterialCard;
+  links: Link[];
+  types: Map<string, TypeCard>;
+  active: boolean;
+  revealed?: boolean;
+  cardRef?: Ref<HTMLDivElement>;
+  onClick: () => void;
+  onOpenType: (key: string) => void;
+}) {
+  return (
+    <GalleryCard
+      title={`${line.name} · ${line.entities.join(", ")}`}
+      active={active}
+      onClick={onClick}
+      cardRef={cardRef}
+      data={{ "data-material-card": line.name, "data-revealed": revealed ? "" : undefined }}
+    >
+      <div className="gallery-swatch m-2.5 mb-0 h-10 shrink-0 rounded-[8px]" />
+      <div className="flex min-h-0 flex-1 flex-col gap-1 px-2.5 pt-1.5 pb-2">
+        <div className="flex items-baseline gap-2">
+          <span className="line-clamp-2 min-w-0 flex-1 font-mono text-[11.5px] leading-snug break-all text-ink">
+            {line.name}
+          </span>
+          <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums" title={t("col.elements", lang)}>
+            {formatCount(line.guids.length, lang)}
+          </span>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-auto" data-material-types>
+          <TypeLinks links={links} types={types} onOpenType={onOpenType} />
+        </div>
+      </div>
+    </GalleryCard>
+  );
+}
+
+/** One layer set card: the layers as a strip in proportion to thickness. */
+export function SetCardView({
+  lang,
+  set,
+  links,
+  types,
+  active,
+  onClick,
+  onOpenType,
+}: {
+  lang: Lang;
+  set: LayerSetCard;
+  links: Link[];
+  types: Map<string, TypeCard>;
+  active: boolean;
+  onClick: () => void;
+  onOpenType: (key: string) => void;
+}) {
+  return (
+    <GalleryCard title={set.name ?? undefined} active={active} onClick={onClick} data={{ "data-set-card": set.key }}>
+      <div data-layer-set className="flex min-h-0 flex-1 flex-col gap-1.5 px-2.5 pt-2 pb-2">
+        <div className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink">
+            {set.name ?? set.layers.map((l) => l.material ?? "—").join(" · ")}
+          </span>
+          <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums">{formatCount(set.count, lang)}</span>
+        </div>
+        <LayerStrip layers={set.layers} lang={lang} />
+        <div className="font-mono text-[10px] text-muted tabular-nums">
+          {`${formatCount(set.layers.length, lang)} · ${set.total === null ? "—" : mm(set.total, lang)}`}
+        </div>
+        <div className="min-h-0 flex-[3_1_0] overflow-auto">
+          {set.layers.map((layer, i) => (
+            <div key={i} className="flex items-baseline gap-2 font-mono text-[10.5px] leading-[15px] text-muted">
+              <span className="w-14 shrink-0 text-right text-ink tabular-nums">{layer.thickness === null ? "—" : mm(layer.thickness, lang)}</span>
+              <span className="min-w-0 truncate">{layer.material ?? "—"}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex min-h-0 flex-[2_1_0] flex-wrap content-start gap-1 overflow-auto" data-set-types>
+          <TypeLinks links={links} types={types} onOpenType={onOpenType} />
+        </div>
+      </div>
+    </GalleryCard>
   );
 }
 
@@ -262,7 +316,7 @@ function Empty({ children }: { children: string }) {
 /** The layers, side by side in the order of the set, each as wide as its
  *  thickness is of the total. A layer with no thickness takes an equal share
  *  and is hatched, so it cannot pass for a measure. */
-function LayerStrip({ layers, lang }: { layers: LayerSetCard["layers"]; lang: Lang }) {
+export function LayerStrip({ layers, lang }: { layers: LayerSetCard["layers"]; lang: Lang }) {
   const known = layers.filter((l) => l.thickness !== null && l.thickness > 0);
   const sum = known.reduce((s, l) => s + (l.thickness ?? 0), 0);
   const unknownShare = layers.length > 0 ? (layers.length - known.length) / layers.length : 0;

@@ -53,6 +53,9 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
   // Layer-set names plus directly associated IfcMaterial (#5), the same set
   // `element-material` judges, so the KPI and the object panel agree with it.
   const materialNames = elementMaterialNames(graph);
+  // The declared type object's own class, for the type cards' system line
+  // fallback. In ifcfast's spelling (`IfcWalltype`, ifcfast#186).
+  const typeEntityOf = new Map((graph.type_objects ?? []).map((t) => [t.guid, t.entity]));
 
   const rows: ProductRowLite[] = profile.rows.map((row) => {
     const product = byGuid.get(row.guid);
@@ -63,6 +66,7 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
       typed: product.typed,
       typeSource: product.type_source,
       typeGuid: product.type_guid ?? null,
+      typeEntity: product.type_guid ? (typeEntityOf.get(product.type_guid) ?? null) : null,
       predefinedType: product.predefined_type,
       objectType: product.object_type,
       tag: product.tag,

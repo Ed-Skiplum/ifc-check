@@ -63,12 +63,15 @@ import { checkStoreyConfig } from "../src/engine/storey-config.ts";
 import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
 import { schemaFamily } from "../src/engine/standard-layer.ts";
 import { functionTree, systemTree, type TreeNode } from "../src/engine/code-tree.ts";
-import { measureTree, meshMeasure, qtoQuantities, quantityUnits } from "../src/engine/quantities.ts";
+import { measureTree, meshMeasure, qtoLengths, qtoQuantities, quantityUnits } from "../src/engine/quantities.ts";
 import { psetInventory, requiredSetRefs } from "../src/engine/pset-inventory.ts";
 import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../src/codelists/mengdetype-ifcklasse.ts";
 import { MENGDETYPE_NS3457 } from "../src/codelists/mengdetype-ns3457.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
-import { catalogue as typeCatalogue } from "../src/ui/type-links.ts";
+import { catalogue as typeCatalogue, typeCodes, typeObjectClass } from "../src/ui/type-links.ts";
+import { typePage } from "../src/ui/type-page.ts";
+import type { BoardData } from "../src/ui/report-rows.ts";
+import type { ElementQuantity } from "../src/engine/quantities.ts";
 import type { ModelProfile } from "../src/ui/profile.ts";
 import {
   CATEGORICAL,
@@ -1565,6 +1568,239 @@ async function cmdSelftest(): Promise<number> {
       set ? `${set.count} ${show(cat.setTypes, set.key)}` : "no set",
     );
     record("type_guid carried per card", "T-V1", wall ? wall.typeGuids.join(",") : "");
+  }
+
+  // The Typer type page (2026-09-28): `typePage` and `typeCodes` on a
+  // synthetic model where every answer is known. Four walls of type V1 (w-a,
+  // w-d on L1, w-c on L2, w-b in no storey), a slab with no type.
+  {
+    const p = (guid: string, entity: string, storeyGuid: string | null, typeName: string | null, extra: object = {}) => ({
+      guid, entity, name: `N-${guid}`, storeyGuid, typeName, typeGuid: typeName ? `T-${typeName}` : null,
+      typeEntity: typeName ? "IfcWalltype" : null, materials: [], ...extra,
+    });
+    const prop = (name: string, value: string | null, source = "instance") => ({ name, value, source });
+    const psets = new Map([
+      ["w-a", [
+        { name: "Pset_WallCommon", properties: [prop("IsExternal", "True"), prop("Status", "NEW"), prop("AcousticRating", "R40", "type")] },
+        { name: "HI90_Prosjektinfo", properties: [prop("HI90_MMI", "300"), prop("Etasje", "01")] },
+      ]],
+      ["w-d", [
+        { name: "Pset_WallCommon", properties: [prop("IsExternal", "True"), prop("AcousticRating", "R40", "type")] },
+        { name: "HI90_Prosjektinfo", properties: [prop("HI90_MMI", "700"), prop("Etasje", "01")] },
+      ]],
+      ["w-c", [
+        { name: "Pset_WallCommon", properties: [prop("IsExternal", "False"), prop("AcousticRating", "R40", "type")] },
+        { name: "HI90_Prosjektinfo", properties: [prop("HI90_MMI", ""), prop("Etasje", "02")] },
+      ]],
+      ["w-b", [{ name: "Pset_WallCommon", properties: [prop("AcousticRating", "R40", "type")] }]],
+      ["s-1", [{ name: "Pset_SlabCommon", properties: [prop("IsExternal", "False")] }]],
+    ]);
+    const profile = {
+      storeys: [
+        { guid: "L2", name: "02", elevation: 3 },
+        { guid: "L1", name: "01", elevation: 0 },
+      ],
+      spatial: { projects: 1, sites: 1, buildings: 1, storeys: 2 },
+      rows: [
+        p("w-c", "IfcWallStandardCase", "L2", "V1", { predefinedType: "PARTITIONING" }),
+        p("w-b", "IfcWallStandardCase", null, "V1"),
+        p("w-a", "IfcWallStandardCase", "L1", "V1", { predefinedType: "PARTITIONING" }),
+        p("w-d", "IfcWallStandardCase", "L1", "V1", { predefinedType: "PARTITIONING" }),
+        p("s-1", "IfcSlab", "L1", null),
+      ],
+      psets,
+      quantities: new Map(),
+      classifications: new Map([["w-a", [{ system: "NS 3451", code: "243", name: null, assignmentSource: "type" }]]]),
+      materialRows: [
+        { guid: "w-a", role: "layer", layer_index: 1, material_name: "Gips", layer_thickness_mm: 13, category: null, fraction: null, source: "type" },
+        { guid: "w-a", role: "layer", layer_index: 0, material_name: "Stål", layer_thickness_mm: 70, category: null, fraction: null, source: "type" },
+        { guid: "w-d", role: "layer", layer_index: 0, material_name: "Stål", layer_thickness_mm: 70, category: null, fraction: null, source: "type" },
+        { guid: "w-d", role: "layer", layer_index: 1, material_name: "Gips", layer_thickness_mm: 13, category: null, fraction: null, source: "type" },
+      ],
+    } as unknown as ModelProfile;
+    const cat = typeCatalogue(profile);
+    const wall = cat.types.find((c) => c.key === "IfcWallStandardCase::V1")!;
+    const slab = cat.types.find((c) => c.key === "IfcSlab::")!;
+    const objects = profile.rows.map((r) => ({ guid: r.guid, entity: r.entity, typeName: r.typeName ?? null, predefinedType: r.predefinedType ?? null }));
+    const trees = {
+      system: systemTree(
+        objects,
+        [
+          { guid: "w-a", value: "243", code: "243", state: "ok" as const },
+          { guid: "w-d", value: "243", code: "243", state: "ok" as const },
+          { guid: "w-c", value: "243", code: "243", state: "ok" as const },
+          { guid: "w-b", value: null, code: null, state: "missing" as const },
+          { guid: "s-1", value: "251", code: "251", state: "ok" as const },
+        ],
+        { "2": "Bygning", "24": "Innervegger", "243": "Systemvegger" },
+      ),
+      function: functionTree(objects, null, {}),
+    };
+    const board = {
+      rows: [
+        { model: {}, id: "element-typed", state: "fail", dekning: {}, fordeling: [], funn: [{ guid: "s-1", klasse: "IfcSlab", grunn: "no-type", verdi: null }] },
+        { model: {}, id: "storey-containment", state: "fail", dekning: {}, fordeling: [], funn: [{ guid: "w-b", klasse: "IfcWallStandardCase", grunn: "not-in-storey", verdi: null }] },
+        { model: {}, id: "hi90-mmi", mapping: "progress-code", state: "warn", dekning: {}, fordeling: [], funn: [
+          { guid: "w-c", klasse: "IfcWallStandardCase", grunn: "empty", verdi: null },
+          { guid: "w-b", klasse: "IfcWallStandardCase", grunn: "empty", verdi: null },
+        ] },
+      ],
+      values: { "hi90-mmi": [["300", ["w-a"]], ["700", ["w-d"]], [null, ["w-c", "w-b"]]] },
+      trees,
+    } as unknown as BoardData;
+    const ruleset = {
+      formatVersion: 1, name: "t", ifcVersions: ["IFC4"],
+      rules: [
+        { id: "hi90-mmi", kind: "extended", mapping: "progress-code", name: "MMI", check: { type: "code-lookup", values: ["300", "700"], source: { property: { propertySet: "HI90_Prosjektinfo", name: "HI90_MMI" } }, extract: "^(\\d{3})$" } },
+        { id: "req-ac", kind: "ids", name: "ac", applicability: { entity: { classes: ["IFCWALL"] } }, requirements: { property: [{ propertySet: "Pset_WallCommon", baseName: "AcousticRating" }, { propertySet: "Pset_WallCommon", baseName: "FireRating" }] } },
+      ],
+    } as unknown as Ruleset;
+    const ids = {
+      model: "m", schema: "IFC4", title: "t", counts: {},
+      specs: [{ index: 0, name: "Spec on the type", state: "fail", applicable: 1, passed: 0, failed: 1, findings: [{ guid: "T-V1", entity: "IfcWallType", name: null, reason: "", code: "requirement" }], detail: "" }],
+    } as unknown as IdsModelResult;
+    const quantities = {
+      complete: true,
+      byGuid: {
+        "w-a": [1, 0, 10, 0, 4, 0], "w-d": [3, 1, 30, 1, null, 2], "w-c": [2, 0, null, 2, 5, 0], "w-b": [null, 2, null, 2, null, 2],
+      },
+    } as unknown as { byGuid: Record<string, ElementQuantity>; complete: boolean };
+    const lengths = qtoLengths(
+      [
+        { guid: "a", qto_name: "Qto_WallBaseQuantities", quantity_name: "Length", value: "3000", quantity_type: "Length", unit_step_id: null, source: "type" },
+        { guid: "a", qto_name: "Qto_WallBaseQuantities", quantity_name: "Length", value: "2500", quantity_type: "Length", unit_step_id: null, source: "instance" },
+        { guid: "b", qto_name: "BaseQuantities", quantity_name: "Width", value: "200", quantity_type: "Length", unit_step_id: null, source: "instance" },
+        { guid: "c", qto_name: "BaseQuantities", quantity_name: "Length", value: "10", quantity_type: "Length", unit_step_id: 99, source: "instance" },
+        { guid: "e", qto_name: "BaseQuantities", quantity_name: "Length", value: "4000", quantity_type: "Length", unit_step_id: 17, source: "instance" },
+        { guid: "d", qto_name: "AC_Pset", quantity_name: "Length", value: "10", quantity_type: "Length", unit_step_id: null, source: "instance" },
+      ],
+      { area: 1, volume: 1, length: null, byId: { "17": { kind: "length", factor: 0.001 }, "99": { kind: "length", factor: null } } },
+      0.001,
+    );
+    record(
+      "QTO length: Length only, scaled to m by its own unit or the project's, instance before type; an unresolved unit and non-base sets skipped",
+      "a=2.5,e=4",
+      [...lengths].map(([g, v]) => `${g}=${v.value}`).join(","),
+    );
+    const codes = typeCodes(profile, cat.types, trees);
+    record(
+      "type object class: ifcfast's IfcWalltype given the IFC spelling against the instance class",
+      "IfcWallType IfcDoorStyle IfcFootingtype",
+      `${typeObjectClass("IfcWalltype", "IfcWallStandardCase")} ${typeObjectClass("IfcDoorstyle", "IfcDoor")} ${typeObjectClass("IfcFootingtype", "IfcSlab")}`,
+    );
+    const page = typePage({ profile, card: wall, model: "M.ifc", codes: codes.get(wall.key), board, ids, ruleset, quantities });
+
+    const sys = codes.get(wall.key)!.system;
+    const fn = codes.get(wall.key)!.function;
+    record(
+      "type codes: the majority code with its list name, the others kept, the type object as fallback",
+      "code 243 Systemvegger ×3 +fallback IfcWallType ×1",
+      `${sys.kind} ${sys.value} ${sys.name} ×${sys.n} ` + sys.others.map((o) => `+${o.kind} ${o.value} ×${o.n}`).join(" "),
+    );
+    record(
+      "type codes: no function mapping falls back to PredefinedType, the instance without one kept",
+      "fallback PARTITIONING ×3 +missing ×1",
+      `${fn.kind} ${fn.value} ×${fn.n} ` + fn.others.map((o) => `+${o.kind}${o.value ? ` ${o.value}` : ""} ×${o.n}`).join(" "),
+    );
+    const tp = page.typeProps;
+    record(
+      "type page: rows folded from the type are the type's properties, one value over four instances",
+      "Pset_WallCommon.AcousticRating R40×4 disagree=false",
+      "lines" in tp ? tp.lines.map((l) => `${l.pset}.${l.name} ${l.values.map((v) => `${v.value}×${v.n}`).join(",")} disagree=${l.disagree}`).join(" | ") : `absent ${tp.absent}`,
+    );
+    const slabPage = typePage({ profile, card: slab, model: "M.ifc" });
+    record(
+      "type page: an untyped card has no type properties, with the reason, never an empty list",
+      "untyped",
+      "absent" in slabPage.typeProps ? slabPage.typeProps.absent : "lines",
+    );
+    const noTypeRows = typePage({ profile: { ...profile, psets: new Map([...psets].map(([g, groups]) => [g, groups.map((gr) => ({ ...gr, properties: gr.properties.filter((x) => x.source !== "type") }))])) } as ModelProfile, card: wall, model: "M.ifc" });
+    record(
+      "type page: a typed card with no row folded from its type says so (the engine limit)",
+      "type-rows-on-occurrences",
+      "absent" in noTypeRows.typeProps ? noTypeRows.typeProps.absent : "lines",
+    );
+    const ip = "lines" in page.instanceProps ? page.instanceProps.lines : [];
+    const line = (name: string) => ip.find((l) => l.name === name);
+    record(
+      "type page: instance properties, key ones first, a split IsExternal flagged, MMI per instance not flagged",
+      "HI90_MMI:mmi 300×1,700×1 blank1 absent1 flag=false | Status:status NEW×1 absent3 | IsExternal:isExternal True×2,False×1 absent1 flag=true",
+      ["HI90_MMI", "Status", "IsExternal"]
+        .map((n) => {
+          const l = line(n);
+          if (!l) return `${n}:none`;
+          return `${n}:${l.key} ${l.values.map((v) => `${v.value}×${v.n}`).join(",")}${l.blank ? ` blank${l.blank}` : ""}${l.absent ? ` absent${l.absent}` : ""}${l.key === "status" ? "" : ` flag=${l.disagree}`}`;
+        })
+        .join(" | "),
+    );
+    record(
+      "type page: a property carrying each instance's own storey name is placement, not flagged",
+      "01×2,02×1 perInstance=true disagree=false",
+      (() => {
+        const l = line("Etasje");
+        return l ? `${l.values.map((v) => `${v.value}×${v.n}`).join(",")} perInstance=${l.perInstance} disagree=${l.disagree}` : "none";
+      })(),
+    );
+    record(
+      "type page: the order is the key properties first (MMI, status, IsExternal)",
+      "HI90_MMI,Status,IsExternal",
+      ip.slice(0, 3).map((l) => l.name).join(","),
+    );
+    record(
+      "type page: required properties marked, present from the type, missing counted",
+      "Pset_WallCommon.FireRating 0/4 | Pset_WallCommon.AcousticRating 4/0 type4 | HI90_Prosjektinfo.HI90_MMI 2/2 instance2",
+      page.required
+        .filter((r) => r.by !== "")
+        .map((r) => `${r.pset}.${r.prop} ${r.withValue}/${r.missing}${r.level.type ? ` type${r.level.type}` : ""}${r.level.instance ? ` instance${r.level.instance}` : ""}`)
+        .sort()
+        .reverse()
+        .join(" | "),
+    );
+    record(
+      "type page: distribution by storey from the lowest, no storey last, one model",
+      "01×2,02×1,-×1 M.ifc×4",
+      page.storeys.map((s) => `${s.name ?? "-"}×${s.n}`).join(",") + " " + page.models.map((m) => `${m.value}×${m.n}`).join(","),
+    );
+    const q = "absent" in page.qto ? [] : page.qto;
+    record(
+      "type page: QTO sum, min, median, max with the source split per quantity",
+      "volume 6 1/2/3 q2c1m1 | area 40 10/20/30 q1c1m2 | length 9 4/4.5/5 q2c0m2",
+      q.map((l) => `${l.kind} ${l.sum} ${l.min}/${l.median}/${l.max} q${l.split.qto}c${l.split.computed}m${l.split.missing}`).join(" | "),
+    );
+    record(
+      "type page: no quantities yet is absent, not zero",
+      "quantities-not-received",
+      "absent" in slabPage.qto ? slabPage.qto.absent : "lines",
+    );
+    record(
+      "type page: requirements count this type's instances among the findings",
+      "typeobjekt 0 | objekter-i-etasje 1 not-in-storey | mmi 2 empty×2",
+      page.reqs
+        .filter((r) => ["element-typed", "storey-containment", "hi90-mmi"].includes(r.id))
+        .map((r) => `${r.label?.replace("req.", "")} ${r.failed}${r.grunn.map((g) => ` ${g.value}${g.n > 1 ? `×${g.n}` : ""}`).join("")}`)
+        .join(" | "),
+    );
+    record(
+      "type page: an IDS finding on the type object fails every instance",
+      "Spec on the type 4",
+      (page.ids ?? []).map((s) => `${s.name} ${s.failed}`).join(","),
+    );
+    record(
+      "type page: the MMI reading over the type, the unread counted",
+      "configured null×2,300×1,700×1 unread0 | copy-object unconfigured",
+      `configured ${page.readings[0].values.map((v) => `${v.value}×${v.n}`).join(",")} unread${page.readings[0].unread} | copy-object ${page.readings[1].configured ? "configured" : "unconfigured"}`,
+    );
+    record(
+      "type page: instances in the navigator order with MMI, status and quantities",
+      "w-a 01 300 NEW 1 | w-d 01 700 - 3 | w-c 02 - - 2 | w-b - - - -",
+      page.instances.map((r) => `${r.guid} ${r.storey ?? "-"} ${r.mmi ?? "-"} ${r.status ?? "-"} ${r.q?.[0] ?? "-"}`).join(" | "),
+    );
+    record(
+      "type page: identity, the layer stack in order, discrete or composite, the classification with its list name",
+      "IfcWalltype×4 | Stål 70/Gips 13 = 83 ×2 | nmat 2 | NS 3451 243 Systemvegger og glassfelt type×1",
+      `${page.typeClass.map((v) => `${v.value}×${v.n}`).join(",")} | ${(page.stacks ?? []).map((s) => `${s.layers.map((l) => `${l.material} ${l.thickness}`).join("/")} = ${s.total} ×${s.n}`).join(",")} | nmat ${page.nmat} | ` +
+        ("absent" in page.classifications ? "absent" : page.classifications.map((c) => `${c.system} ${c.code} ${c.listName} ${c.source}×${c.n}`).join(",")),
+    );
   }
 
   const result = exportRuleset(SAMPLE_RULESET);

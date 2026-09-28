@@ -4,62 +4,60 @@
  * galleries, not rows"). Each card shows a small render of a representative
  * element of the type (`viewer/thumbnails.ts`: one element's triangles from
  * the streamed batches, one shared offscreen context, lazy and cached), then
- * class, type name, instances, and IsExternal / LoadBearing as the row did.
+ * class, type name, instances, its system and function classification, and
+ * IsExternal / LoadBearing as the row did.
  *
  * The ifcfast demo's Types view (`ifc-fast-demo/components/views/
  * types-view.tsx`), on this model's profile: how many elements carry each
  * type, and whether they agree on IsExternal and LoadBearing (true · false ·
  * unset).
  *
- * ── The viewer and the type view (2026-09-28) ────────────────────────────
- * Owner: *"you didnt add a viewer to my types and materials dash"*, then on
- * the card that grew in place: *"this doesnt work. Open a full page type view
- * on doubleclick rather than this inline card viewer."*
+ * ── The classification lines (2026-09-28) ────────────────────────────────
+ * Owner: *"the type cards need to show the system classification and
+ * function classification: ns3451 vs ns3457-8 (or their fallback values
+ * ifctypeobject and predefined type)"*. `typeCodes` (`type-links.ts`), read
+ * off the board's code trees, the path the Systemkode and Funksjonskode
+ * requirements count by. A fallback is in italics, other values as +n.
  *
+ * ── The viewer and the type page (2026-09-28) ────────────────────────────
  * The board's ONE 3D scene sits beside the gallery (`BoardViewer.tsx`, lent
- * through `viewer/dock.ts` as the Graf tab lends it).
+ * through `viewer/dock.ts` as the Graf tab lends it). A click on a card
+ * FILTERS the viewer to the type's instances (a `typecard:` chip under Vis
+ * kun), framed; the same card again takes it off. Under the viewer, the
+ * filtered type's material cards and layer set cards (owner: *"there is an
+ * unused space below the viewer. Would be cool to show the material cards
+ * tied to the selected type"*), the Materialer tab's own cards; a click does
+ * what it does there. No type filtered, the space stays empty.
  *
- * Owner, 2026-09-28, after two wrong rounds: *"the behaviour when
- * doubleclicking a type is open a type page"*, *"One type - doubleclick -
- * shows that one type with a viewer"*, *"the viewer of course needs to
- * filter on the type."* So a click on a card FILTERS the viewer to the
- * type's instances (a `typecard:` chip under Vis kun, the same chip bar as
- * every other filter), framed; the same card again takes it off. A
- * double-click opens the TYPE PAGE, its own route (`#…&type=<key>`, so Back,
- * Forward and a pasted link work): the gallery is gone, the viewer filtered
- * to that one type, the instance navigator of the G55 QTO-LCA type viewer
- * (`10027-grønland-55/underprosjekter/G55_QTO-LCA/02_arbeid/verify_app.html`,
- * worklog 2026-06-17-22-40: `Per forekomst | Alle forekomster`, ‹ › titled
- * `Forrige (↑)` / `Neste (↓)`, ↑ ↓ step the instances and ← → the types), the
- * current instance, the type's facts, and its materials as links. ‹, Esc or
- * the browser's Back returns to the gallery, which stays mounted (unseen)
- * under it, so its scroll holds, and the gallery's filter is handed back.
- * The instance order is `type-links.ts`'s: by storey from the lowest, then
- * GlobalId.
- *
- * What the demo had that the engine here does not give:
- *   · m³ and m² per type. The demo summed ifcfast's MESHED take-off
- *     (`mesh_qto()`); the wasm build's `qtoJson()` is not read by this app, so
- *     the columns stand and say `ikke levert` rather than print a sum of
- *     nothing.
- *   · the model dots. The demo pooled several models on one page; this tab
- *     lives in one model's panel, so there is one model and no column for it.
+ * A double-click opens the TYPE PAGE (`TypePage.tsx`, data `type-page.ts`),
+ * its own route (`#…&type=<key>`, so Back, Forward and a pasted link work).
+ * Per forekomst ISOLATES the current instance: the type chip and an element
+ * chip, so the viewer draws that one element, framed (owner: *"remember to
+ * isolate the per instance view"*). Alle forekomster draws the type's
+ * instances. ‹ › and ↑ ↓ step the instance and re-isolate; ← → step the
+ * type. ‹, Esc or the browser's Back returns to the gallery, which stays
+ * mounted (unseen) under it, so its scroll holds, and the gallery's filter is
+ * handed back. The instance order is `type-links.ts`'s: by storey from the
+ * lowest, then GlobalId.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
 import type { ModelProfile } from "./profile";
 import type { MeshBatch } from "../viewer/mesh-stream";
 import { cachedThumb, requestThumb } from "../viewer/thumbnails";
-import { Gallery, GalleryCard, LinkChip, NoGeometryMark } from "./Gallery";
-import { LentViewer, WithViewer, useTabGrid, viewerSpan } from "./BoardViewer";
-import { MG_GAP } from "./alt/module-grid";
+import { Gallery, GalleryCard, NoGeometryMark } from "./Gallery";
+import { WithViewer } from "./BoardViewer";
 import { useFillHeight } from "./useFillHeight";
-import type { Catalogue, TypeCard } from "./type-links";
-import type { FilterChip, Mode } from "./cross-filter";
+import type { Catalogue, TypeCard, TypeCodes } from "./type-links";
+import { elementChip, type FilterChip, type Mode } from "./cross-filter";
+import { typePage, type TypePageInput } from "./type-page";
+import { CodeLineView, TypePage, type Open } from "./TypePage";
+import { MaterialCardView, SetCardView } from "./MaterialsTab";
+import type { Focus } from "./trace";
 
 /** true · false · unset, the demo's badge: one number when the whole type
  *  agrees, the three counts when it does not. */
@@ -115,12 +113,6 @@ export interface Reveal {
   seq: number;
 }
 
-interface Open {
-  key: string;
-  pos: number;
-  all: boolean;
-}
-
 /** The gallery's filter and selection, handed back when the page closes. */
 interface GalleryState {
   chips: FilterChip[];
@@ -143,21 +135,27 @@ export function TypesTab({
   lang,
   profile,
   catalogue,
+  codes,
   meshBatches,
   selection,
   chips,
   mode,
   page,
+  pageInput,
   onSelect,
   onChips,
   onMode,
   onPage,
   onOpenMaterial,
+  onOpenType,
+  onScope,
 }: {
   lang: Lang;
   profile: ModelProfile | null;
   /** `type-links.ts`, computed once per profile by the panel. */
   catalogue: Catalogue | null;
+  /** Each card's system and function line (`typeCodes`), per board. */
+  codes: Map<string, TypeCodes> | null;
   /** The streamed geometry, for the card renders and the lent 3D. */
   meshBatches: MeshBatch[] | undefined;
   /** The panel's `view.selection`, for scripts. */
@@ -167,6 +165,8 @@ export function TypesTab({
   mode: Mode;
   /** The type page's key from the URL hash (`type=`), or null. */
   page: string | null;
+  /** What the type page reads beside the card (`type-page.ts`). */
+  pageInput: Omit<TypePageInput, "profile" | "card" | "codes">;
   onSelect: (guids: string[]) => void;
   onChips: (chips: FilterChip[]) => void;
   onMode: (mode: Mode) => void;
@@ -174,16 +174,15 @@ export function TypesTab({
    *  one type to the next, so Back still returns to the gallery. */
   onPage: (key: string | null, replace?: boolean) => void;
   onOpenMaterial: (name: string) => void;
+  /** A layer set card's type link. */
+  onOpenType: (key: string) => void;
+  /** A requirement or IDS line of the page: its Scope, on its tab. */
+  onScope: (focus: Focus, tab: "checks" | "project") => void;
 }) {
   const rows = useMemo(() => catalogue?.types ?? [], [catalogue]);
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
-  const storeyName = useMemo(
-    () => new Map((profile?.storeys ?? []).map((s) => [s.guid, s.name])),
-    [profile],
-  );
-  const rowOf = useMemo(() => new Map((profile?.rows ?? []).map((r) => [r.guid, r])), [profile]);
 
   // The card the gallery's filter is on: its chip is in the bar.
   const filtered = chips.find((c) => c.key.startsWith(TYPE_CHIP))?.key.slice(TYPE_CHIP.length) ?? null;
@@ -237,9 +236,8 @@ export function TypesTab({
     } else onPage(null);
   }, [onPage]);
 
-  // Entering the page saves the gallery's filter and filters to this type
-  // alone; leaving hands the gallery's filter back. Driven by the route, so a
-  // direct link, Back and Forward all take this path.
+  // Entering the page saves the gallery's filter; leaving hands it back.
+  // Driven by the route, so a direct link, Back and Forward all take this path.
   const saved = useRef<GalleryState | null>(null);
   const live = useRef({ chips, selection, mode });
   live.current = { chips, selection, mode };
@@ -249,7 +247,6 @@ export function TypesTab({
       if (!saved.current) saved.current = { ...live.current };
       setLastOpen(cardKey);
       onMode("filter");
-      onChips([typeChip(card, lang)]);
     } else if (saved.current) {
       const back = saved.current;
       saved.current = null;
@@ -262,13 +259,17 @@ export function TypesTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardKey]);
 
-  // The current instance, or all of them, is the selection: highlighted and
-  // framed inside the filtered viewer.
+  // Per forekomst isolates the current instance (the type chip AND its
+  // element chip: one element drawn, framed); Alle forekomster draws the
+  // type. The current instance, or all of them, is the selection.
   const openPos = open?.pos ?? 0;
   const openAll = open?.all ?? false;
   useEffect(() => {
     if (!card) return;
-    onSelect(openAll ? card.guids : [card.guids[openPos]]);
+    const guid = card.guids[openPos];
+    const rowOf = profile?.rows.find((r) => r.guid === guid);
+    onChips(openAll || !guid ? [typeChip(card, lang)] : [typeChip(card, lang), elementChip(guid, rowOf?.name ?? null)]);
+    onSelect(openAll ? card.guids : [guid]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardKey, openPos, openAll]);
 
@@ -282,6 +283,14 @@ export function TypesTab({
     [open, card],
   );
 
+  const go = useCallback(
+    (pos: number) => {
+      if (!open) return;
+      setInst({ ...open, pos, all: false });
+    },
+    [open],
+  );
+
   const setAll = useCallback(
     (all: boolean) => {
       if (!open || open.all === all) return;
@@ -290,6 +299,7 @@ export function TypesTab({
     [open],
   );
 
+  const typeAt = open ? rows.findIndex((r) => r.key === open.key) : -1;
   const stepType = useCallback(
     (delta: number) => {
       if (!open) return;
@@ -298,6 +308,20 @@ export function TypesTab({
       if (next) onPage(next.key, true);
     },
     [open, rows, onPage],
+  );
+
+  /** A requirement line leaves the page for its Scope with the type still
+   *  the filter: the page's saved gallery state is dropped, not restored. */
+  const scope = useCallback(
+    (focus: Focus, tab: "checks" | "project") => {
+      if (card) {
+        saved.current = null;
+        openedHere.current = false;
+        onChips([typeChip(card, lang)]);
+      }
+      onScope(focus, tab);
+    },
+    [card, lang, onChips, onScope],
   );
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -321,6 +345,32 @@ export function TypesTab({
     wasOpen.current = open !== null;
   }, [open]);
 
+  // The page's data, once per (card, what it reads).
+  const data = useMemo(
+    () => (card && profile ? typePage({ ...pageInput, profile, card, codes: codes?.get(card.key) ?? null }) : null),
+    [card, profile, pageInput, codes],
+  );
+
+  // Under the viewer: the filtered type's material and layer set cards.
+  const types = byKey;
+  const [pickedMat, setPickedMat] = useState<string | null>(null);
+  useEffect(() => {
+    if (selection.length === 0) setPickedMat(null);
+  }, [selection.length]);
+  const pickMat = (key: string, guids: string[]) => {
+    setPickedMat(key);
+    onSelect(guids);
+  };
+  const under = useMemo(() => {
+    if (!filtered || !catalogue) return null;
+    const matNames = new Set((catalogue.typeMaterials.get(filtered) ?? []).map((l) => l.key));
+    const setKeys = new Set((catalogue.typeSets.get(filtered) ?? []).map((l) => l.key));
+    const mats = catalogue.materials.filter((m) => matNames.has(m.name));
+    const sets = (catalogue.sets ?? []).filter((s) => setKeys.has(s.key));
+    if (mats.length === 0 && sets.length === 0) return null;
+    return { mats, sets };
+  }, [filtered, catalogue]);
+
   return (
     <section
       ref={fillRef}
@@ -328,12 +378,11 @@ export function TypesTab({
       onKeyDown={onKeyDown}
       className="relative flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
     >
-      <div className="flex shrink-0 items-center gap-3 px-4 pt-1 font-mono text-[10px] text-muted tabular-nums">
+      <div className={"flex shrink-0 items-center gap-3 px-4 pt-1 font-mono text-[10px] text-muted tabular-nums" + (open ? " invisible" : "")}>
         <span>{`${formatCount(rows.length, lang)} · ${t("col.instances", lang)} ${formatCount(
           rows.reduce((sum, r) => sum + r.count, 0),
           lang,
         )}`}</span>
-        <span className="ml-auto">{`m³ · m² ${notSupplied}`}</span>
       </div>
       {rows.length === 0 ? (
         <div className="px-2 py-6 text-center font-mono text-[11px] text-muted">
@@ -343,7 +392,40 @@ export function TypesTab({
         // Under the page the gallery stays mounted but unseen, so its scroll
         // is where it was when the page closes.
         <div className={"flex min-h-0 min-w-0 flex-1" + (open ? " invisible" : "")} aria-hidden={open ? true : undefined}>
-        <WithViewer meshBatches={meshBatches} active={open === null}>
+        <WithViewer
+          meshBatches={meshBatches}
+          active={open === null}
+          under={
+            under ? (
+              <Gallery unit={[2, 2]} label="type-materials">
+                {under.mats.map((line) => (
+                  <MaterialCardView
+                    key={`m:${line.name}`}
+                    lang={lang}
+                    line={line}
+                    links={catalogue?.materialTypes.get(line.name) ?? []}
+                    types={types}
+                    active={pickedMat === `material:${line.name}`}
+                    onClick={() => pickMat(`material:${line.name}`, line.guids)}
+                    onOpenType={onOpenType}
+                  />
+                ))}
+                {under.sets.map((set) => (
+                  <SetCardView
+                    key={`s:${set.key}`}
+                    lang={lang}
+                    set={set}
+                    links={catalogue?.setTypes.get(set.key) ?? []}
+                    types={types}
+                    active={pickedMat === `set:${set.key}`}
+                    onClick={() => pickMat(`set:${set.key}`, set.guids)}
+                    onOpenType={onOpenType}
+                  />
+                ))}
+              </Gallery>
+            ) : null
+          }
+        >
           <Gallery unit={[2, 2]} label="types">
             {rows.map((row) => {
               const name = row.typeName ?? t("type.untyped", lang);
@@ -361,7 +443,7 @@ export function TypesTab({
                   data={{ "data-type-card": row.key, "data-type-count": row.count }}
                 >
                   <Thumb batches={meshBatches} row={row} />
-                  <CardFoot lang={lang} row={row} name={name} />
+                  <CardFoot lang={lang} row={row} name={name} codes={codes?.get(row.key) ?? null} />
                 </GalleryCard>
               );
             })}
@@ -369,31 +451,30 @@ export function TypesTab({
         </WithViewer>
         </div>
       )}
-      {card && open ? (
-        <TypeView
+      {card && open && data ? (
+        <TypePage
           lang={lang}
-          row={card}
-          name={card.typeName ?? t("type.untyped", lang)}
+          page={data}
           open={open}
+          typeAt={typeAt}
+          typeCount={rows.length}
           meshBatches={meshBatches}
-          selection={selection}
           materials={catalogue?.typeMaterials.get(card.key) ?? []}
-          storeyOf={(guid) => {
-            const r = rowOf.get(guid);
-            return r?.storeyGuid ? (storeyName.get(r.storeyGuid) ?? r.storeyGuid) : null;
-          }}
-          nameOf={(guid) => rowOf.get(guid)?.name ?? null}
+          selection={selection}
           onClose={closePage}
           onStep={step}
+          onStepType={stepType}
           onAll={setAll}
+          onGo={go}
           onOpenMaterial={onOpenMaterial}
+          onScope={scope}
         />
       ) : null}
     </section>
   );
 }
 
-function CardFoot({ lang, row, name }: { lang: Lang; row: TypeCard; name: string }) {
+function CardFoot({ lang, row, name, codes }: { lang: Lang; row: TypeCard; name: string; codes: TypeCodes | null }) {
   return (
     <div className="flex shrink-0 flex-col gap-0.5 px-2.5 pt-1 pb-2">
       <div className="flex items-baseline gap-2">
@@ -409,6 +490,18 @@ function CardFoot({ lang, row, name }: { lang: Lang; row: TypeCard; name: string
         ) : null}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[10px] leading-[14px] text-muted tabular-nums">
+        {codes ? (
+          <>
+            <dt title={t("req.systemkode", lang)}>{t("inst.system", lang)}</dt>
+            <dd className="flex min-w-0 justify-end" data-card-system>
+              <CodeLineView line={codes.system} lang={lang} />
+            </dd>
+            <dt title={t("req.funksjonskode", lang)}>{t("inst.function", lang)}</dt>
+            <dd className="flex min-w-0 justify-end" data-card-function>
+              <CodeLineView line={codes.function} lang={lang} />
+            </dd>
+          </>
+        ) : null}
         <dt>IsExternal</dt>
         <dd className="text-right">
           <Tri value={row.ext} />
@@ -418,207 +511,6 @@ function CardFoot({ lang, row, name }: { lang: Lang; row: TypeCard; name: string
           <Tri value={row.lb} />
         </dd>
       </dl>
-    </div>
-  );
-}
-
-/** A tile of the type view: M, 3 × 2 modules. */
-function Tile({ children, data }: { children: ReactNode; data?: Record<`data-${string}`, string | number | undefined> }) {
-  return (
-    <div className="gallery-card flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden p-2.5" style={{ gridColumn: "span 3", gridRow: "span 2" }} {...data}>
-      {children}
-    </div>
-  );
-}
-
-/** The type view: over the whole tab, on the tab's grid. The lent 3D is the
- *  hero (XL); the instance navigator, the type's facts and its materials are
- *  M tiles beside it, or under it where the tab is too narrow. */
-function TypeView({
-  lang,
-  row,
-  name,
-  open,
-  meshBatches,
-  selection,
-  materials,
-  storeyOf,
-  nameOf,
-  onClose,
-  onStep,
-  onAll,
-  onOpenMaterial,
-}: {
-  lang: Lang;
-  row: TypeCard;
-  name: string;
-  open: Open;
-  meshBatches: MeshBatch[] | undefined;
-  selection: string[];
-  materials: { key: string; n: number }[];
-  storeyOf: (guid: string) => string | null;
-  nameOf: (guid: string) => string | null;
-  onClose: () => void;
-  onStep: (delta: number) => void;
-  onAll: (all: boolean) => void;
-  onOpenMaterial: (name: string) => void;
-}) {
-  const guid = row.guids[open.pos];
-  const n = row.guids.length;
-  const { ref: gridRef, grid } = useTabGrid<HTMLDivElement>();
-  // The hero keeps one M tile beside it; under 9 columns it spans the row and
-  // the tiles go under it.
-  const [hw, hh] = grid ? (grid.cols >= 9 ? viewerSpan(grid, 3) : viewerSpan({ ...grid, rows: 99 }, 0)) : [0, 0];
-
-  const root = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    root.current?.focus({ preventScroll: true });
-  }, [row.key]);
-
-  const pill = (on: boolean) =>
-    "px-2 py-0.5 text-[11px] " + (on ? "bg-ink text-panel" : "bg-input text-muted hover:text-ink");
-  const nav =
-    "flex h-6 w-6 items-center justify-center rounded-[6px] border border-line bg-input text-[13px] text-ink disabled:opacity-40";
-  const facts = "grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-[10px] leading-[14px] tabular-nums";
-
-  return (
-    <div
-      ref={root}
-      tabIndex={-1}
-      className="absolute inset-0 z-10 flex flex-col bg-ground outline-none"
-      data-type-view={row.key}
-      data-type-page={row.key}
-      data-type-card={row.key}
-      data-type-open=""
-      data-instance-mode={open.all ? "all" : "one"}
-      data-instance-pos={`${open.pos + 1}/${n}`}
-      data-instance-guid={open.all ? "" : guid}
-      data-selection-count={selection.length}
-      data-selection-first={selection[0] ?? ""}
-    >
-      <div className="flex shrink-0 items-center gap-3 px-4 pt-1">
-        <button
-          type="button"
-          title={t("inst.close", lang)}
-          onClick={onClose}
-          data-type-back
-          className="flex h-6 w-6 items-center justify-center rounded-[6px] border border-line bg-input text-[13px] text-ink hover:border-ink"
-        >
-          ‹
-        </button>
-        <span className="shrink-0 font-mono text-[10px] text-muted">{row.entity}</span>
-        <span className="min-w-0 truncate font-mono text-[12px] text-ink">{name}</span>
-      </div>
-      <div ref={gridRef} className="min-h-0 flex-1 overflow-auto">
-        {grid ? (
-          <div
-            className="grid justify-center"
-            data-type-view-grid={`${grid.cols},${grid.rows},${hw}x${hh}`}
-            style={{
-              padding: MG_GAP,
-              gap: MG_GAP,
-              gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
-              gridAutoRows: `${grid.u}px`,
-              gridAutoFlow: "row dense",
-            }}
-          >
-            <LentViewer
-              meshBatches={meshBatches}
-              active
-              style={{ gridColumn: `1 / span ${hw}`, gridRow: `1 / span ${hh}` }}
-              data={{ "data-type-viewer": "", "data-viewer-span": `${hw}x${hh}` }}
-            />
-
-            <Tile data={{ "data-type-instance": "" }}>
-              <div role="group" className="flex shrink-0 self-start overflow-hidden rounded-[6px] border border-line">
-                <button type="button" aria-pressed={!open.all} data-instance-one onClick={() => onAll(false)} className={pill(!open.all)}>
-                  {t("inst.one", lang)}
-                </button>
-                <button type="button" aria-pressed={open.all} data-instance-all onClick={() => onAll(true)} className={pill(open.all)}>
-                  {t("inst.all", lang)}
-                </button>
-              </div>
-              {open.all ? (
-                <div className="font-mono text-[11px] text-ink tabular-nums" data-instance-counter>
-                  {`${formatCount(n, lang)} / ${formatCount(n, lang)}`}
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <button type="button" title={t("inst.prev", lang)} data-instance-prev disabled={open.pos === 0} onClick={() => onStep(-1)} className={nav}>
-                      ‹
-                    </button>
-                    <span className="min-w-[4.5rem] text-center font-mono text-[11px] text-ink tabular-nums" data-instance-counter>
-                      {`${open.pos + 1} / ${n}`}
-                    </span>
-                    <button type="button" title={t("inst.next", lang)} data-instance-next disabled={open.pos >= n - 1} onClick={() => onStep(1)} className={nav}>
-                      ›
-                    </button>
-                  </div>
-                  <dl className={facts}>
-                    <dt className="text-muted">{t("col.name", lang)}</dt>
-                    <dd className="truncate text-ink" title={nameOf(guid) ?? ""}>{nameOf(guid) ?? "—"}</dd>
-                    <dt className="text-muted">{t("col.guid", lang)}</dt>
-                    <dd className="truncate text-ink" title={guid}>{guid}</dd>
-                    <dt className="text-muted">{t("col.storey", lang)}</dt>
-                    <dd className="truncate text-ink">{storeyOf(guid) ?? t("matrix.noStorey", lang)}</dd>
-                  </dl>
-                </>
-              )}
-            </Tile>
-
-            <Tile data={{ "data-type-facts": "" }}>
-              <div className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted">{row.entity}</span>
-                <span className="shrink-0 font-mono text-[15px] font-semibold text-ink tabular-nums">{formatCount(n, lang)}</span>
-              </div>
-              <div className="line-clamp-2 font-mono text-[12px] leading-snug break-all text-ink">
-                {name}
-                {row.source && row.source !== "ifctype" && row.typeName ? (
-                  <span className="ml-1.5 text-[9px] text-muted uppercase">{row.source}</span>
-                ) : null}
-              </div>
-              <dl className={facts}>
-                {row.typeGuids.length > 0 ? (
-                  <>
-                    <dt className="text-muted">{t("col.guid", lang)}</dt>
-                    <dd className="truncate text-ink" title={row.typeGuids.join("\n")}>
-                      {row.typeGuids.length > 1 ? `${row.typeGuids[0]} +${row.typeGuids.length - 1}` : row.typeGuids[0]}
-                    </dd>
-                  </>
-                ) : null}
-                <dt className="text-muted">IsExternal</dt>
-                <dd className="text-right">
-                  <Tri value={row.ext} />
-                </dd>
-                <dt className="text-muted">LoadBearing</dt>
-                <dd className="text-right">
-                  <Tri value={row.lb} />
-                </dd>
-              </dl>
-            </Tile>
-
-            <Tile data={{ "data-type-materials-tile": "" }}>
-              <div className="font-mono text-[10px] text-muted">{t("col.materials", lang)}</div>
-              <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-auto" data-type-materials>
-                {materials.length === 0 ? (
-                  <span className="font-mono text-[10px] text-muted">—</span>
-                ) : (
-                  materials.map((m) => (
-                    <LinkChip
-                      key={m.key}
-                      label={m.key}
-                      n={m.n}
-                      onOpen={() => onOpenMaterial(m.key)}
-                      data={{ "data-link-material": m.key }}
-                    />
-                  ))
-                )}
-              </div>
-            </Tile>
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }

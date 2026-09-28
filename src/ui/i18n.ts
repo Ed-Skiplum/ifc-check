@@ -239,6 +239,31 @@ const STRINGS = {
   "inst.prev": { nb: "Forrige (↑)", en: "Previous (↑)" },
   "inst.next": { nb: "Neste (↓)", en: "Next (↓)" },
   "inst.close": { nb: "Lukk (Esc)", en: "Close (Esc)" },
+  // The type page (2026-09-28), labels verbatim from the same G55 viewer:
+  // the type form (`Type / navn`, `Diskret / sammensatt`), the layer panel
+  // (`Materialsammensetning · N materiallag`), the quantity line (`Volum ·
+  // Areal · Lengde · Antall`), `Mengde i QTO`, `Instanser (N)`, `Verdi`.
+  "inst.typeName": { nb: "Type / navn", en: "Type / name" },
+  "inst.discreteComposite": { nb: "Diskret / sammensatt", en: "Discrete / composite" },
+  "inst.discrete": { nb: "Diskret", en: "Discrete" },
+  "inst.composite": { nb: "Sammensatt", en: "Composite" },
+  "inst.composition": { nb: "Materialsammensetning", en: "Material composition" },
+  "inst.layers": { nb: "materiallag", en: "material layers" },
+  "inst.length": { nb: "Lengde", en: "Length" },
+  "inst.count": { nb: "Antall", en: "Count" },
+  "inst.qto": { nb: "Mengde i QTO", en: "Quantity in QTO" },
+  "inst.instances": { nb: "Instanser", en: "Instances" },
+  "inst.value": { nb: "Verdi", en: "Value" },
+  "inst.property": { nb: "Egenskap", en: "Property" },
+  // The current instance's column beside the type's (`Per forekomst`).
+  "inst.this": { nb: "Forekomst", en: "Instance" },
+  "inst.sum": { nb: "Sum", en: "Sum" },
+  "inst.pending": { nb: "venter", en: "pending" },
+  // The pset inventory's category for a set a rule names (`krevd`).
+  "inst.required": { nb: "krevd", en: "required" },
+  // The type card's two classification lines, the owner's words for them.
+  "inst.system": { nb: "System", en: "System" },
+  "inst.function": { nb: "Funksjon", en: "Function" },
   "type.disagree": { nb: "Ulike verdier", en: "Values differ" },
   "type.perType": { nb: "Forekomster per type", en: "Instances per type" },
   "type.median": { nb: "Median", en: "Median" },
@@ -363,6 +388,11 @@ const STRINGS = {
 } as const satisfies Record<string, { nb: string; en: string }>;
 
 export type StringKey = keyof typeof STRINGS;
+
+/** Whether a key is a string of the table (a report row id as `check.<id>`). */
+export function hasString(key: string): key is StringKey {
+  return Object.prototype.hasOwnProperty.call(STRINGS, key);
+}
 
 export function t(key: StringKey, lang: Lang): string {
   return STRINGS[key][lang];

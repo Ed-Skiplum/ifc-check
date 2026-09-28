@@ -51,9 +51,11 @@ export interface QuantityUnits {
   area: number | null;
   /** m³ per project volume unit; null when undeclared or not an SI unit. */
   volume: number | null;
+  /** m per project length unit (the Length quantities); null likewise. */
+  length?: number | null;
   /** Every area / volume unit entity by STEP id, for a quantity that names
    *  its own unit (`unit_step_id`). null factor = declared, not resolvable. */
-  byId: Record<string, { kind: "area" | "volume"; factor: number | null }>;
+  byId: Record<string, { kind: "area" | "volume" | "length"; factor: number | null }>;
 }
 
 const PREFIX: Record<string, number> = {
@@ -87,7 +89,7 @@ function argsFrom(text: string, open: number): { args: string; end: number } | n
 
 /** The project's quantity units, read from the STEP bytes in chunks. */
 export function quantityUnits(bytes: Uint8Array, chunk = 8 << 20): QuantityUnits {
-  const units: QuantityUnits = { area: null, volume: null, byId: {} };
+  const units: QuantityUnits = { area: null, volume: null, length: null, byId: {} };
   const kinds = new Map<string, { kind: string; factor: number | null }>();
   let assignment: string[] | null = null;
   let projectUnits: string | null = null;
@@ -112,16 +114,18 @@ export function quantityUnits(bytes: Uint8Array, chunk = 8 << 20): QuantityUnits
       const name = m[2].toUpperCase();
       const args = body.args;
       if (name === "IFCSIUNIT") {
-        const kind = /\.(AREAUNIT|VOLUMEUNIT)\./i.exec(args)?.[1]?.toUpperCase();
+        const kind = /\.(AREAUNIT|VOLUMEUNIT|LENGTHUNIT)\./i.exec(args)?.[1]?.toUpperCase();
         if (!kind) continue;
         const parts = args.split(",").map((s) => s.trim());
         const prefix = /^\.(\w+)\.$/.exec(parts[2] ?? "")?.[1]?.toUpperCase();
         const base = /^\.(\w+)\.$/.exec(parts[3] ?? "")?.[1]?.toUpperCase();
         const p = prefix ? PREFIX[prefix] : 1;
-        const ok = p !== undefined && (kind === "AREAUNIT" ? base === "SQUARE_METRE" : base === "CUBIC_METRE");
-        kinds.set(id, { kind, factor: ok ? (kind === "AREAUNIT" ? p * p : p * p * p) : null });
+        const ok =
+          p !== undefined &&
+          (kind === "AREAUNIT" ? base === "SQUARE_METRE" : kind === "VOLUMEUNIT" ? base === "CUBIC_METRE" : base === "METRE");
+        kinds.set(id, { kind, factor: ok ? (kind === "AREAUNIT" ? p * p : kind === "VOLUMEUNIT" ? p * p * p : p) : null });
       } else if (name === "IFCCONVERSIONBASEDUNIT") {
-        const kind = /\.(AREAUNIT|VOLUMEUNIT)\./i.exec(args)?.[1]?.toUpperCase();
+        const kind = /\.(AREAUNIT|VOLUMEUNIT|LENGTHUNIT)\./i.exec(args)?.[1]?.toUpperCase();
         if (kind) kinds.set(id, { kind, factor: null });
       } else if (name === "IFCUNITASSIGNMENT") {
         (assignment ??= []).push(`#${id}:${args}`);
@@ -133,7 +137,7 @@ export function quantityUnits(bytes: Uint8Array, chunk = 8 << 20): QuantityUnits
     carry = last ? "" : text.slice(keepFrom);
   }
   for (const [id, u] of kinds) {
-    units.byId[id] = { kind: u.kind === "AREAUNIT" ? "area" : "volume", factor: u.factor };
+    units.byId[id] = { kind: u.kind === "AREAUNIT" ? "area" : u.kind === "VOLUMEUNIT" ? "volume" : "length", factor: u.factor };
   }
   // The project's assignment; with no IfcProject reference, the only one.
   const chosen =
@@ -143,7 +147,8 @@ export function quantityUnits(bytes: Uint8Array, chunk = 8 << 20): QuantityUnits
     for (const ref of chosen.slice(chosen.indexOf(":") + 1).match(/#\d+/g) ?? []) {
       const u = kinds.get(ref.slice(1));
       if (!u) continue;
-      if (u.kind === "AREAUNIT") units.area = u.factor;
+      if (u.kind === "LENGTHUNIT") units.length = u.factor;
+      else if (u.kind === "AREAUNIT") units.area = u.factor;
       else units.volume = u.factor;
     }
   }
@@ -228,6 +233,47 @@ export function qtoQuantities(
   return out;
 }
 
+/** Length: the BaseQuantity `Length` only (Qto_BeamBaseQuantities,
+ *  Qto_WallBaseQuantities, Qto_PipeSegmentBaseQuantities, ...). Width, Height
+ *  and Depth are lengths too and are not what "the length of the element"
+ *  means. No computed fallback: a mesh has no single length. */
+export const LENGTH_PRECEDENCE = ["Length"] as const;
+
+/** One length per element from its BaseQuantities, in metres. A quantity
+ *  that names its own unit (`unit_step_id`) is scaled by that LENGTHUNIT
+ *  (`quantityUnits`); one that does not, by the project's length unit, else
+ *  `lengthScale` (the file's metres per unit, `summary.unit_scale`). An
+ *  unresolved unit skips the quantity, never reads it as metres. */
+export function qtoLengths(
+  rows: readonly QuantityRow[],
+  units: QuantityUnits | null | undefined,
+  lengthScale: number | null | undefined,
+): Map<string, Picked> {
+  const out = new Map<string, Picked>();
+  const found = new Map<string, [number | null, number | null]>();
+  for (const r of rows) {
+    if (!BASE_SET.test(r.qto_name) || r.quantity_type !== "Length") continue;
+    if (!(LENGTH_PRECEDENCE as readonly string[]).includes(r.quantity_name)) continue;
+    if (r.value === null) continue;
+    const raw = Number(r.value);
+    if (!Number.isFinite(raw) || raw <= 0) continue;
+    let factor: number | null = null;
+    if (r.unit_step_id !== null) {
+      const own = units?.byId[String(r.unit_step_id)];
+      factor = own && own.kind === "length" ? own.factor : null;
+    } else factor = units?.length ?? lengthScale ?? null;
+    if (factor === null) continue;
+    const slot = found.get(r.guid) ?? [null, null];
+    const at = r.source === "type" ? 1 : 0;
+    if (slot[at] === null) slot[at] = raw * factor;
+    found.set(r.guid, slot);
+  }
+  for (const [guid, slot] of found) {
+    const value = slot[0] ?? slot[1];
+    if (value !== null) out.set(guid, { value, name: "Length" });
+  }
+  return out;
+}
 /* ── computed from the mesh ─────────────────────────────────────────────── */
 
 export interface MeshMeasure {
@@ -381,6 +427,27 @@ function resolve(guid: string, qto: ReadonlyMap<string, Authored>, computed: Com
   const [v, vs] = one(q?.volume, m?.volume);
   const [a, as] = one(q?.area, m?.area);
   return { v, vs, a, as };
+}
+
+/** Per element, the value and its source as the treemaps resolve them:
+ *  `[volume, source, area, source, length, source]`, source 0 Qto, 1
+ *  computed, 2 missing, 3 pending. Length has no computed source (0 or 2).
+ *  The Typer type page folds these per type (`ui/type-page.ts`). */
+export type ElementQuantity = [number | null, 0 | 1 | 2 | 3, number | null, 0 | 1 | 2 | 3, number | null, 0 | 2];
+
+export function elementQuantities(
+  guids: Iterable<string>,
+  qto: ReadonlyMap<string, Authored>,
+  lengths: ReadonlyMap<string, Picked>,
+  computed: Computed,
+): Record<string, ElementQuantity> {
+  const out: Record<string, ElementQuantity> = {};
+  for (const guid of guids) {
+    const r = resolve(guid, qto, computed);
+    const l = lengths.get(guid);
+    out[guid] = [r.v, r.vs, r.a, r.as, l ? l.value : null, l ? 0 : 2];
+  }
+  return out;
 }
 
 /** Every node's summed volume and area, the missing counts, and the tree's

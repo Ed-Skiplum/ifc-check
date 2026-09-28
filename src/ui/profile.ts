@@ -44,6 +44,9 @@ export interface ProductRowLite {
    *  element is untyped. It is what makes "declared but used by nothing"
    *  answerable, so it is carried per row rather than derived from the name. */
   typeGuid?: string | null;
+  /** `TypeObjectRow.entity` of that type object, in ifcfast's spelling
+   *  (`IfcWalltype`, ifcfast#186); null when untyped or not declared. */
+  typeEntity?: string | null;
   predefinedType?: string | null;
   objectType?: string | null;
   /** `ProductRow.tag` — the authoring tool's own element id, not a GlobalId. */

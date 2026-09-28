@@ -352,6 +352,7 @@ export default function App() {
                 design={view.design}
                 model={model}
                 hasRuleset={rulesetName !== null}
+                ruleset={ruleset}
                 claims={claims}
                 selected={view.model === model.id ? view.focus : null}
                 onFocus={(next) => onFocus(model.id, next)}

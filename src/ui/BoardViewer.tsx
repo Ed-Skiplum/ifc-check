@@ -126,11 +126,17 @@ export function WithViewer({
   meshBatches,
   active,
   children,
+  under,
 }: {
   meshBatches: MeshBatch[] | undefined;
   /** False while something else holds the viewer (the full type view). */
   active: boolean;
   children: ReactNode;
+  /** What fills the column under the viewer (the Typer gallery: the
+   *  selected type's material cards, 2026-09-28). It gets the viewer's width
+   *  plus the gallery padding on each side, so a `Gallery` inside lands its
+   *  cards on the viewer's own module, and scrolls inside itself. */
+  under?: ReactNode;
 }) {
   const { ref, grid } = useTabGrid<HTMLDivElement>();
   // Keep one card column (2 modules) for the gallery.
@@ -139,13 +145,24 @@ export function WithViewer({
     <div ref={ref} className="flex min-h-0 min-w-0 flex-1" data-tab-grid={grid ? `${grid.cols},${grid.rows},${grid.u.toFixed(2)}` : undefined}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
       {grid ? (
-        <LentViewer
-          meshBatches={meshBatches}
-          active={active}
-          className="shrink-0"
-          style={{ width: mgSpanPx(w, grid.u), height: mgSpanPx(h, grid.u), marginTop: MG_GAP, marginRight: MG_GAP }}
-          data={{ "data-viewer-span": `${w}x${h}` }}
-        />
+        <div className="flex min-h-0 shrink-0 flex-col" style={{ width: mgSpanPx(w, grid.u) + MG_GAP }}>
+          <LentViewer
+            meshBatches={meshBatches}
+            active={active}
+            className="shrink-0"
+            style={{ width: mgSpanPx(w, grid.u), height: mgSpanPx(h, grid.u), marginTop: MG_GAP, marginRight: MG_GAP }}
+            data={{ "data-viewer-span": `${w}x${h}` }}
+          />
+          {under ? (
+            <div
+              className="flex min-h-0 flex-1 flex-col"
+              style={{ width: mgSpanPx(w, grid.u) + 2 * MG_GAP, marginLeft: -MG_GAP }}
+              data-under-viewer
+            >
+              {under}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

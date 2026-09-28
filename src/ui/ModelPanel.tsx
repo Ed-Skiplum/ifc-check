@@ -52,7 +52,8 @@ import { MaterialsTab } from "./MaterialsTab";
 import type { IdsSession } from "./IdsResults";
 import { ProjectBoard } from "./alt/ProjectBoard";
 import type { Reveal } from "./TypesTab";
-import { catalogue as buildCatalogue } from "./type-links";
+import { catalogue as buildCatalogue, typeCodes } from "./type-links";
+import type { Ruleset } from "../ids/types.ts";
 import { FilterBar } from "./FilterBar";
 import { ReadoutStrip, type Readout } from "./forms";
 import { BENTO_MAX_WIDTH } from "./bento-spec";
@@ -78,6 +79,8 @@ interface ModelPanelProps {
   design: Design | null;
   model: ModelEntry;
   hasRuleset: boolean;
+  /** The loaded ruleset, for the type page's required-property marks. */
+  ruleset: Ruleset | null;
   claims: KpiClaims;
   selected: string | null;
   onFocus: (focus: Focus) => void;
@@ -119,6 +122,7 @@ export function ModelPanel({
   design,
   model,
   hasRuleset,
+  ruleset,
   claims,
   selected,
   onFocus,
@@ -177,6 +181,23 @@ export function ModelPanel({
   // the linked card.
   const catalogue = useMemo(() => (profile ? buildCatalogue(profile) : null), [profile]);
   const [revealMaterial, setRevealMaterial] = useState<Reveal | null>(null);
+  // Each type card's system and function line, off the board's code trees.
+  const board = model.board;
+  const codes = useMemo(
+    () => (profile && catalogue ? typeCodes(profile, catalogue.types, board?.trees) : null),
+    [profile, catalogue, board],
+  );
+  // What the type page reads beside its card (`type-page.ts`).
+  const pageInput = useMemo(
+    () => ({
+      model: model.fileName,
+      board: board ?? null,
+      ids: model.ids ?? null,
+      ruleset,
+      quantities: model.elementQuantities ?? null,
+    }),
+    [model.fileName, board, model.ids, ruleset, model.elementQuantities],
+  );
   // A type link opens that type's page (its own route).
   const openType = useCallback((key: string) => onTypePage(key), [onTypePage]);
   const openMaterial = useCallback(
@@ -440,6 +461,13 @@ export function ModelPanel({
                 onMode={onMode}
                 onPage={onTypePage}
                 onOpenMaterial={openMaterial}
+                pageInput={pageInput}
+                codes={codes}
+                onOpenType={openType}
+                onScope={(next, target) => {
+                  focus(next);
+                  onTab(target);
+                }}
               />
             </div>
             <div role="tabpanel" hidden={tab !== "materials"} className="flex flex-col">

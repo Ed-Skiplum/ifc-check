@@ -1164,6 +1164,82 @@ forekomst returns, the material link lands on Glass which links back
 left on the hidden tab); both fixed, not re-run. Local headless run only; not
 seen on a deployed site. No screenshots taken.
 
+### The type page, type first (2026-09-28, fourth round)
+
+Owner: *"remember to isolate the per instance view, and also build a proper
+type page, not this stripped down naked thing … almost all properties are
+type properties. We want to know type properties, and also what distribution
+the instances of the type has for instance properties: MMI, QTO, IsReference
+etc"*, *"and what instances there are. GUID etc"*, *"see my QTO_LCA type view
+for inspiration"*.
+
+- **Isolation.** Per forekomst sets the chips to the type chip AND an element
+  chip (`elementChip`), so the viewer draws ONE element, framed; ‹ › ↑ ↓ and
+  a list row re-isolate. Alle forekomster: the type chip alone. A
+  requirement / IDS line leaves for its Scope (`onScope`: `focus` plus the
+  tab, `std` and IDS to Prosjekt, the rest to Kontroll) with the type chip
+  kept, the saved gallery state dropped.
+- **Data** (`src/ui/type-page.ts`, pure, selftest): identity (class, the type
+  object's class via `typeObjectClass`, type GlobalIds, PredefinedType and
+  ObjectType over the instances, classification refs with the bundled list
+  name, the system/function lines, layer stacks, Diskret/Sammensatt);
+  properties folded from the type (`source: "type"`) and the instances' own,
+  per (set, name): filled / blank / not carried, values with counts, the
+  typical value, `disagree` when a property the type should settle has two or
+  more values. Not flagged (`perInstance`): the progress-code and copy-object
+  sources, `Pset_*Common.Status` and the phase layer's sources, and a
+  property whose every value is the instance's own storey name (ARK's `BIM
+  Data.Etasje`). Required marks: every (`propertySet`, `baseName`/`name`)
+  pair in the enabled rules and the project layer, matched by
+  `pset-inventory`'s `nameMatches`. The MMI and Kopiobjekt readings are
+  `board.values` (the rule's own reading) over the type. Storeys, model. QTO
+  per Volum / Areal / Lengde: Σ, min, median, max and the Qto / computed /
+  missing / pending split. Requirements: `requirements(board.rows)` plus any
+  other row with a finding on the type, failed = the type's instances among
+  `funn`; IDS: failing instances (a finding on the type object counts every
+  instance). The instance rows: GlobalId, name, storey, model, MMI, copy,
+  status (Pset_*Common.Status, then the phase sources), quantities.
+- **Absent, with the reason, never empty**: `untyped`, `table-absent`,
+  `type-rows-on-occurrences` (the engine limit under "Pset inventory":
+  HI90_ARK has 0 type-folded rows, so every type there shows it),
+  `quantities-not-received`.
+- **Quantities** come from the measure worker: `MeasureState.elements()`
+  (`[v, src, a, src, l, src]` per product, the treemaps' resolution) rides on
+  the first `measured` answer and on completion, into
+  `ModelEntry.elementQuantities`. Length is new: `qtoLengths`, the
+  BaseQuantity `Length` only, scaled by the quantity's own LENGTHUNIT
+  (`quantityUnits` now reads LENGTHUNIT too; every HI90_ARK quantity names
+  its own unit, #17 = mm) or the project's, else `summary.unit_scale`.
+- **Layout** (`TypePage.tsx`, `pageLayout`): the head line is the G55
+  `galhead` plus `innernav` (types `n / N`, ← →, Per forekomst / Alle
+  forekomster, ‹ n / N ›, the instance's Navn · GlobalId · Etasje). On the tab
+  grid: viewer 8 × 5 (6 × 4 under 16 columns), `Instanser (N)` under it, then
+  columns beside it (right ≥ 14: 4 | rest | 4; ≥ 8: 4 | rest), each tile the
+  rows its content wants, the leftover to the heaviest, shrinking heaviest
+  first to 1 : 2 and scrolling inside. At 2112 × 1267: 18 × 9, tiles 8x4 4x3
+  4x2 6x6 4x2 4x2 6x3, no page scroll. The current instance is a `Forekomst`
+  column in the property and QTO tables, red where it differs from the
+  type's typical value (2026-06-12 canon: comparison lined up).
+- **G55 carried over**: labels verbatim (`Type / navn`, `Diskret /
+  sammensatt`, `Materialsammensetning · N materiallag`, `Volum · Areal ·
+  Lengde · Antall`, `Mengde i QTO`, `Instanser (N)`, `Verdi`), the MMI chips
+  with counts, the instance table per GUID with row ↔ 3D ↔ ↑ ↓. Not carried:
+  the editing (corrections, weights, comments, dedup, logs).
+- **Gallery**: each card carries `System` and `Funksjon` (`typeCodes`,
+  type-links.ts, off the board's code trees: the code and list name, or the
+  fallback in italics: type object class / PredefinedType; the majority value
+  and `+n` other values). Under the viewer, the filtered type's material and
+  layer set cards (`MaterialCardView`, `SetCardView`, exported from
+  MaterialsTab; `WithViewer`'s `under`), a click selects as on Materialer.
+  The header's `m³ · m² ikke levert` is gone: the page has the quantities.
+
+Verified: tsc; selftest (160, type page, type codes, lengths); `vite build`;
+`isolate-gate --only types --model HI90_ARK --ruleset
+examples/hi90-project-layer.test.ruleset.json` (IfcWallStandardCase "Betong
+96", 58): the page draws 1, Neste draws 1, Alle forekomster draws 58, the
+list has 58 rows, all T assertions hold. Screenshot `tmp/type-page/`. Local
+headless preview only, not on a deployed site.
+
 ## The dashboard grid — binding, not advisory
 
 The board is an INSTANCE of the house bento grid, not a layout of its own.

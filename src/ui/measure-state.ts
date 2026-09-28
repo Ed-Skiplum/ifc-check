@@ -21,12 +21,16 @@
 
 import type { CodeTree } from "../engine/code-tree.ts";
 import {
+  elementQuantities,
   measureTree,
   meshMeasure,
+  qtoLengths,
   qtoQuantities,
   type Authored,
+  type ElementQuantity,
   type Measure,
   type MeshMeasure,
+  type Picked,
   type TreeMeasures,
 } from "../engine/quantities.ts";
 import type { IfcGraph } from "../engine/types.ts";
@@ -48,17 +52,27 @@ export interface BoardMeasures {
 
 export class MeasureState {
   private qto: Map<string, Authored>;
+  private lengths: Map<string, Picked>;
+  private guids: string[];
   private computed = new Map<string, MeshMeasure>();
   private complete = false;
   private done = 0;
   private total = 0;
 
   /** `prior`: measures taken before the graph existed (the capped batches,
-   *  measured in the stream callback). */
-  constructor(graph: IfcGraph, prior?: ReadonlyMap<string, MeshMeasure>) {
+   *  measured in the stream callback). `lengthScale`: metres per file length
+   *  unit (`summary.unit_scale` when resolved), for the Length quantities. */
+  constructor(graph: IfcGraph, prior?: ReadonlyMap<string, MeshMeasure>, lengthScale?: number | null) {
     const entityOf = new Map(graph.products.map((p) => [p.guid, p.entity]));
+    this.guids = graph.products.map((p) => p.guid);
     this.qto = qtoQuantities(graph.quantities ?? [], entityOf, graph.quantity_units);
+    this.lengths = qtoLengths(graph.quantities ?? [], graph.quantity_units, lengthScale);
     if (prior) for (const [guid, m] of prior) this.computed.set(guid, m);
+  }
+
+  /** Every product's resolved volume, area and length (the type page). */
+  elements(): Record<string, ElementQuantity> {
+    return elementQuantities(this.guids, this.qto, this.lengths, { byGuid: this.computed, complete: this.complete });
   }
 
   /** Measure one batch and keep only the numbers. */
@@ -120,6 +134,10 @@ export interface MeasuredMessage {
   base?: BoardMeasures;
   /** Over the last evaluated ruleset's board; null with none. */
   current?: BoardMeasures | null;
+  /** Every product's volume, area and length with its source
+   *  (`MeasureState.elements`), for the Typer type page. On the first answer
+   *  (the BaseQuantities, the rest pending) and on completion only. */
+  elements?: Record<string, ElementQuantity>;
 }
 
 const THROTTLE_MS = 250;
@@ -127,6 +145,7 @@ const THROTTLE_MS = 250;
 /** The worker side: the state plus the two boards' trees it measures over. */
 export class MeasureChannel {
   private last = 0;
+  private sentElements = false;
   private base: { system: CodeTree; function: CodeTree } | null = null;
   private current: { system: CodeTree; function: CodeTree } | null = null;
 
@@ -157,12 +176,15 @@ export class MeasureChannel {
     const progress = this.state.progress ?? { done: 0, total };
     if (!complete && now - this.last < THROTTLE_MS) return { kind: "measured", progress, complete };
     this.last = now;
+    const first = !this.sentElements;
+    this.sentElements = true;
     return {
       kind: "measured",
       progress,
       complete,
       base: this.base ? this.state.measures(this.base) : undefined,
       current: this.current ? this.state.measures(this.current) : null,
+      ...(first || complete ? { elements: this.state.elements() } : {}),
     };
   }
 }

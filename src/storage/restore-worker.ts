@@ -72,7 +72,9 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
     heldNoGeometry = request.noGeometry;
     // The cached batches come back one at a time (`measure`), as on the
     // parse path; this worker never holds them.
-    measures = new MeasureChannel(new MeasureState(request.graph));
+    measures = new MeasureChannel(
+      new MeasureState(request.graph, undefined, request.summary.unit_resolved ? request.summary.unit_scale : null),
+    );
 
     const report: ModelReport = {
       fileName: request.fileName,

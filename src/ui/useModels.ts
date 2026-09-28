@@ -58,6 +58,7 @@ import { collectBoxes, unshiftBoxes, type ElementBox } from "../engine/placement
 import type { RestoreWorkerRequest } from "../storage/restore-worker";
 import type { ModelProfile } from "./profile";
 import type { ModelWorkerResponse } from "./model-worker";
+import type { ElementQuantity } from "../engine/quantities";
 
 export type FileState = "queued" | "parsing" | "ready" | "failed";
 
@@ -104,6 +105,11 @@ export interface ModelEntry {
   /** The treemap measures' geometry pass: batches measured of those handed
    *  back, refreshed with the measures (throttled). Absent before it starts. */
   measureProgress?: { done: number; total: number; complete: boolean };
+  /** Every product's volume, area and length with its source, as the
+   *  treemaps resolve them (`MeasureState.elements`): first with the
+   *  BaseQuantities alone, then once more when the geometry pass completes.
+   *  The Typer type page folds them per type. */
+  elementQuantities?: { byGuid: Record<string, ElementQuantity>; complete: boolean };
 }
 
 const MAX_CONCURRENT = Math.min(4, Math.max(1, (navigator.hardwareConcurrency ?? 4) - 1));
@@ -339,14 +345,18 @@ function createController(setModels: SetModels): Controller {
           const base = message.base;
           const current = message.current;
           const progress = { ...message.progress, complete: message.complete };
+          const elements = message.elements;
           setModels((all) =>
             all.map((m) => {
               if (m.id !== id) return m;
-              if (!base) return { ...m, measureProgress: progress };
+              const quantities = elements
+                ? { elementQuantities: { byGuid: elements, complete: message.complete } }
+                : {};
+              if (!base) return { ...m, measureProgress: progress, ...quantities };
               const baseBoard = m.baseBoard && { ...m.baseBoard, measures: base };
               const board =
                 m.board === m.baseBoard ? baseBoard : m.board && current ? { ...m.board, measures: current } : m.board;
-              return { ...m, measureProgress: progress, baseBoard, board };
+              return { ...m, measureProgress: progress, baseBoard, board, ...quantities };
             }),
           );
         }
