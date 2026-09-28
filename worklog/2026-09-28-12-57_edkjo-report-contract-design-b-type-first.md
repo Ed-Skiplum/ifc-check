@@ -65,6 +65,19 @@ layout summary, "keep agent runs short", Skiplum git identity.
 
 ## Next steps (next session)
 
+**Update 13:55:** another session landed items 1 and 5 after this list was written (`8a61c4c` to
+`4594f09`): the .xlsx config import/export/template with obscured EKS examples and the
+`<FROM PROJECT>` lint, and a Rom tab that takes spaces out of the treemaps. Check `git log` before
+starting anything below.
+
+**From the KNM session:** KNM.ids was rebuilt (MMI accepts 100, 200, 250, 300, 350, 400, 500, 600;
+IfcProxy in the element scope; 38 specs). A KNM project config in the HI90 `krav.yaml` schema now
+exists at `10016-kistefos/underprosjekter/KNM_Mottakskontroll/02_arbeid/krav.yaml` (faggruppe ARK =
+KNM_ARK + KNM_ARK_Exterior; IFC2X3 + IFC4 accepted; 8 storeys from BEP v7.0 §6.5 with placeholder
+kotes; EPSG:5950). KNM-only requirements without a datanokkel (IsReference, IsExternal,
+LoadBearing, FireRating, TFM, KomponentID, Manufacturer, System, Sone) are not measured yet. Use
+it for the IDS tab test and the report work (#3).
+
 1. **Excel config template** (not built; the design is in the empty commit `b4dbb38` on branch
    `wip/excel-config`: library choice, sheet layout, round-trip guard. Lint does not yet refuse
    `<FROM PROJECT>`, so add that check first. `examples/knm-floors.test.ruleset.json` also carries
