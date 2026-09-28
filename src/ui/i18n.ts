@@ -100,7 +100,7 @@ const STRINGS = {
   "tile.detail": { nb: "Detail", en: "Detail" },
 
   /* ----------------------------------------------------------------- tabs */
-  "tab.checks": { nb: "Kontroll", en: "Checks" },
+  "tab.checks": { nb: "Oversikt", en: "Overview" },
   "tab.contents": { nb: "Innhold", en: "Contents" },
 
   /* --------------------------------------------------------------- viewer */

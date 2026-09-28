@@ -151,6 +151,9 @@ export function Dashboard({
         rules={rules}
         scope={scope ?? null}
         detail={detail ?? null}
+        census={census}
+        floors={floors}
+        peers={peers}
       />
     );
   }

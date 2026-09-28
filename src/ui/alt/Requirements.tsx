@@ -1,6 +1,8 @@
-/** The report's requirements on the board, in three renderings, one per
- *  design alternative: a dense list row (a), the report's own block (b), a
- *  panel (c). Every figure is a field of the requirement's report row
+/** The report's requirements on the board. In use (2026-09-28): `ReqCard`,
+ *  the Overview's KPI card, and `ReqBlock`, the report's own block (the
+ *  narrow fallback's list and `Standardkrav.tsx`). `ReqRow`, `ReqPanel` and
+ *  `ReqSection` were designs a and c; no board mounts them now, they stay
+ *  for the project tab to pick from. Every figure is a field of the requirement's report row
  *  (`requirements.ts`); nothing is computed here but a percentage of two of
  *  its counts.
  *
@@ -141,9 +143,13 @@ function Open({ row, lang }: { row: ReportRow; lang: Lang }) {
 }
 
 /** The engine's reason, where the row was not answered. Data, not prose. */
-function Why({ row }: { row: ReportRow | null }) {
+function Why({ row, wrap = false }: { row: ReportRow | null; wrap?: boolean }) {
   if (!row?.grunn || row.state === "not_configured") return null;
-  return <span className="truncate font-mono text-[11px] text-muted" title={row.grunn}>{row.grunn}</span>;
+  return (
+    <span className={(wrap ? "break-words" : "truncate") + " font-mono text-[11px] text-muted"} title={row.grunn}>
+      {row.grunn}
+    </span>
+  );
 }
 
 function HeadButton({
@@ -375,10 +381,13 @@ function MmiReading({ req, lang }: { req: Requirement; lang: Lang }) {
   return <MiniDist req={req} lang={lang} />;
 }
 
-/** One requirement, an S card. */
+/** One requirement, an S card: the Overview's KPI row (2026-09-28). Nothing
+ *  in it is cut: the name, the «av» line and the second reading wrap, the
+ *  figure is one unbroken line. */
 export function ReqCard({ req, ...door }: DoorProps & { req: Requirement }) {
   const { lang } = door;
   const f = figures(req, lang);
+  const second = secondFigure(req, lang);
   return (
     <HeadButton
       req={req}
@@ -386,9 +395,7 @@ export function ReqCard({ req, ...door }: DoorProps & { req: Requirement }) {
       onFocus={door.onFocus}
       className="alt-stat alt-sized flex h-full min-h-0 w-full min-w-0 flex-col items-start gap-1.5 px-3 py-2.5 text-left"
     >
-      <span className="w-full min-w-0 truncate text-[12px] font-semibold text-ink" title={t(req.label, lang)}>
-        {t(req.label, lang)}
-      </span>
+      <span className="w-full min-w-0 text-[13px] leading-tight font-semibold break-words text-ink">{t(req.label, lang)}</span>
       <StateBadge state={req.state} lang={lang} />
       <span className="mt-auto flex w-full min-w-0 flex-col gap-0.5">
         {req.distribution ? (
@@ -397,12 +404,23 @@ export function ReqCard({ req, ...door }: DoorProps & { req: Requirement }) {
           </span>
         ) : f ? (
           <>
-            <span data-essential className="max-w-full truncate font-mono text-[22px] leading-none font-semibold tabular-nums">
-              {f.figure}
+            <span className="flex w-full min-w-0 flex-wrap items-baseline gap-x-2">
+              <span data-essential className="font-mono text-[22px] leading-none font-semibold whitespace-nowrap tabular-nums">
+                {f.figure}
+              </span>
+              {f.label ? <span className="alt-label">{t(f.label, lang)}</span> : null}
             </span>
-            {f.label ? <span className="alt-label w-full truncate">{t(f.label, lang)}</span> : null}
-            {f.of ? <span className="w-full truncate font-mono text-[11px] tabular-nums text-muted">{f.of}</span> : null}
+            {f.of ? <span className="w-full font-mono text-[11px] leading-snug break-words tabular-nums text-muted">{f.of}</span> : null}
           </>
+        ) : (
+          <Why row={req.row} wrap />
+        )}
+        {second ? (
+          <span className="flex w-full min-w-0 flex-wrap items-baseline gap-x-2 pt-1 text-[11px] leading-snug">
+            <span className="alt-label">{second.label}</span>
+            <span data-essential className="font-mono font-semibold whitespace-nowrap tabular-nums">{second.figure}</span>
+            {second.of ? <span className="font-mono whitespace-nowrap tabular-nums text-muted">{second.of}</span> : null}
+          </span>
         ) : null}
       </span>
     </HeadButton>

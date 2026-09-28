@@ -1,33 +1,31 @@
-/** The Kontroll tab in the three design alternatives (`#design=a|b|c`).
+/** The Overview tab («Oversikt», was Kontroll): general model health.
  *
- * 2026-09-25, second round. edkjo on the first: *"the content dash still
- * sucks. I dont understand the obsession with floor vs ifcclass"* … *"why not
- * report on what matters first? Remember you're building with the pdf
- * report."* So the board leads with the mottakskontroll report's
- * requirements, in its order (`requirements.ts`), read off the report
- * contract the worker built. And *"When clicking an object it makes no sense
- * to open a table that hides half the page"*: nothing overlays the board. Two
- * docked panels are always present, Scope (the identities the last click
- * scoped to) and Detail (the one selected identity).
+ * 2026-09-28, the owner on b: *"Kontroll should be 'Overview' and IDS should
+ * be specific to that"* … *"We have a dash for general model health and a
+ * separate tab for project specifics and IDS"* … *"the IFC-struktur shouldnt
+ * be buried in a truncated scroll list. Keep them visible as KPIs. Use the
+ * screen"* … *"KPI cards go on top, then sidebar and larger tiled
+ * components"* … *"show the floor config on the right side as a tall
+ * sidebar"*. So the board is three parts (`layoutOverview` in
+ * `module-grid.ts`):
  *
- * 2026-09-26, the LAYOUT SYSTEM canon (`data-workspace.md`): one square
- * module grid per window, bento tiles at canon sizes packed by priority
- * (`module-grid.ts`), floating glass tiles (`directions.css`). The three
- * alternatives differ in composition only:
+ *   the KPI row   one S card per IFC-struktur requirement (IFC-skjema,
+ *                 Typeobjekt, GUID, Etasjedefinisjon, Objekter i etasje), in
+ *                 the report's order, then the neutral counts
+ *   the sidebar   the floor config (Etasjer), full height on the right
+ *   the middle    the model (hero), Scope, Detail, the checks that are not a
+ *                 requirement, and the treemaps where they are general (the
+ *                 IFC-class and PredefinedType fallbacks)
  *
- *   a  Linear work surface   the requirements as a row of KPI cards on top
- *                            (2026-09-26, replacing the list beside the
- *                            model), the model the hero under it; Scope and
- *                            Detail, the charts
- *   b  Stripe summary        the treemaps and the MMI bars lead top-left, the
- *                            model beside them; the report as blocks, Scope
- *                            and Detail under
- *   c  Grafana / Datadog     one S panel per requirement, the report's two
- *                            sections as blocks; the model; Scope and Detail
+ * NOT here, for the project tab: the Standardkrav requirements (Systemkode,
+ * Funksjonskode, Materiale/Produkt, Kopiobjekt, MMI, Fase), the MMI bars, a
+ * treemap read through a project mapping, and the project's own rules. They
+ * mount from `Standardkrav.tsx`.
  *
- * One screen: the board fits the rows the window has, and a tile's surplus
- * scrolls inside the tile. Every body is data the worker built or an existing
- * component; `onFocus` decides what a click means, as on the bento board.
+ * Nothing overlays the board: Scope (the identities the last click scoped
+ * to) and Detail (the one selected identity) are docked tiles. Every body is
+ * data the worker built or an existing component; `onFocus` decides what a
+ * click means.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -40,32 +38,26 @@ import type { Lang } from "../i18n";
 import type { Design } from "../useHashView";
 import type { ModelView } from "../cross-filter";
 import type { KpiCard } from "../forms";
+import type { Census } from "../profile";
+import type { FloorConfig } from "../../engine/storey-config";
+import { matchStoreys } from "../../engine/storey-config";
 import { t } from "../i18n";
 import { formatCount } from "../format";
 import { Verification } from "../Verification";
 import { ViewerTile } from "../../viewer/ViewerTile";
 import { VERDICT_GLYPH } from "../state-visuals";
-import { boardCards, claimedChecks } from "../board-data";
-import { REQ_GROUPS, requirementRowIds, requirements, type Requirement } from "../requirements";
-import { ReqBlock, ReqCard, ReqPanel, ReqRow, ReqSection } from "./Requirements";
-import { CodeTreemap, MeasureSwitch, MmiChart } from "./Charts";
+import { boardCards } from "../board-data";
+import { FloorSetupMatrix, StoreyList, type FloorPeer } from "../FloorSetup";
+import { requirementRowIds, requirements, type Requirement } from "../requirements";
+import { ReqBlock, ReqCard } from "./Requirements";
+import { CodeTreemap, MeasureSwitch } from "./Charts";
 import type { Measure } from "../../engine/quantities";
-import { treeTitle } from "./req-view";
-import {
-  MG_GAP,
-  MG_HEAD,
-  MG_MARGIN,
-  layoutA,
-  layoutB,
-  layoutC,
-  mgGrid,
-  type MgGrid,
-  type MgLayout,
-  type MgPlace,
-} from "./module-grid";
+import { generalTrees, overviewRequirements, treeTitle } from "./req-view";
+import { MG_GAP, MG_HEAD, MG_MARGIN, layoutOverview, mgGrid, type MgGrid, type MgLayout, type MgPlace } from "./module-grid";
 
 export interface AltBoardProps {
-  design: Design;
+  /** Kept for the callers; there is one composition. */
+  design?: Design | null;
   lang: Lang;
   model: ModelEntry;
   claims: KpiClaims;
@@ -75,11 +67,18 @@ export interface AltBoardProps {
   matched: Set<string> | null;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
+  /** The project rules. Not drawn on the Overview (they are the project
+   *  tab's); kept so the caller's wiring does not change. */
   rules?: { evaluation?: ModelResult; evaluating?: boolean; error?: string };
   /** The rows behind the last click (the derivation list), or null. */
   scope: ReactNode;
   /** Everything about the selected identity (the object panel), or null. */
   detail: ReactNode;
+  /** The floor sidebar: the config floors (or null) against every loaded
+   *  model, this one first; with no config, the file's own storeys. */
+  census: Census;
+  floors: FloorConfig[] | null;
+  peers: FloorPeer[];
 }
 
 /** The list components read the bento's size variables; here they are fixed:
@@ -133,26 +132,21 @@ function useModuleGrid() {
 }
 
 export function AltBoard(props: AltBoardProps) {
-  const { design, model, lang } = props;
+  const { model, lang } = props;
   const { ref, grid } = useModuleGrid();
-  const reqs = useMemo(() => requirements(model.board?.rows), [model.board]);
+  const reqs = useMemo(() => overviewRequirements(model), [model]);
   const counts = useMemo(() => boardCards(model, lang).countCards, [model, lang]);
-  const content = {
-    ifc: reqs.filter((r) => r.group === "ifc").length,
-    std: reqs.filter((r) => r.group === "std").length,
-    counts: counts.length,
-  };
-  const layout = useMemo<MgLayout | null>(() => {
-    if (!grid) return null;
-    if (design === "a") return layoutA(grid, content);
-    if (design === "b") return layoutB(grid, content);
-    return layoutC(grid, content);
-    // `content` is three numbers; the layout is a pure function of them.
+  const trees = useMemo(() => generalTrees(model), [model]);
+  const treeKey = trees.join(",");
+  const layout = useMemo<MgLayout | null>(
+    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees }) : null),
+    // `trees` is keyed by its ids; the layout is a pure function of them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid, design, content.ifc, content.std, content.counts]);
+    [grid, reqs.length, counts.length, treeKey],
+  );
 
-  // A dock that is a tab (the narrow board) comes forward when it fills: a
-  // requirement click fills Scope, a selection fills Detail.
+  // A dock that is a tab comes forward when it fills: a requirement click
+  // fills Scope, a selection fills Detail.
   const [prefer, setPrefer] = useState<string | null>(null);
   const selectionKey = props.view.selection.join(",");
   useEffect(() => {
@@ -174,7 +168,7 @@ export function AltBoard(props: AltBoardProps) {
       {grid && layout && bodies ? (
         <div
           data-mg-grid
-          data-mg-design={design}
+          data-mg-design="overview"
           data-mg-band={layout.band}
           data-mg-cols={grid.cols}
           data-mg-rows={grid.rows}
@@ -208,24 +202,30 @@ interface TileBody {
   body: ReactNode;
   /** Bare: no head, the body is the whole tile. */
   bare?: boolean;
+  /** A dock with nothing in it yet (Scope, Detail): a tile whose own body is
+   *  empty shows its first tab that is not, until a click brings it back. */
+  empty?: boolean;
 }
 
 type Bodies = (id: string) => TileBody | null;
 
 /** One tile. Tiles moved into it (rule 8) are tabs in its head, after its
- *  own; the counts never are (they stay in the checks list), and the
- *  requirements list carries what moves into it inline, after its rows. */
+ *  own; the counts never are (they stay in the checks list). */
 function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefer: string | null }) {
   const own = bodies(place.id);
-  const tabs =
-    place.id === "reqs" ? [place.id] : [place.id, ...place.tabs.filter((id) => !id.startsWith("count") && bodies(id))];
-  const [active, setActive] = useState(place.id);
+  const tabs = [place.id, ...place.tabs.filter((id) => !id.startsWith("count") && bodies(id))];
+  // A tab the reader clicked stays; one a fill brought forward (`prefer`)
+  // gives way again once it is empty.
+  const [active, setActive] = useState<{ id: string; picked: boolean } | null>(null);
   useEffect(() => {
-    if (prefer && tabs.includes(prefer)) setActive(prefer);
+    if (prefer && tabs.includes(prefer)) setActive({ id: prefer, picked: false });
     // `tabs` is derived from the place; `prefer` is the signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefer]);
-  const shown = tabs.includes(active) ? active : place.id;
+  // Unchosen, the first tab with something in it.
+  const auto = tabs.find((id) => !bodies(id)?.empty) ?? place.id;
+  const shown =
+    active && tabs.includes(active.id) && (active.picked || !bodies(active.id)?.empty) ? active.id : auto;
   const body = shown === place.id ? own : bodies(shown);
   if (!own || !body) return null;
   const tabbed = tabs.length > 1;
@@ -240,7 +240,7 @@ function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefe
       style={{ gridColumn: `${place.x + 1} / span ${place.w}`, gridRow: `${place.y + 1} / span ${place.h}` }}
     >
       {tabbed ? (
-        <div className="alt-head relative flex shrink-0 items-center gap-1 overflow-x-auto px-2" style={{ height: MG_HEAD }}>
+        <div className="alt-head relative flex shrink-0 items-center gap-1 px-2" style={{ height: MG_HEAD }}>
           {tabs.map((id) => {
             const b = id === place.id ? own : bodies(id);
             return (
@@ -249,8 +249,8 @@ function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefe
                 type="button"
                 data-mg-tab={id}
                 aria-pressed={shown === id}
-                onClick={() => setActive(id)}
-                className="alt-tab shrink-0 truncate px-2 py-0.5"
+                onClick={() => setActive({ id, picked: true })}
+                className="alt-tab shrink-0 px-2 py-0.5 whitespace-nowrap"
               >
                 {b?.label ?? id}
               </button>
@@ -259,7 +259,7 @@ function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefe
         </div>
       ) : body.bare ? null : (
         <div className="alt-head relative flex shrink-0 items-center gap-2 px-3" style={{ height: MG_HEAD }}>
-          {body.label ? <span className="alt-label truncate">{body.label}</span> : null}
+          {body.label ? <span className="alt-label whitespace-nowrap">{body.label}</span> : null}
           {body.head ?? null}
           {!body.head && body.sub ? (
             <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted">{body.sub}</span>
@@ -286,15 +286,10 @@ function tileBodies(
   measure: { system: Measure; function: Measure },
   onMeasure: (axis: "system" | "function", m: Measure) => void,
 ): Bodies {
-  const { design, lang, model, selected, onFocus, view, matched, onPick, onHover } = props;
+  const { lang, model, selected, onFocus, view, matched, onPick, onHover } = props;
   const door = { lang, model, selected, onFocus };
   const board = model.board;
-  const mmi = reqs.find((r) => r.key === "mmi")!;
   const placed = new Set(layout.tiles.map((t) => t.id));
-  const reqsHost = layout.tiles.find((t) => t.id === "reqs");
-  // What the requirements list carries inline after its rows: the tiles moved
-  // into it, in the old list order (the charts, then the other checks).
-  const inline = new Set(reqsHost?.tabs ?? []);
   const countsInList = counts.filter((_, i) => !placed.has(`count${i}`));
 
   const viewer: TileBody = {
@@ -317,22 +312,15 @@ function tileBodies(
     ),
   };
 
-  const chart = (id: string): TileBody | null => {
-    if (id === "mmi") {
-      return {
-        label: t("req.mmi", lang),
-        sub: mmi.row?.fordeling ? formatCount(mmi.row.fordeling.length, lang) : undefined,
-        body: <MmiChart req={mmi} {...door} />,
-      };
-    }
+  const tree = (id: string): TileBody | null => {
     const axis = id === "tree-system" ? "system" : "function";
-    const tree = board?.trees[axis];
-    if (!tree) return null;
+    const code = board?.trees[axis];
+    if (!code || code.by === "mapping") return null;
     return {
-      label: t(treeTitle(tree), lang),
+      label: t(treeTitle(code), lang),
       head: (
         <MeasureSwitch
-          tree={tree}
+          tree={code}
           measures={board?.measures}
           progress={model.measureProgress}
           measure={measure[axis]}
@@ -340,105 +328,91 @@ function tileBodies(
           lang={lang}
         />
       ),
-      body: <CodeTreemap tree={tree} measure={measure[axis]} measures={board?.measures} {...door} />,
+      body: <CodeTreemap tree={code} measure={measure[axis]} measures={board?.measures} {...door} />,
     };
   };
 
-  const checksTile = layout.tiles.find((t) => t.id === "checks");
-  const secondary = (
-    <Secondary
-      {...props}
-      reqs={reqs}
-      counts={countsInList}
-      share={!checksTile || checksTile.w * layout.u >= 400}
-    />
-  );
+  // The tile the checks are drawn in: their own, or the one they are a tab of.
+  const checksHost = layout.tiles.find((t) => t.id === "checks" || t.tabs.includes("checks"));
+  const checksPx = checksHost ? checksHost.w * layout.u + (checksHost.w - 1) * MG_GAP : Infinity;
+  const checks: TileBody = {
+    label: t("tile.verify", lang),
+    body: (
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <Checks {...props} counts={countsInList} compact={checksPx < 400} />
+      </div>
+    ),
+  };
 
   return (id: string): TileBody | null => {
     if (id === "viewer") return viewer;
     if (id === "scope")
       return {
         bare: true,
+        empty: !props.scope,
         label: t("tile.scope", lang),
         body: <div className="alt-dock flex min-h-0 flex-1 flex-col" data-dock="scope">{props.scope}</div>,
       };
     if (id === "detail")
       return {
         bare: true,
+        empty: !props.detail,
         label: t("tile.detail", lang),
         body: <div className="alt-dock flex min-h-0 flex-1 flex-col" data-dock="detail">{props.detail}</div>,
       };
-    if (id === "tree-system" || id === "tree-function" || id === "mmi") return chart(id);
-    if (id === "checks") {
-      return {
-        label: t("tile.verify", lang),
-        body: <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{secondary}</div>,
-      };
-    }
+    if (id === "tree-system" || id === "tree-function") return tree(id);
+    if (id === "checks") return checks;
+    if (id === "floors") return floorsBody(props);
     const count = /^count(\d+)$/.exec(id);
     if (count) {
       const card = counts[Number(count[1])];
       return card ? { bare: true, label: card.label, body: <CountTile card={card} /> } : null;
     }
+    const kpi = /^ifc(\d+)$/.exec(id);
+    if (kpi) {
+      const req = reqs[Number(kpi[1])];
+      return req ? { bare: true, label: t(req.label, lang), body: <ReqCard req={req} {...door} /> } : null;
+    }
+    // The narrow fallback: the IFC-struktur requirements as one list.
     if (id === "reqs") {
       return {
-        bare: true,
+        label: t("req.group.ifc", lang),
         body: (
           <div className="alt-list flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
-            {REQ_GROUPS.map((g) => (
-              <div key={g.group} className="flex shrink-0 flex-col">
-                <GroupHead label={t(g.label, lang)} />
-                {reqs
-                  .filter((r) => r.group === g.group)
-                  .map((req) =>
-                    design === "b" ? (
-                      <ReqBlock key={req.key} req={req} index={reqs.indexOf(req) + 1} {...door} />
-                    ) : (
-                      <ReqRow key={req.key} req={req} {...door} />
-                    ),
-                  )}
-              </div>
+            {reqs.map((req, i) => (
+              <ReqBlock key={req.key} req={req} index={i + 1} {...door} />
             ))}
-            {(["tree-system", "tree-function", "mmi"] as const)
-              .filter((c) => inline.has(c))
-              .map((c) => {
-                const body = chart(c);
-                return body ? (
-                  <div key={c} data-inline-chart={c} className="flex shrink-0 flex-col">
-                    <GroupHead label={body.label ?? ""} sub={body.sub} extra={body.head} />
-                    <div className="flex h-64 shrink-0 flex-col">{body.body}</div>
-                  </div>
-                ) : null;
-              })}
-            {placed.has("checks") ? null : (
-              <>
-                <GroupHead label={t("tile.verify", lang)} />
-                {secondary}
-              </>
-            )}
           </div>
         ),
       };
     }
-    const panel = /^(ifc|std)(\d+)$/.exec(id);
-    if (panel) {
-      const req = reqs.filter((r) => r.group === panel[1])[Number(panel[2])];
-      if (!req) return null;
-      return {
-        bare: true,
-        label: t(req.label, lang),
-        body: design === "a" ? <ReqCard req={req} {...door} /> : <ReqPanel req={req} {...door} />,
-      };
-    }
-    const section = /^g-(ifc|std)$/.exec(id);
-    if (section) {
-      const group = REQ_GROUPS.find((g) => g.group === section[1])!;
-      return {
-        label: t(group.label, lang),
-        body: <ReqSection reqs={reqs.filter((r) => r.group === group.group)} {...door} />,
-      };
-    }
     return null;
+  };
+}
+
+/** The floor sidebar: the config floors against every loaded model, or the
+ *  file's own storeys when no config is loaded (the bento board's Etasjer
+ *  tile, the same two components). */
+function floorsBody({ lang, model, census, floors, peers, selected, onFocus }: AltBoardProps): TileBody {
+  const configured = !!floors && floors.length > 0;
+  const extra = configured
+    ? peers.reduce(
+        (sum, peer) =>
+          sum +
+          (peer.unitResolved ? matchStoreys(peer.storeys, peer.unitScale, floors!).filter((m) => m.config === null).length : 0),
+        0,
+      )
+    : 0;
+  return {
+    label: t("tile.storeys", lang),
+    sub: configured
+      ? `${formatCount(floors!.length, lang)} × ${formatCount(peers.length, lang)}` + (extra > 0 ? ` · +${formatCount(extra, lang)}` : "")
+      : formatCount(census.storeys.length, lang),
+    body: configured ? (
+      <FloorSetupMatrix lang={lang} config={floors!} peers={peers} selected={selected} onFocus={onFocus} />
+    ) : (
+      <StoreyList lang={lang} storeys={census.storeys} summary={model.report!.summary} selected={selected} onFocus={onFocus} />
+    ),
   };
 }
 
@@ -446,7 +420,7 @@ function tileBodies(
 function CountTile({ card }: { card: KpiCard }) {
   return (
     <div className="alt-stat alt-sized flex h-full min-h-0 min-w-0 flex-col gap-2 px-3 py-2.5">
-      <span className="alt-label truncate" title={card.label}>
+      <span className="alt-label break-words" title={card.label}>
         {card.label}
       </span>
       <span data-essential className="alt-figure alt-figure-count my-auto font-mono leading-none font-semibold whitespace-nowrap tabular-nums">
@@ -456,50 +430,32 @@ function CountTile({ card }: { card: KpiCard }) {
   );
 }
 
-/** The checks the report does not carry, and the project rules that are not
- *  a mapping: the rest of what the engine ran, after the requirements. The
- *  existing verification list, less the rows a requirement already shows,
- *  then the neutral counts that are not tiles of their own. */
-function Secondary(props: AltBoardProps & { reqs: Requirement[]; counts: KpiCard[]; share: boolean }) {
-  const { lang, model, claims, selected, onFocus, rules, reqs, counts, share } = props;
+/** The checks the engine runs on every model that no requirement already
+ *  shows: the fundamentals, with their own verdicts. No project rule speaks
+ *  for them here and none is listed (that is the project tab). Then the
+ *  neutral counts that are not tiles of their own. */
+function Checks(props: AltBoardProps & { counts: KpiCard[]; compact: boolean }) {
+  const { lang, model, selected, onFocus, counts, compact } = props;
   const report = model.report!;
-  const shown = requirementRowIds(reqs);
-  const mappingIds = new Set((model.board?.rows ?? []).filter((r) => r.mapping).map((r) => r.id));
-  const results = model.evaluation?.results;
-  const claimed = useMemo(() => claimedChecks(claims, results), [claims, results]);
+  // Every requirement's rows, Standardkrav's too: those are the project
+  // tab's, so they are not repeated here as checks.
+  const shown = requirementRowIds(requirements(model.board?.rows));
   const rest = report.checks.filter((c) => !shown.has(c.id));
-  const restRules = rules
-    ? {
-        ...rules,
-        evaluation: rules.evaluation
-          ? { ...rules.evaluation, results: rules.evaluation.results.filter((r) => !mappingIds.has(r.ruleId)) }
-          : undefined,
-      }
-    : undefined;
+  const none = useMemo(() => new Map(), []);
   return (
     <div className="flex shrink-0 flex-col">
       <div className="flex shrink-0 flex-col">
-        <Verification lang={lang} checks={rest} claimed={claimed} selected={selected} onFocus={onFocus} rules={restRules} fill share={share} />
+        <Verification lang={lang} checks={rest} claimed={none} selected={selected} onFocus={onFocus} fill compact={compact} />
       </div>
       {counts.length > 0 ? <div className="alt-group-rule shrink-0" /> : null}
       {counts.map((card: KpiCard) => (
         <div key={card.key} className="flex h-8 shrink-0 items-center gap-3 border-b border-line px-3">
-          <span className="alt-label truncate">{card.label}</span>
+          <span className="alt-label whitespace-nowrap">{card.label}</span>
           <span data-essential className="ml-auto font-mono text-[13px] font-semibold whitespace-nowrap tabular-nums">
             {card.value}
           </span>
         </div>
       ))}
-    </div>
-  );
-}
-
-function GroupHead({ label, sub, extra }: { label: string; sub?: string; extra?: ReactNode }) {
-  return (
-    <div className="alt-group-head sticky top-0 z-20 flex h-8 shrink-0 items-center gap-2 px-3">
-      <span className="alt-label truncate">{label}</span>
-      {extra ?? null}
-      {!extra && sub ? <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted">{sub}</span> : null}
     </div>
   );
 }
@@ -510,7 +466,7 @@ function GroupHead({ label, sub, extra }: { label: string; sub?: string; extra?:
  * lamps, which c and b drew until 2026-09-25. The storey and class views
  * left the main dash for the report's requirements (the owner: *"I dont
  * understand the obsession with floor vs ifcclass"*); Innhold keeps Klasser
- * and Etasje × klasse, and the bento board keeps its Etasjer tile. */
+ * and Etasje × klasse. */
 
 export function Lamps({
   lang,

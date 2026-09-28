@@ -58,6 +58,7 @@ const FILL_COLUMNS = "max-content minmax(18em, 1fr) 4.5em";
 /** Without the % column (a narrow tile in `#design=c`): the share repeats
  *  the value's own two counts, so it is the column that can go. */
 const FILL_COLUMNS_NO_SHARE = "max-content minmax(18em, 1fr)";
+const COMPACT_COLUMNS = "max-content minmax(0, 1fr)";
 
 interface VerificationProps {
   lang: Lang;
@@ -84,6 +85,10 @@ interface VerificationProps {
   fill?: boolean;
   /** false: no % column. */
   share?: boolean;
+  /** A tile under 400 px across (the Overview's 3-module tiles): no % column
+   *  and the verdict word is read out to assistive tech only; the glyph and
+   *  the colour carry it on screen, the value keeps its full width. */
+  compact?: boolean;
 }
 
 // Row and type ride the grid's list line (`--bento-line`, a fixed fraction of
@@ -121,8 +126,10 @@ export function Verification({
   rules,
   readouts,
   fill = false,
-  share: withShare = true,
+  share: shareColumn = true,
+  compact = false,
 }: VerificationProps) {
+  const withShare = shareColumn && !compact;
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden bg-input">
       <div
@@ -131,7 +138,7 @@ export function Verification({
           (readouts ? "flex-none" : "flex-1")
         }
         style={{
-          gridTemplateColumns: !withShare ? FILL_COLUMNS_NO_SHARE : fill ? FILL_COLUMNS : COLUMNS,
+          gridTemplateColumns: compact ? COMPACT_COLUMNS : !withShare ? FILL_COLUMNS_NO_SHARE : fill ? FILL_COLUMNS : COLUMNS,
           gridAutoRows: "max-content",
         }}
       >
@@ -175,7 +182,7 @@ export function Verification({
                   print and a colour-blind reader. */}
               <span className={`${CELL} ${VERDICT_FILL[verdict]}`}>
                 <span className={GLYPH}>{VERDICT_GLYPH[verdict]}</span>
-                <span data-essential className={WORD}>
+                <span data-essential={compact ? undefined : ""} className={compact ? "sr-only" : WORD}>
                   {t(`verdict.${verdict}`, lang)}
                 </span>
                 <span data-essential className={VALUE}>

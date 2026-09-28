@@ -12,12 +12,11 @@ import {
   MG_GAP,
   MG_HEAD,
   MG_STRIPS,
+  MG_TALL,
   SIZES,
   canonSize,
   graphTiles,
-  layoutA,
-  layoutB,
-  layoutC,
+  layoutOverview,
   mgGrid,
   mgSpanPx,
 } from "../src/ui/alt/module-grid.ts";
@@ -74,6 +73,8 @@ check(canonSize(4, 3) === "L" && canonSize(3, 4) === "L", "rule 7: 4×3 and 3×4
 check(canonSize(6, 4) === "XL" && canonSize(8, 5) === "XL", "rule 7: 6×4 and 8×5 are XL");
 check(canonSize(3, 3) === null && canonSize(5, 2) === null, "rule 7: 3×3 and 5×2 are no size");
 check(canonSize(6, 1) === null && canonSize(6, 1, true) === "strip", "rule 7: a strip only when named");
+check(canonSize(3, 8) === null && canonSize(3, 8, false, true) === "tall", "rule 7: a tall column only when named");
+check(canonSize(4, 4, false, true) === null, "rule 7: a square is not tall");
 // Every canon size lands inside 1 : 2 to 2 : 1 at any module 88 to 112 px,
 // and an XL's canvas (the tile less its head) inside 9 : 16 to 16 : 9.
 for (const u of [88, 93, 100, 108, 112]) {
@@ -91,31 +92,43 @@ for (const u of [88, 93, 100, 108, 112]) {
 
 /* ── rules 7, 8, 9 on every layout, over a sweep of windows ──────────────── */
 
-const content = { ifc: 5, std: 6, counts: 4 };
-const layouts = { a: layoutA, b: layoutB, c: layoutC };
+// The Overview (the one board since 2026-09-28): with a project mapping the
+// treemaps are the project tab's (none here), without one both are general.
+const contents = {
+  mapped: { ifc: 5, counts: 4, trees: [] },
+  general: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"] },
+};
 const windows = [];
 for (let w = 1100; w <= 3440; w += 130) for (let h = 700; h <= 1600; h += 150) windows.push([w, h]);
 windows.push([1100, 800], [1280, 800], [1440, 900], [1920, 1080], [2112, 1267], [2560, 1440], [3440, 1440]);
+// 2112 × 1300 here is the owner's 2112 × 1267 window as the app lays it
+// out (its chrome is less than the 104 px assumed here): 18 × 10.
+windows.push([2112, 1300]);
+const REFERENCE = [[1440, 900], [1920, 1080], [2112, 1267], [2112, 1300], [2560, 1440], [3440, 1440]];
 
 let count = 0;
-for (const [design, layout] of Object.entries(layouts)) {
+for (const [design, content] of Object.entries(contents)) {
+  const layout = layoutOverview;
   for (const [w, h] of windows) {
     const grid = mgGrid(w, h - 104);
     const at = `${design} ${w}×${h} (${grid.cols}×${grid.rows})`;
     let out;
+    const t0 = performance.now();
     try {
       out = layout(grid, content);
     } catch (error) {
       check(false, `${at}: no layout (${error.message})`);
       continue;
     }
+    const ms = performance.now() - t0;
+    check(ms < 1500, `${at}: the search took ${ms.toFixed(0)} ms`);
     count += 1;
     // Rule 8: deterministic, the same input gives the same layout.
     check(JSON.stringify(layout({ ...grid }, { ...content })) === JSON.stringify(out), `rule 8: ${at} is not deterministic`);
     const occ = new Map();
     let xl = 0;
     for (const t of out.tiles) {
-      const size = canonSize(t.w, t.h, t.id in MG_STRIPS);
+      const size = canonSize(t.w, t.h, t.id in MG_STRIPS, t.id in MG_TALL);
       check(size !== null, `rule 7: ${at} ${t.id} ${t.w}×${t.h} is no canon size`);
       check(size === t.size, `rule 7: ${at} ${t.id} says ${t.size}, is ${size}`);
       if (size === "XL") xl += 1;
@@ -141,14 +154,21 @@ for (const [design, layout] of Object.entries(layouts)) {
     const ids = new Set(out.tiles.map((t) => t.id));
     check(ids.has("viewer") && ids.has("scope"), `${at}: the model or Scope is not a tile`);
     check(ids.has("detail") || out.tiles.some((t) => t.tabs.includes("detail")), `${at}: Detail is neither a tile nor a tab`);
-    check(ids.has("reqs") || ids.has("ifc0") || ids.has("g-ifc"), `${at}: the requirements have no tile`);
-    // a: the requirements are a band on TOP of the board, never a side list.
-    if (design === "a" && !ids.has("reqs")) {
-      const band = out.tiles.filter((t) => /^(ifc|std)\d+$|^g-(ifc|std)$/.test(t.id));
-      check(band.length > 0 && band.every((t) => t.y === out.top), `${at}: a's requirement cards are not on the top row`);
-    }
-    if (design === "a" && [[1440, 900], [1920, 1080], [2112, 1267], [2560, 1440], [3440, 1440]].some(([a, b]) => a === w && b === h))
-      console.log(`  a ${w}×${h} ${grid.cols}×${grid.rows}: band ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
+    check(ids.has("reqs") || ids.has("ifc0"), `${at}: the requirements have no tile`);
+    check(!ids.has("mmi") && ![...ids].some((id) => /^std\d+$/.test(id)), `${at}: a Standardkrav tile on the Overview`);
+    // The KPI row: every IFC-struktur requirement an S card on the TOP row,
+    // never a list; the floor sidebar the full height under it, on the right.
+    if (!ids.has("reqs")) {
+      const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
+      check(cards.length === content.ifc && cards.every((t) => t.y === out.top && t.size === "S"), `${at}: the KPI cards are not one S row on top`);
+      const f = out.tiles.find((t) => t.id === "floors");
+      check(
+        !!f && f.y === out.top + 2 && f.h === out.usedRows - 2 && f.x + f.w === out.offset + out.used,
+        `${at}: the floor sidebar is not the full height on the right (${f ? `${f.x},${f.y} ${f.w}×${f.h}` : "none"})`,
+      );
+    } else check(ids.has("floors") || out.tiles.some((t) => t.tabs.includes("floors")), `${at}: the floors are neither a tile nor a tab`);
+    if (REFERENCE.some(([a, b]) => a === w && b === h))
+      console.log(`  ${design} ${w}×${h} ${grid.cols}×${grid.rows}: ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${ms.toFixed(0)} ms · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
     // Rule 8: a tile moved into a tab has lower priority than every tile of
     // its kind that stayed is not asserted (a composition may keep a lower
     // one that fits); every moved tile has a host.

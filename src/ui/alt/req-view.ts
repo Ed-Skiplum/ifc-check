@@ -9,7 +9,7 @@ import type { Verdict } from "../../engine/types";
 import type { Focus } from "../trace";
 import type { Lang, StringKey } from "../i18n";
 import type { ModelEntry } from "../useModels";
-import type { Requirement } from "../requirements";
+import { requirements, type Requirement } from "../requirements";
 import { t, locale } from "../i18n";
 import { formatCount } from "../format";
 import { VERDICT_GLYPH } from "../state-visuals";
@@ -112,6 +112,39 @@ export function uniqueCount(req: Requirement, lang: Lang): string | null {
   const values = req.row?.fordeling;
   if (!values) return null;
   return `${formatCount(values.length, lang)} ${t("req.unike", lang)}`;
+}
+
+/** The Overview's requirements: the IFC-struktur group, in report order. */
+export function overviewRequirements(model: ModelEntry): Requirement[] {
+  return requirements(model.board?.rows).filter((r) => r.group === "ifc");
+}
+
+/** The project tab's: the Standardkrav group, in report order. */
+export function standardRequirements(model: ModelEntry): Requirement[] {
+  return requirements(model.board?.rows).filter((r) => r.group === "std");
+}
+
+/** The MMI requirement (a distribution, never a KPI). */
+export function mmiRequirement(model: ModelEntry): Requirement | null {
+  return standardRequirements(model).find((r) => r.distribution) ?? null;
+}
+
+/** The treemaps read through a project mapping (NS 3451, NS 3457-8): the
+ *  project tab's. */
+export function projectTrees(model: ModelEntry): CodeTree[] {
+  const trees = model.board?.trees;
+  return trees ? [trees.system, trees.function].filter((t) => t.by === "mapping") : [];
+}
+
+/** The treemaps that are general, read off the IFC class or the
+ *  PredefinedType: the Overview's. */
+export function generalTrees(model: ModelEntry): ("tree-system" | "tree-function")[] {
+  const trees = model.board?.trees;
+  if (!trees) return [];
+  const out: ("tree-system" | "tree-function")[] = [];
+  if (trees.system.by !== "mapping") out.push("tree-system");
+  if (trees.function.by !== "mapping") out.push("tree-function");
+  return out;
 }
 
 export function treeTitle(tree: CodeTree): "req.systemkode" | "req.funksjonskode" | "col.class" | "col.predefinedType" {

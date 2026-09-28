@@ -37,7 +37,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { freemem } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MG_ASPECT, MG_GAP, MG_MARGIN, MG_MODULE, MG_STRIPS, SIZES } from "../src/ui/alt/module-grid.ts";
+import { MG_ASPECT, MG_GAP, MG_MARGIN, MG_MODULE, MG_STRIPS, MG_TALL, SIZES } from "../src/ui/alt/module-grid.ts";
 import { CANVAS_ASPECT } from "../src/ui/canvas-aspect.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -58,7 +58,8 @@ const liveUrl = opt("url");
 const modelsDir = opt("models") ?? DEFAULT_MODELS;
 const OUT = resolve(opt("out") ?? resolve(ROOT, "tmp/panels"));
 const only = opt("only")?.split(",");
-const DESIGNS = (opt("design") ?? "a,b,c").split(",");
+// One board since 2026-09-28 (the Overview, b); a and c render it too.
+const DESIGNS = (opt("design") ?? "b").split(",");
 const onlyScenario = opt("scenario");
 
 /** One per viewport class, plus the owner's own window. */
@@ -312,6 +313,7 @@ const CANVASES = `(() => {
 const MEASURE = `(() => {
   const ASPECT = ${JSON.stringify(MG_ASPECT)};
   const STRIPS = ${JSON.stringify(Object.keys(MG_STRIPS))};
+  const TALL = ${JSON.stringify(Object.keys(MG_TALL))};
   const SIZES = ${JSON.stringify(SIZES)};
   const G = ${MG_GAP}, MOD = ${MG_MODULE}, MARGIN = ${MG_MARGIN};
   const fails = [];
@@ -323,6 +325,7 @@ const MEASURE = `(() => {
   const canon = (w, h, id) => {
     for (const [name, list] of Object.entries(SIZES)) if (list.some(([a, b]) => a === w && b === h)) return name;
     if (STRIPS.includes(id) && (w === 1 || h === 1) && Math.max(w, h) >= 2) return 'strip';
+    if (TALL.includes(id) && w >= 2 && h > w) return 'tall';
     return null;
   };
   const tiles = [];
@@ -370,7 +373,7 @@ const MEASURE = `(() => {
       const aspect = r.width / r.height;
       const b = ASPECT[kind];
       if (!b) fails.push('rule 3: ' + at + ': kind "' + kind + '" is not in the vocabulary');
-      else if (size !== 'strip' && (aspect < b.min - 0.005 || aspect > b.max + 0.005))
+      else if (size !== 'strip' && size !== 'tall' && (aspect < b.min - 0.005 || aspect > b.max + 0.005))
         fails.push('rule 3: ' + at + ' aspect ' + aspect.toFixed(2) + ' outside ' + kind + ' ' + b.min.toFixed(2) + '..' + b.max.toFixed(2));
       if (w >= cols && size !== 'strip' && r.height < innerHeight / 2)
         fails.push('rule 3: ' + at + ' full width at ' + Math.round(r.height) + 'px, under half the viewport height');
@@ -514,7 +517,7 @@ async function graf(name, v) {
         (m.fails.length ? "\n  " + m.fails.join("\n  ") : ""),
     );
   }
-  await tab("/^(Kontroll|Checks)$/");
+  await tab("/^(Oversikt|Overview|Kontroll|Checks)$/");
 }
 
 /* ---------------------------------------------------------------- run */
@@ -562,31 +565,46 @@ for (const scenario of SCENARIOS) {
       await settle();
       const name = `${design}-${scenario.name}-${v.w}x${v.h}`;
       const m = await evaluate(MEASURE);
-      // a (2026-09-26): the requirements are a band of KPI cards on the TOP
-      // row of the board, never a list beside the model, and no card
-      // scrolls (owner: "add a row of KPI cards at the top rather than the
-      // dense left sidebar that needs scrolling").
-      if (design === "a") {
-        const band = await evaluate(`(() => {
+      // The Overview (2026-09-28): every IFC-struktur requirement an S card
+      // on the TOP row, never a list, the floor sidebar the full height
+      // under it on the right; in the KPI row and the sidebar nothing is cut
+      // (no ellipsis) and nothing scrolls. Owner: "the IFC-struktur shouldnt
+      // be buried in a truncated scroll list. Keep them visible as KPIs."
+      {
+        const ov = await evaluate(`(() => {
           const grid = document.querySelector('[data-mg-grid]');
           const tiles = [...grid.querySelectorAll(':scope > [data-mg-tile]')];
-          const req = tiles.filter((t) => /^(ifc|std)\\d+$|^g-(ifc|std)$/.test(t.dataset.mgTile));
-          const top = Math.min(...tiles.map((t) => Number(t.dataset.mgAt.split(',')[1])));
-          const scrolls = req.filter((t) => [...t.querySelectorAll('*')].some((e) => e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY)));
+          const at = (t) => t.dataset.mgAt.split(',').map(Number);
+          const kpi = tiles.filter((t) => /^(ifc|count)\\d+$/.test(t.dataset.mgTile));
+          const req = tiles.filter((t) => /^ifc\\d+$/.test(t.dataset.mgTile));
+          const floors = tiles.find((t) => t.dataset.mgTile === 'floors');
+          const top = Math.min(...tiles.map((t) => at(t)[1]));
+          const cut = (root) => [...root.querySelectorAll('*')].filter((e) => {
+            if (e.getClientRects().length === 0) return false;
+            const s = getComputedStyle(e);
+            const ell = s.textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth + 1;
+            const scroll = (/auto|scroll/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1) || (/auto|scroll/.test(s.overflowX) && e.scrollWidth > e.clientWidth + 1);
+            return ell || scroll;
+          }).map((e) => root.dataset.mgTile + ':' + (e.textContent || '').trim().slice(0, 30));
+          const where = [...kpi, ...(floors ? [floors] : [])];
           return {
-            mode: grid.dataset.mgBand ?? null,
             list: tiles.some((t) => t.dataset.mgTile === 'reqs'),
             n: req.length,
-            onTop: req.every((t) => Number(t.dataset.mgAt.split(',')[1]) === top),
-            scrolls: scrolls.map((t) => t.dataset.mgTile),
+            onTop: req.every((t) => at(t)[1] === top),
+            std: tiles.filter((t) => /^std\\d+$|^mmi$/.test(t.dataset.mgTile)).map((t) => t.dataset.mgTile),
+            floors: floors ? floors.dataset.mgAt : null,
+            cut: where.flatMap(cut),
+            cutElsewhere: tiles.filter((t) => !where.includes(t)).flatMap(cut),
           };
         })()`);
-        if (band.list) m.fails.push("a: the requirements are a list tile, not the KPI band");
+        if (ov.list) m.fails.push("overview: the requirements are a list tile, not the KPI row");
         else {
-          if (band.n === 0 || !band.onTop) m.fails.push(`a: the requirement cards are not on the top row (${JSON.stringify(band)})`);
-          if (band.scrolls.length) m.fails.push(`a: a requirement card scrolls (${band.scrolls.join(", ")})`);
+          if (ov.n !== 5 || !ov.onTop) m.fails.push(`overview: the requirement cards are not on the top row (${ov.n})`);
+          if (!ov.floors) m.fails.push("overview: no floor sidebar");
+          if (ov.cut.length) m.fails.push(`overview: ${ov.cut.length} cut or scrolling in the KPI row and sidebar: ${ov.cut.join(" | ")}`);
         }
-        console.log(`       a band: ${band.mode ?? "narrow fallback"} (${band.n} cards)`);
+        if (ov.std.length) m.fails.push(`overview: Standardkrav on the Overview (${ov.std.join(", ")})`);
+        console.log(`       overview: ${ov.n} KPI cards, floors ${ov.floors}, cut/scroll in KPI row + sidebar ${ov.cut.length}; elsewhere ${ov.cutElsewhere.length}${ov.cutElsewhere.length ? " (" + ov.cutElsewhere.join(" | ") + ")" : ""}`);
       }
       await shot(name, v);
       // Rule 8, determinism: another window and back gives the same layout.

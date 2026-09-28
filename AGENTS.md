@@ -1712,7 +1712,41 @@ while the box was loaded (mesh pass 15 to 49 s), so the before side is not a
 clean median. IfcSpace is in the treemaps' object set (`physicalProducts`), so
 on Volum the rooms (17 100 m³ of about 17 600) fill the map.
 
-### The three alternatives (2026-09-26, on the canon)
+### The Overview (2026-09-28): b is the one board
+
+Owner: *"Kontroll should be 'Overview' and IDS should be specific to that"*,
+*"KPI cards go on top, then sidebar and larger tiled components"*, *"make b
+the new main version … we iterate on b"*. The tab is «Oversikt» / "Overview"
+(i18n `tab.checks`, key unchanged). General model health only
+(`layoutOverview` in `module-grid.ts`, `AltBoard.tsx`):
+
+- **KPI row:** one S card per IFC-struktur requirement (IFC-skjema,
+  Typeobjekt, GUID, Etasjedefinisjon, Objekter i etasje, `ReqCard`), then the
+  counts and, when general, the treemaps as M 3×2, until the row closes. No
+  ellipsis, no scroll (the text wraps).
+- **Sidebar:** the floor config (`FloorSetupMatrix`, or `StoreyList` with no
+  config), the full height under the KPI row on the right; 3×4 L, else the
+  named tall exception `MG_TALL.floors` (a floor chart, 3 or 4 wide).
+- **Middle:** the model (XL), Scope, Detail, the checks no requirement shows
+  (own verdicts, no project claims, no project rules; `compact` under
+  400 px), the general treemaps, the counts left; the lowest move into tabs
+  of Scope. A dock tab brought forward by a fill gives way when it empties.
+- **Not here (the project tab's):** Standardkrav (Systemkode, Funksjonskode,
+  Materiale/Produkt, Kopiobjekt, MMI, Fase), the MMI bars, a treemap read
+  through a project mapping, the project rules. Mount them from
+  `src/ui/alt/Standardkrav.tsx` (`StandardkravList`, `MmiChart`,
+  `CodeTreemap`; filters `standardRequirements`, `mmiRequirement`,
+  `projectTrees` in `req-view.ts`).
+- The search keeps the board that covers most of the window. With the HI90
+  fixture (mapped treemaps off) 2112×1267 is 12×10 of 18×10: the content does
+  not fill 18 columns. 1440×900 is 12×6, full.
+- a and c compositions are removed from `module-grid.ts` and `AltBoard.tsx`;
+  `#design=a|c` now render this board. `ReqRow`, `ReqPanel`, `ReqSection`
+  in `Requirements.tsx` are unmounted (kept for the project tab).
+- Measured locally (`module-grid-gate --design b --scenario hi90-fixture`),
+  not on a deployed site.
+
+### The three alternatives (2026-09-26, superseded 2026-09-28)
 
 Same content, same measurement; they differ in priority order, hero choice
 and where Scope, Detail and the model sit (`layoutA/B/C`). Tile maps as

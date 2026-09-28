@@ -1,4 +1,6 @@
-/** THE MODULE GRID of the design alternatives (`#design=a|b|c`), 2026-09-26.
+/** THE MODULE GRID of the Overview board, 2026-09-26. Since 2026-09-28 the
+ * one board (owner: "make b the new main version … we iterate on b"); the
+ * a and c compositions are gone.
  *
  * The canon is edkjo's LAYOUT SYSTEM in
  * `C:\workspace\resources\design-system\data-workspace.md`. What this file
@@ -16,8 +18,9 @@
  *      table is what the canon was checked against, so C rounds; u then stays
  *      within about 93 to 108 px, "about 100". Stated in AGENTS.md.
  *   7  Tile sizes in modules: S 2×2 · M 3×2 / 2×3 · L 4×3 / 3×4 · XL 6×4,
- *      stepping to 8×5 · a strip k×1 / 1×k only for a named content (here the
- *      MMI bars, a bar chart with few items). At most two XL.
+ *      stepping to 8×5 · a strip k×1 / 1×k only for a named content (the
+ *      MMI bars, a bar chart with few items) · a tall column only for a named
+ *      content (the floor config, a building floor chart). At most two XL.
  *   8  `mgPack`: each tile has sizes (its canon size, largest first) and a
  *      priority. Tiles pack by priority, row-major; the board is exactly
  *      covered, no holes. Too little room moves the lowest priority into a tab
@@ -63,10 +66,10 @@ export function mgSpanPx(n: number, u: number): number {
 
 /* ── the tile vocabulary ───────────────────────────────────────────────── */
 
-export type MgSize = "S" | "M" | "L" | "XL" | "strip";
+export type MgSize = "S" | "M" | "L" | "XL" | "strip" | "tall";
 export type Wh = readonly [number, number];
 
-export const SIZES: Record<Exclude<MgSize, "strip">, readonly Wh[]> = {
+export const SIZES: Record<Exclude<MgSize, "strip" | "tall">, readonly Wh[]> = {
   S: [[2, 2]],
   M: [
     [3, 2],
@@ -83,12 +86,14 @@ export const SIZES: Record<Exclude<MgSize, "strip">, readonly Wh[]> = {
 };
 
 /** The size class of `w × h` modules, or null when it is none. A strip is
- *  only a size for a tile that names why (`MgTileSpec.strip`). */
-export function canonSize(w: number, h: number, strip = false): MgSize | null {
-  for (const [name, list] of Object.entries(SIZES) as [Exclude<MgSize, "strip">, readonly Wh[]][]) {
+ *  only a size for a tile that names why (`MG_STRIPS`), a tall column only
+ *  for one in `MG_TALL`. */
+export function canonSize(w: number, h: number, strip = false, tall = false): MgSize | null {
+  for (const [name, list] of Object.entries(SIZES) as [Exclude<MgSize, "strip" | "tall">, readonly Wh[]][]) {
     if (list.some(([a, b]) => a === w && b === h)) return name;
   }
   if (strip && (w === 1 || h === 1) && Math.max(w, h) >= 2) return "strip";
+  if (tall && w >= 2 && h > w) return "tall";
   return null;
 }
 
@@ -110,6 +115,12 @@ export const MG_ASPECT: Record<MgKind, { min: number; max: number; why: string }
 /** The named strip exceptions (rule 3): content that thrives in a strip. */
 export const MG_STRIPS: Record<string, string> = {
   mmi: "a bar chart with few items: one bar per MMI level, read across",
+};
+
+/** The named tall exception (rule 3): a column taller than wide, the full
+ *  height under the KPI row. */
+export const MG_TALL: Record<string, string> = {
+  floors: "a building floor chart: the storeys stacked, read down",
 };
 
 export interface MgTileSpec {
@@ -268,7 +279,7 @@ function coverRun(cols: number, rows: number, specs: readonly MgTileSpec[]): Pla
         });
         return;
       }
-      out.push({ id: s.id, kind: s.kind, x, y, w, h, size: canonSize(w, h, s.id in MG_STRIPS)! });
+      out.push({ id: s.id, kind: s.kind, x, y, w, h, size: canonSize(w, h, s.id in MG_STRIPS, s.id in MG_TALL)! });
       return;
     }
     const at = cut.at!;
@@ -396,7 +407,7 @@ function packImpl(grid: MgGrid, specs: readonly MgTileSpec[], mirror: boolean, e
   throw new Error(`mgPack: no cover of ${cols} × ${rows} for ${specs.map((s) => s.id).join(", ")}`);
 }
 
-/* ── the three compositions ────────────────────────────────────────────── */
+/* ── the Overview composition ──────────────────────────────────────────── */
 
 /** Each tile's size class (rule 7), its orientations in preference order.
  *  A tile keeps its class at every viewport; only the hero steps, 6 × 4 to
@@ -405,39 +416,26 @@ const XL: readonly Wh[] = [
   [8, 5],
   [6, 4],
 ];
-const L: readonly Wh[] = SIZES.L;
 /** M landscape only: Scope's GUID column and Detail's lead cards need
  *  the width a 2 × 3 does not have. */
 const M_WIDE: readonly Wh[] = [[3, 2]];
-/** L landscape only: a list whose rows need 400 px across (the requirement
- *  rows and blocks, the checks with their verdict column). */
+/** L landscape only: the checks list, whose name column and verdict column
+ *  need 400 px across. */
 const L_WIDE: readonly Wh[] = [[4, 3]];
 const S: readonly Wh[] = SIZES.S;
 /** A list or chart whose content scrolls or scales (Scope, Detail, the
- *  treemaps, the other checks): L where it fits, else M landscape. Its class
- *  is "L or M" because its content is: a scope of 3 rows or of 3 000. */
+ *  treemaps): L where it fits, else M landscape. */
 const LM: readonly Wh[] = [...SIZES.L, [3, 2]];
 
-/** The MMI bars: M, or a strip (rule 3's named exception: a bar chart with
- *  few items reads across a strip). */
-function mmiSizes(cols: number): Wh[] {
-  const strips: Wh[] = [];
-  for (let k = Math.min(cols - 1, 8); k >= 3; k -= 1) strips.push([k, 1]);
-  return [[3, 2], ...strips];
-}
-
-/** The narrow fallback: under 11 columns the lists step down to M, the only
- *  way a 9 × 5 board seats the model beside them. */
-function narrow(grid: MgGrid): boolean {
-  return grid.cols < 11;
-}
-
 export interface MgContent {
-  /** Requirements per report group, for c's panels. */
+  /** The IFC-struktur requirements: one S KPI card each, on the top row. */
   ifc: number;
-  std: number;
-  /** The neutral counts (objects, types, …): S tiles, one fact each. */
+  /** The neutral counts (types, storeys, file size, materials): S tiles. */
   counts: number;
+  /** The treemaps that are general (the IFC-class and PredefinedType
+   *  fallbacks, `tree-system` / `tree-function`). A treemap read through a
+   *  project mapping is not on the Overview. */
+  trees: readonly string[];
 }
 
 function countTiles(content: MgContent): MgTileSpec[] {
@@ -449,79 +447,27 @@ function countTiles(content: MgContent): MgTileSpec[] {
   }));
 }
 
-/** The narrow fallback, the same for all three: the model first and at
- *  6 × 4, the requirements and Scope as M beside it, the MMI bars a strip
- *  under both; everything else in tabs of those. */
-function layoutNarrow(grid: MgGrid, content: MgContent, mirror: boolean): MgLayout {
-  return mgPack(
-    grid,
-    [
-      { id: "viewer", kind: "viewer", sizes: XL, required: true },
-      { id: "reqs", kind: "list", sizes: M_WIDE, required: true },
-      { id: "scope", kind: "list", sizes: M_WIDE, required: true },
-      { id: "mmi", kind: "chart", sizes: [...mmiSizes(grid.cols), [grid.cols, 1]], hosts: ["reqs"] },
-      { id: "detail", kind: "list", sizes: M_WIDE, hosts: ["scope"] },
-      { id: "tree-system", kind: "chart", sizes: M_WIDE, hosts: ["reqs"] },
-      { id: "tree-function", kind: "chart", sizes: M_WIDE, hosts: ["tree-system", "reqs"] },
-      { id: "checks", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
-      ...countTiles(content),
-    ],
-    mirror,
-  );
+function treeTiles(content: MgContent): MgTileSpec[] {
+  return content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: LM, hosts: ["checks", "scope"] }));
 }
 
-/** A composition, or the narrow fallback where the board cannot seat it
- *  (two XL heroes need 12 columns). */
-function orNarrow(grid: MgGrid, content: MgContent, mirror: boolean, pack: () => MgLayout): MgLayout {
-  try {
-    return pack();
-  } catch {
-    return layoutNarrow(grid, content, mirror);
-  }
-}
-
-/** a · Linear work surface, with the requirements as a row of KPI cards on
- *  top (owner, 2026-09-26: "I like A best, but add a row of KPI cards at the
- *  top rather than the dense left sidebar that needs scrolling"). Under the
- *  band, by priority: the model (the hero), Scope and Detail, the treemaps
- *  and the MMI bars, the other checks, the counts.
- *
- *  THE BAND. Nothing in it scrolls and nothing shrinks below S. Three modes;
- *  of each one's first full cover the one covering the most of the window
- *  wins, ties in this order:
- *    1  one S card per requirement, in the report's order, in ONE row
- *       (2 modules × 11 = 22 columns, so from about 2560 px);
- *    2  one card per report section (IFC-struktur, Standardkrav) at M 3 × 2,
- *       its requirements as compact rows inside;
- *    3  the same at L 4 × 3.
- *  Wrapping the S cards onto a second row was tried on paper and left out:
- *  at 16 to 18 columns it leaves two or three cards alone on a row, and at
- *  12 it takes four of the six rows. Where a band is narrower than the board,
- *  the rest of its row is filled from the tiles below (the counts first,
- *  then the MMI bars and the treemaps), so the band stays one clean row.
- *  The board may narrow by whole columns, centred, so band and body share
- *  one edge (rule 9). Under 11 columns the narrow fallback applies. */
-export function layoutA(grid: MgGrid, content: MgContent): MgLayout {
-  if (narrow(grid)) return layoutNarrow(grid, content, false);
-  return aBand(grid, content) ?? layoutNarrow(grid, content, false);
-}
-
-/** The tiles under the band, in priority order. */
-function aBody(grid: MgGrid, content: MgContent): MgTileSpec[] {
+/** The tiles under the KPI row, beside the floor sidebar, in priority order. */
+function overviewBody(content: MgContent): MgTileSpec[] {
   return [
     { id: "viewer", kind: "viewer", sizes: XL, required: true },
     { id: "scope", kind: "list", sizes: LM, required: true },
-    { id: "detail", kind: "list", sizes: LM, required: true },
-    { id: "tree-system", kind: "chart", sizes: LM },
-    { id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system"] },
-    { id: "mmi", kind: "chart", sizes: mmiSizes(grid.cols), hosts: ["tree-system"] },
-    { id: "checks", kind: "list", sizes: L_WIDE, hosts: ["tree-system"] },
+    // Detail before the checks: a Scope row opens Detail beside the list, not
+    // over it. The checks as a tab of Scope show while Scope is empty.
+    { id: "detail", kind: "list", sizes: LM, hosts: ["scope"] },
+    // L landscape first: its % column; 3 across it draws compact.
+    { id: "checks", kind: "list", sizes: [...L_WIDE, [3, 4], [3, 2]], hosts: ["scope"] },
+    ...treeTiles(content),
     ...countTiles(content),
   ];
 }
 
 /** Every subset of `pool` (by index), fewest non-count tiles first, then
- *  the fewest tiles, then the pool's order: the band takes counts before
+ *  the fewest tiles, then the pool's order: the KPI row takes counts before
  *  charts. */
 function fillerSets(pool: readonly MgTileSpec[]): MgTileSpec[][] {
   const sets: MgTileSpec[][] = [];
@@ -534,154 +480,119 @@ function fillerSets(pool: readonly MgTileSpec[]): MgTileSpec[][] {
     .map((e) => e.set);
 }
 
-function aBand(grid: MgGrid, content: MgContent): MgLayout | null {
-  const { cols } = grid;
-  const n = content.ifc + content.std;
-  const cards = [
-    ...Array.from({ length: content.ifc }, (_, i) => `ifc${i}`),
-    ...Array.from({ length: content.std }, (_, i) => `std${i}`),
-  ];
-  const modes: { name: string; h: number; specs: MgTileSpec[] }[] = [];
-  if (cols >= 2 * n) {
-    modes.push({ name: "cards", h: 2, specs: [{ ...mgBlock("kpis", "panel", cards, S[0]), sizes: [[2 * n, 2]] }] });
-  }
-  modes.push({
-    name: "sections-m",
-    h: 2,
-    specs: [
-      { id: "g-ifc", kind: "list", sizes: M_WIDE, required: true },
-      { id: "g-std", kind: "list", sizes: M_WIDE, required: true },
-    ],
-  });
-  modes.push({
-    name: "sections-l",
-    h: 3,
-    specs: [
-      { id: "g-ifc", kind: "list", sizes: L_WIDE, required: true },
-      { id: "g-std", kind: "list", sizes: L_WIDE, required: true },
-    ],
-  });
-  const body = aBody(grid, content);
-  // What may fill the band beside the cards: the counts, the MMI bars, the
-  // treemaps. Never the model, Scope or Detail.
-  const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => ["mmi", "tree-system", "tree-function"].includes(t.id))];
-  const sets = fillerSets(pool);
-  const MIN_BODY = 4;
-  // Each mode's first cover; the one that covers the most of the window
-  // wins (rule 9: a board that fills the screen, not a strip in the middle
-  // of it), ties to the mode order.
-  let best: MgLayout | null = null;
-  for (const mode of modes) {
-    const found = aMode(grid, mode, body, sets, MIN_BODY);
-    if (found && (!best || found.used * found.usedRows > best.used * best.usedRows)) best = found;
-  }
-  return best;
-}
+/** The floor sidebar's widths, most wanted first: a floor table's name,
+ *  kote and one column per loaded model. */
+const FLOOR_WIDTHS = [3, 4] as const;
+/** The fewest rows under the KPI row: the XL hero's 4. */
+const MIN_BODY = 4;
 
-function aMode(
-  grid: MgGrid,
-  mode: { name: string; h: number; specs: MgTileSpec[] },
-  body: MgTileSpec[],
-  sets: MgTileSpec[][],
-  MIN_BODY: number,
-): MgLayout | null {
+/** The Overview (owner, 2026-09-28: "KPI cards go on top, then sidebar and
+ *  larger tiled components"; "show the floor config on the right side as a
+ *  tall sidebar"). Three parts, one board:
+ *
+ *    the KPI row   one S card per IFC-struktur requirement, in the report's
+ *                  order, then the neutral counts (S) and, when general, the
+ *                  treemaps (M 3 × 2) until the row is closed. Never a list,
+ *                  never a scroll.
+ *    the sidebar   the floor config (Etasjer), the full height under the
+ *                  KPI row on the right: rule 3's named tall exception, a
+ *                  building floor chart.
+ *    the middle    by priority, the model (hero), Scope, Detail, the checks,
+ *                  the general treemaps, the counts the row did not take;
+ *                  too little room moves the lowest into a tab of Scope.
+ *
+ *  Of every board width (whole columns, centred) and body height, the one
+ *  whose cover takes the most of the window wins (rule 9: a board, not a
+ *  strip), ties to the wider. Where no such board exists (under about 12
+ *  columns) the narrow fallback applies. Pure and deterministic. */
+export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
   const { cols, rows } = grid;
-  {
-    if (rows - mode.h < MIN_BODY) return null;
-    const cardCols = mode.specs.reduce((a, t) => a + t.sizes[0][0], 0);
-    for (let used = cols; used >= Math.max(cardCols, cols - 8); used -= 1) {
-      // The first few fillings that close the band; each costs a body pack.
+  const kpiIds = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
+  const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.ifc, 2]] };
+  const body = overviewBody(content);
+  const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => content.trees.includes(t.id))];
+  const sets = fillerSets(pool);
+  let best: MgLayout | null = null;
+  let bestCells = 0;
+  if (content.ifc > 0 && rows - 2 >= MIN_BODY) {
+    for (let used = cols; used >= 2 * content.ifc; used -= 1) {
+      if (used * rows <= bestCells) break;
       let tried = 0;
       for (const fill of sets) {
         if (tried >= 4) break;
-        const bandSpecs = [...mode.specs, ...fill.map((t) => ({ ...t, sizes: t.sizes.filter(([, h]) => h <= mode.h) }))];
+        const bandSpecs = [kpis, ...fill.map((t) => ({ ...t, sizes: t.sizes.filter(([, h]) => h === 2) }))];
         if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
-        const bandCover = coverRun(used, mode.h, bandSpecs);
-        if (!bandCover) continue;
+        const band = coverRun(used, 2, bandSpecs);
+        if (!band) continue;
         tried += 1;
         const rest = body.filter((t) => !fill.includes(t));
-        for (let r = rows - mode.h; r >= MIN_BODY; r -= 1) {
-          const lower = mgPackExact({ cols: used, rows: r, u: grid.u }, rest);
+        for (let r = rows - 2; r >= MIN_BODY; r -= 1) {
+          if (used * (r + 2) <= bestCells) break;
+          let lower: MgLayout | null = null;
+          let sw = 0;
+          for (const w of FLOOR_WIDTHS) {
+            // A canon L (3 × 4) or the named tall column; 4 × 4 is neither.
+            if (used - w < 6 || !canonSize(w, r, false, true)) continue;
+            lower = mgPackExact({ cols: used - w, rows: r, u: grid.u }, rest);
+            if (lower) {
+              sw = w;
+              break;
+            }
+          }
           if (!lower) continue;
           const offset = Math.floor((cols - used) / 2);
-          const top = Math.floor((rows - mode.h - r) / 2);
-          const bandTiles: MgPlace[] = bandCover.map((t, i) => ({
-            ...t,
-            x: offset + t.x,
-            y: top + t.y,
-            priority: i,
-            tabs: [],
-          }));
+          const top = Math.floor((rows - 2 - r) / 2);
+          const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, x: offset + t.x, y: top + t.y, priority: i, tabs: [] }));
           const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({
             ...t,
             x: offset + t.x,
-            y: top + mode.h + t.y,
+            y: top + 2 + t.y,
             priority: bandTiles.length + t.priority,
           }));
-          return {
+          const floors: MgPlace = {
+            id: "floors",
+            kind: "list",
+            x: offset + used - sw,
+            y: top + 2,
+            w: sw,
+            h: r,
+            size: canonSize(sw, r, false, true)!,
+            priority: bandTiles.length + lowerTiles.length,
+            tabs: [],
+          };
+          best = {
             ...grid,
             used,
-            usedRows: mode.h + r,
+            usedRows: r + 2,
             offset,
             top,
-            tiles: [...bandTiles, ...lowerTiles].sort((p, q) => p.y - q.y || p.x - q.x),
+            tiles: [...bandTiles, ...lowerTiles, floors].sort((p, q) => p.y - q.y || p.x - q.x),
             moved: lower.moved,
-            band: mode.name,
+            band: "kpis",
           };
+          bestCells = used * (r + 2);
+          break;
         }
       }
     }
   }
-  return null;
+  return best ?? layoutNarrow(grid, content);
 }
 
-/** b · Stripe summary. The summary leads, top-left: the two treemaps and
- *  the MMI bars; one hero, the model, beside them; then the report as
- *  blocks, Scope and Detail, the other checks, the counts. */
-export function layoutB(grid: MgGrid, content: MgContent): MgLayout {
-  if (narrow(grid)) return layoutNarrow(grid, content, true);
-  return orNarrow(grid, content, true, () =>
-    mgPack(grid, [
-      { id: "tree-system", kind: "chart", sizes: LM, hosts: ["reqs"] },
-      { id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system", "reqs"] },
-      { id: "mmi", kind: "chart", sizes: mmiSizes(grid.cols), hosts: ["tree-system", "reqs"] },
-      { id: "viewer", kind: "viewer", sizes: XL, required: true },
-      { id: "reqs", kind: "list", sizes: L, required: true },
-      { id: "scope", kind: "list", sizes: LM, required: true },
-      { id: "detail", kind: "list", sizes: LM, required: true },
-      { id: "checks", kind: "list", sizes: L_WIDE, hosts: ["reqs"] },
-      ...countTiles(content),
-    ]),
-  );
-}
-
-/** c · Grafana / Datadog. One S panel per requirement in the report's order,
- *  top-left; the model the hero; Scope and Detail beside it; then the
- *  charts, the other checks, the counts. Where the board cannot seat the
- *  panels beside the model and the two docks, the requirements are one list
- *  instead. */
-export function layoutC(grid: MgGrid, content: MgContent): MgLayout {
-  if (narrow(grid)) return layoutNarrow(grid, content, true);
-  const ifc = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
-  const std = Array.from({ length: content.std }, (_, i) => `std${i}`);
-  const rest: MgTileSpec[] = [
+/** The narrow fallback: the model first and at 6 × 4, the IFC-struktur
+ *  requirements and Scope as M beside it; the floors, the checks and Detail
+ *  in tabs of those. */
+function layoutNarrow(grid: MgGrid, content: MgContent): MgLayout {
+  return mgPack(grid, [
     { id: "viewer", kind: "viewer", sizes: XL, required: true },
-    { id: "scope", kind: "list", sizes: LM, required: true },
-    { id: "detail", kind: "list", sizes: LM, required: true },
-    { id: "tree-system", kind: "chart", sizes: LM },
-    { id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system"] },
-    { id: "mmi", kind: "chart", sizes: mmiSizes(grid.cols), hosts: ["tree-system"] },
-    { id: "checks", kind: "list", sizes: L_WIDE },
+    { id: "reqs", kind: "list", sizes: M_WIDE, required: true },
+    { id: "scope", kind: "list", sizes: M_WIDE, required: true },
+    { id: "floors", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
+    { id: "detail", kind: "list", sizes: M_WIDE, hosts: ["scope"] },
+    { id: "checks", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
+    ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: M_WIDE, hosts: ["reqs"] })),
     ...countTiles(content),
-  ];
-  return orNarrow(grid, content, true, () => {
-    try {
-      return mgPack(grid, [mgBlock("g-ifc", "panel", ifc, S[0]), mgBlock("g-std", "panel", std, S[0]), ...rest]);
-    } catch {
-      // No cover with the panels: the requirements are one list.
-      return mgPack(grid, [{ id: "reqs", kind: "list", sizes: L, required: true }, ...rest]);
-    }
-  });
+  ]);
 }
 
 /* ── the Graf tab: the graph and the model as two XL tiles ─────────────── */
