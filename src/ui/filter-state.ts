@@ -27,7 +27,8 @@ import type { Focus } from "./trace";
 
 /** The view a click came from: `viewer`, `graph`, `scope`, `tree-system`,
  *  `tree-function`, `mmi`, `reqs`, `checks`, `ids`, `floors`, `census`,
- *  `types`, `type-materials`, `materials`, `typepage`. */
+ *  `types`, `type-materials`, `materials`, `typepage`, `rooms` (the Rom
+ *  tab's schedule), `room-plan` (its plan). */
 export type Origin = string;
 
 export type ChipKind =
@@ -42,7 +43,9 @@ export type ChipKind =
   | "material"
   | "tree"
   /** One specification of the loaded `.ids`: its failing elements. */
-  | "ids";
+  | "ids"
+  /** A room group of the Rom tab's schedule; carries its own `guids`. */
+  | "room";
 
 export interface ActiveFilter {
   origin: Origin;

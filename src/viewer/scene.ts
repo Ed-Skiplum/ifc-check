@@ -128,6 +128,18 @@ interface BatchView {
   workingSlots: Int32Array;
   /** Faces currently in the matched group. */
   matchedFaces: number;
+  /** Faces in any drawn group (the matched group, plus the ghosted one). */
+  drawnFaces: number;
+}
+
+/** The Rom tab's lens (2026-09-28, edkjo: *"a tab for spaces … Spacial"*):
+ *  while a surface holds it, the scene draws ONLY `only` (the spaces), paints
+ *  them in `colours` (CSS colours, the schedule's grouping) and lets a click
+ *  land on them. The filter still applies inside it: `only` ∩ the matched
+ *  set is drawn, and under `highlight` the rest of `only` is ghosted. */
+export interface SceneLens {
+  only: Set<string>;
+  colours: Map<string, string>;
 }
 
 export interface PickEvent {
@@ -146,6 +158,42 @@ export interface SceneCallbacks {
  *  goes through this, rather than a second copy of the convention. */
 function toWorld(x: number, y: number, z: number, out: Vector3): Vector3 {
   return out.set(x, z, -y);
+}
+
+/** One batch's faces re-ordered into [keep | ghost | the rest], the per-face
+ *  slots in lockstep (as `partitionFaces`); returns the first two runs'
+ *  lengths. */
+function partitionLens(
+  view: BatchView,
+  slotGuid: string[],
+  keep: Set<string>,
+  ghost: Set<string> | null,
+): [number, number] {
+  const { source, sourceSlots, working, workingSlots } = view;
+  const faces = source.length / 3;
+  const classOf = (face: number) => {
+    const slot = sourceSlots[face];
+    const guid = slot >= 0 ? slotGuid[slot] : null;
+    if (guid === null) return 2;
+    if (keep.has(guid)) return 0;
+    return ghost?.has(guid) ? 1 : 2;
+  };
+  let kept = 0;
+  let ghosts = 0;
+  for (let face = 0; face < faces; face += 1) {
+    const c = classOf(face);
+    if (c === 0) kept += 1;
+    else if (c === 1) ghosts += 1;
+  }
+  const at = [0, kept, kept + ghosts];
+  for (let face = 0; face < faces; face += 1) {
+    const to = at[classOf(face)]++;
+    working[to * 3] = source[face * 3];
+    working[to * 3 + 1] = source[face * 3 + 1];
+    working[to * 3 + 2] = source[face * 3 + 2];
+    workingSlots[to] = sourceSlots[face];
+  }
+  return [kept, ghosts];
 }
 
 /** Same members, `null` (no filter) equal only to `null`. */
@@ -226,6 +274,11 @@ export class ModelScene {
   private hover: string | null = null;
   private mode: Mode = "filter";
   private matched: Set<string> | null = null;
+  /** The Rom tab's lens, or null (see `SceneLens`). */
+  private lens: SceneLens | null = null;
+  /** What is shown as matched: the filter's set, or under a lens the lens
+   *  within it. The camera frames and orbits THIS. */
+  private shown: Set<string> | null = null;
   /** What `followChoice` last saw, so a re-render at the same choice never
    *  re-frames a camera the user has since orbited. The selection compares by
    *  IDENTITY on purpose: every gesture makes a new array, so the same element
@@ -376,8 +429,11 @@ export class ModelScene {
         working,
         workingSlots: Int32Array.from(slots),
         matchedFaces: working.length / 3,
+        drawnFaces: working.length / 3,
       });
     }
+    // A lens held across a reload is painted onto the new batches.
+    this.paintLens(null, this.lens);
 
     const faces = set.batches.reduce((sum, batch) => sum + batch.indices.length / 3, 0);
     this.hoverPickable = faces <= HOVER_FACE_BUDGET;
@@ -406,6 +462,19 @@ export class ModelScene {
     this.mode = mode;
     this.applyFilter();
     this.updatePivot();
+    this.invalidate();
+  }
+
+  /** Hold or release the Rom tab's lens. Entering or leaving it is a new
+   *  set, so the camera follows as for any choice (`followChoice`). */
+  setLens(lens: SceneLens | null): void {
+    if (lens === this.lens) return;
+    this.paintLens(this.lens, lens);
+    this.lens = lens;
+    this.applyFilter();
+    this.rebuildOverlays();
+    this.updatePivot();
+    this.followChoice();
     this.invalidate();
   }
 
@@ -469,12 +538,12 @@ export class ModelScene {
   followChoice(): void {
     if (!this.set) return;
     const before = this.chosen;
-    this.chosen = { selection: this.selection, matched: this.matched };
+    this.chosen = { selection: this.selection, matched: this.shown };
     const selectionChanged = before.selection !== this.selection;
-    const setChanged = !sameMembers(before.matched, this.matched);
+    const setChanged = !sameMembers(before.matched, this.shown);
     if (!selectionChanged && !setChanged) return;
     if (this.selection.length === 0) {
-      const cleared = before.selection.length > 0 || this.matched === null || !setChanged;
+      const cleared = before.selection.length > 0 || this.shown === null || !setChanged;
       if (cleared) {
         this.choicePending = false;
         return;
@@ -496,7 +565,7 @@ export class ModelScene {
     }
     this.choicePending = false;
     // Cleared before a pending frame could run: nothing is chosen, nothing moves.
-    if (this.selection.length === 0 && this.matched === null) return;
+    if (this.selection.length === 0 && this.shown === null) return;
     const found = this.pivotBox();
     if (!found) return;
     if (this.selection.length > 0 && !found.selection) return;
@@ -638,8 +707,7 @@ export class ModelScene {
     if (!set) return 0;
     const seen = new Set<string>();
     for (const view of this.batches) {
-      const faces = this.mode === "highlight" ? view.source.length / 3 : view.matchedFaces;
-      for (let face = 0; face < faces; face += 1) {
+      for (let face = 0; face < view.drawnFaces; face += 1) {
         const slot = view.workingSlots[face];
         if (slot >= 0) seen.add(set.slotGuid[slot]);
       }
@@ -710,8 +778,29 @@ export class ModelScene {
    */
   private applyFilter(): void {
     const set = this.set;
-    if (!set) return;
+    const lens = this.lens;
     const matched = this.matched;
+    this.shown = lens ? (matched ? new Set([...lens.only].filter((g) => matched.has(g))) : lens.only) : matched;
+    if (!set) return;
+
+    if (lens) {
+      // Three runs: [shown | ghosted | not drawn]. Outside the lens nothing
+      // is drawn in either mode; the ghost is the lens outside the filter.
+      const shown = this.shown!;
+      const ghost = this.mode === "highlight" && matched ? new Set([...lens.only].filter((g) => !matched.has(g))) : null;
+      for (const view of this.batches) {
+        const [head, ghosts] = partitionLens(view, set.slotGuid, shown, ghost);
+        view.matchedFaces = head;
+        view.drawnFaces = head + ghosts;
+        const geometry = view.mesh.geometry;
+        geometry.clearGroups();
+        if (head > 0) geometry.addGroup(0, head * 3, 0);
+        if (ghosts > 0) geometry.addGroup(head * 3, ghosts * 3, 1);
+        const index = geometry.getIndex();
+        if (index) index.needsUpdate = true;
+      }
+      return;
+    }
 
     for (const view of this.batches) {
       const faces = view.source.length / 3;
@@ -725,6 +814,7 @@ export class ModelScene {
       );
 
       view.matchedFaces = head;
+      view.drawnFaces = this.mode === "highlight" ? faces : head;
       const geometry = view.mesh.geometry;
       geometry.clearGroups();
       if (head > 0) geometry.addGroup(0, head * 3, 0);
@@ -733,6 +823,41 @@ export class ModelScene {
       }
       const index = geometry.getIndex();
       if (index) index.needsUpdate = true;
+    }
+  }
+
+  /** Repaint the vertex colours of the lens's elements: `prev`'s back to the
+   *  file's own (`rgba`, as `load` paints them), `next`'s in its colours. */
+  private paintLens(prev: SceneLens | null, next: SceneLens | null): void {
+    const set = this.set;
+    if (!set) return;
+    const colour = new Color();
+    const touched = new Set<number>();
+    const write = (guid: string, paint: () => void) => {
+      const range = set.index.get(guid);
+      const view = range ? this.batches[range.batch] : undefined;
+      if (!range || !view) return;
+      paint();
+      const attribute = view.mesh.geometry.getAttribute("color") as BufferAttribute;
+      const colours = attribute.array as Float32Array;
+      for (let v = range.v0; v < range.v0 + range.vn; v += 1) {
+        colours[v * 3] = colour.r;
+        colours[v * 3 + 1] = colour.g;
+        colours[v * 3 + 2] = colour.b;
+      }
+      touched.add(range.batch);
+    };
+    if (prev) {
+      for (const guid of prev.colours.keys()) {
+        if (next?.colours.has(guid)) continue;
+        const rgba = set.index.get(guid)?.rgba;
+        if (rgba) write(guid, () => colour.setRGB(rgba[0], rgba[1], rgba[2], SRGBColorSpace));
+      }
+    }
+    if (next) for (const [guid, css] of next.colours) write(guid, () => colour.set(css));
+    for (const batch of touched) {
+      const attribute = this.batches[batch].mesh.geometry.getAttribute("color") as BufferAttribute;
+      attribute.needsUpdate = true;
     }
   }
 
@@ -925,10 +1050,10 @@ export class ModelScene {
         const chosen = this.bounds(this.selection);
         if (chosen) return { ...chosen, selection: true };
       }
-      const rest = this.bounds(this.matched === null ? null : [...this.matched]);
+      const rest = this.bounds(this.shown === null ? null : [...this.shown]);
       return rest ? { ...rest, selection: false } : null;
     }
-    const box = pivotBounds(framing, this.boxRow, this.selection, this.matched);
+    const box = pivotBounds(framing, this.boxRow, this.selection, this.shown);
     if (!box) return null;
     const selection =
       this.selection.length > 0 &&
@@ -968,7 +1093,7 @@ export class ModelScene {
       if (slot < 0) continue;
       const guid = set.slotGuid[slot];
       const entity = set.index.get(guid)?.entity;
-      if (entity !== undefined && UNPICKABLE.has(entity)) continue;
+      if (entity !== undefined && UNPICKABLE.has(entity) && !this.lens) continue;
       if (hit.faceIndex < view.matchedFaces) return { guid, point: hit.point.clone() };
       ghost ??= { guid, point: hit.point.clone() };
     }

@@ -67,7 +67,7 @@ const ENTITY = /#(\d+)\s*=\s*(IFCSIUNIT|IFCCONVERSIONBASEDUNIT|IFCUNITASSIGNMENT
 
 /** The argument text of a STEP statement from `open` (just past its "("),
  *  quote-aware, up to the ")" that closes it; null when the chunk ends first. */
-function argsFrom(text: string, open: number): { args: string; end: number } | null {
+export function argsFrom(text: string, open: number): { args: string; end: number } | null {
   let depth = 1;
   let quoted = false;
   for (let i = open; i < text.length; i += 1) {

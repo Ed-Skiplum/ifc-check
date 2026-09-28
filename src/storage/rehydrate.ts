@@ -101,13 +101,13 @@ export function groupClassifications(
 }
 
 export function profileOf(graph: IfcGraph): ModelProfile {
+  const longNames = graph.space_long_names;
   const profile: ModelProfile = {
-    rows: graph.products.map((p) => ({
-      guid: p.guid,
-      entity: p.entity,
-      name: p.name,
-      storeyGuid: p.storey_guid,
-    })),
+    rows: graph.products.map((p) =>
+      longNames && p.entity === "IfcSpace"
+        ? { guid: p.guid, entity: p.entity, name: p.name, storeyGuid: p.storey_guid, longName: longNames[p.guid] ?? null }
+        : { guid: p.guid, entity: p.entity, name: p.name, storeyGuid: p.storey_guid },
+    ),
     storeys: graph.storeys.map((s) => ({
       guid: s.guid,
       name: s.name,
@@ -131,5 +131,6 @@ export function profileOf(graph: IfcGraph): ModelProfile {
   if (classifications) profile.classifications = classifications;
   const quantities = groupQuantities(graph.quantities);
   if (quantities) profile.quantities = quantities;
+  if (longNames) profile.longNames = true;
   return profile;
 }

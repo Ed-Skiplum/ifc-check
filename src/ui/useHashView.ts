@@ -35,7 +35,7 @@ export interface ViewState {
   page: "setup" | null;
   /** The model panel's tab. null is the first tab, Kontroll; it is left out
    *  of the hash so a bare URL and a board link stay short. */
-  tab: "contents" | "graph" | "types" | "materials" | "project" | null;
+  tab: "contents" | "graph" | "types" | "materials" | "project" | "rooms" | null;
   /** The Typer type page: a type card's key (`entity::typeName`), or null
    *  for the gallery. Its own route, so Back returns to the gallery and the
    *  page is a link. */
@@ -101,6 +101,7 @@ function readTab(hash: URLSearchParams): ViewState["tab"] {
   if (tab === "types") return "types";
   if (tab === "materials") return "materials";
   if (tab === "project") return "project";
+  if (tab === "rooms") return "rooms";
   return null;
 }
 

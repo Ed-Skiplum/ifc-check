@@ -65,8 +65,13 @@ import { ask, BOARD, DROPKEYS, META, MODELS, transact } from "./idb.ts";
  * format-3 record has none, and a restored treemap would then drop every
  * BaseQuantity for the computed estimate. Absent stays legal in a format-4
  * record: an ifczip's units are not read.
+ *
+ * 5 (2026-09-28): the graph carries `space_long_names`, the IfcSpace
+ * LongNames read from the STEP bytes at parse (the Rom tab groups by them). A
+ * format-4 record has none, and a restored schedule would group by Name
+ * alone, which on HI90_ARK is empty on every space.
  */
-export const CACHE_FORMAT = 4;
+export const CACHE_FORMAT = 5;
 
 /**
  * The ceiling, and why it is where it is.

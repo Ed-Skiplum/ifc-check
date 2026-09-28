@@ -139,6 +139,7 @@ const STRINGS = {
   "filter.kind.material": { nb: "Materialer", en: "Materials" },
   "filter.kind.tree": { nb: "Klassifikasjon", en: "Classification" },
   "filter.kind.ids": { nb: "IDS", en: "IDS" },
+  "filter.kind.room": { nb: "Rom", en: "Space" },
 
   /* -------------------------------------------------------------- columns */
   "col.class": { nb: "IFC-klasse", en: "IFC class" },
@@ -385,6 +386,12 @@ const STRINGS = {
   "ids.notApplied": { nb: "Ikke anvendt", en: "Not applied" },
   "error.ids": { nb: "IDS-feil", en: "IDS error" },
   "graph.quantitySets": { nb: "Mengdesett", en: "Quantity sets" },
+
+  /* ----------------------------------------------------------------- rooms */
+  "tab.rooms": { nb: "Rom", en: "Spaces" },
+  "rooms.schedule": { nb: "Romskjema", en: "Room schedule" },
+  "rooms.3d": { nb: "3D", en: "3D" },
+  "rooms.plan": { nb: "Plan", en: "Plan" },
 
   /* ---------------------------------------------------------------- errors */
   "error.ruleset": { nb: "Regelsettfeil", en: "Ruleset error" },

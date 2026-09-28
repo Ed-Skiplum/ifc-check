@@ -18,8 +18,13 @@
  *             back.
  *
  * Values the rule judged deviating get a `deviating` cell per raw value, and
- * an object with nothing to show gets the one `missing` cell. Nothing is
- * dropped: the leaf counts sum to the objects handed in.
+ * an object with nothing to show gets the one `missing` cell. Nothing else is
+ * dropped: the leaf counts sum to the objects handed in, less the spaces.
+ *
+ * Spaces are not in either tree (edkjo 2026-09-28: *"spaces should be kept
+ * separate from the treemap"*). An IfcSpace is a volume of air, not a
+ * component; on Volum the rooms filled the map (17 100 of about 17 600 m³ on
+ * HI90_ARK). They have their own tab, Rom (`rooms.ts`).
  */
 
 export type TreeKind = "code" | "class" | "type" | "fallback" | "deviating" | "missing";
@@ -118,12 +123,30 @@ function addFallback(top: Map<string, Draft>, value: string | null, guid: string
   else add(top, `fb:${value}`, () => draft(`fb:${value}`, value, null, "fallback"), guid);
 }
 
+/** Classes the treemaps leave out (see the header). */
+export const TREE_EXCLUDED: ReadonlySet<string> = new Set(["IfcSpace"]);
+
+/** The objects and readings a tree is built over: every one but the
+ *  excluded classes. */
+function treeScope(
+  all: readonly TreeObject[],
+  readings: readonly TreeReading[] | null,
+): { objects: readonly TreeObject[]; readings: readonly TreeReading[] | null } {
+  const out = new Set(all.filter((o) => TREE_EXCLUDED.has(o.entity)).map((o) => o.guid));
+  if (out.size === 0) return { objects: all, readings };
+  return {
+    objects: all.filter((o) => !out.has(o.guid)),
+    readings: readings === null ? null : readings.filter((r) => !out.has(r.guid)),
+  };
+}
+
 /** The system treemap. `readings` null = no `system-classification` mapping. */
 export function systemTree(
-  objects: readonly TreeObject[],
-  readings: readonly TreeReading[] | null,
+  all: readonly TreeObject[],
+  allReadings: readonly TreeReading[] | null,
   names: Readonly<Record<string, string>>,
 ): CodeTree {
+  const { objects, readings } = treeScope(all, allReadings);
   const top = new Map<string, Draft>();
   if (readings === null) {
     // One level, the class only (edkjo 2026-09-28: *"the treemap is doing a
@@ -145,10 +168,11 @@ export function systemTree(
 /** The function treemap. `readings` null = no `component-classification`
  *  mapping: every object falls back to its PredefinedType. */
 export function functionTree(
-  objects: readonly TreeObject[],
-  readings: readonly TreeReading[] | null,
+  all: readonly TreeObject[],
+  allReadings: readonly TreeReading[] | null,
   names: Readonly<Record<string, string>>,
 ): CodeTree {
+  const { objects, readings } = treeScope(all, allReadings);
   const top = new Map<string, Draft>();
   const predefined = new Map(objects.map((o) => [o.guid, o.predefinedType]));
   if (readings === null) {

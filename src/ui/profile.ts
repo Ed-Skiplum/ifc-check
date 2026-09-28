@@ -71,6 +71,9 @@ export interface ProductRowLite {
    *  them too and its `n of m` is the same arithmetic the verification block
    *  prints for `single-instance-types` rather than a second, near-miss one. */
   isOpening?: boolean;
+  /** IfcSpace.LongName (`IfcGraph.space_long_names`), on IfcSpace rows only
+   *  and only when it was read; null = read, none. */
+  longName?: string | null;
 }
 
 export interface StoreyRowLite {
@@ -159,6 +162,9 @@ export interface ModelProfile {
   /** `materialsJson()` rows as the engine gives them (`graph.materials`), for
    *  the Materialer tab's layer sets. Absent = the table was not supplied. */
   materialRows?: MaterialRow[];
+  /** The spaces' LongNames were read from the file (`longName` on the
+   *  IfcSpace rows). Absent = not read: an ifczip, or a CLI graph. */
+  longNames?: boolean;
 }
 
 export interface ClassCount {

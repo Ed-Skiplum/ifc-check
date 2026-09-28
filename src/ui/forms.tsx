@@ -173,7 +173,7 @@ export function ReadoutStrip({ items }: { items: Readout[] }) {
   return (
     <div className="flex min-w-0 flex-1 items-baseline gap-x-3 overflow-hidden">
       {items.map((item) => (
-        <span key={item.label} className="flex min-w-0 items-baseline gap-1.5">
+        <span key={item.label} className="flex min-w-0 items-baseline gap-1.5 overflow-hidden">
           <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
             {item.label}
           </span>
