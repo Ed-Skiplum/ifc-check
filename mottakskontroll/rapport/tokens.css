@@ -1,0 +1,171 @@
+/* Skiplum report tokens.
+ *
+ * Every colour, size and spacing value a report uses is a token here, never a literal.
+ *
+ * Treatment, edkjo 2026-09-24 (docs/rapport-rammeverk.md, «Grid, tokens and treatment»):
+ *   - branding is light: the logo and the header detailing carry it, nothing else
+ *   - the page ground is white; no sand or brand-coloured background on the page, a tile or a band
+ *   - text is neutral ink
+ *   - status is a classic professional traffic light (green, amber, red), not brand tints, and
+ *     always has a symbol beside it so a black and white print still reads
+ *   - MMI keeps the MMI-veilederen 2.0 Table 1 colours: a standard, not branding
+ *
+ * The 2026-09-23 design studies (variant1-3.css) read the names below. Names that used to carry
+ * brand colour (--sk-sand, --sk-papir, --sk-blekk, --sk-aksent-vask, --sk-amber, --sk-fyll-sage)
+ * keep their names so the studies still render, and now carry neutral values.
+ */
+:root {
+  /* ---- brand: logo and header detailing only ---------------------------- */
+  --sk-merke: #133a31;           /* the mark and the header rule */
+  --sk-merke-aksent: #a5521f;    /* header detailing */
+
+  /* ---- surface and ink (neutral) ---------------------------------------- */
+  --sk-sand: #ffffff;            /* page ground: white (name kept for the design studies) */
+  --sk-papir: #ffffff;           /* tile ground: white */
+  --sk-blekk: #1f2328;           /* neutral ink */
+  --sk-blekk-svak: #4f565e;      /* secondary text */
+  --sk-svak: #626a73;            /* small labels */
+  --sk-linje: #d0d5db;           /* hairline */
+  --sk-linje-sterk: #1f2328;     /* section rule */
+  --sk-fyll-sage: #eef0f2;       /* quiet neutral fill (name kept) */
+
+  /* ---- former brand accents, neutralised outside the header -------------- */
+  --sk-aksent: var(--sk-merke-aksent);   /* header detailing only */
+  --sk-aksent-tekst: #ffffff;
+  --sk-aksent-vask: #ffffff;             /* no brand wash on any ground */
+  --sk-amber: var(--sk-avvik-ren);       /* a field in amber is a status, nothing else */
+
+  /* ---- status: classic traffic light ------------------------------------ */
+  --sk-oppfylt: #1e7b34;         /* text */
+  --sk-oppfylt-flate: #e3f2e5;   /* cell fill */
+  --sk-oppfylt-ren: #2e9e48;     /* bar segment */
+  --sk-avvik: #8a5a00;
+  --sk-avvik-flate: #fff3d1;
+  --sk-avvik-ren: #f2a900;
+  --sk-mangler: #c0271d;
+  --sk-mangler-flate: #fbe3e1;
+  --sk-mangler-ren: #d93a2b;
+  --sk-na: #6b7178;
+  --sk-na-flate: #eef0f2;
+  --sk-na-ren: #c3c8ce;
+
+  /* ---- distribution segments (neutral, no status meaning) --------------- */
+  --sk-fordeling-1: #3f4a56;
+  --sk-fordeling-2: #6f7b88;
+  --sk-fordeling-3: #9aa4af;
+  --sk-fordeling-4: #c3cad2;
+  --sk-fordeling-andre: #e2e6ea;
+  --sk-fordeling-kant: #ffffff;
+
+  /* ---- pset categories: neutral, distinct, and never a status colour ---- */
+  --mk-kategori-ifc: #3b6ea8;       /* IFC standard set */
+  --mk-kategori-krevd: #7b5ea7;     /* custom, referenced by the project configuration */
+  --mk-kategori-annen: #9a9aa0;     /* custom, not required */
+  /* ---- the requirement row's tracks (inside the page grid) ---- */
+  --mk-kvadrat: 12mm;     /* status square: fixed, a true square, the same on every requirement */
+  --mk-kvadrat-ord: 5.2pt;  /* the verdict word inside the square */
+  --mk-spor-luft: 2mm;    /* gap between tracks inside a row */
+  --mk-lab: 20mm;         /* label track: KRAV, DEKNING … */
+  --mk-lab-inn: 22mm;     /* content start, label + gap */
+  --mk-antall: 26mm;      /* end track: «av N objekter» */
+  --mk-mock: #7a3fb0;                /* MOCK labels and watermark: never a status colour */
+
+  /* ---- MMI: MMI-veilederen 2.0, Table 1 (hex column), and the project's own codes ----
+   * Table 1 page 5. Two known inconsistencies in Table 1 (resources/standards/mmi/README.md):
+   * 375 is RGB (150,150,50) but hex #9B9632, 600 is RGB (175,50,205) but hex #9B00CD. The hex
+   * column is used here. Codes 700-900 are reserved in Table 1; HI90's own codes take the colour
+   * the BIM manual declares (§4.5 MMI-koder), and a code the manual gives no colour takes
+   * --mmi-uten-farge. */
+  --mmi-000: #D73296;
+  --mmi-100: #BE2823;
+  --mmi-125: #D24B46;
+  --mmi-150: #E17873;
+  --mmi-175: #F0AAAA;
+  --mmi-200: #E69637;
+  --mmi-225: #EBAF64;
+  --mmi-250: #F0C88C;
+  --mmi-275: #F5E6D7;
+  --mmi-300: #FAF050;
+  --mmi-325: #D7CD41;
+  --mmi-350: #B9AF3C;
+  --mmi-375: #9B9632;
+  --mmi-400: #378246;
+  --mmi-425: #4BAA5A;
+  --mmi-450: #64C37D;
+  --mmi-475: #9BD7A5;
+  --mmi-500: #1E46AF;
+  --mmi-600: #9B00CD;
+  --mmi-700: #D9A633;
+  --mmi-710: #D9A633;
+  --mmi-720: #D9A633;
+  --mmi-740: #D9A633;
+  --mmi-760: #D9A633;
+  --mmi-780: #D9A633;
+  --mmi-875: #F27935;
+  --mmi-900: #FF0000;
+  --mmi-uten-farge: #d8dce0;
+
+  /* ---- type ------------------------------------------------------------- */
+  --sk-skrift-merke: "Schibsted Grotesk", "Segoe UI", Arial, sans-serif;   /* header only */
+  --sk-skrift: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --sk-skrift-tall: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --sk-vekt-tittel: 800;
+  --sk-vekt-halvfet: 600;
+
+  --sk-tall-stor: 19pt;        /* the one number per tile (design studies) */
+  --sk-tall: 12pt;
+  --sk-tittel: 21pt;
+  --sk-seksjon: 9pt;
+  --sk-tekst: 8.6pt;
+  --sk-tekst-liten: 7.2pt;
+
+  --sk-tett-tittel: -0.025em;
+  --sk-tett-display: -0.03em;
+  --sk-spredt-eyebrow: 0.12em;
+  --sk-linjeh-display: 1.0;
+  --sk-linjeh: 1.35;
+
+  /* ---- type, mottakskontroll (one verdict page holds ten blocks) ---------- */
+  --mk-tittel: 16pt;
+  --mk-tall-stor: 12pt;
+  --mk-tall: 9.5pt;
+  --mk-tekst: 7.6pt;
+  --mk-tekst-liten: 6.5pt;
+  --mk-tekst-mini: 5.8pt;
+  --mk-linjeh: 1.25;
+
+  /* ---- grid and rhythm --------------------------------------------------- */
+  --sk-bredde: 186mm;          /* A4 minus 12 mm margins */
+  --sk-kolonne: 43.5mm;        /* 4 columns */
+  --sk-luft: 4mm;              /* gutter */
+  --sk-takt: 6mm;              /* vertical rhythm step */
+  --sk-marg: 12mm;             /* equal page margins */
+
+  /* ---- tiles -------------------------------------------------------------- */
+  --sk-flis-luft: 2.2mm;
+  --sk-flis-radius: 1mm;
+  --sk-flis-kant: 0.5pt solid var(--sk-linje);
+  --sk-flis-flate: var(--sk-papir);
+
+  /* ---- bars --------------------------------------------------------------- */
+  --sk-stolpe-h: 2.2mm;
+  --sk-stolpe-radius: 0.4mm;
+  --sk-stolpe-bunn: #e9ecef;
+  --sk-fordeling-h: 2.6mm;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+html, body {
+  background: var(--sk-sand);
+  color: var(--sk-blekk);
+  font-family: var(--sk-skrift);
+  font-size: var(--sk-tekst);
+  line-height: var(--sk-linjeh);
+  font-variant-numeric: tabular-nums;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}

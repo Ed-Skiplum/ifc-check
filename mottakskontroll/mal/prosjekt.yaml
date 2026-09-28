@@ -1,0 +1,143 @@
+# Project config template for the mottakskontroll (the krav.yaml shape). Contract: ../README.md.
+#
+# Every "FROM PROJECT" placeholder is a value the project must supply, with a hint for the
+# author; konfig.py refuses a config that still carries one. Delete an optional part the project
+# has no evidence for: the standard layer (../standard/standard.yaml) then applies, or the
+# requirement reports «ikke konfigurert». Keys are the engine's; they stay as written.
+
+# ---------------------------------------------------------------- required
+
+prosjekt:
+  kode: "<FROM PROJECT: project code; prefixes every output file name and the file-name rule>"
+  navn: "<FROM PROJECT: project name as printed in the report header>"
+  utfoerende: "<FROM PROJECT: who runs the control>"
+  manual: "<FROM PROJECT: BIM manual name, version and date>"
+  bep: "<FROM PROJECT: BEP name>"
+
+# Discipline codes of the file-name grammar; also the accepted values of the copy-object field.
+fagkoder: ["<FROM PROJECT: discipline code>"]
+
+# Every model label a round can carry. A round model missing here stops the build.
+modeller:
+  "<FROM PROJECT: model label, the round's `label`>":
+    fagkode: "<FROM PROJECT: one of fagkoder>"
+    kopi_eier: ["<FROM PROJECT: copy-object values that name this model as the owner>"]
+
+# The requirement register: every requirement the blocks and the matrix refer to by id.
+krav:
+  - id: "<FROM PROJECT: stable id; referenced from blokker[].krav, merknader and bruk>"
+    tittel: "<FROM PROJECT: title as printed>"
+    kilde: "<FROM PROJECT: BEP or manual section it comes from>"
+    maaler: "<FROM PROJECT: one sentence, what is counted or compared>"
+    enhet: "<FROM PROJECT: andel | binaer | tall>"
+    datanokkel: "<FROM PROJECT: key in the round data.json; a bare name is a `sjekk` key, a dotted name a path>"
+    seksjon: "<FROM PROJECT: egenskaper | type | fil | guid>"
+    # optional: finnes_nokkel, grunnlag, terskel {ok, warn} | {maks}, gjelder {schema|fag|modell},
+    # gjelder_ikke_tekst, krever, verdier {monster, godtatte, godtatte_fra, samle, suffiks_monster}
+
+# Workbook-only numbers per model; may be empty.
+kpi:
+  - id: "<FROM PROJECT: stable id>"
+    tittel: "<FROM PROJECT: title as printed>"
+    maaler: "<FROM PROJECT: one sentence>"
+    datanokkel: "<FROM PROJECT: key in data.json>"
+    # optional: enhet, grunnlag, varsel_verdier
+
+# Use cases: named sets of requirement ids; may be empty.
+bruk:
+  - id: "<FROM PROJECT: stable id>"
+    tittel: "<FROM PROJECT: title as printed>"
+    krav: ["<FROM PROJECT: krav id>"]
+
+# Expected values the requirements compare against.
+forventet:
+  filnavn:
+    endelse: .ifc
+    skille: _
+  koordineringsobjekt:
+    punkter_mm: [["<FROM PROJECT: x mm>", "<FROM PROJECT: y mm>"]]
+    punktnavn: ["<FROM PROJECT: marker object name, one per point>"]
+    toleranse_mm: "<FROM PROJECT: mm>"
+    godta_ifcsite_med_geometri: "<FROM PROJECT: true | false>"
+  plassering:
+    origo_mm: [0, 0, 0]
+    toleranse_mm: "<FROM PROJECT: mm>"
+    rotasjon_grader: "<FROM PROJECT: degrees>"
+  georeferering:
+    epsg: "<FROM PROJECT: EPSG code>"
+    eastings: "<FROM PROJECT: IfcMapConversion Eastings>"
+    northings: "<FROM PROJECT: IfcMapConversion Northings>"
+    toleranse: "<FROM PROJECT: tolerance, project units>"
+  mmi:
+    kilde: "<FROM PROJECT: manual section of the MMI table>"
+    koder: ["<FROM PROJECT: accepted MMI code>"]
+    # optional: fase {<mmi code>: <phase>}; makes the MMI location Fase's one location
+  kopi_objekt:
+    sanne_verdier: ["<FROM PROJECT: values that mark an object as a copy outright>"]
+  # optional below
+  etasjer:
+    referanse: "<FROM PROJECT: plane the koter are measured to>"
+    kolonne: "<FROM PROJECT: short form for the table head>"
+    toleranse_over_mm: "<FROM PROJECT: mm, or null>"
+    toleranse_under_mm: "<FROM PROJECT: mm, or null>"
+    naer_mm: "<FROM PROJECT: mm>"
+    navnevindu_mm: "<FROM PROJECT: mm>"
+    ekstra_nivaer: "<FROM PROJECT: avvik | flagg>"
+    manglende_nivaer: "<FROM PROJECT: avvik | flagg>"
+    feil_kote: "<FROM PROJECT: avvik | flagg>"
+    feil_navn: "<FROM PROJECT: avvik | flagg>"
+    # optional: per_fag {<fagkode>: {referanse, toleranse_over_mm, toleranse_under_mm, krev_fullt_navnesamsvar}}
+    nivaaer:
+      - {navn: "<FROM PROJECT: storey name, exact>", kote_mm: "<FROM PROJECT: mm>"}
+  typenavn:
+    kilde: "<FROM PROJECT: BEP section on type naming>"
+    monster: "<FROM PROJECT: regex for the type name>"
+    beskrivelse: "<FROM PROJECT: the rule in words, with an example>"
+    # optional: fra_mmi [{mmi, monster, beskrivelse}], a stricter rule from that maturity
+
+# ---------------------------------------------------------------- optional
+
+# The project layer per block (ids from ../standard/standard.yaml `blokker`). An unknown id is an
+# error. `sted`, `sted_telleobjekt`, `sted_mengdeobjekt` REPLACE the standard location; any other
+# key overrides the standard's.
+blokker:
+  - id: "<FROM PROJECT: block id from standard.yaml>"
+    kilde: "<FROM PROJECT: BEP or manual section>"
+    krav: ["<FROM PROJECT: krav id this block answers for>"]
+    sted: {pset: "<FROM PROJECT: property set>", egenskap: "<FROM PROJECT: property>"}
+    # optional: unntatt {modell: [label]}, krav_tekst, gyldige, kodetabell, kodeliste, aapne
+    # Table paths (kodetabell, kodeliste.fil, mengdetype[].tabell): a bare name found in
+    # ../standard/, else relative to this file, or absolute.
+
+# The project property set bep_egenskapskontroll counts per object, on the object or its type.
+# Absent: none of it is measured, and a krav reading it reports «ikke konfigurert».
+prosjektpsett:
+  navn: "<FROM PROJECT: property set name; matched without spaces and case>"
+  egenskaper:   # in report order
+    - navn: "<FROM PROJECT: property name>"
+      regel: "<FROM PROJECT: tre_sifre | fagkode (a value from fagkoder) | lik_typenavn (= IfcTypeObject.Name) | utfylt>"
+  # optional: krav (the krav id measuring the set itself, named in other krav's `krever`),
+  # navnedel (sets whose name contains it are listed as found instead of the required one)
+
+# Discipline codes that get no report (models built by the coordinator).
+uten_rapport: ["<FROM PROJECT: fagkode>"]
+
+# Avvik workbooks: group -> model labels. A model listed nowhere is its own group.
+faggrupper:
+  "<FROM PROJECT: group name>": ["<FROM PROJECT: model label>"]
+
+# The schema tile; replaces standard.yaml `skjema`.
+skjema:
+  kilde: "<FROM PROJECT: BEP section>"
+  godtatte: ["<FROM PROJECT: IFC2X3 | IFC4 | IFC4X3>"]
+  anbefalt: ["<FROM PROJECT: recommended schema>"]
+
+# Comments: requirement id -> [{dato, gjelder: <label | fagkode | alle>, tekst}]. Authored by the
+# project lead only; the only sentences in the report.
+merknader: {}
+# Per-model comments: model label -> [{dato, tekst}].
+merknader_modell: {}
+
+# Key-by-key overrides of standard.yaml: etiketter, verdiktord, kpi_terskler, terskel_gyldig
+# (merged), and standard, kpi_band, kpi_alle (replaced whole).
+etiketter: {}
