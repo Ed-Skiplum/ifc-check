@@ -58,6 +58,7 @@ import { ProjectBoard } from "./alt/ProjectBoard";
 import { RoomsTab } from "./RoomsTab";
 import type { Reveal } from "./TypesTab";
 import { catalogue as buildCatalogue, typeCodes } from "./type-links";
+import { elementFacets } from "./facets";
 import type { Ruleset } from "../ids/types.ts";
 import { FilterBar } from "./FilterBar";
 import { ReadoutStrip, type Readout } from "./forms";
@@ -197,6 +198,8 @@ export function ModelPanel({
     () => (profile && catalogue ? typeCodes(profile, catalogue.types, board?.trees) : null),
     [profile, catalogue, board],
   );
+  // Each element's facet values, for the Typer and Materialer facets.
+  const facetIndex = useMemo(() => (profile ? elementFacets(profile, board?.trees) : null), [profile, board]);
   // What the type page reads beside its card (`type-page.ts`).
   const pageInput = useMemo(
     () => ({
@@ -463,6 +466,7 @@ export function ModelPanel({
                 onOpenMaterial={openMaterial}
                 pageInput={pageInput}
                 codes={codes}
+                facetIndex={facetIndex}
                 onOpenType={openType}
                 onScope={(next, target, within) => {
                   // The line's findings among the type's instances: ONE
@@ -487,6 +491,7 @@ export function ModelPanel({
                 profile={profile ?? null}
                 catalogue={catalogue}
                 scopedCatalogue={isolating("materials") ? scopedCatalogue : null}
+                facetIndex={facetIndex}
                 meshBatches={model.meshBatches}
                 view={view}
                 reveal={revealMaterial}

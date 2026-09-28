@@ -162,6 +162,11 @@ export interface ModelProfile {
   /** `materialsJson()` rows as the engine gives them (`graph.materials`), for
    *  the Materialer tab's layer sets. Absent = the table was not supplied. */
   materialRows?: MaterialRow[];
+  /** `typeObjectsJson()`, the type objects the file DECLARES, used or not
+   *  (`entity` in ifcfast's spelling, ifcfast#186). An unused type reaches no
+   *  product row, so this is the only way the Typer tab can show one.
+   *  Absent = the roster was not supplied. */
+  typeObjects?: { guid: string; entity: string; name: string | null }[];
   /** The spaces' LongNames were read from the file (`longName` on the
    *  IfcSpace rows). Absent = not read: an ifczip, or a CLI graph. */
   longNames?: boolean;

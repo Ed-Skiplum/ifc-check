@@ -77,6 +77,13 @@ export interface Catalogue {
   /** Type → layer sets, the reverse of setTypes (the gallery's material
    *  cards under the viewer, 2026-09-28). */
   typeSets: Map<string, Link[]>;
+  /** The declared type objects no product row is defined by (the Typer
+   *  facet Ubrukt, 2026-09-28): one card per type class × name, count 0, no
+   *  instances, keyed `unused:${class}::${name}` so no instance card can
+   *  share the key. Null when the profile carries no type roster. Over the
+   *  rows the catalogue was built from, so on a scoped profile it means
+   *  "unused within the scope"; the Typer tab reads the whole profile's. */
+  unused: TypeCard[] | null;
 }
 
 export const typeKeyOf = (row: Pick<ProductRowLite, "entity" | "typeName">) =>
@@ -232,6 +239,38 @@ export function catalogue(profile: ModelProfile): Catalogue {
     sets = [...byKey.values()].sort((a, b) => b.count - a.count);
   }
 
+  // The unused type objects: declared, and no product's `type_guid` points at
+  // them (openings included, as `type-unused` counts). The class in the IFC
+  // spelling when it is an instance class of this model plus `type` / `style`.
+  let unused: TypeCard[] | null = null;
+  if (profile.typeObjects) {
+    const used = new Set<string>();
+    for (const row of profile.rows) if (row.typeGuid) used.add(row.typeGuid);
+    const classes = [...new Set(profile.rows.map((r) => r.entity))];
+    const spell = (entity: string) => {
+      for (const cls of classes) {
+        const out = typeObjectClass(entity, cls);
+        if (out && out !== entity) return out;
+      }
+      return entity;
+    };
+    const byKey = new Map<string, TypeCard>();
+    for (const type of profile.typeObjects) {
+      if (used.has(type.guid)) continue;
+      const entity = spell(type.entity);
+      const key = `unused:${entity}::${type.name ?? ""}`;
+      let card = byKey.get(key);
+      if (!card) {
+        card = { key, entity, typeName: type.name, source: null, typeGuids: [], count: 0, guids: [], ext: [0, 0, 0], lb: [0, 0, 0] };
+        byKey.set(key, card);
+      }
+      card.typeGuids.push(type.guid);
+    }
+    unused = [...byKey.values()]
+      .map((c) => ({ ...c, typeGuids: c.typeGuids.sort() }))
+      .sort((a, b) => a.entity.localeCompare(b.entity) || String(a.typeName ?? "").localeCompare(String(b.typeName ?? "")));
+  }
+
   const typeCards: TypeCard[] = [...types.values()]
     .map(({ rows, tg, ...card }) => ({ ...card, typeGuids: [...tg].sort(), guids: instanceOrder(profile, rows) }))
     .sort((a, b) => b.count - a.count);
@@ -246,6 +285,7 @@ export function catalogue(profile: ModelProfile): Catalogue {
     materialTypes: ranked(matType),
     setTypes: ranked(setType),
     typeSets: ranked(typeSet),
+    unused,
   };
 }
 
@@ -322,34 +362,60 @@ function lineOf(values: CodeValue[]): CodeLine {
   return top ? { ...top, others } : { kind: "missing", value: null, name: null, n: 0, others: [] };
 }
 
+/** Each product's system and function value, the per-instance reading a
+ *  type card's two lines are tallied from; also what the Typer and Materialer
+ *  facets Systemkode and Funksjonskode read, so a facet and a card agree. */
+export interface ElementCodes {
+  system: CodeValue;
+  function: CodeValue;
+}
+
+export function elementCodes(
+  profile: ModelProfile,
+  trees: { system: CodeTree; function: CodeTree } | null | undefined,
+): Map<string, ElementCodes> {
+  const system = trees?.system.by === "mapping" ? readingsOf(trees.system) : new Map<string, TreeNode>();
+  const fn = trees?.function.by === "mapping" ? readingsOf(trees.function) : new Map<string, TreeNode>();
+  const out = new Map<string, ElementCodes>();
+  for (const row of profile.rows) {
+    const guid = row.guid;
+    let sys: CodeValue;
+    const s = system.get(guid);
+    if (s && (s.kind === "code" || s.kind === "deviating")) {
+      sys = { kind: s.kind, value: s.label, name: s.kind === "code" ? s.name : null, n: 1 };
+    } else {
+      const cls = typeObjectClass(row.typeEntity, row.entity);
+      sys = cls ? { kind: "fallback", value: cls, name: null, n: 1 } : { kind: "missing", value: null, name: null, n: 1 };
+    }
+    let fun: CodeValue;
+    const f = fn.get(guid);
+    if (f && (f.kind === "code" || f.kind === "deviating")) {
+      fun = { kind: f.kind, value: f.label, name: f.kind === "code" ? f.name : null, n: 1 };
+    } else {
+      const pre = row.predefinedType ?? null;
+      fun = pre ? { kind: "fallback", value: pre, name: null, n: 1 } : { kind: "missing", value: null, name: null, n: 1 };
+    }
+    out.set(guid, { system: sys, function: fun });
+  }
+  return out;
+}
+
+const MISSING: CodeValue = { kind: "missing", value: null, name: null, n: 1 };
+
 export function typeCodes(
   profile: ModelProfile,
   types: readonly TypeCard[],
   trees: { system: CodeTree; function: CodeTree } | null | undefined,
 ): Map<string, TypeCodes> {
-  const rowOf = new Map(profile.rows.map((r) => [r.guid, r]));
-  const system = trees?.system.by === "mapping" ? readingsOf(trees.system) : new Map<string, TreeNode>();
-  const fn = trees?.function.by === "mapping" ? readingsOf(trees.function) : new Map<string, TreeNode>();
+  const perElement = elementCodes(profile, trees);
   const out = new Map<string, TypeCodes>();
   for (const card of types) {
     const sys: CodeValue[] = [];
     const fun: CodeValue[] = [];
     for (const guid of card.guids) {
-      const row = rowOf.get(guid);
-      const s = system.get(guid);
-      if (s && (s.kind === "code" || s.kind === "deviating")) {
-        sys.push({ kind: s.kind, value: s.label, name: s.kind === "code" ? s.name : null, n: 1 });
-      } else {
-        const cls = row ? typeObjectClass(row.typeEntity, row.entity) : null;
-        sys.push(cls ? { kind: "fallback", value: cls, name: null, n: 1 } : { kind: "missing", value: null, name: null, n: 1 });
-      }
-      const f = fn.get(guid);
-      if (f && (f.kind === "code" || f.kind === "deviating")) {
-        fun.push({ kind: f.kind, value: f.label, name: f.kind === "code" ? f.name : null, n: 1 });
-      } else {
-        const pre = row?.predefinedType ?? null;
-        fun.push(pre ? { kind: "fallback", value: pre, name: null, n: 1 } : { kind: "missing", value: null, name: null, n: 1 });
-      }
+      const at = perElement.get(guid);
+      sys.push(at?.system ?? MISSING);
+      fun.push(at?.function ?? MISSING);
     }
     out.set(card.key, { system: lineOf(sys), function: lineOf(fun) });
   }

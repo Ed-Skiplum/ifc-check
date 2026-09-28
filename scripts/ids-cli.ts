@@ -83,6 +83,7 @@ import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../src/codelists/mengdet
 import { MENGDETYPE_NS3457 } from "../src/codelists/mengdetype-ns3457.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 import { catalogue as typeCatalogue, typeCodes, typeObjectClass } from "../src/ui/type-links.ts";
+import { elementFacets, elementItems, facetCounts, narrow, NONE, typeItems, type FacetSelection } from "../src/ui/facets.ts";
 import { typePage } from "../src/ui/type-page.ts";
 import { EMPTY_FILTER, reduceFilter } from "../src/ui/filter-state.ts";
 import type { BoardData } from "../src/ui/report-rows.ts";
@@ -1799,6 +1800,43 @@ async function cmdSelftest(): Promise<number> {
       "fallback PARTITIONING ×3 +missing ×1",
       `${fn.kind} ${fn.value} ×${fn.n} ` + fn.others.map((o) => `+${o.kind}${o.value ? ` ${o.value}` : ""} ×${o.n}`).join(" "),
     );
+    // The Typer and Materialer facets (src/ui/facets.ts, 2026-09-28) on the
+    // same model: w-a external, one declared type object no element uses.
+    {
+      const withRoster = {
+        ...profile,
+        rows: profile.rows.map((r) => (r.guid === "w-a" ? { ...r, isExternal: true } : r)),
+        typeObjects: [
+          { guid: "T-V1", entity: "IfcWalltype", name: "V1" },
+          { guid: "T-U", entity: "IfcWalltype", name: "U" },
+        ],
+      } as ModelProfile;
+      const c2 = typeCatalogue(withRoster);
+      const index = elementFacets(withRoster, trees);
+      const fi = typeItems(c2.types, c2.unused ?? [], index);
+      const shows = (sel: FacetSelection) => [...narrow(fi.items, sel)].sort().join(",");
+      record("facets: the unused type object is a card of its own, class in the IFC spelling", "unused:IfcWallType::U", (c2.unused ?? []).map((c) => c.key).join(","));
+      record("facets: no choice shows the instances' cards, not the unused one", "IfcSlab::,IfcWallStandardCase::V1", shows({}));
+      record("facets: Én forekomst", "IfcSlab::", shows({ use: ["single"] }));
+      record("facets: Ubrukt shows the unused card", "unused:IfcWallType::U", shows({ use: ["unused"] }));
+      record("facets: OR within a facet", "IfcSlab::,unused:IfcWallType::U", shows({ use: ["single", "unused"] }));
+      record(
+        "facets: Systemkode counts, the fallback a value of its own; under Ubrukt only the unused card, none",
+        "243:1,251:1,IfcWallType:1 | none:1",
+        [{}, { use: ["unused"] }]
+          .map((sel) => facetCounts(fi, sel, "system").map((v) => `${v.value.key === NONE ? "none" : v.value.key}:${v.n}`).join(","))
+          .join(" | "),
+      );
+      record("facets: a card answers to every value its instances carry", "IfcWallStandardCase::V1", shows({ ext: ["true"] }));
+      record("facets: AND across facets", "", shows({ system: ["251"], ext: ["true"] }));
+      record(
+        "facets: a value's count applies the other facets, not its own",
+        "none:1",
+        facetCounts(fi, { system: ["251"] }, "ext").map((v) => `${v.value.key === NONE ? "none" : v.value.key}:${v.n}`).join(","),
+      );
+      const mats = elementItems([{ key: "Stål", guids: ["w-a", "w-d"] }, { key: "Betong", guids: ["s-1"] }], index);
+      record("facets: a material answers through its elements", "Betong", [...narrow(mats.items, { entity: ["IfcSlab"] })].join(","));
+    }
     const tp = page.typeProps;
     record(
       "type page: rows folded from the type are the type's properties, one value over four instances",

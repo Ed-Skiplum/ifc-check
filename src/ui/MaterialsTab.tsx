@@ -16,6 +16,11 @@
  *                elements use it, and the types that do, as links. A click
  *                makes those elements the filter, as above.
  *
+ * The facets (2026-09-28, `FacetBar.tsx` over `facets.ts`): IFC class,
+ * Systemkode, Funksjonskode, IsExternal, LoadBearing and FireRating, read
+ * through the elements that carry the material or the layer set. They narrow
+ * the cards shown and nothing else; a card click is still the one filter.
+ *
  * A filter from another view isolates the gallery: the panel hands it the
  * catalogue over the matching rows, so only materials and sets with matching
  * elements show, their counts recomputed.
@@ -51,7 +56,11 @@ import { useFillHeight } from "./useFillHeight";
 import type { Catalogue, LayerSetCard, Link, MaterialCard, TypeCard } from "./type-links";
 import type { Reveal } from "./TypesTab";
 import { css } from "./chart-colors.ts";
+import { FacetBar } from "./FacetBar";
+import { elementItems, narrow, type ElementFacets, type FacetId, type FacetSelection } from "./facets";
 import { BAR_MM, layerFill, layerSection, materialCategory, sectionFrame, sectionOrientation, type LayerCategory } from "./layer-section.ts";
+
+const MATERIAL_FACETS: readonly FacetId[] = ["entity", "system", "function", "ext", "lb", "fire"];
 
 export const mm = (value: number, lang: Lang) =>
   `${value.toLocaleString(lang === "nb" ? "nb-NO" : "en-GB", { maximumFractionDigits: 0 })} mm`;
@@ -94,6 +103,7 @@ export function MaterialsTab({
   profile,
   catalogue,
   scopedCatalogue = null,
+  facetIndex,
   meshBatches,
   view: xview,
   reveal,
@@ -107,6 +117,8 @@ export function MaterialsTab({
   /** The same over the cross-filter's matching rows, when another view is
    *  its origin: the gallery then shows only these. */
   scopedCatalogue?: Catalogue | null;
+  /** Each element's facet values (`elementFacets`), per profile and board. */
+  facetIndex: ElementFacets | null;
   /** The streamed geometry, for the lent 3D. */
   meshBatches: MeshBatch[] | undefined;
   /** The panel's one filter: the card it is on, when this tab is its origin. */
@@ -121,8 +133,27 @@ export function MaterialsTab({
   // always the whole card, so a click replaces the filter rather than
   // intersecting with it.
   const shown = scopedCatalogue ?? catalogue;
-  const materials = shown?.materials ?? [];
-  const sets = shown ? shown.sets : null;
+  const allMaterials = shown?.materials;
+  const allSets = shown ? shown.sets : null;
+  // The facets narrow the cards shown, through each card's elements.
+  const [facetSel, setFacetSel] = useState<FacetSelection>({});
+  const materialItems = useMemo(
+    () => elementItems((allMaterials ?? []).map((m) => ({ key: m.name, guids: m.guids })), facetIndex ?? new Map()),
+    [allMaterials, facetIndex],
+  );
+  const setItems = useMemo(
+    () => elementItems((allSets ?? []).map((x) => ({ key: x.key, guids: x.guids })), facetIndex ?? new Map()),
+    [allSets, facetIndex],
+  );
+  const materials = useMemo(() => {
+    const keep = narrow(materialItems.items, facetSel);
+    return (allMaterials ?? []).filter((m) => keep.has(m.name));
+  }, [allMaterials, materialItems, facetSel]);
+  const sets = useMemo(() => {
+    if (!allSets) return null;
+    const keep = narrow(setItems.items, facetSel);
+    return allSets.filter((x) => keep.has(x.key));
+  }, [allSets, setItems, facetSel]);
   const fullMaterial = (name: string) => catalogue?.materials.find((m) => m.name === name)?.guids ?? [];
   const fullSet = (key: string) => catalogue?.sets?.find((x) => x.key === key)?.guids ?? [];
   const types = useMemo(() => new Map((catalogue?.types ?? []).map((c) => [c.key, c])), [catalogue]);
@@ -150,6 +181,8 @@ export function MaterialsTab({
     handled.current = reveal.seq;
     setView("materials");
     setRevealed(reveal.key);
+    // The asked-for card is shown even if a facet had hidden it.
+    setFacetSel({});
   }, [reveal]);
   const revealRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -158,40 +191,49 @@ export function MaterialsTab({
 
   return (
     <section ref={fillRef} style={{ height: fillHeight ?? undefined }} className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center gap-2 px-4 pt-1">
-        <div role="group" className="flex shrink-0 overflow-hidden rounded-[6px] border border-line">
-          {(
-            [
-              ["materials", t("col.materials", lang)],
-              ["sets", "Layer sets"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={view === id}
-              onClick={() => setView(id)}
-              className={
-                "px-2 py-0.5 text-[11px] " +
-                (view === id ? "bg-ink text-panel" : "bg-input text-muted hover:text-ink")
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted">
-          {view === "materials"
-            ? formatCount(materials.length, lang)
-            : sets
-              ? `${sets.some((set) => set.name === null) ? `IfcMaterialLayerSet.Name ${notSupplied} · ` : ""}${formatCount(sets.length, lang)}`
-              : notSupplied}
-        </span>
-      </div>
+      <FacetBar
+        lang={lang}
+        facets={MATERIAL_FACETS}
+        items={view === "materials" ? materialItems : setItems}
+        sel={facetSel}
+        onChange={setFacetSel}
+        lead={
+          <div role="group" className="flex shrink-0 overflow-hidden rounded-[6px] border border-line">
+            {(
+              [
+                ["materials", t("col.materials", lang)],
+                ["sets", "Layer sets"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={view === id}
+                onClick={() => setView(id)}
+                className={
+                  "px-2 py-0.5 text-[11px] " +
+                  (view === id ? "bg-ink text-panel" : "bg-input text-muted hover:text-ink")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        }
+        trail={
+          <span className="font-mono text-[10px] tabular-nums text-muted">
+            {view === "materials"
+              ? formatCount(materials.length, lang)
+              : sets
+                ? `${sets.some((set) => set.name === null) ? `IfcMaterialLayerSet.Name ${notSupplied} · ` : ""}${formatCount(sets.length, lang)}`
+                : notSupplied}
+          </span>
+        }
+      />
       <WithViewer meshBatches={meshBatches} active>
       <div className="contents" data-xf={origin ? "origin" : undefined}>
       {view === "materials" ? (
-        materials.length === 0 ? (
+        (allMaterials ?? []).length === 0 ? (
           <Empty>{profile ? t("type.none", lang) : notSupplied}</Empty>
         ) : (
           <Gallery unit={[2, 2]} label="materials">
@@ -213,7 +255,7 @@ export function MaterialsTab({
         )
       ) : sets === null ? (
         <Empty>{`materialsJson() · ${notSupplied}`}</Empty>
-      ) : sets.length === 0 ? (
+      ) : (allSets ?? []).length === 0 ? (
         <Empty>{t("type.none", lang)}</Empty>
       ) : (
         <Gallery unit={[2, 2]} label="sets">

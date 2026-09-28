@@ -44,6 +44,18 @@
  * mounted (unseen) under it, so its scroll holds, and the gallery's filter is
  * handed back. The instance order is `type-links.ts`'s: by storey from the
  * lowest, then GlobalId.
+ *
+ * ── The facets (2026-09-28) ──────────────────────────────────────────────
+ * Owner: *"we need filtering in the types and materials list. By ifcentities
+ * and by classification and the main type properties"* … *"also, by unused
+ * type and single instance types"*. `FacetBar.tsx` over `facets.ts`: IFC
+ * class, Systemkode, Funksjonskode, IsExternal, LoadBearing, FireRating, and
+ * the pills Ubrukt and Én forekomst. They narrow the cards shown and nothing
+ * else; a card click is still the one filter. The unused types (declared, no
+ * instance, `Catalogue.unused`) show only under Ubrukt, and not while another
+ * view's filter isolates the gallery, since they have no instance to match
+ * it. An unused card is not a door: it has no instances to filter to and no
+ * page to open.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -63,6 +75,10 @@ import { typePage, type TypePageInput } from "./type-page";
 import { CodeLineView, TypePage, type Open } from "./TypePage";
 import { MaterialCardView, SetCardView } from "./MaterialsTab";
 import type { Focus } from "./trace";
+import { FacetBar } from "./FacetBar";
+import { narrow, typeItems, type ElementFacets, type FacetId, type FacetSelection } from "./facets";
+
+const TYPE_FACETS: readonly FacetId[] = ["entity", "system", "function", "ext", "lb", "fire", "use"];
 
 /** true · false · unset, the demo's badge: one number when the whole type
  *  agrees, the three counts when it does not. */
@@ -150,6 +166,7 @@ export function TypesTab({
   catalogue,
   scopedCatalogue = null,
   codes,
+  facetIndex,
   meshBatches,
   selection,
   view,
@@ -171,6 +188,8 @@ export function TypesTab({
   scopedCatalogue?: Catalogue | null;
   /** Each card's system and function line (`typeCodes`), per board. */
   codes: Map<string, TypeCodes> | null;
+  /** Each element's facet values (`elementFacets`), per profile and board. */
+  facetIndex: ElementFacets | null;
   /** The streamed geometry, for the card renders and the lent 3D. */
   meshBatches: MeshBatch[] | undefined;
   /** The panel's `view.selection`, for scripts. */
@@ -199,6 +218,16 @@ export function TypesTab({
   const allRows = useMemo(() => catalogue?.types ?? [], [catalogue]);
   const byKey = useMemo(() => new Map(allRows.map((r) => [r.key, r])), [allRows]);
   const rows = scopedCatalogue?.types ?? allRows;
+  // The facets narrow the cards shown; the unused types join only under
+  // Ubrukt, and never while another view isolates the gallery.
+  const unusedRows = useMemo(() => (scopedCatalogue ? [] : (catalogue?.unused ?? [])), [scopedCatalogue, catalogue]);
+  const [facetSel, setFacetSel] = useState<FacetSelection>({});
+  const facetItems = useMemo(() => typeItems(rows, unusedRows, facetIndex ?? new Map()), [rows, unusedRows, facetIndex]);
+  const shown = useMemo(() => {
+    const keep = narrow(facetItems.items, facetSel);
+    return [...rows, ...unusedRows].filter((r) => keep.has(r.key));
+  }, [facetItems, facetSel, rows, unusedRows]);
+  const shownTotal = shown.reduce((sum, r) => sum + r.count, 0);
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
 
@@ -418,12 +447,19 @@ export function TypesTab({
       onKeyDown={onKeyDown}
       className="relative flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
     >
-      <div className={"flex shrink-0 items-center gap-3 px-4 pt-1 font-mono text-[10px] text-muted tabular-nums" + (open ? " invisible" : "")}>
-        <span data-type-total={rows.reduce((sum, r) => sum + r.count, 0)}>{`${formatCount(rows.length, lang)} · ${t("col.instances", lang)} ${formatCount(
-          rows.reduce((sum, r) => sum + r.count, 0),
-          lang,
-        )}`}</span>
-      </div>
+      <FacetBar
+        lang={lang}
+        facets={TYPE_FACETS}
+        items={facetItems}
+        sel={facetSel}
+        onChange={setFacetSel}
+        className={open ? "invisible" : ""}
+        trail={
+          <span data-type-total={shownTotal} className="font-mono text-[10px] text-muted tabular-nums">
+            {`${formatCount(shown.length, lang)} · ${t("col.instances", lang)} ${formatCount(shownTotal, lang)}`}
+          </span>
+        }
+      />
       {rows.length === 0 ? (
         <div className="px-2 py-6 text-center font-mono text-[11px] text-muted">
           {profile ? t("type.none", lang) : notSupplied}
@@ -470,8 +506,17 @@ export function TypesTab({
         >
           <div className="contents" data-xf={view.origin === "types" ? "origin" : undefined}>
           <Gallery unit={[2, 2]} label="types">
-            {rows.map((row) => {
+            {shown.map((row) => {
               const name = row.typeName ?? t("type.untyped", lang);
+              if (row.count === 0)
+                return (
+                  <GalleryCard key={row.key} title={`${row.entity} · ${name}`} data={{ "data-type-card": row.key, "data-type-count": 0, "data-type-unused": "" }}>
+                    <div className="flex min-h-0 flex-1 items-center justify-center" data-thumb="none">
+                      <NoGeometryMark />
+                    </div>
+                    <CardFoot lang={lang} row={row} name={name} codes={null} />
+                  </GalleryCard>
+                );
               return (
                 <GalleryCard
                   key={row.key}

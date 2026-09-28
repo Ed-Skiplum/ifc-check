@@ -86,5 +86,7 @@ export function withTypeFacts(profile: ModelProfile, graph: IfcGraph): ModelProf
   const next: ModelProfile = { ...profile, rows };
   // The engine's material rows, carried as they are for the Materialer tab.
   if (graph.materials) next.materialRows = graph.materials;
+  // The declared type roster, for the Typer tab's unused types.
+  if (graph.type_objects) next.typeObjects = graph.type_objects.map(({ guid, entity, name }) => ({ guid, entity, name }));
   return next;
 }

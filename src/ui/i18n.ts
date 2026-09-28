@@ -272,6 +272,9 @@ const STRINGS = {
   "type.perType": { nb: "Forekomster per type", en: "Instances per type" },
   "type.median": { nb: "Median", en: "Median" },
   "type.single": { nb: "Én forekomst", en: "One instance" },
+  // The Typer and Materialer facets (`facets.ts`): the two not named above.
+  "facet.function": { nb: "Funksjonskode", en: "Function code" },
+  "facet.unused": { nb: "Ubrukt", en: "Unused" },
   // OUR band, said to be ours. The boundary itself is printed beside it, so the
   // number a reader would want to argue with is on the screen, not in the code.
   "type.threshold": { nb: "Vår terskel", en: "Our threshold" },
