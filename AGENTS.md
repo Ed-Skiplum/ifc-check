@@ -676,7 +676,7 @@ Chase these upstream rather than living with them silently:
 | profile | the whole `IfcProfileDef` family, and representation access of any kind — no accessor exists |
 | quantities | the unit: `quantitiesJson()` gives `unit_step_id`, a STEP id with nothing to resolve it |
 | properties | no unit per property either |
-| materials | layer THICKNESSES — only the layer set's NAME reaches the graph, so a to-scale layer drawing cannot be honest |
+| materials | `IfcMaterialLayerSetUsage` DirectionSense and OffsetFromReferenceLine (the thicknesses DO arrive, per layer, in `materialsJson()`; the 1:20 section draws the file's `layer_index` order and cannot say which face is which) |
 | placement | `ObjectPlacement`, and the core's `drift_distance_m` (row count only) |
 | types | a type object's own property rows — ifcfast folds them onto the occurrences that inherit them |
 
@@ -1057,6 +1057,31 @@ before; a click does what the row did (Type chip, material chip).
 - **Layer set card**: the layers as one strip in proportion to their
   thickness (a layer without one is hatched at an equal share), count, layer
   count and total, then each layer's thickness and material.
+
+### The layer section, 1:20 (2026-09-28)
+
+Owner: *"a view that shows the material layer and thickness. A sandwich
+component essentially. 1:20"*, scoped to *"make [the strip] a bit more
+apparent"*. Geometry in `src/ui/layer-section.ts` (pure, selftested):
+`PX_PER_MM` = 96/25.4/20 = **0.1890 px per mm**, fixed, so two sections
+compare by eye; too thick for its tile, the section scrolls, never rescales.
+
+- **Type page**: its own tile (`layers` in `pageLayout`, top of the widest
+  column, only when the type has a layer stack), the most used stack cut as a
+  600 mm piece: walls stand (layers left to right), slabs and roofs lie. Break
+  lines at the open ends, a dimension chain with a tick per face and the
+  total, a leader per layer with its mm and material, a 0 to 500 mm scale bar
+  and `1:20`. The identity tile no longer repeats the list.
+- **Cards** (Materialer layer sets, the sets under the Typer viewer): the
+  strip is taller, still proportional, mm on a layer wide enough, a swatch
+  per layer row. No card click was added; the click still selects.
+- **Colour and hatch** by the material NAME only where it maps clearly
+  (`materialCategory`: isolasjon, betong, gips, tre, mur, metall, folie,
+  luft); anything else is `other`, a stable categorical colour per name and
+  no hatch. A layer with no thickness is 8 px of the `ikke levert` hatch and
+  the total is unknown, never 0.
+- **Direction**: `layer_index` order as the file gives it. DirectionSense is
+  not exposed by the wasm engine (see the table under the object panel).
 
 ### Type instances and what goes with what (2026-09-28)
 

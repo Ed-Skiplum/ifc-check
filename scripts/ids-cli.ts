@@ -85,6 +85,7 @@ import {
   mmiColour,
 } from "../src/ui/chart-colors.ts";
 import { classRamp } from "../src/ui/graph-paint.ts";
+import { layerSection, PX_PER_MM, sectionOrientation, UNKNOWN_PX } from "../src/ui/layer-section.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -2006,6 +2007,30 @@ async function cmdSelftest(): Promise<number> {
     "ordered",
     [0, 1, 2, 3, 4, 5, 6].every((i) => i === 0 || luminance(mmiColour(i, 7)) < luminance(mmiColour(i - 1, 7))) ? "ordered" : "not",
   );
+
+  // The layer section (src/ui/layer-section.ts): an honest 1:20, the file's
+  // order, the total, and a layer with no thickness never drawn as 0.
+  record("layers: px per mm at 1:20 (96 px per inch)", "0.1890", PX_PER_MM.toFixed(4));
+  const cut = layerSection([
+    { material: "Gips 12,5", thickness: 12.5 },
+    { material: "Mineralull", thickness: 200 },
+    { material: "Betong B35", thickness: 150 },
+  ]);
+  record(
+    "layers: order kept, bands abut at scale, total the sum",
+    "0,12.5,212.5|362.5|68.50|gypsum,insulation,concrete",
+    `${cut.bands.map((b) => +(b.at / PX_PER_MM).toFixed(2)).join(",")}|${cut.totalMm}|${cut.px.toFixed(2)}|${cut.bands.map((b) => b.category).join(",")}`,
+  );
+  const gap = layerSection([
+    { material: "Trekledning", thickness: 22 },
+    { material: null, thickness: null },
+  ]);
+  record(
+    "layers: a layer with no thickness is drawn nominal and hatched, the total unknown",
+    `unknown ${UNKNOWN_PX} null wood`,
+    `${gap.bands[1].unknown ? "unknown" : "known"} ${gap.bands[1].size} ${gap.totalMm} ${gap.bands[0].category}`,
+  );
+  record("layers: walls stand, slabs and roofs lie", "vertical horizontal horizontal", ["IfcWallStandardCase", "IfcSlab", "IfcRoof"].map(sectionOrientation).join(" "));
 
   const ok = assertions.every((a) => a.ok);
   emit({

@@ -31,7 +31,7 @@
  *   · the model dots (one model per panel).
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
@@ -43,6 +43,8 @@ import { WithViewer } from "./BoardViewer";
 import { useFillHeight } from "./useFillHeight";
 import type { Catalogue, LayerSetCard, Link, MaterialCard, TypeCard } from "./type-links";
 import type { Reveal } from "./TypesTab";
+import { css } from "./chart-colors.ts";
+import { BAR_MM, layerFill, layerSection, materialCategory, sectionFrame, sectionOrientation, type LayerCategory } from "./layer-section.ts";
 
 export const mm = (value: number, lang: Lang) =>
   `${value.toLocaleString(lang === "nb" ? "nb-NO" : "en-GB", { maximumFractionDigits: 0 })} mm`;
@@ -296,6 +298,7 @@ export function SetCardView({
         <div className="min-h-0 flex-[3_1_0] overflow-auto">
           {set.layers.map((layer, i) => (
             <div key={i} className="flex items-baseline gap-2 font-mono text-[10.5px] leading-[15px] text-muted">
+              <LayerSwatch material={layer.material} thickness={layer.thickness} />
               <span className="w-14 shrink-0 text-right text-ink tabular-nums">{layer.thickness === null ? "—" : mm(layer.thickness, lang)}</span>
               <span className="min-w-0 truncate">{layer.material ?? "—"}</span>
             </div>
@@ -313,28 +316,212 @@ function Empty({ children }: { children: string }) {
   return <div className="px-2 py-6 text-center font-mono text-[11px] text-muted">{children}</div>;
 }
 
+/** A layer's CSS background: the category's hatch over its fill (the cards'
+ *  strip and swatches; the 1:20 section draws the same in SVG). */
+const INKA = (a: number) => `rgb(20 26 34 / ${a})`;
+const HATCH_CSS: Partial<Record<LayerCategory, string>> = {
+  insulation: `repeating-linear-gradient(60deg, ${INKA(0.4)} 0 1px, transparent 1px 6px), repeating-linear-gradient(-60deg, ${INKA(0.4)} 0 1px, transparent 1px 6px)`,
+  concrete: `radial-gradient(${INKA(0.55)} 0.8px, transparent 1.3px) 0 0 / 5px 5px`,
+  gypsum: `repeating-linear-gradient(45deg, ${INKA(0.35)} 0 1px, transparent 1px 3px)`,
+  wood: `repeating-linear-gradient(90deg, ${INKA(0.35)} 0 1px, transparent 1px 4px)`,
+  masonry: `repeating-linear-gradient(45deg, ${INKA(0.45)} 0 1px, transparent 1px 5px)`,
+};
+function layerBackground(material: string | null, category: LayerCategory): string {
+  const fill = layerFill(material, category);
+  const hatch = HATCH_CSS[category];
+  const base = fill ? css(fill) : "var(--color-panel)";
+  return hatch ? `${hatch}, ${base}` : base;
+}
+
+/** A small swatch in the layer's colour and hatch, for the layer lists. */
+export function LayerSwatch({ material, thickness }: { material: string | null; thickness: number | null }) {
+  const unknown = thickness === null || !(thickness > 0);
+  return (
+    <span
+      className={"inline-block h-2.5 w-3.5 shrink-0 self-center rounded-[2px] border border-line" + (unknown ? " gallery-layer-unknown" : "")}
+      style={unknown ? undefined : { background: layerBackground(material, materialCategory(material)) }}
+      data-layer-category={materialCategory(material)}
+    />
+  );
+}
+
 /** The layers, side by side in the order of the set, each as wide as its
- *  thickness is of the total. A layer with no thickness takes an equal share
- *  and is hatched, so it cannot pass for a measure. */
+ *  thickness is of the total, in the material's colour and hatch, the mm on
+ *  a layer wide enough to hold it. A layer with no thickness takes an equal
+ *  share and is hatched, so it cannot pass for a measure. */
 export function LayerStrip({ layers, lang }: { layers: LayerSetCard["layers"]; lang: Lang }) {
   const known = layers.filter((l) => l.thickness !== null && l.thickness > 0);
   const sum = known.reduce((s, l) => s + (l.thickness ?? 0), 0);
   const unknownShare = layers.length > 0 ? (layers.length - known.length) / layers.length : 0;
   return (
-    <div className="flex h-7 shrink-0 overflow-hidden rounded-[6px] border border-line">
+    <div className="flex h-11 shrink-0 overflow-hidden rounded-[6px] border border-ink/40" data-layer-strip>
       {layers.map((layer, i) => {
         const has = layer.thickness !== null && layer.thickness > 0;
         const share = has ? ((layer.thickness ?? 0) / sum) * (1 - unknownShare) : 1 / layers.length;
+        const category = materialCategory(layer.material);
         return (
           <span
             key={i}
             title={`${layer.thickness === null ? "—" : mm(layer.thickness, lang)} · ${layer.material ?? "—"}`}
-            className={"gallery-layer h-full min-w-[3px]" + (has ? "" : " gallery-layer-unknown")}
-            data-shade={i % 3}
-            style={{ flex: `${Math.max(share, 0.0001)} 1 0` }}
-          />
+            className={"gallery-layer flex h-full min-w-[3px] items-end justify-center overflow-hidden" + (has ? "" : " gallery-layer-unknown")}
+            data-layer-category={category}
+            style={{ flex: `${Math.max(share, 0.0001)} 1 0`, background: has ? layerBackground(layer.material, category) : undefined }}
+          >
+            {has && share >= 0.16 ? (
+              <span className="mb-0.5 rounded-[3px] bg-panel/85 px-0.5 font-mono text-[9.5px] leading-[12px] text-ink tabular-nums">
+                {Math.round(layer.thickness ?? 0)}
+              </span>
+            ) : null}
+          </span>
         );
       })}
     </div>
+  );
+}
+
+/** The type page's section: a piece of the element cut through its
+ *  thickness at an honest 1:20 (`layer-section.ts`), break lines at the open
+ *  ends, the dimension chain with the total, each layer's thickness and
+ *  material on a leader, and a scale bar. Too thick for its tile, it scrolls
+ *  there; it never rescales. */
+export function LayerSection({ layers, entity, lang }: { layers: LayerSetCard["layers"]; entity: string; lang: Lang }) {
+  const id = useId().replace(/:/g, "");
+  const section = layerSection(layers);
+  const orientation = sectionOrientation(entity);
+  const notSupplied = t("type.notSupplied", lang);
+  const texts = section.bands.map((b) => `${b.unknown ? notSupplied : mm(b.thickness ?? 0, lang)}  ${b.material ?? "—"}`);
+  const f = sectionFrame(section, orientation, texts.map((s) => s.length));
+  const p = f.piece;
+  const vertical = orientation === "vertical";
+  const ink = "var(--color-ink)";
+  // A break line across an open end: straight, with the Z in the middle.
+  const brk = (x1: number, y1: number, x2: number, y2: number) => {
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    return vertical
+      ? `M${x1 - 5} ${y1}H${mx - 3}L${mx - 1} ${my - 4}L${mx + 1} ${my + 4}L${mx + 3} ${my}H${x2 + 5}`
+      : `M${x1} ${y1 - 5}V${my - 3}L${mx + 4} ${my - 1}L${mx - 4} ${my + 1}L${mx} ${my + 3}V${y2 + 5}`;
+  };
+  const pat = (c: LayerCategory, unknown: boolean) => (unknown ? `${id}-unknown` : HATCH_CSS[c] ? `${id}-${c}` : null);
+  const total = section.totalMm === null ? `— (${notSupplied})` : mm(section.totalMm, lang);
+  const tick = (v: number) => (vertical ? `M${v - 2.5} ${f.dim.y1 + 2.5}L${v + 2.5} ${f.dim.y1 - 2.5}` : `M${f.dim.x1 - 2.5} ${v + 2.5}L${f.dim.x1 + 2.5} ${v - 2.5}`);
+  const steps = BAR_MM / 100;
+  return (
+    <svg
+      width={f.width}
+      height={f.height}
+      className="block font-mono text-[10px]"
+      data-layer-section={orientation}
+      data-px-per-mm={section.pxPerMm.toFixed(4)}
+      role="img"
+      aria-label={`1:20 · ${texts.join(" · ")} · ${total}`}
+    >
+      <defs>
+        {/* Wood grain runs along the element: across the cut's thickness. */}
+        <pattern id={`${id}-insulation`} width="6" height="6" patternUnits="userSpaceOnUse">
+          <path d="M0 0L6 6M6 0L0 6" stroke={ink} strokeOpacity="0.45" strokeWidth="0.6" />
+        </pattern>
+        <pattern id={`${id}-concrete`} width="6" height="6" patternUnits="userSpaceOnUse">
+          <circle cx="1.5" cy="1.5" r="0.7" fill={ink} fillOpacity="0.55" />
+          <circle cx="4.5" cy="4.2" r="0.5" fill={ink} fillOpacity="0.55" />
+        </pattern>
+        <pattern id={`${id}-gypsum`} width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <path d="M0 0V3" stroke={ink} strokeOpacity="0.35" strokeWidth="0.6" />
+        </pattern>
+        <pattern id={`${id}-wood`} width="4" height="4" patternUnits="userSpaceOnUse" patternTransform={vertical ? "rotate(90)" : undefined}>
+          <path d="M0 2H4" stroke={ink} strokeOpacity="0.4" strokeWidth="0.6" />
+        </pattern>
+        <pattern id={`${id}-masonry`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <path d="M0 0V5" stroke={ink} strokeOpacity="0.5" strokeWidth="0.6" />
+        </pattern>
+        <pattern id={`${id}-unknown`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(135)">
+          <rect width="6" height="6" fill="var(--color-panel)" />
+          <path d="M0 0V6" stroke="var(--color-line)" strokeWidth="3" />
+        </pattern>
+      </defs>
+
+      {section.bands.map((b) => {
+        const r = vertical ? { x: p.x + b.at, y: p.y, width: b.size, height: p.h } : { x: p.x, y: p.y + b.at, width: p.w, height: b.size };
+        const fill = layerFill(b.material, b.category);
+        const hatch = pat(b.category, b.unknown);
+        return (
+          <g key={b.index} data-section-layer={b.index} data-layer-category={b.category} data-unknown={b.unknown ? "" : undefined}>
+            <title>{texts[b.index]}</title>
+            {!b.unknown ? <rect {...r} fill={fill ? css(fill) : "var(--color-panel)"} /> : null}
+            {hatch ? <rect {...r} fill={`url(#${hatch})`} /> : null}
+            {b.index > 0 ? (
+              <path d={vertical ? `M${r.x} ${p.y}V${p.y + p.h}` : `M${p.x} ${r.y}H${p.x + p.w}`} stroke={ink} strokeOpacity="0.55" strokeWidth="0.5" />
+            ) : null}
+          </g>
+        );
+      })}
+      {/* The cut faces, solid; the open ends, break lines. */}
+      <path
+        d={vertical ? `M${p.x} ${p.y}V${p.y + p.h}M${p.x + p.w} ${p.y}V${p.y + p.h}` : `M${p.x} ${p.y}H${p.x + p.w}M${p.x} ${p.y + p.h}H${p.x + p.w}`}
+        stroke={ink}
+        strokeWidth="1.2"
+        fill="none"
+      />
+      <path
+        d={
+          vertical
+            ? `${brk(p.x, p.y, p.x + p.w, p.y)}${brk(p.x, p.y + p.h, p.x + p.w, p.y + p.h)}`
+            : `${brk(p.x, p.y, p.x, p.y + p.h)}${brk(p.x + p.w, p.y, p.x + p.w, p.y + p.h)}`
+        }
+        stroke={ink}
+        strokeWidth="0.8"
+        fill="none"
+      />
+
+      {/* The dimension chain: a tick per layer face, the total on it. */}
+      <g data-section-dim="" stroke={ink} strokeWidth="0.7" fill="none">
+        <path d={`M${f.dim.x1} ${f.dim.y1}L${f.dim.x2} ${f.dim.y2}`} />
+        {f.dim.ticks.map((v, i) => (
+          <path key={i} d={tick(v)} strokeWidth="1" />
+        ))}
+      </g>
+      <text
+        x={f.dim.tx}
+        y={f.dim.ty}
+        fill={ink}
+        textAnchor={vertical ? "start" : "middle"}
+        transform={vertical ? undefined : `rotate(-90 ${f.dim.tx} ${f.dim.ty})`}
+        className="tabular-nums"
+        data-section-total={section.totalMm ?? ""}
+      >
+        {total}
+      </text>
+
+      {/* Leaders: a dot in the layer, the line out, thickness and material. */}
+      {f.labels.map((l, i) => (
+        <g key={i}>
+          <circle cx={l.points[0][0]} cy={l.points[0][1]} r="1.4" fill={ink} />
+          <polyline points={l.points.map((q) => q.join(",")).join(" ")} stroke={ink} strokeWidth="0.6" fill="none" />
+          <text x={l.tx} y={l.ty} fill={ink} className="tabular-nums" data-section-label={i}>
+            <tspan fontWeight="600">{section.bands[i].unknown ? notSupplied : mm(section.bands[i].thickness ?? 0, lang)}</tspan>
+            <tspan fill="var(--color-muted)">{`  ${section.bands[i].material ?? "—"}`}</tspan>
+          </text>
+        </g>
+      ))}
+
+      {/* Scale bar, 0 to 500 mm in 100 mm steps, and the scale. */}
+      <g data-section-bar="">
+        {Array.from({ length: steps }, (_, i) => (
+          <rect
+            key={i}
+            x={f.bar.x + (i * f.bar.len) / steps}
+            y={f.bar.y}
+            width={f.bar.len / steps}
+            height="3"
+            fill={i % 2 ? "var(--color-panel)" : ink}
+            stroke={ink}
+            strokeWidth="0.5"
+          />
+        ))}
+        <text x={f.bar.x} y={f.bar.y + 13} fill="var(--color-muted)">0</text>
+        <text x={f.bar.x + f.bar.len} y={f.bar.y + 13} fill="var(--color-muted)" textAnchor="middle">{`${BAR_MM} mm`}</text>
+        <text x={f.bar.x + f.bar.len + 24} y={f.bar.y + 13} fill={ink} fontWeight="600" data-section-scale="1:20">1:20</text>
+      </g>
+    </svg>
   );
 }
