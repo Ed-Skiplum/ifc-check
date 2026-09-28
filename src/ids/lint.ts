@@ -848,7 +848,36 @@ export function lintRuleset(ruleset: Ruleset): LintIssue[] {
   if (rules.length === 0) {
     add(ctx, "warning", "rules", "rules-empty", "ruleset has no rules");
   }
+  checkPlaceholders(ctx, ruleset, "");
+  ctx.ruleId = null;
   return ctx.issues;
+}
+
+/** The marker the config templates (docs/agent-guide.md, the .xlsx template)
+ *  put where a value must come from the project. A string still carrying it
+ *  is an unfilled template, so it is an error wherever it sits. */
+export const FROM_PROJECT = "<FROM PROJECT";
+
+function checkPlaceholders(ctx: Ctx, value: unknown, path: string): void {
+  if (typeof value === "string") {
+    if (value.includes(FROM_PROJECT)) {
+      add(ctx, "error", path, "from-project", `"${value}" is a template placeholder; fill in the project's value`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => {
+      if (path === "rules") ctx.ruleId = (item as { id?: string } | null)?.id ?? null;
+      checkPlaceholders(ctx, item, `${path}[${i}]`);
+    });
+    if (path === "rules") ctx.ruleId = null;
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      checkPlaceholders(ctx, item, path === "" ? key : `${path}.${key}`);
+    }
+  }
 }
 
 export function hasErrors(issues: LintIssue[]): boolean {

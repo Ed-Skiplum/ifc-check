@@ -645,7 +645,17 @@ async function cmdSelftest(): Promise<number> {
     ["a copy-object mapping with an empty values list", withRules([
       mappingRule("copy-object", { values: [] }),
     ]), "code-values-empty"],
+    ["an unfilled template placeholder", withRules([
+      mappingRule("progress-code", { values: ["300"], source: { property: { propertySet: "<FROM PROJECT>", name: "MMI" } } }),
+    ]), "from-project"],
   ];
+  record(
+    "lint: a placeholder is located at its path and on its rule",
+    "rules[0].check.source.property.propertySet progress-code",
+    lintRuleset(withRules([
+      mappingRule("progress-code", { values: ["300"], source: { property: { propertySet: "<FROM PROJECT>", name: "MMI" } } }),
+    ])).filter((i) => i.code === "from-project").map((i) => `${i.path} ${i.ruleId}`).join(" | "),
+  );
   for (const [name, ruleset, code] of mappingNegatives) {
     record(`lint rejects: ${name}`, code, lintCodes(ruleset));
   }
