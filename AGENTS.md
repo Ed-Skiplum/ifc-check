@@ -58,6 +58,10 @@ src/ui/          the screen, and the worker that drives the engine
   forms.tsx        gauge, distribution, KPI row, readouts
   SetupPage.tsx    the project mappings page (`#page=setup`)
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
+  import.ts      IDS 1.0 XML -> ruleset, per specification (see "The IDS view")
+  xml-read.ts    the DOM-free XML reader the importer runs on (Node and browser)
+  ids-report.ts  an imported IDS against one model: one row per specification
+src/ui/IdsResults.tsx  the IDS view in the Prosjekt tab
 src/builder/     rule builder UI (a strict subset of the JSON format)
 src/bcf/         BCF 2.1 export: topic plan, camera, spaces, XML, zip, XSD
                  validation (pure) + `browser.ts` (snapshots, download)
@@ -384,8 +388,11 @@ loaded it drops to the outlined style of the other bar controls. Then:
    the 3D beside it (below).
 4. **Typer** (`TypesTab.tsx`) and 5. **Materialer** (`MaterialsTab.tsx`): the
    type and material extraction (below).
+6. **Prosjekt** (`IdsResults.tsx`): the project's own requirements. For now the
+   IDS view only (see "The IDS view"). The tab's name is pending the owner and
+   lives in one key, `tab.project`.
 
-The tab is `tab=contents` / `graph` / `types` / `materials` in the URL hash (absent = Kontroll), one
+The tab is `tab=contents` / `graph` / `types` / `materials` / `project` in the URL hash (absent = Kontroll), one
 for all panels, pushed to history so Back/Forward walk it. Both tabs stay mounted and
 the inactive one is `hidden`, so the 3D scene and its camera survive a tab
 switch. The derivation band opens INSIDE the panel of the model it belongs to,
@@ -432,6 +439,7 @@ The surfaces whose rows are a set of elements, and all of them are doors:
 | Etasje × klasse storey row / total | Etasje | that floor, every class |
 | Etasje × klasse cell | Celle | that floor × that class |
 | Typer ledger row | Type | that type's instances (the untyped row too) |
+| IDS specification row (Prosjekt) | IDS | the spec's failing elements; a type object's finding stands for the elements using it |
 | a row of the derivation band | Element | that one element (below) |
 
 **The second step is an `element` chip.** A row of the open derivation selects
@@ -1912,6 +1920,73 @@ Each of these was hit while building this tool:
    `applicabilityType` and `requirementsType` are defined separately in the
    XSD; not every facet is legal in both.
 
+## The IDS view (Prosjekt tab, 2026-09-28)
+
+edkjo: *"We also need to add an IDS tab that only shows the IDS result"*;
+it lives in the Prosjekt tab (the project specifics, apart from the model
+health on Kontroll). An `.ids` is opened or dropped in the tab, runs against
+every loaded model as written, and shows one row per specification in file
+order: name · Aktuelle · Bestått · Avvik · status. It is separate from the
+ruleset: dropping the file on the tab does not load it as the ruleset (the
+tab marks the drop handled; `App` skips a drop a panel took).
+
+**States.** `pass`, `fail` (an element fails, or min/maxOccurs is broken),
+**`not_applicable` shown as "Ikke anvendt" / "Not applied"** (the
+applicability matched nothing, never a pass; ifctester reports this
+`status=true`), and `not_evaluable` with the reason (the row's title and the
+band). Counts are `–` where the state has none.
+
+**A click** opens the derivation band with the failing elements and adds an
+`ids` chip, which isolates them in the viewer beside the table: the board's
+one scene, lent (`LentViewer`, `viewerSpan` from `BoardViewer.tsx`, the table
+keeping 6 modules). A not-applied or not-evaluable row makes no chip, as a
+rule that did not run. The focus is `ids:<index>` in the hash.
+
+**Importer coverage** (`src/ids/import.ts`, DOM-free on `xml-read.ts`, so the
+CLI and the browser share it; `ruleset-file.ts` uses its strict form):
+
+- facets, both positions: entity (name, predefinedType), partOf (all five
+  relations, cardinality, instructions), classification (value, system, uri),
+  attribute (name, value), property (propertySet, baseName, value, dataType,
+  uri), material (value, uri); cardinality and instructions in requirements.
+- values: `simpleValue`, or `xs:restriction` with base string, boolean,
+  integer, double, decimal, date, dateTime, duration and the facets
+  enumeration, one pattern, min/max Inclusive/Exclusive, length, minLength,
+  maxLength.
+- `applicability` minOccurs/maxOccurs, `ifcVersion` (metadata, IFC2X3, IFC4,
+  IFC4X3_ADD2 kept, others dropped), `info`, default namespace or a prefix.
+- **Refused per specification, never guessed:** any other restriction facet
+  (`whiteSpace`, `fractionDigits`, `totalDigits`), a second `xs:pattern`,
+  another base, an unknown facet or element, a second entity facet,
+  `optional` on partOf. That specification becomes `not_evaluable` with the
+  path and the construct; the rest of the file runs. The strict form
+  (ruleset loader) refuses the whole file instead.
+
+**Against ifctester**, KNM.ids (38 specs; `10016-kistefos/.../KNM_Mottakskontroll/
+02_arbeid/ids/`, reports from `run_matrix.py`) on the 2026-09-28 exports, per
+spec applicable / pass / fail, `node scripts/ids-cli.ts ids`:
+
+| model | agree | differences |
+|---|---|---|
+| KNM_RIB | 38 of 38 | none |
+| KNM_ARK | 37 of 38 | "distribution element is in a system": `IFCRELASSIGNSTOGROUP` not exposed, `not_evaluable` here, ifctester 10 / 0 / 10 |
+| KNM_RIV | 36 of 38 | the same spec (ifctester 334 / 322 / 12); "Element is placed in a spatial structure" 653 / 652 / 1 here, 653 / 653 / 0 in ifctester: the `IfcGeographicElement` contained in `IfcSite` (the containment limit above) |
+
+Before the evaluator changes listed under "The evaluator's boundary", RIB
+agreed on 32 of 38 and ARK/RIV differed on the containment spec by 265 / 1:
+type-class specs read NOT APPLIED, IfcBoolean `False` failed an `xs:boolean`
+enumeration, materials read layer sets only, and aggregated parts (stair
+flights, curtain wall plates and members) had no container.
+
+Verified: `selftest` (importer round trip of the emitted sample, default
+namespace, an unreadable spec kept in place, the strict refusal, and each
+state and parity rule above on a synthetic model); a local headless Chrome
+run of the built app (`vite preview`, not the deployed site) at 1440×900 with
+KNM_RIB and KNM.ids under `design=b`: 38 rows in file order, 16 read Ikke
+anvendt, the viewer lent beside the table (6×4), a click on "MMI present"
+put `ids:6` in the hash, one chip and 3 band rows; a not-applied row made no
+chip; the `.ids` did not load as the ruleset.
+
 ## The wasm engine
 
 `vendor/ifcfast-wasm/` is a build of ifcfast's `crates/wasm`, not authored here.
@@ -2251,6 +2326,7 @@ node scripts/ids-cli.ts sample                        # a worked ruleset to star
 node scripts/ids-cli.ts lint   my.ruleset.json
 node scripts/ids-cli.ts emit   my.ruleset.json [--out DIR]
 node scripts/ids-cli.ts run    my.ruleset.json a.ifc [b.ifc ...]
+node scripts/ids-cli.ts ids    my.ids a.ifc [...] [--max-findings N]   # see "The IDS view"
 node scripts/ids-cli.ts report [--ruleset my.ruleset.json] a.ifc [...]   # see "Report contract"
 node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] a.ifc [...]   # see "Pset inventory"
 node scripts/ids-cli.ts selftest
@@ -2273,12 +2349,50 @@ ObjectType, Tag, PredefinedType · materials · the relations
 `IFCRELCONTAINEDINSPATIALSTRUCTURE`, `IFCRELAGGREGATES`,
 `IFCRELVOIDSELEMENT IFCRELFILLSELEMENT` · type linkage · applicability
 occurrence bounds · **every property, by property set plus name** · **every
-classification reference, by system and code**.
+classification reference, by system and code** · **every quantity, read as a
+property** · **the declared type objects, for IDS rules**.
 
 **Not evaluable, and reported as such:** attributes outside those five ·
 `IFCRELNESTS` · `IFCRELASSIGNSTOGROUP` · a facet whose name is itself a
 restriction · a property or classification facet on a graph that carries no
-such table, which names the missing table rather than passing.
+such table, which names the missing table rather than passing · on a type
+object: anything but GlobalId, class, Name and materials.
+
+Added 2026-09-28 for IDS parity (measured against ifctester, "The IDS view"):
+
+- **Quantities are properties.** `quantitiesJson()` rows join the property
+  index as (Qto set, quantity name, value), because IDS reads an
+  `IfcElementQuantity` as a property set. The value type is the measure the
+  kind implies (`Length` -> `IfcLengthMeasure`), so a `dataType` on a
+  quantity can match.
+- **Property values compare by their IFC type.** ifcfast writes an
+  IfcBoolean as `True` / `False`; IDS writes `true` / `false`. A boolean or
+  logical is compared in the XSD lexical space, a number as a number (`3.`
+  equals `3`, relative tolerance 1e-6). Everything else, and every attribute,
+  is a literal string compare as before.
+- **Materials read `materialsJson()` when it is attached** (the parse worker,
+  the cache and every CLI attach it): every association, the element's own
+  and the one inherited from its type, `role` `unknown` included, and a value
+  matches a material's Name or Category. Without the table the facet reads
+  `ModelProduct.materials`, layer sets only, as before.
+- **The declared type objects are selectable by IDS rules.** An entity facet
+  naming `IFCWALLTYPE` selects the type objects (`type_objects`, ifcfast's
+  `IfcWalltype` spelling compared uppercased); before this it matched nothing
+  and read NOT APPLIED on a file full of types. Extended rules keep the
+  element universe. A type row answers GlobalId, class, Name and materials;
+  a property, classification or PredefinedType on it is `not_evaluable`,
+  because ifcfast folds a type's own sets onto the occurrences.
+- **partOf is recursive, as IDS 1.0 defines it.** Containment reads the
+  element's own storey containment or, for a part of an assembly (a stair
+  flight, a curtain wall plate), the containment of the nearest aggregate
+  ancestor; the facet's entity may be the container or any spatial element
+  above it. Aggregation walks up the same way. Voids stay one step.
+- **Containment limit, stated on the finding.** The graph carries STOREY
+  containment only (`IfcGraph.contained_in`). An element contained directly
+  in a site, building or space has no container here and fails a containment
+  requirement, with the reason saying the parser cannot see such a container.
+  KNM_RIV has one: `IfcGeographicElement` "Site objekt", in `IfcSite` by
+  `IFCRELCONTAINEDINSPATIALSTRUCTURE` #288474 (read in the STEP text).
 
 **Property identity is (property set, property name).** The old caveat — "a
 property rule matches on base name only" — is gone, and so is the note that

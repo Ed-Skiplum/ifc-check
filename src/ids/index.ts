@@ -48,5 +48,7 @@ export {
   type RuleResult,
   evaluateRuleset,
 } from "./evaluate.ts";
+export { type ImportedIds, type ImportedSpec, importIds, parseIdsXml } from "./import.ts";
+export { type IdsModelResult, type IdsSpecResult, evaluateIds } from "./ids-report.ts";
 export { RULESET_JSON_SCHEMA, RULESET_SCHEMA_ID } from "./schema.ts";
 export { SAMPLE_RULESET } from "./sample.ts";

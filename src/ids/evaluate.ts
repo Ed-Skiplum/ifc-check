@@ -28,8 +28,10 @@ import { CODE_LISTS, CODE_LIST_IDS, type CodeList } from "../codelists/index.ts"
 import type {
   ModelClassification,
   ModelGraph,
+  ModelMaterial,
   ModelProduct,
   ModelProperty,
+  ModelQuantity,
   ModelSummary,
 } from "./model.ts";
 import type {
@@ -169,6 +171,70 @@ function matchesValue(constraint: IdsValue, value: string | null): boolean {
   return matchesRestriction(constraint.restriction, value);
 }
 
+/** How a property value compares, by the IFC type it was written as.
+ *
+ * ifcfast renders a STEP value as text: an IfcBoolean `.T.` is `True`, a
+ * measure is its STEP literal (`3.`). IDS writes values in the XSD lexical
+ * space: `true` / `false`, and numbers compare as numbers (`3` is `3.`). So a
+ * property value is normalised by its `value_type` before it is compared;
+ * anything else compares as the literal string, which is what an attribute,
+ * a classification code or a material name is. */
+type ValueKind = "boolean" | "number" | "string";
+
+const NUMERIC_TYPES = /^IFC(INTEGER|REAL|POSITIVEINTEGER|[A-Z]*MEASURE)$/;
+
+function valueKind(valueType: string | null | undefined): ValueKind {
+  const upper = (valueType ?? "").toUpperCase();
+  if (upper === "IFCBOOLEAN" || upper === "IFCLOGICAL") return "boolean";
+  // IfcDescriptiveMeasure is a string despite its name.
+  if (NUMERIC_TYPES.test(upper) && upper !== "IFCDESCRIPTIVEMEASURE") return "number";
+  return "string";
+}
+
+function booleanLexical(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower === ".t." || lower === "1") return "true";
+  if (lower === ".f." || lower === "0") return "false";
+  if (lower === ".u.") return "unknown";
+  return lower;
+}
+
+/** Relative tolerance as ifctester applies it to floating point values. */
+function sameNumber(a: number, b: number): boolean {
+  if (a === b) return true;
+  return Math.abs(a - b) <= 1e-6 * Math.max(Math.abs(a), Math.abs(b));
+}
+
+function matchesTypedValue(constraint: IdsValue, value: string | null, kind: ValueKind): boolean {
+  if (value === null) return false;
+  if (kind === "boolean") {
+    const v = booleanLexical(value);
+    if (typeof constraint === "string") return booleanLexical(constraint) === v;
+    const r = constraint.restriction;
+    const enumeration = r.enumeration?.map(booleanLexical);
+    return matchesRestriction({ ...r, enumeration }, v);
+  }
+  if (kind === "number") {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return matchesValue(constraint, value);
+    if (typeof constraint === "string") {
+      const c = Number(constraint);
+      return Number.isFinite(c) ? sameNumber(c, n) : constraint === value;
+    }
+    const r = constraint.restriction;
+    if (r.enumeration) {
+      const hit = r.enumeration.some((e) => {
+        const c = Number(e);
+        return Number.isFinite(c) ? sameNumber(c, n) : e === value;
+      });
+      if (!hit) return false;
+      return matchesRestriction({ ...r, enumeration: undefined }, value);
+    }
+    return matchesRestriction(r, value);
+  }
+  return matchesValue(constraint, value);
+}
+
 function literal(value: IdsValue): string {
   return typeof value === "string" ? value : "<restriction>";
 }
@@ -184,14 +250,25 @@ const SUPPORTED_ATTRIBUTES = [
 ] as const;
 
 function spatialOnly(product: ModelProduct, what: string): never {
+  if (product.source === "type") {
+    throw new Unsupported(
+      `${what} is not exposed for type objects; the parser's type object rows ` +
+        `(${product.entity}) carry GlobalId, class and Name only`,
+    );
+  }
   throw new Unsupported(
     `${what} is not exposed for spatial structure elements; the parser's ` +
       `${product.entity} rows carry GlobalId and Name only`,
   );
 }
 
+/** A synthesized row: a spatial structure element or a type object. */
+function synthesized(product: ModelProduct): boolean {
+  return product.source === "spatial" || product.source === "type";
+}
+
 function readAttribute(product: ModelProduct, name: string): string | null {
-  if (product.source === "spatial" && name !== "GlobalId" && name !== "Name") {
+  if (synthesized(product) && name !== "GlobalId" && name !== "Name") {
     spatialOnly(product, `attribute ${name}`);
   }
   switch (name) {
@@ -236,6 +313,7 @@ function propertyRows(
         "psetsJson() to it before a property facet can be evaluated",
     );
   }
+  if (product.source === "type") throw new Unsupported(TYPE_TABLES);
   const rows = index.properties.get(product.guid) ?? [];
   return rows.filter(
     (row) =>
@@ -255,6 +333,7 @@ function classificationRows(
         "attach classificationsJson() to it before a classification facet can be evaluated",
     );
   }
+  if (product.source === "type") throw new Unsupported(TYPE_TABLES);
   const rows = index.classifications.get(product.guid) ?? [];
   if (system === undefined) return rows;
   return rows.filter((row) => matchesValue(system, row.system_name));
@@ -303,6 +382,38 @@ interface ModelIndex {
   spatialEntity: Map<string, string>;
   properties: Map<string, ModelProperty[]> | null;
   classifications: Map<string, ModelClassification[]> | null;
+  /** `materialsJson()` by owner, or null when the caller supplied none: the
+   *  material facet then reads `ModelProduct.materials` (layer sets only). */
+  materials: Map<string, ModelMaterial[]> | null;
+}
+
+/** Why a type object row cannot answer a property or classification facet. */
+const TYPE_TABLES =
+  "a type object's own property sets and classifications are not keyed by the type " +
+  "in the parsed tables (ifcfast folds them onto the occurrences that inherit them)";
+
+/** IDS reads an `IfcElementQuantity` as a property set, so a quantity joins
+ *  the property index as (set, name, value). Its `value_type` is the measure
+ *  its kind implies, which is what an IDS `dataType` on a quantity names. */
+const QUANTITY_MEASURE: Record<string, string> = {
+  LENGTH: "IfcLengthMeasure",
+  AREA: "IfcAreaMeasure",
+  VOLUME: "IfcVolumeMeasure",
+  COUNT: "IfcCountMeasure",
+  WEIGHT: "IfcMassMeasure",
+  TIME: "IfcTimeMeasure",
+};
+
+function quantityProperty(q: ModelQuantity): ModelProperty {
+  const kind = (q.quantity_type ?? "").toUpperCase().replace(/^IFCQUANTITY/, "");
+  return {
+    guid: q.guid,
+    pset_name: q.qto_name,
+    prop_name: q.quantity_name,
+    value: q.value,
+    value_type: QUANTITY_MEASURE[kind] ?? null,
+    source: q.source,
+  };
 }
 
 function groupByGuid<T extends { guid: string }>(rows: T[] | undefined): Map<string, T[]> | null {
@@ -372,14 +483,43 @@ function buildIndex(graph: ModelGraph): ModelIndex {
       aggregateParent.set(sb.storey_guid, sb.building_guid);
     }
   }
+  const propertyRows =
+    graph.psets === undefined ? undefined : [...graph.psets, ...(graph.quantities ?? []).map(quantityProperty)];
   return {
     containedIn: new Map((graph.contained_in ?? []).map((c) => [c.product_guid, c.storey_guid])),
     aggregateParent,
     voidHost: new Map((graph.voids ?? []).map((v) => [v.opening_guid, v.host_guid])),
     spatialEntity,
-    properties: groupByGuid(graph.psets),
+    properties: groupByGuid(propertyRows),
     classifications: groupByGuid(graph.classifications),
+    materials: groupByGuid(graph.materials),
   };
+}
+
+/** The declared type objects as selectable rows, for IDS rules only: an IDS
+ *  entity facet naming IFCWALLTYPE selects the type objects themselves, and
+ *  without these rows it would match nothing and read NOT APPLIED where the
+ *  file has types. They carry GlobalId, class and Name; every other read on
+ *  them is `not_evaluable` (`spatialOnly`, `TYPE_TABLES`). ifcfast spells the
+ *  class its own way (`IfcWalltype`, ifcfast#186); matching uppercases it. */
+function typeObjectRows(graph: ModelGraph): ModelProduct[] {
+  return (graph.type_objects ?? []).map((t) => ({
+    source: "type",
+    guid: t.guid,
+    entity: t.entity,
+    name: t.name,
+    predefined_type: null,
+    object_type: null,
+    tag: null,
+    storey_guid: null,
+    parent_guid: null,
+    type_name: null,
+    typed: false,
+    materials: [],
+    is_external: null,
+    fire_rating: null,
+    load_bearing: null,
+  }));
 }
 
 function entityOfGuid(
@@ -393,6 +533,43 @@ function entityOfGuid(
   return index.spatialEntity.get(guid) ?? null;
 }
 
+/** The aggregate parent of an object: the graph's `aggregates` (and the
+ *  storey -> building table), else the product row's own `parent_guid`. */
+function aggregateParentOf(
+  guid: string,
+  byGuid: Map<string, ModelProduct>,
+  index: ModelIndex,
+): string | undefined {
+  return index.aggregateParent.get(guid) ?? byGuid.get(guid)?.parent_guid ?? undefined;
+}
+
+/** The spatial container of an object as IDS reads it: its own containment,
+ *  or, for a part aggregated into an assembly (a stair flight in a stair, a
+ *  plate in a curtain wall), the containment of the nearest aggregate
+ *  ancestor that has one. `undefined` when no ancestor has one IN THE PARSED
+ *  GRAPH, which carries storey containment only: an element contained
+ *  directly in a site, building or space has no container here. */
+function containerOf(
+  product: ModelProduct,
+  byGuid: Map<string, ModelProduct>,
+  index: ModelIndex,
+): string | undefined {
+  const seen = new Set<string>();
+  let guid: string | undefined = product.guid;
+  while (guid !== undefined && !seen.has(guid)) {
+    seen.add(guid);
+    const container = index.containedIn.get(guid);
+    if (container !== undefined) return container;
+    guid = aggregateParentOf(guid, byGuid, index);
+  }
+  return undefined;
+}
+
+/** partOf, recursive as IDS 1.0 defines it: the facet's entity may be the
+ *  direct parent or any ancestor along the same relation, and a contained
+ *  element is also part of the spatial structure above its container (an
+ *  element in a storey is part of the building). Voids and fills stay one
+ *  step: an opening has one host. */
 function testPartOf(
   facet: PartOfFacet,
   product: ModelProduct,
@@ -400,18 +577,28 @@ function testPartOf(
   index: ModelIndex,
   versions: Ruleset["ifcVersions"],
 ): boolean {
-  let parentGuid: string | undefined;
+  const wanted = entityNameValue(facet.entity, versions);
+  const matchesUp = (start: string | undefined): boolean => {
+    const seen = new Set<string>();
+    let guid = start;
+    while (guid !== undefined && !seen.has(guid)) {
+      seen.add(guid);
+      const entity = entityOfGuid(guid, byGuid, index);
+      if (entity !== null && matchesValue(wanted, entity)) return true;
+      guid = aggregateParentOf(guid, byGuid, index);
+    }
+    return false;
+  };
   switch (facet.relation) {
     case undefined:
     case "IFCRELCONTAINEDINSPATIALSTRUCTURE":
-      parentGuid = index.containedIn.get(product.guid);
-      break;
+      return matchesUp(containerOf(product, byGuid, index));
     case "IFCRELAGGREGATES":
-      parentGuid = index.aggregateParent.get(product.guid) ?? product.parent_guid ?? undefined;
-      break;
-    case "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT":
-      parentGuid = index.voidHost.get(product.guid);
-      break;
+      return matchesUp(aggregateParentOf(product.guid, byGuid, index));
+    case "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT": {
+      const entity = entityOfGuid(index.voidHost.get(product.guid), byGuid, index);
+      return entity !== null && matchesValue(wanted, entity);
+    }
     default:
       throw new Unsupported(
         `partOf relation ${facet.relation} is not exposed by the parser; ` +
@@ -419,9 +606,6 @@ function testPartOf(
           "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT are",
       );
   }
-  const parentEntity = entityOfGuid(parentGuid, byGuid, index);
-  if (parentEntity === null) return false;
-  return matchesValue(entityNameValue(facet.entity, versions), parentEntity);
 }
 
 /** A classification facet: the object must carry a reference in the named
@@ -441,11 +625,29 @@ function testClassification(
   return rows.some((row) => matchesValue(facet.value as IdsValue, row.identification));
 }
 
-function testMaterial(facet: MaterialFacet, product: ModelProduct): boolean {
-  if (product.source === "spatial") spatialOnly(product, "a material");
-  const materials = product.materials ?? [];
-  if (facet.value === undefined) return materials.length > 0;
-  return materials.some((m) => matchesValue(facet.value as IdsValue, m));
+/** The material facet. With `materialsJson()` supplied it reads every
+ *  association, the element's own and the one inherited from its type, and a
+ *  value matches a material's Name or Category (IDS 1.0). An association
+ *  ifcfast does not resolve (`role` `unknown`, constituent and profile sets)
+ *  still counts as present. Without the table it reads `ModelProduct.materials`,
+ *  which holds layer-set materials only. */
+function materialNames(product: ModelProduct, index: ModelIndex): { present: boolean; names: string[] } {
+  if (index.materials !== null) {
+    // Keyed by owner GlobalId, so a type object or a spatial element reads
+    // its own assignments here like any product.
+    const rows = index.materials.get(product.guid) ?? [];
+    const names = rows.flatMap((r) => [r.material_name, r.category]).filter((n): n is string => !!n);
+    return { present: rows.length > 0, names };
+  }
+  if (synthesized(product)) spatialOnly(product, "a material");
+  const names = product.materials ?? [];
+  return { present: names.length > 0, names };
+}
+
+function testMaterial(facet: MaterialFacet, product: ModelProduct, index: ModelIndex): boolean {
+  const { present, names } = materialNames(product, index);
+  if (facet.value === undefined) return present;
+  return names.some((m) => matchesValue(facet.value as IdsValue, m));
 }
 
 function testAttribute(facet: AttributeFacet, product: ModelProduct): boolean {
@@ -464,7 +666,7 @@ function testProperty(facet: PropertyFacet, product: ModelProduct, index: ModelI
     rows = rows.filter((row) => (row.value_type ?? "").toUpperCase() === wanted);
   }
   if (facet.value === undefined) return present(rows);
-  return rows.some((row) => matchesValue(facet.value as IdsValue, row.value));
+  return rows.some((row) => matchesTypedValue(facet.value as IdsValue, row.value, valueKind(row.value_type)));
 }
 
 /** True when the element satisfies every facet in the selector. */
@@ -478,6 +680,9 @@ function selects(
   if (selector.entity) {
     const name = entityNameValue(selector.entity, versions);
     if (!matchesValue(name, product.entity.toUpperCase())) return false;
+    if (selector.entity.predefinedType !== undefined && product.source === "type") {
+      spatialOnly(product, "PredefinedType");
+    }
     if (
       selector.entity.predefinedType !== undefined &&
       !matchesValue(selector.entity.predefinedType, product.predefined_type)
@@ -498,7 +703,7 @@ function selects(
     if (!testProperty(facet, product, index)) return false;
   }
   for (const facet of selector.material ?? []) {
-    if (!testMaterial(facet, product)) return false;
+    if (!testMaterial(facet, product, index)) return false;
   }
   return true;
 }
@@ -536,6 +741,8 @@ function requirementFailures(
     const name = entityNameValue(req.entity, versions);
     if (!matchesValue(name, product.entity.toUpperCase())) {
       reasons.push(`class ${product.entity} does not satisfy the required entity`);
+    } else if (req.entity.predefinedType !== undefined && product.source === "type") {
+      spatialOnly(product, "PredefinedType");
     } else if (
       req.entity.predefinedType !== undefined &&
       !matchesValue(req.entity.predefinedType, product.predefined_type)
@@ -550,9 +757,19 @@ function requirementFailures(
   for (const facet of req.partOf ?? []) {
     const matched = testPartOf(facet, product, byGuid, index, versions);
     if (!applyCardinality(matched, matched, facet.cardinality)) {
+      const containment =
+        facet.relation === undefined || facet.relation === "IFCRELCONTAINEDINSPATIALSTRUCTURE";
+      // Stated on the finding: the graph carries storey containment only, so
+      // "no container" may be a site, building or space container it cannot see.
+      const unseen =
+        containment && facet.cardinality !== "prohibited" && containerOf(product, byGuid, index) === undefined
+          ? "; no storey containment found (the parser reports containment in a storey only, " +
+            "so a site, building or space container is not visible)"
+          : "";
       reasons.push(
         `partOf ${facet.relation ?? "IFCRELCONTAINEDINSPATIALSTRUCTURE"} ` +
-          (facet.cardinality === "prohibited" ? "is present but prohibited" : "not satisfied"),
+          (facet.cardinality === "prohibited" ? "is present but prohibited" : "not satisfied") +
+          unseen,
       );
     }
   }
@@ -613,13 +830,14 @@ function requirementFailures(
   }
 
   for (const facet of req.material ?? []) {
-    const present = (product.materials ?? []).length > 0;
-    const matched = testMaterial(facet, product);
+    const { present, names } = materialNames(product, index);
+    const matched = testMaterial(facet, product, index);
     if (!applyCardinality(matched, present, facet.cardinality)) {
+      const carried = names.length > 0 ? [...new Set(names)].join(", ") : "(unnamed)";
       reasons.push(
         facet.cardinality === "prohibited"
           ? "material is present but prohibited"
-          : `material ${present ? (product.materials ?? []).join(", ") : "absent"} does not satisfy the requirement`,
+          : `material ${present ? carried : "absent"} does not satisfy the requirement`,
       );
     }
   }
@@ -1517,12 +1735,18 @@ export function evaluateRuleset(
       ? allProducts.filter((p) => !filter.excluded.has(p.guid))
       : allProducts;
 
+  // IDS rules also select the declared type objects (`typeObjectRows`). The
+  // extended rules keep the element universe they always had: a code-lookup
+  // with no selection means every element, never the types.
+  const types = typeObjectRows(graph);
+  const withTypes = types.length > 0 ? [...products, ...types] : products;
+
   const results = ruleset.rules
     .filter(isEnabled)
     .map((rule) =>
       filter && rule === filter.rule
         ? filter.result
-        : evaluateRule(rule, products, summary, byGuid, index, ruleset, maxFindings),
+        : evaluateRule(rule, rule.kind === "ids" ? withTypes : products, summary, byGuid, index, ruleset, maxFindings),
     );
   const counts: Record<ResultState, number> = {
     pass: 0,

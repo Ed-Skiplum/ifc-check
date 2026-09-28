@@ -63,7 +63,9 @@ export type ChipKind =
   | "element"
   /** A material row of the Materialer tab; carries its own `guids`. */
   | "material"
-  | "tree";
+  | "tree"
+  /** One specification of the loaded `.ids`: its failing elements. */
+  | "ids";
 
 export interface FilterChip {
   /** `serialiseFocus(focus)` — the same key the hash view uses, so a chip and
@@ -142,6 +144,12 @@ export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip 
     if (!node) return null;
     return { key, kind: "tree", label: node.label ?? "—", focus };
   }
+  if (focus.kind === "ids") {
+    // Not applied or not evaluable: no element set, as a rule that did not run.
+    const spec = model.ids?.specs[focus.index];
+    if (!spec || spec.state === "not_applicable" || spec.state === "not_evaluable") return null;
+    return { key, kind: "ids", label: spec.name, focus };
+  }
   // `kpi` and `element`: neither is a set to narrow to. See `guidsOf`.
   return null;
 }
@@ -191,6 +199,13 @@ function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
   if (focus.kind === "tree") {
     const guids = treeDoor(model, focus);
     return guids ? new Set(guids) : null;
+  }
+  if (focus.kind === "ids") {
+    const spec = model.ids?.specs[focus.index];
+    if (!spec) return null;
+    // An occurrence-bound finding is about the specification, not an element;
+    // a type object's finding stands for the elements that use it.
+    return new Set(spec.findings.filter((f) => f.guid !== "-").flatMap((f) => f.members ?? [f.guid]));
   }
   // `kpi` and `element` never reach here. `chipOf` refuses both: a KPI focus
   // narrows nothing, and an `element` focus is the SELECTION — it opens the

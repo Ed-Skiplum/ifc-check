@@ -24,6 +24,8 @@ import { ModelPanel } from "./ui/ModelPanel";
 import { TraceBand } from "./ui/TraceBand";
 import type { FloorPeer } from "./ui/FloorSetup";
 import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
+import type { IdsSession } from "./ui/IdsResults";
+import { importIds } from "./ids/import.ts";
 import { buildTrace, parseFocus, serialiseFocus, type Focus } from "./ui/trace";
 import { loadDesignFonts } from "./design/fonts";
 import { useHashView } from "./ui/useHashView";
@@ -38,8 +40,11 @@ const EMPTY_RULESET: Ruleset = {
 
 export default function App() {
   const [view, setView] = useHashView();
-  const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, openCached } =
+  const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached } =
     useModels();
+  // The Prosjekt tab's `.ids`: run as written, apart from the ruleset.
+  const [ids, setIds] = useState<IdsSession | null>(null);
+  const [idsError, setIdsError] = useState<string | null>(null);
   const [ruleset, setRuleset] = useState<Ruleset | null>(null);
   const [rulesetName, setRulesetName] = useState<string | null>(null);
   const [rulesetError, setRulesetError] = useState<string | null>(null);
@@ -89,6 +94,30 @@ export default function App() {
     },
     [applyRuleset],
   );
+
+  const loadIds = useCallback(
+    async (file: File) => {
+      try {
+        const imported = importIds(await file.text(), file.name);
+        setIds({ fileName: imported.fileName, title: imported.title });
+        setIdsError(null);
+        applyIds(imported);
+      } catch (error) {
+        // Loudly, in full: nothing is run against a file that did not import.
+        setIds(null);
+        setIdsError(error instanceof Error ? error.message : String(error));
+        applyIds(null);
+      }
+    },
+    [applyIds],
+  );
+
+  const clearIds = useCallback(() => {
+    setIds(null);
+    setIdsError(null);
+    applyIds(null);
+    if (view.focus?.startsWith("ids:")) setView({ focus: null });
+  }, [applyIds, setView, view.focus]);
 
   const takeFiles = useCallback(
     (files: File[]) => {
@@ -253,9 +282,11 @@ export default function App() {
         setDragging((depth) => Math.max(0, depth - 1));
       }}
       onDrop={(event) => {
+        // A drop a panel already took (the IDS tab marks its own handled).
+        const taken = event.defaultPrevented;
         event.preventDefault();
         setDragging(0);
-        takeFiles(Array.from(event.dataTransfer.files));
+        if (!taken) takeFiles(Array.from(event.dataTransfer.files));
       }}
     >
       {models.length === 0 ? (
@@ -341,6 +372,10 @@ export default function App() {
                 onTab={(tab) => setView({ tab: tab === "checks" ? null : tab, type: null })}
                 typePage={view.type}
                 onTypePage={(type, replace) => setView({ tab: "types", type }, replace)}
+                ids={ids}
+                idsError={idsError}
+                onIdsFile={(file) => void loadIds(file)}
+                onClearIds={clearIds}
                 trace={
                   trace && trace.modelId === model.id ? (
                     <TraceBand
