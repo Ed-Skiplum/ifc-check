@@ -130,21 +130,22 @@ Model content is evidence for a suggestion, never the source of an accepted valu
    ```
    Every `not_configured` row is an open item, not an error.
 
-### Worked example: KNM (10016 Kistefos)
+### Worked example: Eksempelprosjekt (EKS)
 
-Source: `skiplum/client-projects/10016-kistefos/underprosjekter/KNM_Mottakskontroll/worklog/2026-09-21-09-23_edkjo-ids-and-bep-basepoint.md`.
+A real case with the project name and identifiers obscured.
 
-- **Pset name.** Older documents say `KIST_Prosjektinfo`; it is dead since BEP v3.0. BEP v7.0 +
-  KNM_Pset-krav v7.0 say `KNM_Project`, properties `MMI`, `RefClass_NS3451`, `RefClass_NS3457-8`
-  (hyphen), `IsReference`. Confirm in `psets` output before writing it.
-- **NS 3451, three conventions.** BEP v7 says property `RefClass_NS3451`; EIR v3 says
-  `IfcClassificationReference`; the LARK model writes `721_NS3451` as a string in Name/ObjectType.
-  That is a question for the user, not a choice for the agent. Each answer is a different `source`.
-- **MMI.** The tables list 100/200/300/350/400/500/600; BEP v7 Stage 2 uses 250; LARK writes
-  `MMI 200/250`. Ask whether 250 is accepted before writing `values`.
-- **Storeys.** KNM BEP §6.5 marks elevations TBD, so `examples/knm.ruleset.json` carries no
-  `storeys`. `knm-floors.test.ruleset.json` is a test fixture, not the project's floors.
-- **Component class.** BEP §6.12: type names follow `[ComponentCode]-[nn]`, hence
+- **Pset name.** An older BEP says `EKS_Prosjektinfo`; the current BEP says `EKS_Project`, with
+  properties `MMI`, `RefClass_NS3451`, `RefClass_NS3457-8` (hyphen), `IsReference`. Confirm in
+  `psets` output which one the models actually carry before writing it.
+- **NS 3451, three conventions.** The BEP says property `RefClass_NS3451`; the EIR says
+  `IfcClassificationReference`; one discipline model writes `721_NS3451` as a string in
+  Name/ObjectType. That is a question for the user, not a choice for the agent. Each answer is a
+  different `source`.
+- **MMI.** The BEP's tables list 100/200/300/350/400/500/600, a later section uses 250, a model
+  writes `MMI 200/250`. Ask whether 250 is accepted before writing `values`.
+- **Storeys.** The BEP marks elevations TBD, so the config carries no `storeys` until the user
+  supplies them. Never copy elevations from a model into the config as if they were the requirement.
+- **Component class.** The BEP says type names follow `[ComponentCode]-[nn]`, hence
   `target: "type"`, source `Name`, extract `^([A-Z]{2,3})-\d{2}$`.
 
 ## 4. Hand it over
@@ -215,7 +216,7 @@ fordeling, funn, godtatte. Full contract: AGENTS.md "Report contract".
 - **Unused types' psets are invisible.** A declared type nothing uses has no rows at all.
 - **Type targets read the attribute `Name` only.** `target: "type"` cannot take a property or classification source.
 - **No `IfcRelAssignsToGroup`, no `IfcRelNests`.** "Element is in a system" is `not_evaluable`.
-- **Storey containment only.** An element contained directly in IfcSite, IfcBuilding or IfcSpace has no container here and fails a containment requirement (KNM_RIV: one IfcGeographicElement).
+- **Storey containment only.** An element contained directly in IfcSite, IfcBuilding or IfcSpace has no container here and fails a containment requirement (e.g. an IfcGeographicElement placed in the site).
 - **Attributes: GlobalId, Name, ObjectType, Tag, PredefinedType only.** Others are `not_evaluable`.
 - **No geometry or georeferencing rules.** Those questions cannot be authored as rules.
 - **XSD regex vs JavaScript regex.** Exotic `xs:pattern` can behave differently from a conforming IDS auditor.
