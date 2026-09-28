@@ -1,5 +1,7 @@
 # ifc-check — notes for agents
 
+> Helping a user set up a project config and get results (not extending the tool)? Read [docs/agent-guide.md](docs/agent-guide.md) first.
+
 A browser IFC model checker. Everything runs client-side on a WebAssembly build
 of [ifcfast](https://github.com/EdvardGK/ifcfast); no backend, no upload.
 
