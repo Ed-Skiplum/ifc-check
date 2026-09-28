@@ -30,3 +30,6 @@ _wasmbuild/
 
 # Scratch and sample outputs (BCF exports, probes)
 tmp/
+
+# Real-named fixtures the gates run against real models; local only
+tests/fixtures/private/
