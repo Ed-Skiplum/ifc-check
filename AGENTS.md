@@ -62,6 +62,9 @@ src/ui/          the screen, and the worker that drives the engine
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
   import.ts      IDS 1.0 XML -> ruleset, per specification (see "The IDS view")
   xml-read.ts    the DOM-free XML reader the importer runs on (Node and browser)
+  xlsx.ts        the ruleset as an .xlsx workbook, read and written (see
+                 "The .xlsx workbook")
+  config-template.ts  the ruleset the .xlsx template is written from
   ids-report.ts  an imported IDS against one model: one row per specification
 src/ui/IdsResults.tsx  the IDS table tile of the Prosjekt board
 src/builder/     rule builder UI (a strict subset of the JSON format)
@@ -83,6 +86,7 @@ src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
   check-cli.ts   run the fundamentals headlessly
   ids-cli.ts     author, lint, emit and run rulesets headlessly
+  gen-config-template.ts  write examples/ and public/eks-config-template.xlsx
   bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
   viewport-gate.mjs  real models in headless Chrome at every target viewport
   isolate-gate.mjs   what a CLICK does, driven with real mouse events
@@ -315,7 +319,7 @@ content and never truncated; only a found storey NAME (`✗ <name>`) ellipsizes,
 at 16ch, by design. With no config the tile lists the file's own storeys (name · kote, gold
 shared-kote marker), no model columns. What is ON each floor is the census,
 "Etasje × klasse", on the Innhold tab, never on this tile. `check-cli.ts --ruleset <file>` supplies the
-config headlessly. `examples/knm.ruleset.json` carries no floor config: the
+config headlessly. `examples/eks.ruleset.json` carries no floor config: the
 KNM BEP §6.5 marks the elevations TBD ("working placeholders").
 
 ## The KPI row
@@ -914,7 +918,7 @@ on a selected element (a Uniformat value, the pset group reading `ingen` rather
 than `ikke levert`, and the profile tab reading `ikke levert` because the ENGINE
 does not carry it) · a SELECTION opening the band, and a tab switch keeping the
 selection · a storey row on the Etasjer tile · and, with three models and
-`examples/knm-floors.test.ruleset.json`, that only the own column of the matrix
+`tests/fixtures/private/knm-floors.test.ruleset.json`, that only the own column of the matrix
 is a door and the other two panels do not move.
 
 The camera assertions read the pose off the live scene: `ViewerTile` registers
@@ -1305,7 +1309,7 @@ for inspiration"*.
 
 Verified: tsc; selftest (160, type page, type codes, lengths); `vite build`;
 `isolate-gate --only types --model HI90_ARK --ruleset
-examples/hi90-project-layer.test.ruleset.json` (IfcWallStandardCase "Betong
+tests/fixtures/private/hi90-project-layer.test.ruleset.json` (IfcWallStandardCase "Betong
 96", 58): the page draws 1, Neste draws 1, Alle forekomster draws 58, the
 list has 58 rows, all T assertions hold. Screenshot `tmp/type-page/`. Local
 headless preview only, not on a deployed site.
@@ -1465,7 +1469,7 @@ floor chart in the middle?"*
 one headless Chrome, launched only with >= 4 GB free, fresh profile per run
 (the app restores the last session from IndexedDB). It drops real KNM models
 (KNM_Void-demo `export_2026-09-14`: ARK alone; ARK+RIV+RIB with
-`examples/knm-floors.test.ruleset.json`, a TEST floor config, not the KNM
+`tests/fixtures/private/knm-floors.test.ruleset.json`, a TEST floor config, not the KNM
 BEP's) and at every target viewport, both tabs, asserts: no horizontal
 overflow of page or main; no `[data-essential]` element ellipsized or cut by
 a clipping ancestor; per-tile minimum fully visible rows (focal 13, floors 10
@@ -1769,7 +1773,7 @@ phases 1-2 (bento) unchanged, plus D1-D7 on a, b and c. One gap stated rather
 than hidden: on KNM_ARK the requirement D2 opens (Typeobjekt, one untyped
 IfcRoof) has no mesh, so the framing half of D3 is skipped by design in the
 alternatives; framing itself is the unchanged `pickElement` path that phase 1
-asserts. The fixture `examples/hi90-project-layer.test.ruleset.json` now also
+asserts. The fixture `tests/fixtures/private/hi90-project-layer.test.ruleset.json` now also
 carries the NS 3451, NS 3457-8 and MMI mappings on HI90_Prosjektinfo (manual
 §4.2 and §4.5); HI90_Kopi objekt stays out, since its values name the owning
 model per file (krav.yaml `kopi_eier`), which a copy-object code list cannot
@@ -2365,7 +2369,7 @@ the pass path, the four `not_evaluable` reasons, and the lint errors for a bad
 regex, zero and two capture groups. The builder fields are type-checked and
 built, not exercised in a browser.
 
-Example project config: `examples/knm.ruleset.json`.
+Example project config: `examples/eks.ruleset.json`.
 
 ### Project mappings
 
@@ -2454,12 +2458,61 @@ synthetic model (in list passes, outside and empty fail), a property-sourced
 mapping as `not_evaluable` carrying the "could not be excluded" note (and that
 `progress-code` still evaluates the full, unfiltered set when it does), and
 the copy-object scope filter excluding a reference object from another rule's
-findings in both boolean and codes mode. `examples/knm.ruleset.json` expresses
+findings in both boolean and codes mode. `examples/eks.ruleset.json` expresses
 its NS 3457-8 type-name rule as `component-classification`; `run` on
 KNM_ARK / RIV / RIB (KNM_Void-demo `01_inn/export_2026-09-14/`) is
 byte-identical to before the mapping was added (84/84, 4/4, 2/2 no match) —
 that ruleset carries no `copy-object` mapping, so this exercises the
 no-filter path, not the exclusion itself.
+
+### The .xlsx workbook (2026-09-28)
+
+`src/ids/xlsx.ts` writes and reads the ruleset as a workbook. The JSON stays
+the interface; the workbook is the same document in another spelling.
+
+| Sheet | Holds |
+|---|---|
+| Etasjer | `storeys`, one row per floor |
+| Lesmeg | reference table: sheet, column, field path, type, allowed values, example. Never read |
+| Klassifikasjon | the `system-classification` and `component-classification` mappings |
+| MMI | the `progress-code` mapping |
+| Kopiobjekt | the `copy-object` mapping |
+| Kilder | `projectLayer` sources, one row per source (`phase.sources`, `material-product.*`) |
+| Prosjekt | one row: formatVersion, name, description, ifcVersions, `ifc-schema.accepted`, info (JSON), any other top-level key as JSON |
+| Andre regler | every other rule, one JSON per row |
+
+- Row 1 is the Norwegian header, row 2 the field path. The reader keys
+  columns by row 2 only; a column with a blank row 2 is a notes column.
+  An unknown sheet or field path is refused.
+- A mapping rule that its sheet cannot spell exactly (a value with a comma,
+  an extra key) is written to Andre regler; `storeys` or `projectLayer` that
+  do not fit go to Prosjekt as JSON. Values lists are comma-separated.
+- Rule order out of a workbook: Klassifikasjon, MMI, Kopiobjekt, Andre
+  regler (`canonicalRuleset`).
+- Every write reads itself back and deep-compares with the input in that
+  order; a difference throws, in the app and in `json2xlsx`.
+- Reader problems and lint issues are located as `Sheet!Cell` (`locate`, the
+  longest path prefix with a cell). The app prints them on a refused drop;
+  `xlsx2json` prints them on stderr and exits 1 on a lint error.
+- The zip carries a fixed timestamp, so the bytes are deterministic.
+
+The template, `examples/eks-config-template.xlsx` and its copy in `public/`
+(Oppsett: **Last ned mal**), is written from `CONFIG_TEMPLATE` by
+`node scripts/gen-config-template.ts`. Every project value is `<FROM PROJECT>`,
+and lint code `from-project` refuses any string that still carries it.
+
+Verified: `selftest` asserts both template files are current, round-trips
+(json, xlsx, json, deep equal) the template, `SAMPLE_RULESET`, every
+`examples/*.json` and every `tests/fixtures/private/*.json`, the misfit
+fallbacks, and the reader's refusals at their cells. openpyxl reads the
+template and a workbook openpyxl saved (shared strings, a notes column, a
+boolean cell) reads back located. One headless run of the setup page (vite
+dev, Chrome): template served, the template refused at `Etasjer!B3`, a filled
+workbook loaded, the .xlsx and JSON downloads equal to it. Not opened in
+Excel itself.
+
+Real-named fixtures a gate needs live in `tests/fixtures/private/`
+(`knm-floors`, `hi90-project-layer`); `examples/` carries obscured ones (EKS).
 
 ### Things the format prevents
 
@@ -2494,6 +2547,8 @@ node scripts/ids-cli.ts run    my.ruleset.json a.ifc [b.ifc ...]
 node scripts/ids-cli.ts ids    my.ids a.ifc [...] [--max-findings N]   # see "The IDS view"
 node scripts/ids-cli.ts report [--ruleset my.ruleset.json] a.ifc [...]   # see "Report contract"
 node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] a.ifc [...]   # see "Pset inventory"
+node scripts/ids-cli.ts xlsx2json config.xlsx > my.ruleset.json   # see "The .xlsx workbook"
+node scripts/ids-cli.ts json2xlsx my.ruleset.json [--out config.xlsx]
 node scripts/ids-cli.ts selftest
 ```
 
@@ -2603,6 +2658,7 @@ rejected.
 ```bash
 python scripts/gen-ifc-classes.py                              # needs ifcopenshell
 node scripts/ids-cli.ts schema > src/ids/ruleset.schema.json   # selftest asserts this is current
+node scripts/gen-config-template.ts                            # the .xlsx template, examples/ and public/; selftest asserts both are current
 PYTHONUTF8=1 python scripts/gen-codelists.py                   # src/codelists/*.ts from the workspace standards tables
 PYTHONUTF8=1 python scripts/gen-ifc-psets.py                   # src/engine/ifc-pset-names.ts, needs ifcopenshell
 PYTHONUTF8=1 python scripts/gen-codelists.py mengdetype        # only the named ids (ns3457-8, mengdetype); needs PyYAML
@@ -2774,7 +2830,7 @@ for Tekla) has no field here.
 Verified: selftest (fold, all five schema states, narrowing, the cascade's
 order, layers, 0-hit source and decisions on a synthetic graph, and the lint
 codes); `report` on HI90_ARK (22.09 export, sha matches the reference) with
-and without `examples/hi90-project-layer.test.ruleset.json`, and on KNM_ARK.
+and without `tests/fixtures/private/hi90-project-layer.test.ruleset.json`, and on KNM_ARK.
 No real model at hand carries Pset_*Common.Status or HI90_TFM.Fase, so the
 real `phase` rows are all mangler and the value paths are proven on the
 synthetic graph only.
@@ -2854,7 +2910,7 @@ marker). HI90 says `bad` where this says `warn`.
   classification only).
 
   Against the HI90 22.09 reference on HI90_ARK (same sha), with and without
-  `examples/hi90-project-layer.test.ruleset.json` (every project source 0
+  `tests/fixtures/private/hi90-project-layer.test.ruleset.json` (every project source 0
   there, as in the reference): oppfylt 697 and avvik 134 match, as do the
   material values (Betong 197, Isolasjon - Myk 176, Finer 105, Innervegg 71
   avvik, Gipsplate - Ombruk 67, Dekke 63 avvik), the IfcMaterial source (29)
@@ -2967,7 +3023,7 @@ null value, a spatial owner's class, the stated limits, absent tables).
 2026-09-22 blokkdata `psett`: the same 15 sets, and for all 15 the same
 object count and class counts, and for all 117 properties the same filled
 count; distinct values differ only as above. On KNM_ARK / RIV / RIB with
-`examples/knm.ruleset.json` (which names no set, so nothing is `krevd`):
+`examples/eks.ruleset.json` (which names no set, so nothing is `krevd`):
 KNM_RIB is the one model at hand with type-folded rows (3 owners, 8 sets).
 No real model at hand carries a set the loaded ruleset requires, so `krevd`
 is proven on the synthetic graph only.

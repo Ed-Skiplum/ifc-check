@@ -20,7 +20,8 @@ confirms). This guide is the ifc-check side of that loop and does not override i
 | **Typer** / **Materialer** | type and material extraction |
 | **Prosjekt** | project requirements (Standardkrav cards, mapped treemaps, MMI bars) plus the IDS table |
 
-- **Oppsett** (`#page=setup`) edits the floor config and the four mappings, then downloads the ruleset.
+- **Oppsett** (`#page=setup`) edits the floor config and the four mappings, then downloads the ruleset
+  as JSON or .xlsx. **Last ned mal** downloads the .xlsx template.
 - Without a ruleset the tool still answers everything in Oversikt/Innhold/Graf/Typer/Materialer.
   The ruleset adds the project's own requirements.
 
@@ -105,8 +106,22 @@ Rules of the format a user will trip on:
 - At most one rule per mapping role (`mapping-duplicate`). The role is `mapping`, not `id`.
 - `extract` is a JavaScript regex, not anchored implicitly, exactly one capture group.
 - Never name an abstract IFC class in an entity facet; use `"group"` (`physicalElement`, `builtElement`, ...).
-- A real minimal example: `examples/knm.ruleset.json`. A full one (test fixture, not a project):
-  `examples/hi90-project-layer.test.ruleset.json`.
+- A minimal example: `examples/eks.ruleset.json`. A full one (test fixture, not a project):
+  `examples/eks-project-layer.test.ruleset.json`.
+
+### The same config as .xlsx
+
+`examples/eks-config-template.xlsx` is this template as a workbook, one sheet per part: Etasjer,
+Lesmeg, Klassifikasjon, MMI, Kopiobjekt, Kilder, Prosjekt, Andre regler. Row 2 of each sheet is the
+field path; **Lesmeg** lists every column with its path, type, allowed values and an example.
+Placeholders are `<FROM PROJECT>`, refused by lint like the JSON's.
+
+```bash
+node scripts/ids-cli.ts xlsx2json config.xlsx > project.ruleset.json   # lint issues on stderr as Sheet!Cell
+node scripts/ids-cli.ts json2xlsx project.ruleset.json --out config.xlsx
+```
+
+Details: AGENTS.md "The .xlsx workbook".
 
 ## 3. Fill it from evidence, never guessing
 
@@ -155,7 +170,7 @@ A real case with the project name and identifiers obscured.
    node scripts/ids-cli.ts lint project.ruleset.json
    ```
    Errors block download in Oppsett and are refused by the CLI. Warnings are worth reading.
-2. The user opens the app and drops their IFCs, then the ruleset JSON (or **Åpne regelsett**).
+2. The user opens the app and drops their IFCs, then the ruleset JSON or .xlsx (or **Åpne regelsett**).
    An `.ids` goes on the Prosjekt tab (**Åpne IDS**); it runs as written and does not become the ruleset.
 3. Explain the non-results. They are answers, not bugs:
 
