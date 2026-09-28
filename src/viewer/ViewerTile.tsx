@@ -71,11 +71,6 @@ interface ViewerTileProps {
   mode: Mode;
   selection: string[];
   hover: string | null;
-  /** Bumped by a TABLE selection that wants the camera on what it chose — a
-   *  row of the derivation band. Never by a canvas pick, so the rule that a
-   *  click in the 3D does not move the camera is kept by the prop not arriving
-   *  rather than by a check here. Zero means nothing has asked yet. */
-  frameSeq: number;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
 }
@@ -90,7 +85,6 @@ export function ViewerTile({
   mode,
   selection,
   hover,
-  frameSeq,
   onPick,
   onHover,
 }: ViewerTileProps) {
@@ -225,28 +219,20 @@ export function ViewerTile({
     scene.current?.setHover(hover);
   }, [hover]);
 
-  /* Frame what a table just selected.
+  /* Frame what was just chosen: "always frame the selected object. pivot on it
+   * and frame it." (edkjo, 2026-09-28). Every path, canvas, row, graph node,
+   * chip, card, arrives here as a new selection or a new filter, so there is
+   * no per-path request to make.
    *
-   * Declared AFTER the selection effect on purpose: React runs a component's
-   * effects in declaration order within a commit, so the scene already holds
-   * the new selection when this runs and `zoomToSelection` frames it rather
-   * than the previous one. It is the SAME call `Zoom til valg` makes — one
-   * framing rule, one piece of arithmetic, so the button and the row cannot
-   * land the camera in two different places.
-   *
-   * The counter is remembered in a ref so a re-render at the same value never
-   * re-frames: a camera that snapped back on an unrelated state change would
-   * take the view away from someone who had just orbited it.
-   *
-   * An element with no mesh in this scene (budget capped, or no geometry at
-   * all) leaves the camera alone — `zoomToSelection` finds no bounds and
-   * returns. The HUD already says how much of the filter has geometry. */
-  const framedSeq = useRef(0);
+   * Declared AFTER the filter and selection effects on purpose: React runs a
+   * component's effects in declaration order within a commit, so the scene
+   * already holds both when `followChoice` decides. It frames through the same
+   * arithmetic as `Zoom til valg`, and remembers what it last saw, so a
+   * re-render at the same choice never takes the view away from someone who
+   * has since orbited it. */
   useEffect(() => {
-    if (frameSeq === 0 || frameSeq === framedSeq.current) return;
-    framedSeq.current = frameSeq;
-    scene.current?.zoomToSelection();
-  }, [frameSeq]);
+    scene.current?.followChoice();
+  }, [selection, matched]);
 
   const fit = useCallback(() => scene.current?.fit(INSETS), []);
   const zoom = useCallback(() => scene.current?.zoomToSelection(), []);

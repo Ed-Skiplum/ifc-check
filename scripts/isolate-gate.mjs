@@ -3,17 +3,17 @@
  *
  * The rule it holds, edkjo's, settled on the ifcfast-site work and restated
  * for this board: **a click in the UI isolates; a click in the VIEWER
- * highlights.** Neither ever moves the camera — `Zoom til valg` is the named
- * button that does. And the drill has two steps: a row is the SET, a row of
- * the derivation under it is the ONE ELEMENT.
+ * highlights.** And the drill has two steps: a row is the SET, a row of the
+ * derivation under it is the ONE ELEMENT.
  *
  * Driven with real CDP mouse events against a real model in headless Chrome,
  * because every one of these is a claim about what a click does, and a
  * synthetic `click()` on a React handler would prove the handler, not the
  * gesture.
  *
- * The one camera move a click DOES make, added 2026-09-23: a row of the
- * derivation band frames its element. A canvas pick still moves nothing.
+ * The camera, since 2026-09-28 (edkjo: "always frame the selected object.
+ * pivot on it and frame it."): every choice frames, a canvas pick, a band row
+ * and a set alike. Clearing (the same row again, Tøm filter) moves nothing.
  *
  * Asserted, in order, on one model:
  *   1  no filter        no chips · the HUD reads the whole model · Zoom til
@@ -23,11 +23,10 @@
  *                       the model · the canvas changed · the object panel is
  *                       open in its empty state, the Egenskaper group carrying
  *                       the no-selection dash and the profile tab saying the
- *                       ENGINE does not carry IfcProfileDef
+ *                       ENGINE does not carry IfcProfileDef · the set is
+ *                       framed about its own centre
  *   3  the same row     chips gone, the bar and the HUD back to the model, and
- *                       the canvas is PIXEL-IDENTICAL to 1 — which is the
- *                       camera assertion: a filter that had moved the eye
- *                       could not come back to the same image
+ *                       the camera did not move (clearing moves nothing)
  *   4  a band row       an Element chip beside the class chip · the bar reads
  *                       1 · the HUD shows at most 1 · Zoom til valg is live
  *   4b the camera       it MOVED, the element's box projects inside the
@@ -41,14 +40,14 @@
  *                       `ingen` — never `ikke levert`, which would be a claim
  *                       about the plumbing rather than about the file
  *   5  the same band row  the element chip alone goes; the class filter, its
- *                       chip and its count are exactly as in 2
- *   6  a canvas click   selects (Zoom til valg goes live), makes NO chip, and
- *                       does NOT move the camera: filter, HUD and pose are
- *                       untouched
+ *                       chip and its count are exactly as in 2; the camera
+ *                       stays
+ *   6  a canvas click   selects (Zoom til valg goes live), makes NO chip, the
+ *                       filter and HUD are untouched, and the pick is FRAMED
  *   6b a SELECTION      closing the band and picking in the canvas OPENS it
  *                       again on that element, with the object panel filled,
- *                       the hash carrying `focus=element:`, still no chip and
- *                       still no camera move
+ *                       the hash carrying `focus=element:`, still no chip, and
+ *                       the pick framed
  *   6c the tab strip    the property group IS a strip of tabs, and switching
  *                       tab keeps the selection — a tab is a view of the same
  *                       element, never a re-selection
@@ -64,8 +63,8 @@
  *                      and fills Detail · the same row steps back out and
  *                      empties Detail · the requirement again removes its
  *                      chip and empties Scope · a canvas pick fills Detail,
- *                      makes no chip, opens nothing in Scope and leaves the
- *                      camera alone · a value of a fordeling is a door of
+ *                      makes no chip, opens nothing in Scope and is
+ *                      framed · a value of a fordeling is a door of
  *                      its own
  *
  * RAM: one Chrome at a time, launched only with >= 4 GB free physical memory;
@@ -366,6 +365,23 @@ function inView(box) {
   return box !== null && box.x0 >= -1 && box.x1 <= 1 && box.y0 >= -1 && box.y1 <= 1;
 }
 
+/** Framed by `frameBox`: the look-at target IS the orbit pivot. Nothing else
+ *  leaves the camera in that state, a wheel or pan moves the target off it. */
+function onPivot(pose) {
+  return (
+    pose !== null &&
+    pose.pivot !== null &&
+    Math.hypot(...pose.pivot.map((v, i) => v - pose.target[i])) <= Math.max(1e-4, pose.radius * 1e-6)
+  );
+}
+
+/** A selection is framed: inside the viewport, filling it, on the pivot. */
+function framedPose(pose) {
+  if (pose === null || pose.box === null) return false;
+  const fill = Math.max(pose.box.x1 - pose.box.x0, pose.box.y1 - pose.box.y0);
+  return inView(pose.box) && fill > 1.0 && onPivot(pose);
+}
+
 /** The whole band — rows and object panel — so the split is something a person
  *  can look at rather than only a set of assertions. */
 async function bandShot(name) {
@@ -443,6 +459,7 @@ check(
 
 /* 2 — a class row isolates. A class big enough to matter and small enough to
    be a real narrowing: the first under half the model. */
+const poseWhole = await evaluate(POSE(0, []));
 const klass = await evaluate(`(() => {
   const rows = [...document.querySelectorAll('[role=tabpanel]:not([hidden]) [data-tile-id=classes] button')];
   const read = (b) => Number((b.lastElementChild?.textContent ?? '').replace(/[^\\d]/g, ''));
@@ -472,6 +489,16 @@ check(
   `2 HUD narrowed to ${afterClass.hud} of ${base0.hudTotal}`,
 );
 check(shotClass !== shot0, `2 the canvas changed`);
+/* The set is chosen, so it is framed (edkjo 2026-09-28: "always frame the
+   selected object. pivot on it and frame it."): the eye moved, and the frame
+   is about the pivot, which is the set's robust centre. */
+const poseClass = await evaluate(POSE(0, []));
+check(
+  poseWhole !== null && poseClass !== null && moved(poseWhole, poseClass) > 0.01 && onPivot(poseClass),
+  `2 the class set is framed about its own centre (eye moved ${
+    poseWhole && poseClass ? moved(poseWhole, poseClass).toFixed(3) : "?"
+  } of the radius)`,
+);
 check(afterClass.bandRows > 0, `2 the derivation lists the instances (${afterClass.bandRows} rows)`);
 /* The band is open and nothing is selected: the panel is there, in its empty
    state, and it says where the psets stop rather than leaving that blank. */
@@ -494,14 +521,18 @@ check(
     `(${JSON.stringify(afterClass.panel?.state)})`,
 );
 
-/* 3 — the same row clears it, and the scene comes back to the SAME IMAGE.
-   That is the camera assertion: nothing about isolating moved the eye. */
+/* 3 — the same row clears it. Clearing moves nothing: the eye stays where the
+   set put it. */
 await clickAt(...Object.values(await centre(`document.querySelector('[data-gate-pick]')`)));
 const cleared = await evaluate(STATE());
-const shotBack = await canvasShot("3-restored");
+await canvasShot("3-restored");
+const poseCleared = await evaluate(POSE(0, []));
 check(cleared.chips.length === 0, `3 the chip is gone (${JSON.stringify(cleared.chips)})`);
 check(cleared.hudShown === base0.hudTotal, `3 HUD back to the whole model (${cleared.hud})`);
-check(shotBack === shot0, `3 the canvas is pixel-identical to 1 — the camera never moved`);
+check(
+  poseClass !== null && poseCleared !== null && moved(poseClass, poseCleared) < 1e-9,
+  `3 clearing the filter did not move the camera`,
+);
 
 /* 4 — the second step: a row of the derivation is ONE element, the camera
    FRAMES it, and the object panel says what the engine has for it. */
@@ -594,9 +625,16 @@ check(
     `supplied (${JSON.stringify(one.panel?.state)})`,
 );
 
-/* 5 — the same row steps back out to the set it was drilled from. */
+/* 5 — the same row steps back out to the set it was drilled from. That clears
+   the selection, and clearing moves nothing. */
+const poseBeforeBack = await evaluate(POSE(0, []));
 await clickAt(rowAt.x, rowAt.y);
 const back = await evaluate(STATE());
+const poseBack = await evaluate(POSE(0, []));
+check(
+  poseBeforeBack !== null && poseBack !== null && moved(poseBeforeBack, poseBack) < 1e-9,
+  `5 stepping back out (the selection cleared) did not move the camera`,
+);
 check(back.chips.length === 1, `5 the element chip alone is dropped (${JSON.stringify(back.chips)})`);
 check(back.matched === klass.count, `5 the class filter is intact (${back.matched} = ${klass.count})`);
 check(back.hudShown === afterClass.hudShown, `5 the HUD is the class again (${back.hud})`);
@@ -636,16 +674,19 @@ check(
   `6 the scene still shows everything it did (${picked.hud})`,
 );
 check(picked.zoomDisabled === false, `6 the canvas click DID select — it highlights, it does not hide`);
-/* And it does NOT frame. A table row now moves the camera; a pick in the 3D
-   still must not, or a click would take away the very view it was made in. */
-const posePostClick = await evaluate(POSE(0, []));
+/* And it FRAMES, like every selection (edkjo 2026-09-28: "always frame the
+   selected object. pivot on it and frame it."). */
+const pickedGuids = (await evaluate(POSE(0, [])))?.selection ?? [];
+const posePostClick = await evaluate(POSE(0, pickedGuids));
 check(
-  posePreClick !== null &&
-    posePostClick !== null &&
-    moved(posePreClick, posePostClick) < 1e-9,
-  `6 the canvas click did not move the camera (${
-    posePreClick && posePostClick ? moved(posePreClick, posePostClick).toExponential(1) : "no handle"
-  })`,
+  posePreClick !== null && posePostClick !== null && moved(posePreClick, posePostClick) > 0.01,
+  `6 the canvas click moved the camera to the pick (${
+    posePreClick && posePostClick ? moved(posePreClick, posePostClick).toFixed(3) : "no handle"
+  } of the radius)`,
+);
+check(
+  framedPose(posePostClick),
+  `6 the picked element is framed (${JSON.stringify(posePostClick?.box)})`,
 );
 
 /* 6b — and a SELECTION OPENS THE BAND. edkjo: *"where is the properties
@@ -672,7 +713,7 @@ for (const [dx, dy] of [
   reopened = await evaluate(STATE());
   if (reopened.panel !== null) break;
 }
-const poseReopened = await evaluate(POSE(0, []));
+const poseReopened = await evaluate(POSE(0, (await evaluate(POSE(0, [])))?.selection ?? []));
 check(
   reopened !== null && reopened.panel !== null,
   `6b a canvas pick with no derivation open OPENS the band on that element`,
@@ -692,8 +733,8 @@ check(
   `6b the selection rides the URL hash like every other derivation`,
 );
 check(
-  poseClosed !== null && poseReopened !== null && moved(poseClosed, poseReopened) < 1e-9,
-  `6b opening the band on a pick still did not move the camera`,
+  poseClosed !== null && framedPose(poseReopened),
+  `6b the pick that opened the band is framed (${JSON.stringify(poseReopened?.box)})`,
 );
 /* 6c — the tab strip. Switching set keeps the selection: the tab is a view of
    the SAME element, never a re-selection. */
@@ -957,11 +998,11 @@ for (const design of designs) {
     if (pick.panel !== null) break;
   }
   const kAfter = await evaluate(DOCK);
-  const poseAfter = await evaluate(POSE(0, []));
+  const poseAfter = await evaluate(POSE(0, (await evaluate(POSE(0, [])))?.selection ?? []));
   check(pick !== null && pick.panel !== null && (pick.panel.fields.GlobalId ?? "") !== "", `D5 ${design}: a canvas pick fills Detail (${pick?.panel?.fields.GlobalId})`);
   check(pick !== null && pick.chips.length === 0, `D5 ${design}: and makes no chip (${JSON.stringify(pick?.chips)})`);
   check(kAfter.scopeRows === kBefore.scopeRows && kAfter.hash === kBefore.hash, `D5 ${design}: Scope is untouched, the pick opens nothing there (${kAfter.scopeRows} rows)`);
-  check(poseBefore !== null && poseAfter !== null && moved(poseBefore, poseAfter) < 1e-9, `D5 ${design}: the camera did not move`);
+  check(poseBefore !== null && framedPose(poseAfter), `D5 ${design}: the pick is framed (${JSON.stringify(poseAfter?.box)})`);
 
   // a's KPI band shows one figure per requirement (2026-09-26), so there a
   // fordeling's values are doors in the treemaps and the MMI bars.

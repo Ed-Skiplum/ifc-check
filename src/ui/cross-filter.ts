@@ -249,14 +249,6 @@ export interface ModelView {
   chips: FilterChip[];
   selection: string[];
   hover: string | null;
-  /** How many times a TABLE selection has asked the camera to frame what it
-   *  chose. A counter rather than a flag: the same element picked twice is two
-   *  requests, and an effect keyed on the number re-runs for the second one.
-   *
-   *  It is incremented ONLY by `pickElement`, i.e. by a row of the derivation
-   *  band. `pick` — the canvas — never touches it, which is the "a viewer click
-   *  does not move the camera" rule expressed as data rather than as care. */
-  frameSeq: number;
   /** How many times a SELECTION GESTURE has landed on a non-empty selection.
    *
    * The band opens on a selection (`App`), and that has to fire for the same
@@ -272,7 +264,6 @@ export const EMPTY_VIEW: ModelView = {
   chips: [],
   selection: [],
   hover: null,
-  frameSeq: 0,
   selectSeq: 0,
 };
 
@@ -292,12 +283,12 @@ export interface CrossFilterApi {
   setSelection: (modelId: string, guids: string[]) => void;
   /** Plain click replaces; Shift or Ctrl adds/toggles; `null` clears. */
   pick: (modelId: string, guid: string | null, additive: boolean) => void;
-  /** A row of the derivation: select the element, narrow the filter to it, AND
-   *  ask the camera to frame it. Plain click on the element already isolated
-   *  steps back out to the set it was drilled from; Shift or Ctrl builds a set
-   *  of them. This is the ONE path that narrows on a single element — a pick in
-   *  the SCENE only ever highlights, and must not start hiding what the pointer
-   *  is over, nor move the camera. */
+  /** A row of the derivation: select the element and narrow the filter to it.
+   *  Plain click on the element already isolated steps back out to the set it
+   *  was drilled from; Shift or Ctrl builds a set of them. This is the ONE path
+   *  that narrows on a single element: a pick in the SCENE only highlights, and
+   *  must not start hiding what the pointer is over. (Framing is not asked for
+   *  here: the viewer frames every new selection, `ModelScene.followChoice`.) */
   pickElement: (modelId: string, chip: FilterChip | null, additive: boolean) => void;
   /** Drop the element refinement, because a different SET was just chosen. An
    *  element chip narrows the set it was drilled from; carried onto the next
@@ -376,26 +367,13 @@ export function useCrossFilter(): CrossFilterApi {
             const single = already && mine.length === 1;
             return single
               ? { ...v, chips: others, selection: [] }
-              : {
-                  ...v,
-                  chips: [...others, chip],
-                  selection: [guid],
-                  // Frame it. Stepping back OUT (the branch above) leaves the
-                  // camera where it is: there is no single object to frame, and
-                  // a second move the user did not ask for would be worse than
-                  // none.
-                  frameSeq: v.frameSeq + 1,
-                };
+              : { ...v, chips: [...others, chip], selection: [guid] };
           }
           const next = already ? mine.filter((c) => c.key !== chip.key) : [...mine, chip];
           return {
             ...v,
             chips: [...others, ...next],
             selection: next.map((c) => c.guids![0]),
-            // Shift/Ctrl builds a set, and the frame follows the set it built:
-            // the same `zoomToSelection` the named button runs. An emptied
-            // selection asks for nothing.
-            frameSeq: next.length > 0 ? v.frameSeq + 1 : v.frameSeq,
           };
         }),
       [patch],

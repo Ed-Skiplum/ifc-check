@@ -43,8 +43,9 @@
  * the camera's horizontal right axis for polar), which keeps the pivot fixed
  * on screen while the model turns about it. An earlier version re-derived
  * target from the pivot while holding only the eye; `lookAt(target)` then
- * swung the view to centre the selection on every click. Camera moves stay an
- * explicit opt-in: `fit` and `zoomToSelection`.
+ * swung the view to centre the selection on every click. Camera moves go
+ * through `fit` and the one framing rule, `ModelScene.zoomToSelection`, which
+ * every new selection runs (`followChoice`).
  */
 
 import type { PerspectiveCamera } from "three";
@@ -126,17 +127,19 @@ function boxCorners(min: Vector3, max: Vector3): Vector3[] {
   ];
 }
 
-/** Pose a probe camera at `radius` along the entry direction, looking at
- *  `centre`. Shared by the fit solver and the fill measurement so the number a
- *  gate reports is produced by the same arithmetic the viewer runs. */
+/** Pose a probe camera at `radius` along `direction` (the entry direction
+ *  unless told otherwise), looking at `centre`. Shared by the fit solver and
+ *  the fill measurement so the number a gate reports is produced by the same
+ *  arithmetic the viewer runs. */
 function poseProbe(
   probe: PerspectiveCamera,
   centre: Vector3,
   radius: number,
   viewport: Viewport,
+  direction: Vector3 = eyeDirection(ENTRY_PHI, ENTRY_THETA),
 ): void {
   probe.aspect = Math.max(1, viewport.width) / Math.max(1, viewport.height);
-  probe.position.copy(centre).addScaledVector(eyeDirection(ENTRY_PHI, ENTRY_THETA), radius);
+  probe.position.copy(centre).addScaledVector(direction, radius);
   probe.up.set(0, 1, 0);
   probe.near = Math.max(radius / 2000, 1e-3);
   probe.far = Math.max(radius * 50, 100);
@@ -356,6 +359,12 @@ export function fitRadius(
   viewport: Viewport,
   insets: FitInsets = NO_INSETS,
   fraction: number = FIT_FRACTION,
+  /** The view direction the frame will be seen from. A selection framed
+   *  after the user has orbited keeps that angle (`frameBox`), so it has to be
+   *  solved from that angle: solved from the entry angle, an element framed
+   *  after a few orbits reached 0.31 to 0.48 NDC instead of 0.88 (pivot-gate
+   *  B7 to B12, 2026-09-28). */
+  direction: Vector3 = eyeDirection(ENTRY_PHI, ENTRY_THETA),
 ): number {
   const width = Math.max(1, viewport.width);
   const height = Math.max(1, viewport.height);
@@ -370,7 +379,7 @@ export function fitRadius(
 
   let radius = Math.max(extent, 1e-3);
   for (let pass = 0; pass < 6; pass += 1) {
-    poseProbe(probe, centre, radius, viewport);
+    poseProbe(probe, centre, radius, viewport, direction);
     let worstX = 0;
     let worstY = 0;
     for (const corner of corners) {

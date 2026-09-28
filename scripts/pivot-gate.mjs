@@ -35,7 +35,7 @@
  *  10  a wheel dolly anchored on the pivot keeps it fixed, in the world and on
  *      screen, while the radius closes (the viewer's wheel with a selection)
  *
- * Then, unless `--no-browser`, phase 2 (B1-B14, see `browserPhase` below): the
+ * Then, unless `--no-browser`, phase 2 (B1-B16, see `browserPhase` below): the
  * same rule through the real UI in headless Chrome against `dist/`: "we always
  * have to orbit selected objects" (edkjo, 2026-09-26) on every path that can
  * change the selection or move the camera under one.
@@ -61,7 +61,7 @@ import {
   framingBox,
   pivotBounds,
 } from "../src/viewer/mesh-stream.ts";
-import { POLAR_FLOOR, Turntable, fitRadius } from "../src/viewer/camera.ts";
+import { FIT_FRACTION, POLAR_FLOOR, Turntable, fitRadius } from "../src/viewer/camera.ts";
 
 const args = process.argv.slice(2);
 const opt = (name) => {
@@ -377,13 +377,17 @@ console.log(
 /* the design-alternative board (`#design=a`), whose Scope panel, treemaps */
 /* and requirements are the paths a row, a cell and a requirement take.    */
 /*                                                                        */
-/* Per path, two claims, both read off the live scene (`ModelScene.probe`, */
+/* Per path, three claims, all read off the live scene (`ModelScene.probe`,*/
 /* `ModelScene.project`), never off pixels:                                */
+/*   F  the selection is FRAMED: its projected box sits inside the         */
+/*      viewport within FIT_FRACTION and fills it, and the target is the   */
+/*      pivot (edkjo 2026-09-28: "always frame the selected object. pivot  */
+/*      on it and frame it.")                                              */
 /*   P  the pivot IS the selection's centre (and `orbitsSelection` holds)  */
 /*   O  a real left-drag orbit leaves the selection's centre where it was  */
 /*      on screen (< 1e-3 NDC) while the eye moves                        */
-/* plus the rules that must survive: a SET and a canvas pick do not move   */
-/* the eye; one element (a Scope row) frames.                              */
+/* plus: clearing (the lone row again, Escape, the last chip) does not     */
+/* move the eye, and a set with nothing selected frames the set.           */
 /*                                                                        */
 /*   B1 canvas pick           B2 wheel away from the selection            */
 /*   B3 pan                   B4 treemap cell   B5 requirement            */
@@ -394,6 +398,8 @@ console.log(
 /*   B10 graph pick, viewer windowed   B11 Graf with the viewer main      */
 /*   B12 graph pick, viewer main       B13 Graf -> Kontroll               */
 /*   B14 no selection: the wheel keeps the cursor rule                    */
+/*   B15 treemap cell, nothing selected: the set is framed                */
+/*   B16 Typer gallery card (viewer hidden): framed when it comes back    */
 /* ====================================================================== */
 
 async function browserPhase() {
@@ -622,6 +628,41 @@ async function browserPhase() {
     record.push({ path: label, pivotOffMetres: off, orbitsSelection: p.orbitsSelection, screenDriftNdc: drift, eyeMoved: eyeMoved(p, q) });
   }
 
+  /** F: the selection is FRAMED. Read before any drag: its projected box sits
+   *  inside the viewport with the framing margin (every NDC component within
+   *  FIT_FRACTION), it fills the frame rather than sitting in it from a mile
+   *  away, and the look-at target is the pivot, which is what `frameBox`
+   *  leaves behind and nothing else does. */
+  const onPivot = (p) =>
+    p.pivot !== null && Math.hypot(...p.pivot.map((v, i) => v - p.target[i])) <= Math.max(1e-4, p.radius * 1e-6);
+  async function framedOn(label, guids) {
+    const p = await pose(guids);
+    if (!p?.box) {
+      check(false, `${label}: F the selection has a box in the scene`);
+      return;
+    }
+    const reach = Math.max(Math.abs(p.box.x0), Math.abs(p.box.x1), Math.abs(p.box.y0), Math.abs(p.box.y1));
+    check(
+      reach <= FIT_FRACTION + 0.01 && reach >= 0.5 && onPivot(p),
+      `${label}: F the selection is framed (reaches ${reach.toFixed(3)} NDC of <= ${FIT_FRACTION}, target on the pivot ${onPivot(p)})`,
+    );
+    record.push({ path: label, framedReachNdc: reach });
+  }
+  /** F for a SET with nothing selected: the eye moved, and the frame is on the
+   *  pivot, which is the set's robust centre (phase 1, assertion 2 and 5). */
+  async function framedSet(label, before) {
+    const p = await pose([]);
+    check(
+      p.selection.length === 0 && !p.orbitsSelection && eyeMoved(before, p) > 1e-3 && onPivot(p),
+      `${label}: F the set is framed about its own centre (eye moved ${eyeMoved(before, p).toFixed(3)} of the radius, target on the pivot ${onPivot(p)})`,
+    );
+  }
+  /** Clearing never moves the camera. */
+  async function stillAfter(label, before) {
+    const p = await pose([]);
+    check(eyeMoved(before, p) < 1e-9, `${label}: the eye did not move`);
+  }
+
   const STATE = `(() => {
     const bar = document.querySelector('main > section [data-filter-bar]');
     const chips = bar ? [...bar.querySelectorAll(':scope > span.border')].map((s) => s.textContent.replace(/✕$/, '').trim()) : [];
@@ -666,7 +707,8 @@ async function browserPhase() {
     cleanup();
     return fails;
   }
-  check(eyeMoved(e0, e1) < 1e-9, `B1 the canvas pick did not move the eye`);
+  check(eyeMoved(e0, e1) > 1e-3, `B1 the canvas pick moved the eye to frame it (${eyeMoved(e0, e1).toFixed(3)} of the radius)`);
+  await framedOn("B1 canvas pick", picked);
   await orbitHolds("B1 canvas pick", picked);
 
   /* B2 wheel, at a point AWAY from the selection */
@@ -695,20 +737,19 @@ async function browserPhase() {
   await dragOn(rect.x + rect.w * 0.5, rect.y + rect.h * 0.5, -70, 40, "right");
   await orbitHolds("B3 after a pan", picked);
 
-  /* B4 treemap cell: a SET; the canvas selection stays and the eye does not move */
+  /* B4 treemap cell: a SET; the canvas selection stays, and it is what is framed */
   {
     const has = await evaluate(`!!document.querySelector('[data-mg-grid] [data-tree-cell]')`);
     if (!has) check(false, "B4 a treemap cell is on the board");
     else {
       const at = await centre(`document.querySelector('[data-mg-grid] [data-tree-cell]')`);
-      const a = await pose([]);
       await clickAt(at.x, at.y);
-      const b = await pose([]);
       const st = await evaluate(STATE);
       check(st.chips.length === 1, `B4 a treemap cell makes a chip (${JSON.stringify(st.chips)})`);
-      check(eyeMoved(a, b) < 1e-9, `B4 a set does not move the eye`);
+      await framedOn("B4 treemap cell", picked);
       await orbitHolds("B4 treemap cell", picked);
       await clickAt(at.x, at.y);
+      await framedOn("B4 the cell again (chip gone)", picked);
     }
   }
 
@@ -718,19 +759,19 @@ async function browserPhase() {
     const reqs = await evaluate(`[...document.querySelectorAll('[data-mg-grid] button[data-req]')].map((b) => b.dataset.req)`);
     for (const key of reqs.filter((k) => k !== "ifc-schema")) {
       const at = await centre(`document.querySelector('[data-mg-grid] button[data-req="${key}"]')`);
-      const a = await pose([]);
       await clickAt(at.x, at.y);
       const st = await evaluate(STATE);
       if (st.chips.length === 1 && st.scopeRows > 1) {
-        const b = await pose([]);
         reqAt = { key, at };
-        check(eyeMoved(a, b) < 1e-9, `B5 a requirement (${key}) does not move the eye`);
         break;
       }
       await clickAt(at.x, at.y);
     }
     check(reqAt !== null, `B5 a requirement makes a chip and fills Scope (${reqAt?.key})`);
-    if (reqAt) await orbitHolds(`B5 requirement ${reqAt.key}`, picked);
+    if (reqAt) {
+      await framedOn(`B5 requirement ${reqAt.key}`, picked);
+      await orbitHolds(`B5 requirement ${reqAt.key}`, picked);
+    }
   }
 
   /* B6 Scope row: ONE element frames, and the orbit is about it */
@@ -760,24 +801,30 @@ async function browserPhase() {
       await clickAt(at.x, at.y);
       const b = await pose([rowA]);
       check(eyeMoved(a, b) > 1e-3, `B6 a Scope row frames its element (eye moved ${eyeMoved(a, b).toFixed(3)} of the radius)`);
+      await framedOn("B6 Scope row", [rowA]);
       await orbitHolds("B6 Scope row", [rowA]);
 
       /* B7 undo on a second click */
       at = await row(rowB);
       await clickAt(at.x, at.y, 8);
+      await framedOn("B7 Shift adds a second Scope row", [rowA, rowB]);
       await orbitHolds("B7 Shift adds a second Scope row", [rowA, rowB]);
       at = await row(rowB);
       await clickAt(at.x, at.y, 8);
+      await framedOn("B7 Shift on it again undoes it; what remains is framed", [rowA]);
       await orbitHolds("B7 Shift on it again undoes it; the orbit returns to the one left", [rowA]);
       at = await row(rowA);
+      const beforeClear = await pose([]);
       await clickAt(at.x, at.y);
       const cleared = await pose([]);
       check(
         cleared.selection.length === 0 && !cleared.orbitsSelection,
         `B7 the lone row again clears the selection, and the pivot lets go of it`,
       );
+      await stillAfter("B7 clearing the selection", beforeClear);
       at = await row(rowA);
       await clickAt(at.x, at.y);
+      await framedOn("B7 the row once more", [rowA]);
       await orbitHolds("B7 the row once more", [rowA]);
     }
   }
@@ -792,10 +839,8 @@ async function browserPhase() {
     if (!x) check(false, "B8 a chip carries its x");
     else {
       const at = await centre(`document.querySelector('[data-gate-x]')`);
-      const a = await pose([]);
       await clickAt(at.x, at.y);
-      const b = await pose([]);
-      check(eyeMoved(a, b) < 1e-9, `B8 removing a chip (${x}) does not move the eye`);
+      await framedOn(`B8 chip removed (${x}); the selection is framed`, [rowA]);
       await orbitHolds("B8 chip removed", [rowA]);
     }
   }
@@ -835,7 +880,10 @@ async function browserPhase() {
     return sel.length === 1 ? sel : null;
   };
   const g1 = await graphPick("B10 graph pick, viewer windowed", held);
-  if (g1) await orbitHolds("B10 graph pick, viewer windowed", g1);
+  if (g1) {
+    await framedOn("B10 graph pick, viewer windowed", g1);
+    await orbitHolds("B10 graph pick, viewer windowed", g1);
+  }
 
   const toMain = await centre(`[...document.querySelectorAll('button[aria-pressed]')].find((b) => b.textContent.trim() === 'Modell')`);
   await clickAt(toMain.x, toMain.y);
@@ -843,7 +891,10 @@ async function browserPhase() {
   const sel11 = (await pose([])).selection;
   await orbitHolds("B11 Graf, viewer main", sel11);
   const g2 = await graphPick("B12 graph pick, viewer main", sel11);
-  if (g2) await orbitHolds("B12 graph pick, viewer main", g2);
+  if (g2) {
+    await framedOn("B12 graph pick, viewer main", g2);
+    await orbitHolds("B12 graph pick, viewer main", g2);
+  }
 
   const sel13 = (await pose([])).selection;
   await tab("Kontroll");
@@ -854,11 +905,13 @@ async function browserPhase() {
   {
     rect = await canvasRect();
     await evaluate(`(() => { const s = ${SCENE}; s.canvas.focus(); return true; })()`);
+    const beforeEscape = await pose([]);
     await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await sleep(400);
     const p0 = await pose(sel13);
     check(p0.selection.length === 0 && !p0.orbitsSelection, `B14 Escape cleared the selection`);
+    await stillAfter("B14 Escape", beforeEscape);
     // A world point that is ON the cursor ray, off the screen centre: the
     // scene's own `planePoint` for that cursor. Zoom-to-cursor keeps every
     // point of that ray in place; a zoom toward anything else moves it.
@@ -878,6 +931,42 @@ async function browserPhase() {
       p0.pivot !== null && p1.pivot !== null && Math.hypot(...p1.pivot.map((v, i) => v - p0.pivot[i])) < 1e-9,
       `B14 no selection: the wheel leaves the pivot where it was, as before`,
     );
+  }
+
+  /* B15 a SET with nothing selected: the treemap cell frames the set */
+  {
+    const cell = `document.querySelector('[data-mg-grid] [data-tree-cell]')`;
+    if (!(await evaluate(`!!${cell}`))) check(false, "B15 a treemap cell is on the board");
+    else {
+      const at = await centre(cell);
+      const a = await pose([]);
+      await clickAt(at.x, at.y);
+      await framedSet("B15 treemap cell, nothing selected", a);
+      const b = await pose([]);
+      await clickAt(at.x, at.y);
+      await stillAfter("B15 the cell again (no filter left)", b);
+    }
+  }
+
+  /* B16 a Typer gallery card: chosen while the viewer tile is hidden, framed
+     when the tile comes back */
+  {
+    const a = await pose([]);
+    await tab("Typer");
+    const card = `document.querySelector('[data-gallery="types"] button')`;
+    if (!(await evaluate(`!!${card}`))) check(false, "B16 a Typer card is in the gallery");
+    else {
+      const at = await centre(card);
+      await clickAt(at.x, at.y);
+      await tab("Kontroll");
+      await until(`!!document.querySelector('[data-mg-grid] [data-mg-tile=viewer] canvas')`, 10000, "viewer home");
+      await sleep(400);
+      // A card makes a Type chip; a card that opens on one of its instances
+      // also selects it, and then it is the selection that is framed.
+      const chosen = (await pose([])).selection;
+      if (chosen.length > 0) await framedOn("B16 Typer card", chosen);
+      else await framedSet("B16 Typer card", a);
+    }
   }
 
   if (exceptions.length) {

@@ -31,10 +31,9 @@
  * tile still only highlights — a click that hid what the pointer was over
  * would make the scene unusable for the thing it is for.
  *
- * A row click NEVER moves the camera. That is a stated rule, and the two
- * controls that do move it are named buttons on the tile — `Zoom til valg`
- * lights up the moment a row is picked, because an isolated element can be
- * small or off screen and that is the next click.
+ * A row click frames what it picked, like every selection: "always frame the
+ * selected object. pivot on it and frame it." (edkjo, 2026-09-28). The viewer
+ * does that on the selection change (`ModelScene.followChoice`), not here.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

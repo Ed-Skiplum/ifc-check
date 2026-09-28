@@ -461,30 +461,41 @@ matrix — the first, `ownFirst` — is clickable: a cell under another file's
 column names a storey this panel's viewer does not contain. Every such storey
 is one click away in its own model's panel.
 
-**A SET never moves the camera; the one ELEMENT does** (2026-09-23). Isolating
-a set does not fit, frame or zoom — the pivot re-targets without moving the eye
-(`pivot-gate.mjs` assertion 8). The second step is the exception edkjo asked
-for: *"It should also frame the object and show the properties and
-attributes."* So a row of the derivation band frames what it picked, through
-the SAME `ModelScene.zoomToSelection` the button runs — one framing rule, one
-piece of arithmetic, so a row and `Zoom til valg` cannot land the camera in two
-places. Instant, like the button; nothing is animated.
+**Every selection is framed** (edkjo, 2026-09-28): *"always frame the selected
+object. pivot on it and frame it."* This replaced the 2026-09-23 rule that a
+set never moved the camera and a canvas pick moved nothing. Whatever is chosen
+becomes the orbit pivot AND is framed, from every path: canvas pick, Scope or
+band row, graph node (viewer main or windowed), treemap cell, requirement or
+KPI card, chip, Typer/Materialer gallery card, a Shift second click (frame what
+remains). One framing rule, one piece of arithmetic: the same
+`ModelScene.zoomToSelection` the button runs. Instant; nothing is animated.
 
-- The request travels as `ModelView.frameSeq`, a counter bumped only by
-  `pickElement` (`cross-filter.ts`) and read by `ViewerTile` in an effect
-  declared AFTER the selection effect, so the scene already holds the new
-  selection. A counter rather than a flag: the same element picked twice is two
-  requests. `ViewerTile` remembers the last value it acted on, so a re-render
-  never re-frames a camera the user has since orbited.
-- **A canvas pick still moves nothing.** `pick` does not touch `frameSeq`, so
-  the rule holds by the request never being made rather than by a check.
-- Shift/Ctrl down the band frames the accumulated selection. Stepping back OUT
-  (the same row again, an empty selection) leaves the camera where it is.
-- An element with no mesh in the scene — budget capped, or no geometry — leaves
-  the camera alone: `zoomToSelection` finds no bounds and returns. The HUD
-  already carries how much of the filter has geometry.
-- `Zoom til valg` stays, and still takes the accent the moment a selection
-  exists: a canvas pick and a restored selection both need it.
+- **Where it happens.** `ModelScene.followChoice`, called by `ViewerTile` in
+  one effect keyed on `[selection, matched]` and declared AFTER the filter and
+  selection effects, so the scene holds both before it decides. No path asks
+  for a frame; a change of choice is the request. (`ModelView.frameSeq` and its
+  per-path counter are gone.)
+- **What is framed** is the box the pivot is taken from (`pivotBox`, i.e.
+  `pivotBounds`): the selection if there is one, otherwise the matched set.
+  A set frames its ROBUST bounds, with the same outlier rule as the pivot, so a
+  stray element in a class does not frame the class from a kilometre out. A
+  selection OF a stray element still reaches it (its own box).
+- **What moves nothing.** Clearing: an emptied selection (the lone row again,
+  Escape), or the last chip removed. A `Vis kun / Uthev` toggle. A re-render at
+  the same choice: `followChoice` remembers what it last saw, the selection by
+  identity (every gesture is a new array, so the same element picked twice is
+  two requests) and the set by members (its memo can rebuild unchanged).
+- **A set change with a selection held** (a chip added or removed) frames the
+  selection, since the selection is what the orbit is about.
+- **Framed from the current angle.** `fitRadius` takes the view direction, and
+  `frameBox` passes the turntable's own. Solved from the entry angle, an element
+  framed after a few orbits reached 0.31 to 0.48 NDC instead of 0.88.
+- **A hidden tile** (Typer or Materialer open) has a 1x1 viewport; a choice made
+  there is held and framed on the resize that brings the tile back.
+- An element with no mesh in the scene (budget capped, or no geometry) leaves
+  the camera alone. The HUD already carries how much of the filter has geometry.
+- `Zoom til valg` stays: with a selection it re-frames it (after an orbit or a
+  wheel), with none it frames the whole model, outliers included.
 
 ### The object panel — everything the engine has, in IFC's own order
 
@@ -659,10 +670,9 @@ Chase these upstream rather than living with them silently:
 edkjo: *"we always have to orbit selected objects."* Whenever something is
 selected, the orbit centre is the selection's centre, and it stays there until
 the selection changes or is cleared. Nothing else moves it: not a wheel, not a
-pan, not a set chip, not the viewer moving between Kontroll and Graf. The
-older rules hold beside it: a SET never moves the camera, one element (a band
-or Scope row) frames, a canvas pick does not move the eye. Only the orbit
-centre changes.
+pan, not a set chip, not the viewer moving between Kontroll and Graf. Since
+2026-09-28 every selection is also FRAMED (see "Every selection is framed"
+above); the pivot rule here is unchanged.
 
 - **The pivot.** `ModelScene.updatePivot` takes the selection first
   (`pivotBounds`), and now records whether it did (`orbitsSelection`).
@@ -686,11 +696,20 @@ centre changes.
   Graf back to Kontroll. The lent canvas is the same `ModelScene`, and
   `resize` never touches the pivot.
 
-`scripts/pivot-gate.mjs` phase 2 (B1 to B14) drives each path with real CDP
-events on `#design=a` against `dist/` and asserts two things off the live scene
-per path: the pivot IS the selection's centre, and a real left-drag moves the
-eye while the selection's centre stays put on screen (< 1e-3 NDC). Phase 1
-gained assertion 10 (a dolly toward the pivot keeps it fixed).
+`scripts/pivot-gate.mjs` phase 2 (B1 to B16) drives each path with real CDP
+events on `#design=a` against `dist/` and asserts off the live scene per path:
+F the selection is FRAMED (its projected box within `FIT_FRACTION` of every
+viewport edge and filling it, and the look-at target on the pivot, which only
+`frameBox` leaves behind), P the pivot IS the selection's centre, and O a real
+left-drag moves the eye while the selection's centre stays put on screen
+(< 1e-3 NDC). Clearing (the lone row again, Escape, the last chip) is asserted
+not to move the eye; B15 (treemap cell, nothing selected) and B16 (Typer card,
+viewer hidden) frame the set. Phase 1 assertion 10: a dolly toward the pivot
+keeps it fixed.
+
+Measured 2026-09-28 on KNM_RIB against a local `vite preview` of the build (not
+the deployed site): every framed selection reached 0.75 to 0.82 NDC except B8
+(0.55, a steep polar angle), all 16 paths pass.
 
 ```bash
 npm run build && node scripts/pivot-gate.mjs /c/workspace/skiplum/client-projects/10016-kistefos/underprosjekter/KNM_Mottakskontroll/02_arbeid/KNM_RIB.ifc
@@ -731,8 +750,8 @@ is open re-targets it.
 - **It makes no chip.** `chipOf` returns null for it, so a canvas pick still
   only highlights: a click that hid what the pointer was over would make the
   tile useless for what it is for.
-- **It does not move the camera.** `frameSeq` is still bumped only by
-  `pickElement`, so nothing about opening the band frames anything.
+- **Opening the band frames nothing by itself.** The camera follows the
+  selection (`followChoice`), not the band.
 - The effect is driven off the SELECTION rather than off each call site, so
   every path reaches it — canvas pick, band row, Escape, a shift-click that
   grows the set. A ref holds the last selection it acted on, so the hash change
@@ -827,13 +846,13 @@ Real CDP mouse events against a real model in headless Chrome — a synthetic
 Assertions: the whole model · a class row isolates (the bar reads the class's
 own count, the HUD narrows) and the object panel opens in its empty state,
 its pset and classification sections carrying the no-selection dash · the
-same row restores, and the canvas is
-**pixel-identical** to before, which is the set-does-not-move-the-camera
-assertion · a band row is one element · **that row FRAMED it** — the eye moved,
+class set is framed about its own centre · the same row restores, and the
+camera does not move (clearing moves nothing) · a band row is one element ·
+**that row FRAMED it** — the eye moved,
 the element's box projects inside the viewport, and it fills the frame, so
 "contains it from a mile away" fails · the object panel names that element and
 carries every attribute row · the same band row steps back to the set · a
-canvas click selects, makes no chip and **does not move the camera** ·
+canvas click selects, makes no chip and **frames the pick** ·
 `Tøm filter` · the object panel's four groups and its three absences told apart
 on a selected element (a Uniformat value, the pset group reading `ingen` rather
 than `ikke levert`, and the profile tab reading `ikke levert` because the ENGINE
@@ -1462,8 +1481,8 @@ not.
 `alone`: no object panel beside it, the GUID kept whole, the other columns
 ellipsized with their text in `title`); Detail is `ObjectPanel` over the
 current selection. A Scope row selects, isolates, frames and fills Detail
-(`pickElement`, unchanged); a pick in the 3D fills Detail and moves nothing
-else: in the alternatives the "selection opens the band" effect of `App` is
+(`pickElement`, unchanged); a pick in the 3D fills Detail and is framed, like
+every selection, and opens nothing else: in the alternatives the "selection opens the band" effect of `App` is
 off, because Detail already shows the selection. Nothing overlays the board,
 and a click never moves a tile. Innhold and Graf keep the band at the foot.
 

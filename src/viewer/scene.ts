@@ -68,7 +68,15 @@ import {
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { NO_INSETS, Turntable, fitRadius, wheelPixels, type FitInsets } from "./camera";
+import {
+  FIT_FRACTION,
+  NO_INSETS,
+  Turntable,
+  eyeDirection,
+  fitRadius,
+  wheelPixels,
+  type FitInsets,
+} from "./camera";
 import {
   HOVER_FACE_BUDGET,
   elementRows,
@@ -138,6 +146,14 @@ export interface SceneCallbacks {
  *  goes through this, rather than a second copy of the convention. */
 function toWorld(x: number, y: number, z: number, out: Vector3): Vector3 {
   return out.set(x, z, -y);
+}
+
+/** Same members, `null` (no filter) equal only to `null`. */
+function sameMembers(a: Set<string> | null, b: Set<string> | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || a.size !== b.size) return false;
+  for (const guid of a) if (!b.has(guid)) return false;
+  return true;
 }
 
 export class ModelScene {
@@ -210,6 +226,15 @@ export class ModelScene {
   private hover: string | null = null;
   private mode: Mode = "filter";
   private matched: Set<string> | null = null;
+  /** What `followChoice` last saw, so a re-render at the same choice never
+   *  re-frames a camera the user has since orbited. The selection compares by
+   *  IDENTITY on purpose: every gesture makes a new array, so the same element
+   *  picked twice is two requests. The set compares by members, because its
+   *  memo can be rebuilt with nothing chosen having changed. */
+  private chosen: { selection: string[]; matched: Set<string> | null } = { selection: [], matched: null };
+  /** A choice arrived while the viewport was 1x1 (tile hidden); frame it on
+   *  the next real resize. */
+  private choicePending = false;
 
   private readonly canvas: HTMLCanvasElement;
   private readonly callbacks: SceneCallbacks;
@@ -414,11 +439,68 @@ export class ModelScene {
     this.frameBox(bounds);
   }
 
-  /** Also explicit, and the only thing that moves the camera on a selection. */
+  /** `Zoom til valg`, and the ONE framing rule every selection runs through
+   *  (`followChoice`). With a selection it frames the box the pivot is taken
+   *  from, so the orbit centre and the framed centre are the same point and a
+   *  set frames its robust bounds (the outlier rule of `pivotBounds`). With
+   *  nothing selected the button frames the whole model, outliers included. */
   zoomToSelection(): void {
-    const bounds = this.bounds(this.selection.length > 0 ? this.selection : null);
+    if (this.selection.length > 0) {
+      this.frameChoice();
+      return;
+    }
+    const bounds = this.bounds(null);
     if (!bounds) return;
     this.frameBox(bounds);
+  }
+
+  /**
+   * "always frame the selected object. pivot on it and frame it." (edkjo,
+   * 2026-09-28). Called by `ViewerTile` after the filter and the selection have
+   * both been handed over, so it sees one commit's choice at once.
+   *
+   * - A new selection, from any path (canvas, row, graph node, a Shift that
+   *   grows or shrinks it), frames the selection.
+   * - A new SET (a chip added or removed) frames the selection if there is one,
+   *   otherwise the set.
+   * - Clearing moves nothing: an emptied selection, or no filter left.
+   * - A mode toggle is not a choice and moves nothing.
+   */
+  followChoice(): void {
+    if (!this.set) return;
+    const before = this.chosen;
+    this.chosen = { selection: this.selection, matched: this.matched };
+    const selectionChanged = before.selection !== this.selection;
+    const setChanged = !sameMembers(before.matched, this.matched);
+    if (!selectionChanged && !setChanged) return;
+    if (this.selection.length === 0) {
+      const cleared = before.selection.length > 0 || this.matched === null || !setChanged;
+      if (cleared) {
+        this.choicePending = false;
+        return;
+      }
+    }
+    this.frameChoice();
+  }
+
+  /** Frame the box the pivot is taken from. A selection with no geometry in
+   *  this scene (budget capped, or none at all) leaves the camera alone rather
+   *  than framing whatever the pivot fell back to. */
+  private frameChoice(): void {
+    // A choice made while the tile is hidden (another tab is open: a Typer
+    // card, a Materialer card) has no viewport to fit against. It is framed
+    // on the first resize that brings the tile back, not at 1x1.
+    if (this.viewport.width <= 1 || this.viewport.height <= 1) {
+      this.choicePending = true;
+      return;
+    }
+    this.choicePending = false;
+    // Cleared before a pending frame could run: nothing is chosen, nothing moves.
+    if (this.selection.length === 0 && this.matched === null) return;
+    const found = this.pivotBox();
+    if (!found) return;
+    if (this.selection.length > 0 && !found.selection) return;
+    this.frameBox(found);
   }
 
   /**
@@ -589,6 +671,9 @@ export class ModelScene {
     if (!this.framed && this.set && this.viewport.width > 1 && this.viewport.height > 1) {
       this.fit();
       this.updatePivot();
+    }
+    if (this.choicePending && this.set && this.viewport.width > 1 && this.viewport.height > 1) {
+      this.frameChoice();
     }
     this.invalidate();
   }
@@ -770,6 +855,8 @@ export class ModelScene {
       centre,
       this.viewport,
       this.insets,
+      FIT_FRACTION,
+      eyeDirection(this.turntable.phi, this.turntable.theta),
     );
     // Widen the wheel's window around what is being framed BEFORE the radius
     // is written, or `apply` clamps the frame back to the model's own limits

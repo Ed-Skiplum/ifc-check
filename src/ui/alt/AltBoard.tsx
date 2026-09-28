@@ -289,7 +289,6 @@ function tileBodies(props: AltBoardProps, reqs: Requirement[], counts: KpiCard[]
         mode={view.mode}
         selection={view.selection}
         hover={view.hover}
-        frameSeq={view.frameSeq}
         onPick={onPick}
         onHover={onHover}
       />
