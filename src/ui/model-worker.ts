@@ -21,6 +21,7 @@ import {
   type ElementBox,
 } from "../engine/placement";
 import { checkStoreyConfig } from "../engine/storey-config";
+import { bodyDeclarations, checkBodyWithoutMesh, unmeshedGuids } from "../engine/body-mesh";
 import { boardData, type BoardData } from "./report-rows";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import {
@@ -239,6 +240,11 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     graph.materials = materials;
     if (units) graph.quantity_units = units;
     if (longNames) graph.space_long_names = longNames;
+    // The Body declaration of every element that streamed no mesh
+    // (`body-no-mesh`): read from the STEP bytes, only for those elements, so
+    // a fully meshed model costs one pass. Not read for an ifczip or when the
+    // mesh pass failed; the check then says so.
+    if (!zipped && boxes) graph.body_declared = bodyDeclarations(view, unmeshedGuids(graph, boxes));
     model.free();
     measures = new MeasureChannel(new MeasureState(graph, withheld, summary.unit_resolved ? summary.unit_scale : null));
 
@@ -256,6 +262,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
         ...runFundamentals(graph, summary),
         checkStoreyConfig(graph, summary, undefined),
         checkMeshPlacement(graph, summary, boxes),
+        checkBodyWithoutMesh(graph, boxes),
       ],
     };
     const board = measures.baseBoard(boardData(graph, summary, fileName, report.checks, null, null));
@@ -285,6 +292,7 @@ function evaluate(ruleset: Ruleset) {
       ...runFundamentals(heldGraph, heldSummary, excluded),
       checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
+      checkBodyWithoutMesh(heldGraph, heldBoxes, excluded),
     ];
     const built = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
     const board = measures ? measures.currentBoard(built) : built;

@@ -283,6 +283,47 @@ Not measurable: distance from an element's OWN placement origin. The core has
 a `drift` table (`drift_distance_m`) but the wasm build exposes only its row
 count.
 
+## `body-no-mesh` — Body declared, no mesh (Mangler mesh)
+
+ADVISORY (`src/engine/body-mesh.ts`). An element whose Body representation
+exists in the file while ifcfast's mesh stream produced nothing for it. No wasm
+accessor exposes representations, so the parse worker reads them from the STEP
+bytes (`bodyDeclarations`), only for the in-scope elements that streamed no
+mesh, and attaches them as `graph.body_declared` (cache format 6). Chain read:
+`IfcProduct.Representation` → `IfcProductDefinitionShape` → the
+`IfcShapeRepresentation` whose identifier is `Body` → item classes, following
+`IfcMappedItem` into its mapped representation and a boolean result into its
+first operand. `not_applicable` with the reason when the mesh pass failed or
+the table was not read (ifczip). Value: meshed of (meshed + Body-without-mesh);
+elements with no Body at all (assemblies, spaces with no Body) are not
+findings. Both CLIs read the table too.
+
+Measured 2026-09-28: 0 findings on the KNM exports and most HI90 exports;
+HI90_ARK_MMI700 (Dalux 14.09) has 19, all `IfcWallStandardCase / IfcExtrudedAreaSolid`
+(SweptSolid).
+
+**ifcopenshell in the browser.** The derivation band of this check carries
+«Verifiser med ifcopenshell» (`IfcosControl.tsx`, `ifcos-verify.ts`,
+`ifcos-worker.ts`): Pyodide 0.28.3 from cdn.jsdelivr.net, the
+`ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl` from
+ifcopenshell.github.io/wasm-wheels (CORS `*`), the dropped `File` re-read,
+`ifcopenshell.geom.create_shape` on exactly the finding GUIDs in a worker that
+is terminated after the run. Verdict per element on its row: geometry
+(vertex/face counts) | none | error (message). A failed stage says which
+stage and why; a model restored from the cache has no file and says so. On
+HI90_ARK_MMI700: 19 of 19 geometry (12 vertices, 16 faces), ~22 s headless.
+The wheel's `ifcopenshell.version` reads `0.0.0`; the version shown is the
+installed distribution's (`importlib.metadata`).
+
+**The ifcfast issue.** Per signature (`element class / item chain / ifcfast
+version`, `IFCFAST_VERSION` in `body-mesh.ts`, set by hand when the wasm is
+re-vendored) where ifcopenshell found geometry: the unauthenticated GitHub
+search for an open issue with the signature verbatim in its title, else a
+prefilled `issues/new` link the user opens. The body carries no client data
+(no file name, names, GUIDs, property values, coordinates): only classes,
+representation identifier/type (a single word, else `(other)`), versions and
+counts. The selftest asserts it.
+
 ## `storey-config` — the floor config (Etasjeoppsett)
 
 The ruleset may carry `storeys: [{name, elevation}]` (elevation in METRES,

@@ -7,6 +7,7 @@
  */
 
 import type { QuantityUnits } from "./quantities.ts";
+import type { BodyDecl } from "./body-mesh.ts";
 
 export interface ProductRow {
   guid: string;
@@ -172,6 +173,12 @@ export interface IfcGraph {
    *  STEP bytes by the parse worker; the wasm graph has no LongName). A space
    *  with none is null. Absent = not read (a CLI, an ifczip). */
   space_long_names?: Record<string, string | null>;
+  /** The Body declaration of every in-scope product that streamed NO mesh
+   *  (`bodyDeclarations`, read from the STEP bytes by the parse worker once
+   *  the mesh pass is done; null = no Body representation). `body-no-mesh`
+   *  reads it. Absent = not read (an ifczip, a CLI without the bytes, a
+   *  failed mesh pass). */
+  body_declared?: Record<string, BodyDecl | null>;
 }
 
 /** One material assignment row — `materialsJson()`, long format.
@@ -306,7 +313,8 @@ export type ReasonCode =
   | "storey-elevation-mismatch"
   | "storey-name-whitespace"
   | "storey-duplicate-match"
-  | "storey-count-exceeds";
+  | "storey-count-exceeds"
+  | "body-no-mesh";
 
 export interface Finding {
   /** Full GlobalId. Never truncate this for display. */

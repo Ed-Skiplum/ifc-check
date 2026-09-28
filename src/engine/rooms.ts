@@ -28,7 +28,7 @@ const SPACE = /#(\d+)\s*=\s*IFCSPACE\s*\(/gi;
 
 /** Top-level arguments of a STEP statement's argument text, quote- and
  *  paren-aware. */
-function splitArgs(args: string): string[] {
+export function splitArgs(args: string): string[] {
   const out: string[] = [];
   let depth = 0;
   let quoted = false;
@@ -108,7 +108,7 @@ export function decodeStepString(raw: string): string {
 }
 
 /** A STEP string attribute (`'…'`) decoded, or null for `$`, `*` and ''. */
-function stepText(arg: string | undefined): string | null {
+export function stepText(arg: string | undefined): string | null {
   if (!arg || arg[0] !== "'" || arg[arg.length - 1] !== "'") return null;
   const text = decodeStepString(arg.slice(1, -1)).trim();
   return text === "" ? null : text;

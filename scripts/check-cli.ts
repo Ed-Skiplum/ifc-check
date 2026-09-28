@@ -20,6 +20,7 @@ import {
   type ElementBox,
 } from "../src/engine/placement.ts";
 import { modelKpis } from "../src/engine/kpis.ts";
+import { bodyDeclarations, checkBodyWithoutMesh, unmeshedGuids } from "../src/engine/body-mesh.ts";
 import { checkStoreyConfig, type FloorConfig } from "../src/engine/storey-config.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
@@ -65,10 +66,16 @@ for (const path of args) {
   graph.classifications = JSON.parse(model.classificationsJson());
   graph.quantities = JSON.parse(model.quantitiesJson());
   graph.materials = JSON.parse(model.materialsJson());
+  // As the parse worker: the Body declarations of the unmeshed elements, from
+  // the STEP bytes (not for an ifczip).
+  if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+    graph.body_declared = bodyDeclarations(new Uint8Array(bytes), unmeshedGuids(graph, boxes));
+  }
   const checks = [
     ...runFundamentals(graph, summary),
     checkStoreyConfig(graph, summary, floors),
     checkMeshPlacement(graph, summary, boxes),
+    checkBodyWithoutMesh(graph, boxes),
   ];
   const openings = new Set(graph.voids.map((v) => v.opening_guid));
   const materialNames = elementMaterialNames(graph);

@@ -44,6 +44,8 @@ import { ObjectPanel } from "./ObjectPanel";
 import type { ModelEntry } from "./useModels";
 import { reasonText } from "./reasons";
 import { RESULT_FILL, RESULT_GLYPH, VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
+import { IfcosControl } from "./IfcosControl";
+import { BODY_NO_MESH_FOCUS, ifcosVerdictText, useIfcosRun } from "./ifcos-verify";
 
 const ROW_HEIGHT = 26;
 const OVERSCAN = 12;
@@ -145,12 +147,19 @@ export function TraceBand({
   }, []);
 
   const rows = trace.rows;
+  // `body-no-mesh`: ifcopenshell's verdict per element, once it has run.
+  const ifcos = useIfcosRun(model.id);
+  const verdicts = trace.focus === BODY_NO_MESH_FOCUS ? ifcos?.verdicts : undefined;
   const reasons = useMemo(
     () =>
-      rows.map((row) =>
-        row.code ? reasonText({ ...row, code: row.code, reason: row.reason ?? "" }, lang) : (row.reason ?? ""),
-      ),
-    [rows, lang],
+      rows.map((row) => {
+        const reason = row.code
+          ? reasonText({ ...row, code: row.code, reason: row.reason ?? "" }, lang)
+          : (row.reason ?? "");
+        const verdict = verdicts ? ifcosVerdictText(verdicts[row.guid], lang) : "";
+        return verdict ? `${reason} · ${verdict}` : reason;
+      }),
+    [rows, lang, verdicts],
   );
   const fitted = useMemo(() => columnsFor(rows, reasons), [rows, reasons]);
   // Alone, the list has the panel to itself and may be narrow: the GUID keeps
@@ -254,6 +263,8 @@ export function TraceBand({
             </span>
           </span>
         ))}
+
+        {trace.focus === BODY_NO_MESH_FOCUS ? <IfcosControl lang={lang} model={model} /> : null}
 
         <button
           type="button"

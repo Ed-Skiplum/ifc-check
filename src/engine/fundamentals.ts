@@ -67,6 +67,7 @@ const REASON_EN: Record<ReasonCode, (p: Record<string, string | number>) => stri
   "storey-name-whitespace": (p) => `name "${p.storey}" matches "${p.config}" only after trimming whitespace`,
   "storey-duplicate-match": (p) => `second storey matching config floor "${p.config}"`,
   "storey-count-exceeds": (p) => `${p.count} storeys, config has ${p.config}`,
+  "body-no-mesh": (p) => `${p.identifier} ${p.type} (${p.items}), no mesh`,
 };
 
 export function finding(

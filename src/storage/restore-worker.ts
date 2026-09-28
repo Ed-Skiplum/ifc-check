@@ -19,6 +19,7 @@
 import { runFundamentals } from "../engine/fundamentals.ts";
 import { checkMeshPlacement, type ElementBox } from "../engine/placement.ts";
 import { checkStoreyConfig } from "../engine/storey-config.ts";
+import { checkBodyWithoutMesh } from "../engine/body-mesh.ts";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import { evaluateRuleset } from "../ids/evaluate.ts";
 import type { ModelGraph, ModelSummary } from "../ids/model.ts";
@@ -85,6 +86,7 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
         ...runFundamentals(request.graph, request.summary),
         checkStoreyConfig(request.graph, request.summary, undefined),
         checkMeshPlacement(request.graph, request.summary, heldBoxes, undefined, heldNoGeometry),
+        checkBodyWithoutMesh(request.graph, heldBoxes, undefined, heldNoGeometry),
       ],
     };
     post({
@@ -119,6 +121,7 @@ function evaluate(ruleset: Ruleset) {
       ...runFundamentals(heldGraph, heldSummary, excluded),
       checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded, heldNoGeometry),
+      checkBodyWithoutMesh(heldGraph, heldBoxes, excluded, heldNoGeometry),
     ];
     const built = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
     const board = measures ? measures.currentBoard(built) : built;

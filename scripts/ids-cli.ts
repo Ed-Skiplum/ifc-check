@@ -103,6 +103,17 @@ import {
 import { classRamp } from "../src/ui/graph-paint.ts";
 import { layerSection, PX_PER_MM, sectionOrientation, UNKNOWN_PX } from "../src/ui/layer-section.ts";
 import { roomSchedule, spaceLongNames } from "../src/engine/rooms.ts";
+import {
+  bodyDeclarations,
+  bodySignature,
+  checkBodyWithoutMesh,
+  issueBody,
+  issueFacts,
+  issueTitle,
+  matchingIssue,
+  newIssueUrl,
+  unmeshedGuids,
+} from "../src/engine/body-mesh.ts";
 import { shapeOf } from "../src/ui/room-plan.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
@@ -458,6 +469,11 @@ async function cmdReport(args: string[]): Promise<number> {
       // Read by the material-product row and by `element-material` (#5).
       graph.materials = JSON.parse(parsed.materialsJson());
       parsed.free();
+      // As the parse worker: `body-no-mesh` reads the unmeshed elements' Body
+      // declarations from the STEP bytes (not for an ifczip).
+      if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+        graph.body_declared = bodyDeclarations(new Uint8Array(bytes), unmeshedGuids(graph, boxes));
+      }
 
       const evaluation = ruleset
         ? evaluateRuleset(ruleset, graph as unknown as ModelGraph, summary as unknown as ModelSummary, name)
@@ -469,6 +485,7 @@ async function cmdReport(args: string[]): Promise<number> {
         ...runFundamentals(graph, summary, excluded),
         checkStoreyConfig(graph, summary, ruleset?.storeys),
         checkMeshPlacement(graph, summary, boxes, excluded),
+        checkBodyWithoutMesh(graph, boxes, excluded),
       ];
       rows.push(
         ...reportRows({
@@ -2197,6 +2214,106 @@ async function cmdSelftest(): Promise<number> {
     `${gap.bands[1].unknown ? "unknown" : "known"} ${gap.bands[1].size} ${gap.totalMm} ${gap.bands[0].category}`,
   );
   record("layers: walls stand, slabs and roofs lie", "vertical horizontal horizontal", ["IfcWallStandardCase", "IfcSlab", "IfcRoof"].map(sectionOrientation).join(" "));
+
+  {
+    // body-no-mesh: the Body declaration read from the STEP bytes, across
+    // 64-byte chunks. A mapped item is followed into its mapped
+    // representation, a clipping result into its first operand; a FootPrint
+    // alone and no representation at all are both "no Body".
+    const step = new TextEncoder().encode(
+      [
+        "#1=IFCWALL('0aaaaaaaaaaaaaaaaaaaaa',#2,'Vegg A',$,$,#3,#10,$);",
+        "#10=IFCPRODUCTDEFINITIONSHAPE($,$,(#11,#12));",
+        "#11=IFCSHAPEREPRESENTATION(#20,'Axis','Curve2D',(#30));",
+        "#12=IFCSHAPEREPRESENTATION(#20,'Body','MappedRepresentation',(#13));",
+        "#13=IFCMAPPEDITEM(#14,#15);",
+        "#14=IFCREPRESENTATIONMAP(#16,#17);",
+        "#17=IFCSHAPEREPRESENTATION(#20,'Body','Brep',(#18,#19));",
+        "#18=IFCFACETEDBREP(#40);",
+        "#19=IFCFACETEDBREP(#41);",
+        "#5=IFCSLAB('1bbbbbbbbbbbbbbbbbbbbb',#2,'Dekke',$,$,#3,#50,$,$);",
+        "#50=IFCPRODUCTDEFINITIONSHAPE($,$,(#51));",
+        "#51=IFCSHAPEREPRESENTATION(#20,'Body','Clipping',(#52));",
+        "#52=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#53,#54);",
+        "#53=IFCEXTRUDEDAREASOLID(#60,#61,#62,3.);",
+        "#6=IFCBUILDINGELEMENTPROXY('2ccccccccccccccccccccc',#2,'P',$,$,#3,#70,$,$);",
+        "#70=IFCPRODUCTDEFINITIONSHAPE($,$,(#71));",
+        "#71=IFCSHAPEREPRESENTATION(#20,'FootPrint','Curve2D',(#72));",
+        "#7=IFCELEMENTASSEMBLY('3ddddddddddddddddddddd',#2,'Assy',$,$,#3,$,$,$,$);",
+        "#8=IFCWALL('9zzzzzzzzzzzzzzzzzzzzz',#2,'Not asked',$,$,#3,#10,$);",
+      ].join("\n"),
+    );
+    const asked = new Set(["0aaaaaaaaaaaaaaaaaaaaa", "1bbbbbbbbbbbbbbbbbbbbb", "2ccccccccccccccccccccc", "3ddddddddddddddddddddd"]);
+    const declared = bodyDeclarations(step, asked, 64);
+    const show = (g: string) => {
+      const d = declared[g];
+      return d === undefined ? "absent" : d === null ? "null" : `${d.identifier}:${d.type}:${d.items.join("|")}`;
+    };
+    record(
+      "body-no-mesh: Body read from the STEP bytes across chunks, mapped items and clipping followed, FootPrint alone and no representation are no Body, an unasked element is not read",
+      "Body:MappedRepresentation:IfcMappedItem>IfcFacetedBrep Body:Clipping:IfcBooleanClippingResult>IfcExtrudedAreaSolid null null absent",
+      [...asked, "9zzzzzzzzzzzzzzzzzzzzz"].map(show).join(" "),
+    );
+
+    const product = (guid: string, entity: string, name: string) => ({ guid, entity, name });
+    const graph = {
+      products: [
+        product("0aaaaaaaaaaaaaaaaaaaaa", "IfcWall", "Vegg A"),
+        product("1bbbbbbbbbbbbbbbbbbbbb", "IfcSlab", "Dekke"),
+        product("2ccccccccccccccccccccc", "IfcBuildingElementProxy", "P"),
+        product("3ddddddddddddddddddddd", "IfcElementAssembly", "Assy"),
+        product("4eeeeeeeeeeeeeeeeeeeee", "IfcWall", "Meshed"),
+      ],
+      voids: [],
+      body_declared: declared,
+    } as unknown as IfcGraph;
+    const boxes = new Map([["4eeeeeeeeeeeeeeeeeeeee", { min: [0, 0, 0], max: [1, 1, 1] }]]);
+    const checked = checkBodyWithoutMesh(graph, boxes);
+    const unread = checkBodyWithoutMesh({ ...graph, body_declared: undefined }, boxes);
+    const noMesh = checkBodyWithoutMesh(graph, null);
+    record(
+      "body-no-mesh: Body declared and no mesh is a finding, no Body is not; not read or no geometry is not_applicable, never a pass",
+      "fail 1 of 3 0aaaaaaaaaaaaaaaaaaaaa,1bbbbbbbbbbbbbbbbbbbbb | not_applicable | not_applicable",
+      `${checked.state} ${checked.displayValue.text} ${checked.findings.map((f) => f.guid).join(",")} | ${unread.state} | ${noMesh.state}`,
+    );
+
+    // The issue: one signature per element class + item chain, only where
+    // ifcopenshell found geometry, and NO CLIENT DATA in title or body.
+    const secretFile = "KNM_ARK_Kistefos.ifc";
+    const hostile = {
+      ...checked.findings[1],
+      params: { ...checked.findings[1].params, type: "Kistefos Hall 2" },
+    };
+    const facts = issueFacts(
+      [checked.findings[0], hostile],
+      {
+        "0aaaaaaaaaaaaaaaaaaaaa": { kind: "geometry", vertices: 24, faces: 12 },
+        "1bbbbbbbbbbbbbbbbbbbbb": { kind: "geometry", vertices: 8, faces: 12 },
+      },
+      "0.8.5",
+    );
+    const issueText = facts.map((f) => `${issueTitle(f)}\n${issueBody(f)}\n${decodeURIComponent(newIssueUrl(f))}`).join("\n");
+    const leaks = [
+      "0aaaaaaaaaaaaaaaaaaaaa",
+      "1bbbbbbbbbbbbbbbbbbbbb",
+      "Vegg A",
+      "Dekke",
+      "Kistefos",
+      secretFile,
+      "KNM",
+    ].filter((s) => issueText.includes(s));
+    record(
+      "body-no-mesh: the ifcfast issue carries the signature and counts, and no GUID, element name, file name or free-text representation type",
+      `IfcWall / IfcMappedItem>IfcFacetedBrep / ifcfast ${bodySignature("IfcWall", "IfcMappedItem>IfcFacetedBrep").split(" / ifcfast ")[1]}|IfcSlab / IfcBooleanClippingResult>IfcExtrudedAreaSolid / ifcfast ${bodySignature("IfcSlab", "x").split(" / ifcfast ")[1]} | leaks: none | type: (other)`,
+      `${facts.map((f) => f.signature).join("|")} | leaks: ${leaks.length ? leaks.join(",") : "none"} | type: ${facts[1]?.types.join(",")}`,
+    );
+    const sig = facts[0].signature;
+    record(
+      "body-no-mesh: an existing issue counts only when its title carries the signature verbatim",
+      "#7 null",
+      `#${matchingIssue(sig, [{ title: "IfcWall IfcFacetedBrep", html_url: "u1", number: 3 }, { title: `Body declared, no mesh: ${sig}`, html_url: "u2", number: 7 }])?.number} ${matchingIssue(sig, [{ title: "IfcWall / IfcFacetedBrep", html_url: "u", number: 1 }])}`,
+    );
+  }
 
   xlsxSelftest(record);
 

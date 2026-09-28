@@ -130,7 +130,7 @@ const SCENARIOS = [
  * scrolls, and that is the tile's honest capacity, not a defect. */
 
 /** The rows the verification tile owes with no ruleset loaded: the twelve
- *  fundamentals plus `mesh-placement` and `storey-config`. Derived from the
+ *  fundamentals plus `mesh-placement`, `storey-config` and `body-no-mesh`. Derived from the
  *  shipped list rather than typed, so adding a fundamental cannot leave this
  *  gate measuring the old count and reporting a full tile. */
 const UNIVERSAL_CHECKS =
@@ -141,7 +141,7 @@ const UNIVERSAL_CHECKS =
     { schema: "IFC4", path: "", size_bytes: 0, products: 0, storeys: 0, project_name: null,
       authoring_app: null, length_unit: "METRE", unit_scale: 1, unit_resolved: true,
       duplicate_step_ids: 0, parse_seconds: 0, warnings: [], tables: {} },
-  ).length + 2;
+  ).length + 3;
 // kpis: the four neutral counts in the last-row strip (2026-09-24); the three
 // verdict counts moved into the focal and are held by the clip assertion.
 const MIN_ROWS = { verify: UNIVERSAL_CHECKS, floors: 6, spatial: 4, kpis: 4 };
