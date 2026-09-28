@@ -1,0 +1,132 @@
+{
+  "formatVersion": 1,
+  "name": "TEST FIXTURE: EKS project layer and mappings",
+  "description": "Test fixture, not a project config.",
+  "ifcVersions": [
+    "IFC4"
+  ],
+  "projectLayer": {
+    "ifc-schema": {
+      "accepted": [
+        "IFC4"
+      ]
+    },
+    "phase": {
+      "sources": [
+        {
+          "property": {
+            "propertySet": "EKS_TFM",
+            "name": "Fase"
+          }
+        }
+      ]
+    },
+    "material-product": {
+      "mengdetype": [
+        {
+          "property": {
+            "propertySet": "NOSKI_Mengde",
+            "name": "Mengdetype"
+          }
+        }
+      ],
+      "product": [
+        {
+          "property": {
+            "propertySet": "Identity Data",
+            "name": "MC Product Code"
+          }
+        }
+      ],
+      "material": [
+        {
+          "property": {
+            "propertySet": "EKS_Prosjektinfo",
+            "name": "EKS_Material"
+          }
+        },
+        {
+          "property": {
+            "propertySet": "EKS_Prosjektinfo_IFC",
+            "name": "EKS_Material"
+          }
+        }
+      ]
+    }
+  },
+  "rules": [
+    {
+      "id": "eks-ns3451",
+      "kind": "extended",
+      "mapping": "system-classification",
+      "name": "EKS_NS3451",
+      "description": "Manual §4.2",
+      "check": {
+        "type": "code-lookup",
+        "list": "ns3451",
+        "source": {
+          "property": {
+            "propertySet": "EKS_Prosjektinfo",
+            "name": "EKS_NS3451"
+          }
+        },
+        "extract": "^(\\d{2,3})(?:-.*)?$"
+      }
+    },
+    {
+      "id": "eks-ns3457-8",
+      "kind": "extended",
+      "mapping": "component-classification",
+      "name": "EKS_NS3457-8",
+      "description": "Manual §4.2",
+      "check": {
+        "type": "code-lookup",
+        "list": "ns3457-8",
+        "source": {
+          "property": {
+            "propertySet": "EKS_Prosjektinfo",
+            "name": "EKS_NS3457-8"
+          }
+        },
+        "extract": "^([A-Z]{2,3})"
+      }
+    },
+    {
+      "id": "eks-mmi",
+      "kind": "extended",
+      "mapping": "progress-code",
+      "name": "EKS_MMI",
+      "description": "Manual §4.5 MMI-koder",
+      "check": {
+        "type": "code-lookup",
+        "values": [
+          "100",
+          "200",
+          "300",
+          "350",
+          "700",
+          "710",
+          "720",
+          "740",
+          "760",
+          "780",
+          "800",
+          "825",
+          "850",
+          "875",
+          "900",
+          "920",
+          "950",
+          "980"
+        ],
+        "source": {
+          "property": {
+            "propertySet": "EKS_Prosjektinfo",
+            "name": "EKS_MMI"
+          }
+        },
+        "extract": "^(\\d{3})$"
+      }
+    }
+  ]
+}

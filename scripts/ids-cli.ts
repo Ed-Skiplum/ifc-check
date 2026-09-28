@@ -612,10 +612,10 @@ async function cmdSelftest(): Promise<number> {
   // The project mappings ride on code-lookup; the example config must stay
   // valid, and each constraint a mapping adds must actually refuse.
   const knm = JSON.parse(
-    readFileSync(new URL("../examples/knm.ruleset.json", import.meta.url), "utf8"),
+    readFileSync(new URL("../examples/eks.ruleset.json", import.meta.url), "utf8"),
   ) as Ruleset;
   record(
-    "examples/knm.ruleset.json lints clean and validates",
+    "examples/eks.ruleset.json lints clean and validates",
     "0 errors / valid",
     `${lintRuleset(knm).filter((i) => i.severity === "error").length} errors / ` +
       (shapeErrors(knm).length === 0 ? "valid" : "invalid"),

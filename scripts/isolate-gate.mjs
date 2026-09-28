@@ -838,7 +838,7 @@ if (storey) {
    so only this panel's own column — the first — is a door. A cell under
    another file's column describes a storey this panel's viewer does not
    contain, and the other panels are not touched by a click here. */
-if (existsSync(resolve(ROOT, "examples/knm-floors.test.ruleset.json"))) {
+if (existsSync(resolve(ROOT, "tests/fixtures/private/knm-floors.test.ruleset.json"))) {
   const dir = resolve(modelPath, "..");
   const three = ["KNM_ARK.ifc", "KNM_RIV.ifc", "KNM_RIB.ifc"].map((f) => resolve(dir, f));
   if (three.every((f) => existsSync(f))) {
@@ -853,7 +853,7 @@ if (existsSync(resolve(ROOT, "examples/knm-floors.test.ruleset.json"))) {
     await until(`!document.querySelector('[role=tablist]')`, 30000, "empty landing");
     await setFiles(
       'input[type=file][accept=".ids,.xml,.json"]',
-      [resolve(ROOT, "examples/knm-floors.test.ruleset.json")],
+      [resolve(ROOT, "tests/fixtures/private/knm-floors.test.ruleset.json")],
     );
     await sleep(800);
     await setFiles('input[type=file][accept=".ifc,.ifczip"]', three);

@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
-  "name": "KNM",
-  "description": "Kistefos Nytt Museum. BEP §6.12: type names follow [ComponentCode]-[nn].",
+  "name": "EKS",
+  "description": "Eksempelprosjekt. BEP §6.12: type names follow [ComponentCode]-[nn].",
   "ifcVersions": ["IFC2X3", "IFC4"],
   "rules": [
     {

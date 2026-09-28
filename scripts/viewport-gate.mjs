@@ -109,7 +109,7 @@ const VIEWPORTS = [
   { w: 1200, h: 900, iframe: true },
 ].filter((v) => !only || only.includes(`${v.w}x${v.h}`));
 
-const floorsRuleset = resolve(ROOT, "examples/knm-floors.test.ruleset.json");
+const floorsRuleset = resolve(ROOT, "tests/fixtures/private/knm-floors.test.ruleset.json");
 const SCENARIOS = [
   { name: "one", files: ["KNM_ARK.ifc"], ruleset: null },
   { name: "three", files: ["KNM_ARK.ifc", "KNM_RIV.ifc", "KNM_RIB.ifc"], ruleset: floorsRuleset },

@@ -18,7 +18,7 @@
  *
  * Scenarios: KNM_ARK alone; KNM ARK + RIV + RIB with the test floor config at
  * 1440 and 2112; HI90_ARK without and with
- * `examples/hi90-project-layer.test.ruleset.json` (when the HI90 export is on
+ * `tests/fixtures/private/hi90-project-layer.test.ruleset.json` (when the HI90 export is on
  * this machine). On a, the requirements must be the KPI band on the board's
  * top row, not a list tile, and no requirement card scrolls (2026-09-26).
  *
@@ -73,8 +73,8 @@ const VIEWPORTS = [
   { w: 3440, h: 1440, cls: "ultrawide" },
 ].filter((v) => !only || only.includes(`${v.w}x${v.h}`));
 
-const floorsRuleset = resolve(ROOT, "examples/knm-floors.test.ruleset.json");
-const hi90Ruleset = resolve(ROOT, "examples/hi90-project-layer.test.ruleset.json");
+const floorsRuleset = resolve(ROOT, "tests/fixtures/private/knm-floors.test.ruleset.json");
+const hi90Ruleset = resolve(ROOT, "tests/fixtures/private/hi90-project-layer.test.ruleset.json");
 const knm = (f) => resolve(modelsDir, f);
 const SCENARIOS = [
   { name: "one", files: [knm("KNM_ARK.ifc")], ruleset: null, sizes: null },
