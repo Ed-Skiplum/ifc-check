@@ -13,6 +13,7 @@ import { requirements, type Requirement } from "../requirements";
 import { t, locale } from "../i18n";
 import { formatCount } from "../format";
 import { VERDICT_GLYPH } from "../state-visuals";
+import { css, mmiColour } from "../chart-colors";
 import { valueDoorSize } from "../board-doors";
 
 export function stateLook(state: ReportState, lang: Lang): { verdict: Verdict; glyph: string; word: string } {
@@ -181,4 +182,22 @@ export function mmiBars(req: Requirement): Bar[] {
   const none = counts.get(null);
   const off: Bar[] = none ? [...outside, { value: null, n: none, flag: "mangler" }] : outside;
   return [...off, ...bars];
+}
+
+/** How a bar is drawn: a level on the scale takes its step of the ordinal
+ *  ramp; an avvik or mangler bar takes no fill (the CSS draws its outline or
+ *  hatching) and carries its glyph. */
+export interface BarLook {
+  verdict: "warn" | "fail" | undefined;
+  glyph: string | null;
+  style: Record<string, string>;
+}
+
+export function barLook(bars: readonly Bar[]): (bar: Bar) => BarLook {
+  const scale = bars.filter((b) => b.flag === "");
+  return (bar): BarLook => {
+    if (bar.flag === "avvik") return { verdict: "warn", glyph: VERDICT_GLYPH.warn, style: {} };
+    if (bar.flag === "mangler") return { verdict: "fail", glyph: VERDICT_GLYPH.fail, style: {} };
+    return { verdict: undefined, glyph: null, style: { "--bar": css(mmiColour(scale.indexOf(bar), scale.length)) } };
+  };
 }

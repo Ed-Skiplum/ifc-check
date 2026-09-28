@@ -70,6 +70,18 @@ import { MENGDETYPE_NS3457 } from "../src/codelists/mengdetype-ns3457.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 import { catalogue as typeCatalogue } from "../src/ui/type-links.ts";
 import type { ModelProfile } from "../src/ui/profile.ts";
+import {
+  CATEGORICAL,
+  clashesWithStatus,
+  classColour,
+  codeColour,
+  contrast,
+  frameColour,
+  labelOn,
+  luminance,
+  mmiColour,
+} from "../src/ui/chart-colors.ts";
+import { classRamp } from "../src/ui/graph-paint.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -1714,6 +1726,49 @@ async function cmdSelftest(): Promise<number> {
     "ids: counts per state",
     "pass 3 fail 3 not_applicable 1 not_evaluable 3",
     `pass ${idsRun.counts.pass} fail ${idsRun.counts.fail} not_applicable ${idsRun.counts.not_applicable} not_evaluable ${idsRun.counts.not_evaluable}`,
+  );
+
+  // Chart colour (src/ui/chart-colors.ts): one class, one colour, in the
+  // charts and the Graf tab alike; no category on a status hue; every fill a
+  // label reads on at AA.
+  const rgb = (c: readonly number[]) => c.join(",");
+  const graphRamp = classRamp(["IfcWall", "IfcSlab", "IfcDoor", "IfcBuildingElementProxy", "IfcFlowTerminal"]);
+  record(
+    "colour: the graph's class colour is the chart's, for every class",
+    "same",
+    [...graphRamp.entries()].every(([e, c]) => rgb(c) === rgb(classColour(e))) ? "same" : "differs",
+  );
+  record(
+    "colour: IfcWall, IFCWALL and IfcWallStandardCase are one colour",
+    "1",
+    String(new Set(["IfcWall", "IFCWALL", "IfcWallStandardCase"].map((e) => rgb(classColour(e)))).size),
+  );
+  record(
+    "colour: walls, slabs, doors, windows and frame members are five colours",
+    "5",
+    String(new Set(["IfcWall", "IfcSlab", "IfcDoor", "IfcWindow", "IfcBeam"].map((e) => rgb(classColour(e)))).size),
+  );
+  record(
+    "colour: no category sits on a status or accent hue",
+    "none",
+    CATEGORICAL.map(clashesWithStatus).filter(Boolean).join(",") || "none",
+  );
+  const codes = ["2", "22", "221", "222", "223", "224", "23", "24", "25", "3", "31", "32", "33", "4", "5", "6", "7", "Q", "QL", "QLD", "QLE", "QLF", "QLG", "A", "B", "Z"];
+  const fills = [...CATEGORICAL, ...codes.map(codeColour), ...CATEGORICAL.map(frameColour)];
+  record(
+    "colour: every category, code shade and frame holds AA (4.5:1) for its label",
+    "all",
+    fills.every((f) => contrast(f, labelOn(f)) >= 4.5) ? "all" : fills.filter((f) => contrast(f, labelOn(f)) < 4.5).map(rgb).join(" "),
+  );
+  record(
+    "colour: a code's child stays in its parent's family, siblings differ",
+    "family distinct",
+    `${codeColour("22")[2] > codeColour("22")[0] === codeColour("2")[2] > codeColour("2")[0] ? "family" : "drift"} ${rgb(codeColour("22")) !== rgb(codeColour("23")) ? "distinct" : "same"}`,
+  );
+  record(
+    "colour: the MMI ramp darkens with the level",
+    "ordered",
+    [0, 1, 2, 3, 4, 5, 6].every((i) => i === 0 || luminance(mmiColour(i, 7)) < luminance(mmiColour(i - 1, 7))) ? "ordered" : "not",
   );
 
   const ok = assertions.every((a) => a.ok);

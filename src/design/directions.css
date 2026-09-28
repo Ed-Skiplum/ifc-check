@@ -561,58 +561,57 @@
   color: var(--color-cream);
 }
 
-/* The treemap: one neutral hue for codes, classes and types, shaded by depth
-   so nesting reads; status only where the rule judged the value. */
+/* The treemap: the fill and the label colour per cell come from
+   `src/ui/chart-colors.ts` as --cell / --cell-ink (a class, a code's hue,
+   a frame's pale wash). Status never owns a fill: avvik is an amber outline,
+   mangler red hatching, each with its glyph in the label. */
 .alt-cell {
-  background-color: rgba(22, 19, 15, 0.1);
-  color: var(--color-ink);
+  background-color: var(--cell, rgba(22, 19, 15, 0.1));
+  color: var(--cell-ink, var(--color-ink));
   box-shadow: inset 0 0 0 1px var(--color-panel);
-  transition: background-color var(--d-dur) var(--d-ease);
-}
-.alt-cell[data-depth="1"] {
-  background-color: rgba(22, 19, 15, 0.16);
-}
-.alt-cell[data-depth="2"],
-.alt-cell[data-depth="3"] {
-  background-color: rgba(22, 19, 15, 0.22);
-}
-.alt-cell-frame,
-.alt-cell-frame[data-depth] {
-  background-color: rgba(22, 19, 15, 0.05);
+  transition: filter var(--d-dur) var(--d-ease);
 }
 .alt-cell:hover {
-  background-color: var(--d-accent-wash);
+  filter: brightness(0.94);
 }
 .alt-cell[data-verdict="warn"] {
-  background-color: var(--color-gold);
+  background-color: var(--color-input);
+  color: var(--color-ink);
+  box-shadow: inset 0 0 0 2px var(--color-gold);
 }
 .alt-cell[data-verdict="fail"] {
-  background-color: var(--color-bad);
-  color: var(--color-cream);
-}
-/* A PredefinedType fallback is not a code: hatched, so it never reads as one. */
-.alt-cell[data-kind="fallback"] {
   background-color: var(--color-input);
+  background-image: repeating-linear-gradient(135deg, rgba(191, 59, 44, 0.3) 0 2px, transparent 2px 6px);
+  color: var(--color-ink);
+  box-shadow: inset 0 0 0 2px var(--color-bad);
+}
+/* A PredefinedType fallback is not a code: a light hatch over its colour, so
+   it never reads as one. */
+.alt-cell[data-kind="fallback"] {
   background-image: repeating-linear-gradient(
     135deg,
-    rgba(22, 19, 15, 0.09) 0 2px,
+    rgba(255, 255, 255, 0.4) 0 2px,
     transparent 2px 7px
   );
 }
 
-/* The MMI bars: one neutral ink; the avvik and mangler bars take status. */
+/* The MMI bars: a scale level takes its step of the ordinal ramp as --bar;
+   avvik is an amber outline, mangler red hatching. */
 .alt-bar {
   border-radius: 3px 3px 0 0;
-  background-color: rgba(22, 19, 15, 0.55);
+  background-color: var(--bar, rgba(22, 19, 15, 0.55));
 }
 .alt-bar-row {
   border-radius: 0 3px 3px 0;
 }
 .alt-bar[data-verdict="warn"] {
-  background-color: var(--color-gold);
+  background-color: var(--color-input);
+  box-shadow: inset 0 0 0 2px var(--color-gold);
 }
 .alt-bar[data-verdict="fail"] {
-  background-color: var(--color-bad);
+  background-color: var(--color-input);
+  background-image: repeating-linear-gradient(135deg, rgba(191, 59, 44, 0.55) 0 2px, transparent 2px 5px);
+  box-shadow: inset 0 0 0 1.5px var(--color-bad);
 }
 
 /* Scope and Detail: the card is the frame, so the band and the object panel

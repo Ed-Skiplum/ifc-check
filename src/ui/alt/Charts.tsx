@@ -4,12 +4,16 @@
  *  its accepted values (`godtatte`). Every cell and bar is a door: a click
  *  fills Scope and makes a chip, as any other number on the board does.
  *
- *  Colour is status only. Codes, classes and types are one neutral hue; a
- *  value the rule judged deviating is the avvik colour, an object with
- *  nothing the mangler colour. A PredefinedType fallback is hatched and
- *  captioned as what it is, so it never reads as a code. */
+ *  Colour per group (2026-09-28, `../chart-colors.ts`): a class its class
+ *  colour (the Graf tab's too), a code its top level's hue with children as
+ *  steps of it, MMI levels an ordinal ramp. Status never owns a fill: a
+ *  deviating value is an amber outline with its glyph, an object with
+ *  nothing red hatching with its glyph. A PredefinedType fallback keeps a
+ *  light hatch and its caption, so it never reads as a code. */
 
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useState, type CSSProperties } from "react";
+import { VERDICT_GLYPH } from "../state-visuals";
+import { categorical, classColour, codeColour, css, frameColour, labelOn, type Rgb } from "../chart-colors";
 import type { CodeTree, TreeNode } from "../../engine/code-tree";
 import type { Requirement } from "../requirements";
 import type { DoorProps } from "./Requirements";
@@ -20,7 +24,7 @@ import type { Measure, SourceSplit } from "../../engine/quantities";
 import { measureReady, type BoardMeasures } from "../measure-state";
 import { squarify, type Rect } from "./treemap";
 import { StateBadge } from "./Requirements";
-import { mmiBars, valueFocus } from "./req-view";
+import { barLook, mmiBars, valueFocus } from "./req-view";
 
 /** The box of whichever element the chart renders; a callback ref, so a
  *  chart that swaps its element (MMI columns and rows) keeps measuring the
@@ -159,10 +163,22 @@ function SourceLine({ split, lang }: { split: SourceSplit; lang: Lang }) {
   );
 }
 
-function nodeVerdict(node: TreeNode): string | undefined {
+function nodeVerdict(node: TreeNode): "warn" | "fail" | undefined {
   if (node.kind === "deviating") return "warn";
   if (node.kind === "missing") return "fail";
   return undefined;
+}
+
+/** A cell's fill and label colour (`chart-colors.ts`); none on a status
+ *  cell, which the CSS draws as an outline or hatching. */
+function cellStyle(node: TreeNode, frame: boolean): Record<string, string> {
+  let fill: Rgb;
+  if (node.kind === "code") fill = codeColour(node.label ?? "");
+  else if (node.kind === "class") fill = classColour(node.label ?? "");
+  else if (node.kind === "type" || node.kind === "fallback") fill = categorical(node.label ?? "");
+  else return {};
+  if (frame) fill = frameColour(fill);
+  return { "--cell": css(fill), "--cell-ink": css(labelOn(fill)) };
 }
 
 export function CodeTreemap({
@@ -201,13 +217,15 @@ export function CodeTreemap({
           .filter(Boolean)
           .join(" · ");
         const small = rect.w < 44 || rect.h < 22;
+        const verdict = nodeVerdict(node);
+        const glyph = verdict ? VERDICT_GLYPH[verdict] : null;
         return (
           <button
             key={node.key}
             type="button"
             data-tree-cell={node.key}
             data-kind={node.kind}
-            data-verdict={nodeVerdict(node)}
+            data-verdict={verdict}
             data-depth={depth}
             title={title}
             onClick={(event) => {
@@ -219,10 +237,29 @@ export function CodeTreemap({
               (frame ? "alt-cell-frame " : "") +
               (chosen ? "alt-chosen" : "")
             }
-            style={{ left: rect.x, top: rect.y, width: Math.max(0, rect.w - 1), height: Math.max(0, rect.h - 1) }}
+            style={
+              {
+                ...cellStyle(node, frame),
+                left: rect.x,
+                top: rect.y,
+                width: Math.max(0, rect.w - 1),
+                height: Math.max(0, rect.h - 1),
+              } as CSSProperties
+            }
           >
-            {small ? null : (
+            {small ? (
+              glyph && rect.w >= 12 && rect.h >= 12 ? (
+                <span aria-hidden className="m-auto text-[10px] leading-none font-semibold">
+                  {glyph}
+                </span>
+              ) : null
+            ) : (
               <span className="flex w-full min-w-0 items-baseline gap-1 px-1 pt-0.5 text-[10px] leading-tight">
+                {glyph ? (
+                  <span aria-hidden className="shrink-0 font-semibold">
+                    {glyph}
+                  </span>
+                ) : null}
                 {node.kind === "fallback" ? (
                   <span className="shrink-0 font-mono opacity-70">{t("col.predefinedType", lang)}</span>
                 ) : null}
@@ -263,6 +300,7 @@ export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
     );
   }
   const peak = Math.max(1, ...bars.map((b) => b.n));
+  const look = barLook(bars);
   // Columns while every level gets 26 px; else one row per level, read down,
   // which a narrow tile seats (and scrolls, past its height).
   // A strip (one module tall, the canon's named exception) always reads
@@ -275,17 +313,18 @@ export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
           const focus = bar.n > 0 ? valueFocus(row, bar.value, model) : null;
           const chosen = focus !== null && selected === serialiseFocus(focus);
           const text = bar.value === null ? t("req.mangler", lang) : bar.value;
-          const verdict = bar.flag === "avvik" ? "warn" : bar.flag === "mangler" ? "fail" : undefined;
+          const { verdict, glyph, style } = look(bar);
           const body = (
             <>
               <span className="w-[9ch] shrink-0 truncate font-mono text-[10px]" title={text}>
+                {glyph ? <span aria-hidden className="mr-0.5 font-semibold">{glyph}</span> : null}
                 {text}
               </span>
               <span className="flex h-2.5 min-w-0 flex-1 items-center">
                 <span
                   data-verdict={verdict}
                   className="alt-bar alt-bar-row block h-full"
-                  style={{ width: `${bar.n === 0 ? 0 : Math.max(1, (bar.n / peak) * 100)}%` }}
+                  style={{ ...style, width: `${bar.n === 0 ? 0 : Math.max(1, (bar.n / peak) * 100)}%` } as CSSProperties}
                 />
               </span>
               <span className="w-[6ch] shrink-0 text-right font-mono text-[10px] tabular-nums text-muted">
@@ -320,7 +359,7 @@ export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
         const focus = bar.n > 0 ? valueFocus(row, bar.value, model) : null;
         const chosen = focus !== null && selected === serialiseFocus(focus);
         const text = bar.value === null ? t("req.mangler", lang) : bar.value;
-        const verdict = bar.flag === "avvik" ? "warn" : bar.flag === "mangler" ? "fail" : undefined;
+        const { verdict, glyph, style } = look(bar);
         const body = (
           <>
             <span className="font-mono text-[10px] tabular-nums text-muted">{formatCount(bar.n, lang)}</span>
@@ -328,10 +367,11 @@ export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
               <span
                 data-verdict={verdict}
                 className="alt-bar block w-full"
-                style={{ height: `${bar.n === 0 ? 0 : Math.max(2, (bar.n / peak) * 100)}%` }}
+                style={{ ...style, height: `${bar.n === 0 ? 0 : Math.max(2, (bar.n / peak) * 100)}%` } as CSSProperties}
               />
             </span>
             <span className="w-full truncate text-center font-mono text-[10px]" title={text}>
+              {glyph ? <span aria-hidden className="mr-0.5 font-semibold">{glyph}</span> : null}
               {text}
             </span>
           </>

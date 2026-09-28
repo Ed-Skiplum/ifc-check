@@ -11,7 +11,7 @@
  *  the sources it was read «fra», and the fordeling. Labels are the report's
  *  (`docs/begreper.md`). */
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { ReportRow, ReportState, ReportValue } from "../../engine/report";
 import type { Verdict } from "../../engine/types";
 import type { Focus } from "../trace";
@@ -21,7 +21,7 @@ import type { Requirement } from "../requirements";
 import { t } from "../i18n";
 import { serialiseFocus } from "../trace";
 import { formatCount } from "../format";
-import { figures, mmiBars, orderedValues, secondFigure, stateLook, uniqueCount, valueFocus } from "./req-view";
+import { barLook, figures, mmiBars, orderedValues, secondFigure, stateLook, uniqueCount, valueFocus } from "./req-view";
 
 export interface DoorProps {
   lang: Lang;
@@ -360,17 +360,22 @@ function MiniDist({ req, lang }: { req: Requirement; lang: Lang }) {
   const bars = mmiBars(req);
   if (bars.length === 0) return null;
   const peak = Math.max(1, ...bars.map((b) => b.n));
+  const look = barLook(bars);
   return (
     <span data-mmi="mini" className="flex h-full min-h-[18px] min-w-0 items-end gap-[2px]">
-      {bars.map((bar) => (
-        <span
-          key={String(bar.value)}
-          title={`${bar.value === null ? t("req.mangler", lang) : bar.value} ×${bar.n}`}
-          data-verdict={bar.flag === "avvik" ? "warn" : bar.flag === "mangler" ? "fail" : undefined}
-          className="alt-bar block w-[6px] min-w-[3px] shrink"
-          style={{ height: `${bar.n === 0 ? 0 : Math.max(8, (bar.n / peak) * 100)}%` }}
-        />
-      ))}
+      {bars.map((bar) => {
+        const { verdict, glyph, style } = look(bar);
+        const text = bar.value === null ? t("req.mangler", lang) : bar.value;
+        return (
+          <span
+            key={String(bar.value)}
+            title={`${glyph ? `${glyph} ` : ""}${text} ×${bar.n}`}
+            data-verdict={verdict}
+            className="alt-bar block w-[6px] min-w-[3px] shrink"
+            style={{ ...style, height: `${bar.n === 0 ? 0 : Math.max(8, (bar.n / peak) * 100)}%` } as CSSProperties}
+          />
+        );
+      })}
     </span>
   );
 }

@@ -16,8 +16,8 @@
  *     edges like firing synapses, while the rest dims
  *
  * What stays legible: the verdict colours (Avvik red, Advarsel amber) keep a
- * floor on their opacity whatever the depth, the class colours are one cool
- * ramp so the warm verdicts stand out of it, and labels are drawn on focus and
+ * floor on their opacity whatever the depth, the class colours are the
+ * charts' categorical set, which keeps off the verdict hues, and labels are drawn on focus and
  * hover over a dark outline.
  *
  * Canvas 2D rather than WebGL: the glow is a pre-rendered sprite per colour
@@ -27,6 +27,7 @@
  */
 
 import type { GNode, NodeKind, Tone } from "./graph-model";
+import { classColour } from "./chart-colors.ts";
 
 export type Rgb = readonly [number, number, number];
 
@@ -68,28 +69,12 @@ function lift(c: Rgb, t: number): Rgb {
   ];
 }
 
-function hsl(h: number, s: number, l: number): Rgb {
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
-  };
-  return [f(0), f(8), f(4)];
-}
-
-/** One class, one colour, the same on every drill of the same model: the
- *  demo's `stableEntityPalette` (sorted by name, spread over one range). The
- *  range here is cool, teal to steel, so the warm verdicts and the accent
- *  stand out of it. */
-function classRamp(entities: string[]): Map<string, Rgb> {
-  const sorted = [...new Set(entities)].sort();
-  const last = Math.max(1, sorted.length - 1);
+/** One class, one colour, the same on every model and the same as the
+ *  board's charts (`chart-colors.ts`, 2026-09-28). The categorical set keeps
+ *  off the verdict hues, so the warm verdicts and the accent still stand out. */
+export function classRamp(entities: string[]): Map<string, Rgb> {
   const ramp = new Map<string, Rgb>();
-  sorted.forEach((entity, i) => {
-    const hue = 176 + (i / last) * 58;
-    const light = 0.6 + (i % 3) * 0.07;
-    ramp.set(entity, hsl(hue, 0.42, light));
-  });
+  for (const entity of new Set(entities)) ramp.set(entity, classColour(entity));
   return ramp;
 }
 
