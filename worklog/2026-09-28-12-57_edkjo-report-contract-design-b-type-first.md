@@ -63,10 +63,30 @@ layout summary, "keep agent runs short", Skiplum git identity.
 - Things shipped unseen twice (type view); a single short headless check before handover caught
   the next one.
 
-## Open
+## Next steps (next session)
 
-- Excel config template with Lesmeg as sheet two, import and export, and obscured example names:
-  in progress.
-- HI90: denominator (#4), `kilder[].n`, name matching, the new `krav.yaml` shape.
-- isolate-gate still asserts the old chip model.
-- `main` is not pushed to GitHub.
+1. **Excel config template** (parked on branch `wip/excel-config`): .xlsx with Etasjer first and
+   Lesmeg/README second (human-legible, aimed at agents), then Klassifikasjon, MMI, Kopiobjekt,
+   Kilder. Import by drop or setup page, export .xlsx and JSON, "last ned mal", `ids-cli
+   xlsx2json` / `json2xlsx`. Rename the examples to obscured names (EKS); keep real-named fixtures
+   only where a gate runs against real models, under a private path. Finish, then edkjo looks live.
+2. **Graf tab as a showpiece** (not started; only read): one large canvas (>= 70 % of the tab),
+   Modell | Graf swap with the other as a small window, light HUD instead of tiles and band.
+   *"strictly not needed, so it just needs to be cool and inspiring."* Pointers: layout in
+   `GraphTab.tsx` ~1060 to 1200 (`graphFieldLayout`); the band is `ModelPanel.tsx` ~516
+   (`trace && !docked`), drop it on Graf by adding `tab === "graph"` to `docked`; HUD facts are in
+   GraphTab's `index.byId`. ifcfast-site (master d5a1e22) has no swap, it is a 2×2 grid; carry
+   over its compact graph mode (canvas and hover tip only, 65cbc83), the small glass control top
+   right and the inset vignette.
+3. **isolate-gate** still asserts the old chip model; rewrite it for the one-origin filter or fold
+   it into `xfilter-gate.mjs`.
+4. **Colour by class in the 3D** (offered, not asked): charts and model can only share colours if
+   the viewer gets that mode. Wait for edkjo.
+5. **IfcSpace in the treemaps:** rooms are ~97 % of the Volum map. Asked, unanswered.
+6. **HI90 coordination** (#1, #4): denominator, `kilder[].n`, exact vs loose name matching, the new
+   `krav.yaml` shape for Materiale/Produkt. Report inside ifc-check (#3) after that.
+7. **ifcfast gaps** surfaced by the IDS parity run: IfcRelAssignsToGroup and non-storey containment.
+   Offered to file on EdvardGK/ifcfast; unanswered.
+8. **Rewrite the 36+ unpushed commits' author** to edvard.kjorstad@skiplum.no? Asked, unanswered.
+   Then push `main` (GitHub is far behind production).
+9. The 23 Skiplum repos on `edvard@skiplum.no`: alias or move to `edvard.kjorstad@skiplum.no`?
