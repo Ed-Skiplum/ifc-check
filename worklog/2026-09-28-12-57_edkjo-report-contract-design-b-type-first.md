@@ -65,7 +65,10 @@ layout summary, "keep agent runs short", Skiplum git identity.
 
 ## Next steps (next session)
 
-1. **Excel config template** (parked on branch `wip/excel-config`): .xlsx with Etasjer first and
+1. **Excel config template** (not built; the design is in the empty commit `b4dbb38` on branch
+   `wip/excel-config`: library choice, sheet layout, round-trip guard. Lint does not yet refuse
+   `<FROM PROJECT>`, so add that check first. `examples/knm-floors.test.ruleset.json` also carries
+   real names and three gates use it): .xlsx with Etasjer first and
    Lesmeg/README second (human-legible, aimed at agents), then Klassifikasjon, MMI, Kopiobjekt,
    Kilder. Import by drop or setup page, export .xlsx and JSON, "last ned mal", `ids-cli
    xlsx2json` / `json2xlsx`. Rename the examples to obscured names (EKS); keep real-named fixtures
