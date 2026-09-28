@@ -44,13 +44,12 @@ export interface ViewState {
   design: Design | null;
 }
 
-function isDesign(value: string | null): value is Design {
-  return value !== null && (DESIGNS as readonly string[]).includes(value);
-}
-
-function readDesign(hash: URLSearchParams): Design | null {
-  const value = hash.get("design");
-  return isDesign(value) ? value : null;
+/** b is the only version (edkjo 2026-09-28: "make b the new main version.
+ *  Lets stop this multiple versions thing. we iterate on b"). The hash key is
+ *  no longer read, so the plain URL and the skiplum.com embed render b and old
+ *  `#design=` links still load. */
+function readDesign(_hash: URLSearchParams): Design | null {
+  return "b";
 }
 
 function isLang(value: string | null): value is Lang {
@@ -113,7 +112,6 @@ function serialise(view: ViewState): string {
   if (view.page) params.set("page", view.page);
   if (view.tab) params.set("tab", view.tab);
   if (view.type) params.set("type", view.type);
-  if (view.design) params.set("design", view.design);
   return `#${params.toString()}`;
 }
 
