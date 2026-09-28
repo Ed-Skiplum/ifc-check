@@ -198,7 +198,7 @@ export function AppBar({
       <input
         ref={rulesetInput}
         type="file"
-        accept=".ids,.xml,.json"
+        accept=".ids,.xml,.json,.xlsx"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];

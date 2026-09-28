@@ -14,7 +14,7 @@ const STRINGS = {
   "drop.ifc": { nb: "Slipp IFC-filen din her", en: "Drop your IFC file here" },
   "drop.ruleset": { nb: "Slipp regelsett", en: "Drop ruleset" },
   "accept.ifc": { nb: "IFC · IFCZIP", en: "IFC · IFCZIP" },
-  "accept.ruleset": { nb: "IDS · RULESET.JSON", en: "IDS · RULESET.JSON" },
+  "accept.ruleset": { nb: "IDS · RULESET.JSON · XLSX", en: "IDS · RULESET.JSON · XLSX" },
 
   /* -------------------------------------------------------------- landing */
   "app.name": { nb: "ifc-check", en: "ifc-check" },

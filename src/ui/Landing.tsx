@@ -252,7 +252,7 @@ function RulesetTile({
         <input
           ref={input}
           type="file"
-          accept=".ids,.xml,.json"
+          accept=".ids,.xml,.json,.xlsx"
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];

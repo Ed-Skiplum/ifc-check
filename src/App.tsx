@@ -164,13 +164,14 @@ export default function App() {
   );
   const setupFileName = rulesetName && /\.json$/i.test(rulesetName)
     ? rulesetName
-    : `${(rulesetName ?? ruleset?.name ?? "regelsett").replace(/\.(ids|xml)$/i, "")}.ruleset.json`;
+    : `${(rulesetName ?? ruleset?.name ?? "regelsett").replace(/\.(ids|xml|xlsx)$/i, "")}.ruleset.json`;
   const setupPage = setupOpen ? (
     <SetupPage
       lang={view.lang}
       ruleset={ruleset ?? EMPTY_RULESET}
       fileName={setupFileName}
       onChange={editRuleset}
+      onOpen={(file) => void loadRuleset(file)}
     />
   ) : null;
 
@@ -275,6 +276,11 @@ export default function App() {
               <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
             </div>
           </header>
+          {setupPage && rulesetError ? (
+            <pre className="m-0 shrink-0 bg-bad px-4 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+              {rulesetError}
+            </pre>
+          ) : null}
           {setupPage ?? (
             <Landing
               lang={view.lang}

@@ -27,6 +27,7 @@ import type {
 import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
 import { Switch } from "./Switch";
+import { CONFIG_TEMPLATE_FILE } from "../ids/config-template.ts";
 
 const SOURCE_KINDS = ["attribute", "property", "classification"] as const;
 type SourceKind = (typeof SOURCE_KINDS)[number];
@@ -84,10 +85,26 @@ function mappingRule(ruleset: Ruleset, role: MappingRole): ExtendedRule | null {
   return null;
 }
 
+const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/** The .xlsx beside the JSON: `EKS.ruleset.json` -> `EKS.xlsx`. */
+function xlsxName(fileName: string): string {
+  return `${fileName.replace(/(\.ruleset)?\.json$/i, "")}.xlsx`;
+}
+
 function downloadRuleset(ruleset: Ruleset, fileName: string): void {
-  const blob = new Blob([JSON.stringify(ruleset, null, 2) + "\n"], {
-    type: "application/json",
-  });
+  downloadBlob(new Blob([JSON.stringify(ruleset, null, 2) + "\n"], { type: "application/json" }), fileName);
+}
+
+/** The workbook is written by a lazily loaded module, which reads its own
+ *  output back and throws on any difference; the throw is shown, not eaten. */
+async function downloadXlsx(ruleset: Ruleset, fileName: string): Promise<void> {
+  const { writeRulesetXlsx } = await import("../ids/xlsx.ts");
+  const bytes = writeRulesetXlsx(ruleset);
+  downloadBlob(new Blob([bytes as BlobPart], { type: XLSX_TYPE }), fileName);
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -97,6 +114,8 @@ function downloadRuleset(ruleset: Ruleset, fileName: string): void {
 }
 
 const LABEL = "text-[10px] font-semibold tracking-[0.12em] text-gold uppercase";
+const SECONDARY =
+  "flex items-center gap-2 border border-line bg-cream px-3 py-1.5 text-[12px] text-ink hover:border-green hover:text-green";
 const INPUT =
   "border border-line bg-input px-2 py-1 font-mono text-[12px] text-ink " +
   "disabled:text-muted aria-[invalid=true]:border-bad";
@@ -600,11 +619,14 @@ export function SetupPage({
   ruleset,
   fileName,
   onChange,
+  onOpen,
 }: {
   lang: Lang;
   ruleset: Ruleset;
   fileName: string;
   onChange: (next: Ruleset) => void;
+  /** A ruleset file picked here: .ruleset.json, .xlsx or .ids. */
+  onOpen: (file: File) => void;
 }) {
   const lint = lintRuleset(ruleset);
   const nameIssue = lint.some((i) => i.ruleId === null && i.path === "name");
@@ -613,7 +635,12 @@ export function SetupPage({
   const [nameTouched, setNameTouched] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [asking, setAsking] = useState<MappingRole | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const openInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
+  const downloadClass =
+    "flex items-center gap-2 px-3 py-1.5 text-[12px] text-cream " +
+    (blocked ? "cursor-not-allowed bg-muted" : "bg-green hover:bg-ink");
 
   const toggle = (role: MappingRole) => {
     const rule = mappingRule(ruleset, role);
@@ -663,6 +690,27 @@ export function SetupPage({
               onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
             />
           </Field>
+          <button type="button" onClick={() => openInput.current?.click()} className={SECONDARY}>
+            {t("action.openRuleset", lang)}
+          </button>
+          <input
+            ref={openInput}
+            type="file"
+            accept=".json,.xlsx,.ids,.xml"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onOpen(file);
+              event.target.value = "";
+            }}
+          />
+          <a
+            href={`${import.meta.env.BASE_URL}${CONFIG_TEMPLATE_FILE}`}
+            download={CONFIG_TEMPLATE_FILE}
+            className={SECONDARY}
+          >
+            {t("action.downloadTemplate", lang)}
+          </a>
           <button
             type="button"
             aria-disabled={blocked}
@@ -670,15 +718,34 @@ export function SetupPage({
               setAttempted(true);
               if (!blocked) downloadRuleset(ruleset, fileName);
             }}
-            className={
-              "flex items-center gap-2 px-3 py-1.5 text-[12px] text-cream " +
-              (blocked ? "cursor-not-allowed bg-muted" : "bg-green hover:bg-ink")
-            }
+            className={downloadClass}
           >
             <span>{t("action.download", lang)}</span>
             <span className="font-mono text-[11px]">{fileName}</span>
           </button>
+          <button
+            type="button"
+            aria-disabled={blocked}
+            onClick={() => {
+              setAttempted(true);
+              if (blocked) return;
+              setExportError(null);
+              downloadXlsx(ruleset, xlsxName(fileName)).catch((error: unknown) =>
+                setExportError(error instanceof Error ? error.message : String(error)),
+              );
+            }}
+            className={downloadClass}
+          >
+            <span>{t("action.download", lang)}</span>
+            <span className="font-mono text-[11px]">{xlsxName(fileName)}</span>
+          </button>
         </div>
+
+        {exportError !== null ? (
+          <pre className="m-0 bg-bad px-3 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+            {exportError}
+          </pre>
+        ) : null}
 
         <StoreyCard
           storeys={ruleset.storeys ?? []}
