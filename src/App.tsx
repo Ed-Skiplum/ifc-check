@@ -330,6 +330,7 @@ export default function App() {
                 onAddChip={(chip) => cross.addChip(model.id, chip)}
                 onRemoveChip={(key) => cross.removeChip(model.id, key)}
                 onClearChips={() => cross.clearChips(model.id)}
+                onSetChips={(chips) => cross.setChips(model.id, chips)}
                 onClearElements={() => cross.clearElements(model.id)}
                 onPick={(guid, additive) => cross.pick(model.id, guid, additive)}
                 onSelect={(guids) => cross.setSelection(model.id, guids)}
@@ -337,7 +338,9 @@ export default function App() {
                 floors={ruleset?.storeys?.length ? ruleset.storeys : null}
                 peers={peers}
                 tab={view.tab ?? "checks"}
-                onTab={(tab) => setView({ tab: tab === "checks" ? null : tab })}
+                onTab={(tab) => setView({ tab: tab === "checks" ? null : tab, type: null })}
+                typePage={view.type}
+                onTypePage={(type, replace) => setView({ tab: "types", type }, replace)}
                 trace={
                   trace && trace.modelId === model.id ? (
                     <TraceBand

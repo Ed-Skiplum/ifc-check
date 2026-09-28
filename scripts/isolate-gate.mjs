@@ -1137,10 +1137,35 @@ async function typesPhase() {
   check(pick !== null, `T1 a type with 3 to 60 instances exists (${pick?.key} ×${pick?.n})`);
   if (!pick) return;
   await sleep(600);
-  // A double-click opens the full type view (2026-09-28).
+
+  // What the viewer DRAWS, read off the scene, not the filter bar.
+  const DRAWN = `(window.__ifcCheckScenes ?? [])[0]?.drawnElements() ?? null`;
+  const HASH_TYPE = `new URLSearchParams(location.hash.slice(1)).get('type')`;
+  const GALLERY_SHOWN = `(() => { const g = document.querySelector('main > section [role=tabpanel]:not([hidden]) [data-gallery=types]');
+    return !!g && getComputedStyle(g).visibility === 'visible' && g.getBoundingClientRect().width > 0; })()`;
+  const drawnAll = await evaluate(DRAWN);
+
+  // A single click filters the viewer beside the gallery to the type (2026-09-28).
   const cardAt = await centre(`document.querySelector('[data-gate-type]')`);
+  await clickAt(cardAt.x, cardAt.y);
+  await sleep(1200);
+  const drawnOne = await evaluate(DRAWN);
+  check(drawnOne === pick.n, `T0 a click: the viewer draws ${drawnOne} elements = the type's ${pick.n} instances (of ${drawnAll})`);
+  check((await evaluate(HASH_TYPE)) === null && (await evaluate(GALLERY_SHOWN)), `T0 a click stays on the gallery`);
+  await shot("0-click-filtered", PANEL);
+  await clickAt(cardAt.x, cardAt.y);
+  await sleep(1200);
+  const drawnOff = await evaluate(DRAWN);
+  check(drawnOff === drawnAll, `T0 the same card again: the full model (${drawnOff} = ${drawnAll})`);
+
+  // A double-click opens the type PAGE, its own route (2026-09-28).
   await dblClickAt(cardAt.x, cardAt.y);
   await sleep(1500);
+  const hashType = await evaluate(HASH_TYPE);
+  check(hashType === pick.key, `TP a double-click: the hash carries the type (${hashType})`);
+  check(!(await evaluate(GALLERY_SHOWN)), `TP the gallery is gone`);
+  const drawnPage = await evaluate(DRAWN);
+  check(drawnPage === pick.n, `TP the page's viewer draws ${drawnPage} = ${pick.n} instances`);
   const o1 = await evaluate(OPEN);
   check(o1 !== null && o1.key === pick.key, `T1 the card opens its instance mode (${o1?.key})`);
   if (!o1) return;
@@ -1209,4 +1234,8 @@ async function typesPhase() {
   const closed = await evaluate(OPEN);
   const sel = await evaluate(`document.querySelectorAll('[data-type-open]').length`);
   check(closed === null && sel === 0, `T6 Esc closes the instance mode`);
+  const hashAfter = await evaluate(HASH_TYPE);
+  const drawnBack = await evaluate(DRAWN);
+  check(hashAfter === null && (await evaluate(GALLERY_SHOWN)), `T6 Esc: back on the gallery (type=${hashAfter})`);
+  check(drawnBack === drawnAll, `T6 the gallery's filter is back (${drawnBack} = ${drawnAll})`);
 }

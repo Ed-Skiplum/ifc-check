@@ -629,6 +629,24 @@ export class ModelScene {
     };
   }
 
+  /** How many elements the scene DRAWS right now: the distinct elements of
+   *  the drawn faces (the matched group; under `highlight` the rest is drawn
+   *  too). Read-only, for gates that assert what the viewer shows rather than
+   *  what the filter bar says. */
+  drawnElements(): number {
+    const set = this.set;
+    if (!set) return 0;
+    const seen = new Set<string>();
+    for (const view of this.batches) {
+      const faces = this.mode === "highlight" ? view.source.length / 3 : view.matchedFaces;
+      for (let face = 0; face < faces; face += 1) {
+        const slot = view.workingSlots[face];
+        if (slot >= 0) seen.add(set.slotGuid[slot]);
+      }
+    }
+    return seen.size;
+  }
+
   /**
    * Where world points land in NDC under the CURRENT camera. Read-only.
    *

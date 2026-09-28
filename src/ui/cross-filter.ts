@@ -280,6 +280,9 @@ export interface CrossFilterApi {
   addChip: (modelId: string, chip: FilterChip) => void;
   removeChip: (modelId: string, key: string) => void;
   clearChips: (modelId: string) => void;
+  /** Replace the chips outright (the Typer type page, which filters to its
+   *  one type and hands the gallery's chips back when it closes). */
+  setChips: (modelId: string, chips: FilterChip[]) => void;
   setSelection: (modelId: string, guids: string[]) => void;
   /** Plain click replaces; Shift or Ctrl adds/toggles; `null` clears. */
   pick: (modelId: string, guid: string | null, additive: boolean) => void;
@@ -335,6 +338,10 @@ export function useCrossFilter(): CrossFilterApi {
     ),
     clearChips: useCallback(
       (modelId) => patch(modelId, (v) => ({ ...v, chips: [] })),
+      [patch],
+    ),
+    setChips: useCallback(
+      (modelId, chips) => patch(modelId, (v) => ({ ...v, chips })),
       [patch],
     ),
     setSelection: useCallback(

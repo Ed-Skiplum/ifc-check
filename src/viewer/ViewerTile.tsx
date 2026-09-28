@@ -137,7 +137,7 @@ export function ViewerTile({
     // A handle for the headless gates, in mount order — which is panel order.
     // `isolate-gate.mjs` asserts what the CAMERA did after a click, and there
     // is no way to read a pose out of rendered pixels that is not archaeology.
-    // Read-only: the gates call `probe` and nothing else.
+    // Read-only: the gates call `probe` and `drawnElements` and nothing else.
     const registry = (window.__ifcCheckScenes ??= []);
     registry.push(instance);
 

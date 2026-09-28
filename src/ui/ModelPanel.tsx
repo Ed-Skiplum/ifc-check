@@ -84,6 +84,8 @@ interface ModelPanelProps {
   onAddChip: (chip: FilterChip) => void;
   onRemoveChip: (key: string) => void;
   onClearChips: () => void;
+  /** Replace the chips outright (the Typer type page). */
+  onSetChips: (chips: FilterChip[]) => void;
   /** Drop the element refinement when a different set is chosen. */
   onClearElements: () => void;
   onPick: (guid: string | null, additive: boolean) => void;
@@ -97,6 +99,9 @@ interface ModelPanelProps {
   peers: FloorPeer[];
   tab: Tab;
   onTab: (tab: Tab) => void;
+  /** The Typer type page's key from the URL hash, or null. */
+  typePage: string | null;
+  onTypePage: (key: string | null, replace?: boolean) => void;
   /** The derivation band, when the open number is this model's. */
   trace: ReactNode;
 }
@@ -115,6 +120,7 @@ export function ModelPanel({
   onAddChip,
   onRemoveChip,
   onClearChips,
+  onSetChips,
   onClearElements,
   onPick,
   onSelect,
@@ -123,6 +129,8 @@ export function ModelPanel({
   peers,
   tab,
   onTab,
+  typePage,
+  onTypePage,
   trace,
 }: ModelPanelProps) {
   const profile = model.profile;
@@ -156,15 +164,9 @@ export function ModelPanel({
   // profile (`type-links.ts`). A link chip on one tab opens the other tab on
   // the linked card.
   const catalogue = useMemo(() => (profile ? buildCatalogue(profile) : null), [profile]);
-  const [revealType, setRevealType] = useState<Reveal | null>(null);
   const [revealMaterial, setRevealMaterial] = useState<Reveal | null>(null);
-  const openType = useCallback(
-    (key: string) => {
-      setRevealType((r) => ({ key, seq: (r?.seq ?? 0) + 1 }));
-      onTab("types");
-    },
-    [onTab],
-  );
+  // A type link opens that type's page (its own route).
+  const openType = useCallback((key: string) => onTypePage(key), [onTypePage]);
   const openMaterial = useCallback(
     (key: string) => {
       setRevealMaterial((r) => ({ key, seq: (r?.seq ?? 0) + 1 }));
@@ -417,8 +419,13 @@ export function ModelPanel({
                 catalogue={catalogue}
                 meshBatches={model.meshBatches}
                 selection={view.selection}
-                reveal={revealType}
+                chips={view.chips}
+                mode={view.mode}
+                page={typePage}
                 onSelect={onSelect}
+                onChips={onSetChips}
+                onMode={onMode}
+                onPage={onTypePage}
                 onOpenMaterial={openMaterial}
               />
             </div>

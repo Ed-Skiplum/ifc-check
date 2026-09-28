@@ -1112,6 +1112,37 @@ ask above.
 Verified: tsc, selftest, `vite build`. The isolate-gate T phase opens the
 view by a double-click now (`dblClickAt`); NOT re-run. Not seen live.
 
+**Click filters, double-click is a page (2026-09-28, third round).** Owner:
+*"the behaviour when doubleclicking a type is open a type page"*,
+*"One type - doubleclick - shows that one type with a viewer"*, *"the viewer
+of course needs to filter on the type. Currently it does not"*. The two rounds above
+only SELECTED, which highlights and hides nothing.
+
+- **Click** a type card: a `typecard:<key>` chip (kind `type`, carries the
+  card's guids) under Vis kun, so the viewer beside the gallery draws only
+  that type's instances, framed as every new set is. It replaces any type
+  chip and element chip; other facets still AND. The same card again, its ✕
+  or Tøm filter restores the model. The marked card is the one whose chip is
+  in the bar. The second click of a double-click is ignored.
+- **Double-click**: `#…&tab=types&type=<key>` (`useHashView` key `type`,
+  pushed; ← → between types replace it). The route drives the page, so a
+  pasted link opens it once the catalogue has the key, and Back/Forward walk
+  it. The page covers the tab; the gallery stays mounted `invisible` under it
+  (scroll kept). Entering saves the gallery's chips, selection and mode (as
+  they were BEFORE the double-click's first click) and sets the chips to that
+  one type; the current instance (or all) is the selection. ‹, Esc (history
+  back when the gallery opened it) or Back restores the saved state. A tab
+  switch clears `type`. A material's type link opens the page.
+- `cross.setChips` (new) replaces the chips outright; `ModelScene.drawnElements()`
+  (new, read-only) counts the distinct elements the scene draws, for gates.
+
+Verified: tsc, selftest, `vite build`, `isolate-gate --only types` on
+HI90_ARK (IfcWallStandardCase "Betong 96", 58 instances): a click draws 58 of
+2875 and stays on the gallery; the same card again draws 2875; a double-click
+puts the key in the hash, hides the gallery, the page draws 58; T1 to T5 as
+before; Esc returns to the gallery with no `type` and 2875 drawn. Local
+headless preview only, not on a deployed site.
+
 Verified: selftest (order across storeys and no storey, type → materials,
 material → types with an untyped class, layer set → types, type_guid per
 card). `isolate-gate --only types` (phase T, also run at the end of a full

@@ -36,6 +36,10 @@ export interface ViewState {
   /** The model panel's tab. null is the first tab, Kontroll; it is left out
    *  of the hash so a bare URL and a board link stay short. */
   tab: "contents" | "graph" | "types" | "materials" | null;
+  /** The Typer type page: a type card's key (`entity::typeName`), or null
+   *  for the gallery. Its own route, so Back returns to the gallery and the
+   *  page is a link. */
+  type: string | null;
   /** The visual direction, or null for the shipped default. */
   design: Design | null;
 }
@@ -82,6 +86,7 @@ function parse(): ViewState {
     focus: hash.get("focus"),
     page: readPage(hash),
     tab: readTab(hash),
+    type: hash.get("type"),
     design: readDesign(hash),
   };
 }
@@ -106,11 +111,12 @@ function serialise(view: ViewState): string {
   if (view.focus) params.set("focus", view.focus);
   if (view.page) params.set("page", view.page);
   if (view.tab) params.set("tab", view.tab);
+  if (view.type) params.set("type", view.type);
   if (view.design) params.set("design", view.design);
   return `#${params.toString()}`;
 }
 
-export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
+export function useHashView(): [ViewState, (next: Partial<ViewState>, replace?: boolean) => void] {
   const [view, setView] = useState<ViewState>(parse);
 
   // Write the resolved state back once, so a bare URL becomes a shareable one.
@@ -133,6 +139,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         focus: hash.get("focus"),
         page: readPage(hash),
         tab: readTab(hash),
+        type: hash.get("type"),
         design: readDesign(hash),
       }));
     };
@@ -140,7 +147,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const update = useCallback((next: Partial<ViewState>) => {
+  const update = useCallback((next: Partial<ViewState>, replace = false) => {
     setView((current) => {
       const merged: ViewState = { ...current, ...next };
       if (next.lang && next.lang !== current.lang) {
@@ -154,7 +161,10 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
       if (window.location.hash !== target) {
         // pushState, not location.hash: this is what makes Back/Forward walk
         // the selections instead of the language toggle only.
-        window.history.pushState(null, "", target);
+        // `replace` for a step within one page (the type page's ← →), so
+        // Back still returns to where that page was opened from.
+        if (replace) window.history.replaceState(null, "", target);
+        else window.history.pushState(null, "", target);
       }
       return merged;
     });
@@ -172,6 +182,7 @@ export function useHashView(): [ViewState, (next: Partial<ViewState>) => void] {
         focus: hash.get("focus"),
         page: readPage(hash),
         tab: readTab(hash),
+        type: hash.get("type"),
         design: readDesign(hash),
       }));
     };

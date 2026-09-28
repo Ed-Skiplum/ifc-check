@@ -17,15 +17,23 @@
  * on doubleclick rather than this inline card viewer."*
  *
  * The board's ONE 3D scene sits beside the gallery (`BoardViewer.tsx`, lent
- * through `viewer/dock.ts` as the Graf tab lends it). A click on a card
- * selects the type's instances there, and the viewer frames every new
- * selection. A double-click opens the TYPE VIEW over the tab: the viewer as
- * the hero, the instance navigator of the G55 QTO-LCA type viewer
+ * through `viewer/dock.ts` as the Graf tab lends it).
+ *
+ * Owner, 2026-09-28, after two wrong rounds: *"the behaviour when
+ * doubleclicking a type is open a type page"*, *"One type - doubleclick -
+ * shows that one type with a viewer"*, *"the viewer of course needs to
+ * filter on the type."* So a click on a card FILTERS the viewer to the
+ * type's instances (a `typecard:` chip under Vis kun, the same chip bar as
+ * every other filter), framed; the same card again takes it off. A
+ * double-click opens the TYPE PAGE, its own route (`#…&type=<key>`, so Back,
+ * Forward and a pasted link work): the gallery is gone, the viewer filtered
+ * to that one type, the instance navigator of the G55 QTO-LCA type viewer
  * (`10027-grønland-55/underprosjekter/G55_QTO-LCA/02_arbeid/verify_app.html`,
  * worklog 2026-06-17-22-40: `Per forekomst | Alle forekomster`, ‹ › titled
  * `Forrige (↑)` / `Neste (↓)`, ↑ ↓ step the instances and ← → the types), the
- * current instance, the type's facts, and its materials as links. Back or Esc
- * returns to the gallery, which stays mounted under it, so its scroll holds.
+ * current instance, the type's facts, and its materials as links. ‹, Esc or
+ * the browser's Back returns to the gallery, which stays mounted (unseen)
+ * under it, so its scroll holds, and the gallery's filter is handed back.
  * The instance order is `type-links.ts`'s: by storey from the lowest, then
  * GlobalId.
  *
@@ -51,6 +59,7 @@ import { LentViewer, WithViewer, useTabGrid, viewerSpan } from "./BoardViewer";
 import { MG_GAP } from "./alt/module-grid";
 import { useFillHeight } from "./useFillHeight";
 import type { Catalogue, TypeCard } from "./type-links";
+import type { FilterChip, Mode } from "./cross-filter";
 
 /** true · false · unset, the demo's badge: one number when the whole type
  *  agrees, the three counts when it does not. */
@@ -112,14 +121,37 @@ interface Open {
   all: boolean;
 }
 
+/** The gallery's filter and selection, handed back when the page closes. */
+interface GalleryState {
+  chips: FilterChip[];
+  selection: string[];
+  mode: Mode;
+}
+
+/** The filter chip a type card makes: its own instances, isolated. */
+const TYPE_CHIP = "typecard:";
+function typeChip(row: TypeCard, lang: Lang): FilterChip {
+  return {
+    key: TYPE_CHIP + row.key,
+    kind: "type",
+    label: row.typeName ?? t("type.untyped", lang),
+    guids: row.guids,
+  };
+}
+
 export function TypesTab({
   lang,
   profile,
   catalogue,
   meshBatches,
   selection,
-  reveal,
+  chips,
+  mode,
+  page,
   onSelect,
+  onChips,
+  onMode,
+  onPage,
   onOpenMaterial,
 }: {
   lang: Lang;
@@ -128,65 +160,134 @@ export function TypesTab({
   catalogue: Catalogue | null;
   /** The streamed geometry, for the card renders and the lent 3D. */
   meshBatches: MeshBatch[] | undefined;
-  /** The panel's `view.selection`, to mark the picked card and for scripts. */
+  /** The panel's `view.selection`, for scripts. */
   selection: string[];
-  reveal: Reveal | null;
+  /** The panel's filter chips and mode: a type card filters the viewer. */
+  chips: FilterChip[];
+  mode: Mode;
+  /** The type page's key from the URL hash (`type=`), or null. */
+  page: string | null;
   onSelect: (guids: string[]) => void;
+  onChips: (chips: FilterChip[]) => void;
+  onMode: (mode: Mode) => void;
+  /** Open (a key) or leave (null) the type page. `replace` for a step from
+   *  one type to the next, so Back still returns to the gallery. */
+  onPage: (key: string | null, replace?: boolean) => void;
   onOpenMaterial: (name: string) => void;
 }) {
   const rows = useMemo(() => catalogue?.types ?? [], [catalogue]);
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
-  const [picked, setPicked] = useState<string | null>(null);
-  const [open, setOpen] = useState<Open | null>(null);
-  const card = open ? (byKey.get(open.key) ?? null) : null;
   const storeyName = useMemo(
     () => new Map((profile?.storeys ?? []).map((s) => [s.guid, s.name])),
     [profile],
   );
   const rowOf = useMemo(() => new Map((profile?.rows ?? []).map((r) => [r.guid, r])), [profile]);
 
-  // A selection cleared elsewhere unmarks the card.
-  useEffect(() => {
-    if (selection.length === 0) setPicked(null);
-  }, [selection.length]);
+  // The card the gallery's filter is on: its chip is in the bar.
+  const filtered = chips.find((c) => c.key.startsWith(TYPE_CHIP))?.key.slice(TYPE_CHIP.length) ?? null;
 
+  // The type page: the route's key, once the catalogue has it.
+  const card = page ? (byKey.get(page) ?? null) : null;
+  const [inst, setInst] = useState<Open | null>(null);
+  const open: Open | null = card
+    ? inst && inst.key === card.key
+      ? inst
+      : { key: card.key, pos: 0, all: false }
+    : null;
+
+  /** A click filters the viewer to the card's instances (Vis kun), framed;
+   *  the same card again takes the filter off. The type facet is replaced,
+   *  other facets stay. The second click of a double-click is not a click. */
   const pick = useCallback(
     (row: TypeCard) => {
-      setPicked(row.key);
-      onSelect(row.guids);
+      prePick.current = { key: row.key, at: performance.now(), state: { chips, selection, mode } };
+      const others = chips.filter((c) => c.kind !== "type" && c.kind !== "element");
+      if (filtered === row.key) {
+        onChips(others);
+        return;
+      }
+      if (mode !== "filter") onMode("filter");
+      onSelect([]);
+      onChips([...others, typeChip(row, lang)]);
     },
-    [onSelect],
+    [chips, filtered, lang, mode, onChips, onMode, onSelect, selection],
   );
 
-  const openView = useCallback(
+  // Opened from the gallery by this tab: Back is the browser's own.
+  const openedHere = useRef(false);
+  const [lastOpen, setLastOpen] = useState<string | null>(null);
+  // A double-click's first click filtered the gallery; what the gallery had
+  // is the state before it, and that is what the page hands back.
+  const prePick = useRef<{ key: string; at: number; state: GalleryState } | null>(null);
+  const openPage = useCallback(
     (row: TypeCard) => {
-      setPicked(row.key);
-      setOpen({ key: row.key, pos: 0, all: false });
-      onSelect(row.guids.slice(0, 1));
+      openedHere.current = true;
+      const pre = prePick.current;
+      if (!saved.current && pre && pre.key === row.key && performance.now() - pre.at < 800) saved.current = pre.state;
+      onPage(row.key);
     },
-    [onSelect],
+    [onPage],
   );
+  const closePage = useCallback(() => {
+    if (openedHere.current) {
+      openedHere.current = false;
+      window.history.back();
+    } else onPage(null);
+  }, [onPage]);
+
+  // Entering the page saves the gallery's filter and filters to this type
+  // alone; leaving hands the gallery's filter back. Driven by the route, so a
+  // direct link, Back and Forward all take this path.
+  const saved = useRef<GalleryState | null>(null);
+  const live = useRef({ chips, selection, mode });
+  live.current = { chips, selection, mode };
+  const cardKey = card?.key ?? null;
+  useEffect(() => {
+    if (cardKey && card) {
+      if (!saved.current) saved.current = { ...live.current };
+      setLastOpen(cardKey);
+      onMode("filter");
+      onChips([typeChip(card, lang)]);
+    } else if (saved.current) {
+      const back = saved.current;
+      saved.current = null;
+      openedHere.current = false;
+      onChips(back.chips);
+      onSelect(back.selection);
+      onMode(back.mode);
+    }
+    // Only a change of page moves the filter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardKey]);
+
+  // The current instance, or all of them, is the selection: highlighted and
+  // framed inside the filtered viewer.
+  const openPos = open?.pos ?? 0;
+  const openAll = open?.all ?? false;
+  useEffect(() => {
+    if (!card) return;
+    onSelect(openAll ? card.guids : [card.guids[openPos]]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardKey, openPos, openAll]);
 
   const step = useCallback(
     (delta: number) => {
       if (!open || !card || open.all) return;
       const pos = Math.min(card.guids.length - 1, Math.max(0, open.pos + delta));
       if (pos === open.pos) return;
-      setOpen({ ...open, pos });
-      onSelect([card.guids[pos]]);
+      setInst({ ...open, pos });
     },
-    [open, card, onSelect],
+    [open, card],
   );
 
   const setAll = useCallback(
     (all: boolean) => {
-      if (!open || !card || open.all === all) return;
-      setOpen({ ...open, all });
-      onSelect(all ? card.guids : [card.guids[open.pos]]);
+      if (!open || open.all === all) return;
+      setInst({ ...open, all });
     },
-    [open, card, onSelect],
+    [open],
   );
 
   const stepType = useCallback(
@@ -194,19 +295,10 @@ export function TypesTab({
       if (!open) return;
       const at = rows.findIndex((r) => r.key === open.key);
       const next = rows[at + delta];
-      if (next) openView(next);
+      if (next) onPage(next.key, true);
     },
-    [open, rows, openView],
+    [open, rows, onPage],
   );
-
-  // Another tab asked for a type (a material's type link): its view opens.
-  const handled = useRef(0);
-  useEffect(() => {
-    if (!reveal || reveal.seq === handled.current) return;
-    handled.current = reveal.seq;
-    const row = byKey.get(reveal.key);
-    if (row) openView(row);
-  }, [reveal, byKey, openView]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (!open) return;
@@ -216,12 +308,12 @@ export function TypesTab({
     else if (e.key === "ArrowUp") step(-1);
     else if (e.key === "ArrowRight") stepType(1);
     else if (e.key === "ArrowLeft") stepType(-1);
-    else if (e.key === "Escape") setOpen(null);
+    else if (e.key === "Escape") closePage();
     else return;
     e.preventDefault();
   };
 
-  // The picked card back in view when the gallery returns.
+  // The card the page was on gets focus back when the gallery returns.
   const pickedRef = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(false);
   useLayoutEffect(() => {
@@ -248,6 +340,9 @@ export function TypesTab({
           {profile ? t("type.none", lang) : notSupplied}
         </div>
       ) : (
+        // Under the page the gallery stays mounted but unseen, so its scroll
+        // is where it was when the page closes.
+        <div className={"flex min-h-0 min-w-0 flex-1" + (open ? " invisible" : "")} aria-hidden={open ? true : undefined}>
         <WithViewer meshBatches={meshBatches} active={open === null}>
           <Gallery unit={[2, 2]} label="types">
             {rows.map((row) => {
@@ -255,11 +350,14 @@ export function TypesTab({
               return (
                 <GalleryCard
                   key={row.key}
-                  active={picked === row.key}
+                  active={filtered === row.key}
                   title={`${row.entity} · ${name}`}
-                  onClick={() => pick(row)}
-                  onDoubleClick={() => openView(row)}
-                  cardRef={picked === row.key ? pickedRef : undefined}
+                  onClick={(e?: { detail?: number }) => {
+                    if ((e?.detail ?? 1) > 1) return;
+                    pick(row);
+                  }}
+                  onDoubleClick={() => openPage(row)}
+                  cardRef={(lastOpen ?? filtered) === row.key ? pickedRef : undefined}
                   data={{ "data-type-card": row.key, "data-type-count": row.count }}
                 >
                   <Thumb batches={meshBatches} row={row} />
@@ -269,6 +367,7 @@ export function TypesTab({
             })}
           </Gallery>
         </WithViewer>
+        </div>
       )}
       {card && open ? (
         <TypeView
@@ -284,7 +383,7 @@ export function TypesTab({
             return r?.storeyGuid ? (storeyName.get(r.storeyGuid) ?? r.storeyGuid) : null;
           }}
           nameOf={(guid) => rowOf.get(guid)?.name ?? null}
-          onClose={() => setOpen(null)}
+          onClose={closePage}
           onStep={step}
           onAll={setAll}
           onOpenMaterial={onOpenMaterial}
@@ -388,6 +487,7 @@ function TypeView({
       tabIndex={-1}
       className="absolute inset-0 z-10 flex flex-col bg-ground outline-none"
       data-type-view={row.key}
+      data-type-page={row.key}
       data-type-card={row.key}
       data-type-open=""
       data-instance-mode={open.all ? "all" : "one"}
