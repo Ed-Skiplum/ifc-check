@@ -20,7 +20,7 @@
  * NOT here, for the project tab: the Standardkrav requirements (Systemkode,
  * Funksjonskode, Materiale/Produkt, Kopiobjekt, MMI, Fase), the MMI bars, a
  * treemap read through a project mapping, and the project's own rules. They
- * mount from `Standardkrav.tsx`.
+ * are the project tab's board, `ProjectBoard.tsx`.
  *
  * Nothing overlays the board: Scope (the identities the last click scoped
  * to) and Detail (the one selected identity) are docked tiles. Every body is
@@ -83,7 +83,7 @@ export interface AltBoardProps {
 
 /** The list components read the bento's size variables; here they are fixed:
  *  a 32 px line, 13 / 11 px type. */
-const VARS = {
+export const VARS = {
   "--bento-line": "32px",
   "--bento-fs": "13px",
   "--bento-fs-sm": "11px",
@@ -98,7 +98,7 @@ const VARS = {
  *  width: the window less a scrollbar), its height what the window leaves
  *  under the grid's top edge INSIDE its own model panel, so a second model
  *  further down the page gets the same board as the first. */
-function useModuleGrid() {
+export function useModuleGrid() {
   const ref = useRef<HTMLDivElement>(null);
   const [grid, setGrid] = useState<MgGrid | null>(null);
   useLayoutEffect(() => {
@@ -193,7 +193,7 @@ export function AltBoard(props: AltBoardProps) {
 
 /* ── the tile frame ─────────────────────────────────────────────────────── */
 
-interface TileBody {
+export interface TileBody {
   label?: string;
   sub?: string;
   /** Controls at the head's end (the treemaps' measure switch), in place of
@@ -207,11 +207,11 @@ interface TileBody {
   empty?: boolean;
 }
 
-type Bodies = (id: string) => TileBody | null;
+export type Bodies = (id: string) => TileBody | null;
 
 /** One tile. Tiles moved into it (rule 8) are tabs in its head, after its
  *  own; the counts never are (they stay in the checks list). */
-function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefer: string | null }) {
+export function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefer: string | null }) {
   const own = bodies(place.id);
   const tabs = [place.id, ...place.tabs.filter((id) => !id.startsWith("count") && bodies(id))];
   // A tab the reader clicked stays; one a fill brought forward (`prefer`)

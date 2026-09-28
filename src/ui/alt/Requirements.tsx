@@ -375,9 +375,11 @@ function MiniDist({ req, lang }: { req: Requirement; lang: Lang }) {
   );
 }
 
-function MmiReading({ req, lang }: { req: Requirement; lang: Lang }) {
+function MmiReading({ req, lang, wrap = false }: { req: Requirement; lang: Lang; wrap?: boolean }) {
   if (!req.row || req.state === "not_configured")
-    return <span className="truncate text-[11px] text-muted">{t("mmi.notConfigured", lang)}</span>;
+    return (
+      <span className={(wrap ? "break-words leading-tight" : "truncate") + " text-[11px] text-muted"}>{t("mmi.notConfigured", lang)}</span>
+    );
   return <MiniDist req={req} lang={lang} />;
 }
 
@@ -400,7 +402,7 @@ export function ReqCard({ req, ...door }: DoorProps & { req: Requirement }) {
       <span className="mt-auto flex w-full min-w-0 flex-col gap-0.5">
         {req.distribution ? (
           <span className="flex h-9 w-full min-w-0 items-end">
-            <MmiReading req={req} lang={lang} />
+            <MmiReading req={req} lang={lang} wrap />
           </span>
         ) : f ? (
           <>

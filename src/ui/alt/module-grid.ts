@@ -595,6 +595,107 @@ function layoutNarrow(grid: MgGrid, content: MgContent): MgLayout {
   ]);
 }
 
+/* ── the project tab («Prosjekt») ──────────────────────────────────────── */
+
+export interface MgProjectContent {
+  /** The Standardkrav requirements: one S KPI card each, on the top row. */
+  std: number;
+  /** The treemaps read through a project mapping (`ptree-system`,
+   *  `ptree-function`); none without a mapping. */
+  trees: readonly string[];
+}
+
+/** The MMI bars: M, or the named strip (`MG_STRIPS.mmi`) across 3 to 8. */
+const MMI_SIZES: readonly Wh[] = [[3, 2], [2, 3], ...[8, 6, 5, 4, 3].map((k) => [k, 1] as const)];
+
+/** The tiles under the KPI row, in priority order. The IDS table needs about
+ *  680 px across (a name, three counts, the state), so it is XL, never
+ *  narrower than 6: with the model, the board's two XL. */
+function projectBody(content: MgProjectContent): MgTileSpec[] {
+  return [
+    { id: "viewer", kind: "viewer", sizes: XL, required: true },
+    { id: "ids", kind: "list", sizes: [[6, 4], [8, 5]], required: true },
+    { id: "scope", kind: "list", sizes: LM, hosts: ["ids"] },
+    { id: "detail", kind: "list", sizes: LM, hosts: ["scope", "ids"] },
+    ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: LM, hosts: ["ids"] })),
+    { id: "mmi", kind: "chart", sizes: MMI_SIZES, hosts: ["ids"] },
+  ];
+}
+
+/** The project tab: the Standardkrav KPI row on top (one S card each, never
+ *  a list), then the IDS table, the model, Scope, Detail, the mapped
+ *  treemaps and the MMI bars by priority. The row is closed with M tiles
+ *  (the MMI bars, a treemap) where the board is wider than the cards; too
+ *  little room moves the lowest into a tab of the IDS table. Of every board
+ *  width and body height the one that takes the most of the window wins, as
+ *  on the Overview. Under that (about 12 columns), the narrow fallback. */
+export function layoutProject(grid: MgGrid, content: MgProjectContent): MgLayout {
+  const { cols, rows } = grid;
+  const kpiIds = Array.from({ length: content.std }, (_, i) => `std${i}`);
+  const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.std, 2]] };
+  const body = projectBody(content);
+  const pool = body.filter((t) => t.id === "mmi" || content.trees.includes(t.id));
+  const sets = fillerSets(pool);
+  let best: MgLayout | null = null;
+  let bestCells = 0;
+  if (content.std > 0 && rows - 2 >= MIN_BODY) {
+    for (let used = cols; used >= 2 * content.std; used -= 1) {
+      if (used * rows <= bestCells) break;
+      let tried = 0;
+      for (const fill of sets) {
+        if (tried >= 4) break;
+        const bandSpecs = [kpis, ...fill.map((t) => ({ ...t, sizes: t.sizes.filter(([, h]) => h === 2) }))];
+        if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
+        const band = coverRun(used, 2, bandSpecs);
+        if (!band) continue;
+        tried += 1;
+        const rest = body.filter((t) => !fill.includes(t));
+        for (let r = rows - 2; r >= MIN_BODY; r -= 1) {
+          if (used * (r + 2) <= bestCells) break;
+          const lower = mgPackExact({ cols: used, rows: r, u: grid.u }, rest);
+          if (!lower) continue;
+          const offset = Math.floor((cols - used) / 2);
+          const top = Math.floor((rows - 2 - r) / 2);
+          const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, x: offset + t.x, y: top + t.y, priority: i, tabs: [] }));
+          const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({
+            ...t,
+            x: offset + t.x,
+            y: top + 2 + t.y,
+            priority: bandTiles.length + t.priority,
+          }));
+          best = {
+            ...grid,
+            used,
+            usedRows: r + 2,
+            offset,
+            top,
+            tiles: [...bandTiles, ...lowerTiles].sort((p, q) => p.y - q.y || p.x - q.x),
+            moved: lower.moved,
+            band: "kpis",
+          };
+          bestCells = used * (r + 2);
+          break;
+        }
+      }
+    }
+  }
+  return best ?? layoutProjectNarrow(grid, content);
+}
+
+/** The narrow fallback: the model at 6 × 4, the Standardkrav requirements as
+ *  one list and the IDS table as M beside it; the rest in tabs of those. */
+function layoutProjectNarrow(grid: MgGrid, content: MgProjectContent): MgLayout {
+  return mgPack(grid, [
+    { id: "viewer", kind: "viewer", sizes: XL, required: true },
+    { id: "reqs", kind: "list", sizes: M_WIDE, required: true },
+    { id: "ids", kind: "list", sizes: M_WIDE, required: true },
+    { id: "scope", kind: "list", sizes: M_WIDE, hosts: ["ids"] },
+    { id: "detail", kind: "list", sizes: M_WIDE, hosts: ["ids"] },
+    ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: M_WIDE, hosts: ["reqs"] })),
+    { id: "mmi", kind: "chart", sizes: M_WIDE, hosts: ["reqs"] },
+  ]);
+}
+
 /* ── the Graf tab: the graph and the model as two XL tiles ─────────────── */
 
 /** The two surfaces of the Graf tab on the same grid (rules 4 and 7), side

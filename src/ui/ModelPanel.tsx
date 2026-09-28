@@ -49,7 +49,8 @@ import { ObjectPanel } from "./ObjectPanel";
 import { GraphTab } from "./GraphTab";
 import { TypesTab } from "./TypesTab";
 import { MaterialsTab } from "./MaterialsTab";
-import { IdsResults, type IdsSession } from "./IdsResults";
+import type { IdsSession } from "./IdsResults";
+import { ProjectBoard } from "./alt/ProjectBoard";
 import type { Reveal } from "./TypesTab";
 import { catalogue as buildCatalogue } from "./type-links";
 import { FilterBar } from "./FilterBar";
@@ -261,7 +262,8 @@ export function ModelPanel({
   // half the page"*): Scope, the rows behind the last click, and Detail, the
   // selected identity. Neither overlays the board and both are always there;
   // empty, they show nothing. Innhold and Graf keep the band at the foot.
-  const docked = design !== null && tab === "checks";
+  // The project tab docks them too, on its own module grid (2026-09-28).
+  const docked = (design !== null && tab === "checks") || tab === "project";
   const scope =
     docked && isValidElement(trace)
       ? cloneElement(trace as ReactElement<{ alone?: boolean }>, { alone: true })
@@ -396,8 +398,8 @@ export function ModelPanel({
                 peers={ownFirst}
                 rules={rules}
                 design={design}
-                scope={scope}
-                detail={detail}
+                scope={tab === "checks" ? scope : null}
+                detail={tab === "checks" ? detail : null}
               />
             </div>
             <div role="tabpanel" hidden={tab !== "contents"} className="flex flex-col">
@@ -453,15 +455,19 @@ export function ModelPanel({
               />
             </div>
             <div role="tabpanel" hidden={tab !== "project"} className="flex flex-col">
-              <IdsResults
+              <ProjectBoard
                 lang={lang}
                 model={model}
-                session={ids}
-                error={idsError}
                 selected={selected}
                 onFocus={focus}
-                onFile={onIdsFile}
-                onClear={onClearIds}
+                selection={view.selection}
+                scope={tab === "project" ? scope : null}
+                detail={tab === "project" ? detail : null}
+                active={tab === "project"}
+                ids={ids}
+                idsError={idsError}
+                onIdsFile={onIdsFile}
+                onClearIds={onClearIds}
               />
             </div>
             {/* Pinned to the bottom of the scrolling page while this panel

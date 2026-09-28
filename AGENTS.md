@@ -61,7 +61,7 @@ src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
   import.ts      IDS 1.0 XML -> ruleset, per specification (see "The IDS view")
   xml-read.ts    the DOM-free XML reader the importer runs on (Node and browser)
   ids-report.ts  an imported IDS against one model: one row per specification
-src/ui/IdsResults.tsx  the IDS view in the Prosjekt tab
+src/ui/IdsResults.tsx  the IDS table tile of the Prosjekt board
 src/builder/     rule builder UI (a strict subset of the JSON format)
 src/bcf/         BCF 2.1 export: topic plan, camera, spaces, XML, zip, XSD
                  validation (pure) + `browser.ts` (snapshots, download)
@@ -388,8 +388,9 @@ loaded it drops to the outlined style of the other bar controls. Then:
    the 3D beside it (below).
 4. **Typer** (`TypesTab.tsx`) and 5. **Materialer** (`MaterialsTab.tsx`): the
    type and material extraction (below).
-6. **Prosjekt** (`IdsResults.tsx`): the project's own requirements. For now the
-   IDS view only (see "The IDS view"). The tab's name is pending the owner and
+6. **Prosjekt** (`alt/ProjectBoard.tsx`): project specifics and the IDS: the
+   Standardkrav KPI cards, the IDS table, the mapped treemaps, the MMI bars
+   and the model (see "The project tab board", "The IDS view"). The tab's name is pending the owner and
    lives in one key, `tab.project`.
 
 The tab is `tab=contents` / `graph` / `types` / `materials` / `project` in the URL hash (absent = Kontroll), one
@@ -1741,10 +1742,8 @@ the new main version … we iterate on b"*. The tab is «Oversikt» / "Overview"
   of Scope. A dock tab brought forward by a fill gives way when it empties.
 - **Not here (the project tab's):** Standardkrav (Systemkode, Funksjonskode,
   Materiale/Produkt, Kopiobjekt, MMI, Fase), the MMI bars, a treemap read
-  through a project mapping, the project rules. Mount them from
-  `src/ui/alt/Standardkrav.tsx` (`StandardkravList`, `MmiChart`,
-  `CodeTreemap`; filters `standardRequirements`, `mmiRequirement`,
-  `projectTrees` in `req-view.ts`).
+  through a project mapping, the project rules. They are the project tab's
+  board (below).
 - The search keeps the board that covers most of the window. With the HI90
   fixture (mapped treemaps off) 2112×1267 is 12×10 of 18×10: the content does
   not fill 18 columns. 1440×900 is 12×6, full.
@@ -1753,6 +1752,27 @@ the new main version … we iterate on b"*. The tab is «Oversikt» / "Overview"
   in `Requirements.tsx` are unmounted (kept for the project tab).
 - Measured locally (`module-grid-gate --design b --scenario hi90-fixture`),
   not on a deployed site.
+
+### The project tab board (Prosjekt, 2026-09-28)
+
+`src/ui/alt/ProjectBoard.tsx`, `layoutProject` in `module-grid.ts`, the
+Overview's tile frame (`Tile`, `useModuleGrid` exported from `AltBoard.tsx`).
+- **KPI row:** one S `ReqCard` per Standardkrav requirement, report order,
+  closed with M tiles (MMI bars, a mapped treemap) where the board is wider.
+- **Body, by priority:** the model (XL, the board's scene through
+  `LentViewer`), the IDS table (XL, never under 6 wide: its columns need
+  ~680 px), Scope, Detail, the mapped treemaps (`projectTrees`, with the
+  measure switch), the MMI bars (M or the named strip); the lowest move into
+  tabs of the IDS table. Narrow fallback: `StandardkravList` as one M tile.
+- Scope and Detail dock here as on the Overview (`docked` in `ModelPanel`),
+  so the tab has no foot band and no page scroll. An `.ids` dropped anywhere
+  on the tab is the tab's.
+- Without a ruleset: every card `not_configured`, the MMI tile «Statuskode
+  ikke konfigurert», no mapped treemap tile. Without an `.ids`: the table is
+  the open button.
+- Pure layout checked in node at 1440×900 (12×6 full), 1920×1080 (15×6 of
+  16×7), 2112×1267 (18×6), 2560×1440 (12×10 of 22×11: the content does not
+  fill 22). Not measured in a browser, not deployed.
 
 ### The three alternatives (2026-09-26, superseded 2026-09-28)
 
@@ -1937,9 +1957,8 @@ applicability matched nothing, never a pass; ifctester reports this
 band). Counts are `–` where the state has none.
 
 **A click** opens the derivation band with the failing elements and adds an
-`ids` chip, which isolates them in the viewer beside the table: the board's
-one scene, lent (`LentViewer`, `viewerSpan` from `BoardViewer.tsx`, the table
-keeping 6 modules). A not-applied or not-evaluable row makes no chip, as a
+`ids` chip, which isolates them in the viewer tile of the project board: the
+board's one scene, lent (`LentViewer`). The derivation fills the Scope tile. A not-applied or not-evaluable row makes no chip, as a
 rule that did not run. The focus is `ids:<index>` in the hash.
 
 **Importer coverage** (`src/ids/import.ts`, DOM-free on `xml-read.ts`, so the
