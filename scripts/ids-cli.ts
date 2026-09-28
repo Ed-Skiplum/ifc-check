@@ -11,6 +11,8 @@
  *   node scripts/ids-cli.ts ids    my.ids model.ifc [...] [--max-findings N]
  *   node scripts/ids-cli.ts report [--ruleset my.ruleset.json] model.ifc [...]
  *   node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] model.ifc [...]
+ *   node scripts/ids-cli.ts xlsx2json config.xlsx          > my.ruleset.json
+ *   node scripts/ids-cli.ts json2xlsx my.ruleset.json [--out config.xlsx]
  *   node scripts/ids-cli.ts selftest
  *
  * Every command writes one JSON document to stdout. Progress and errors go to
@@ -34,7 +36,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
 import { validateXML } from "xmllint-wasm";
@@ -48,6 +50,18 @@ import { exportRuleset, partitionRules } from "../src/ids/export.ts";
 import { BOOLEAN_VALUES, hasErrors, lintRuleset } from "../src/ids/lint.ts";
 import { RULESET_JSON_SCHEMA } from "../src/ids/schema.ts";
 import { SAMPLE_RULESET } from "../src/ids/sample.ts";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { CONFIG_TEMPLATE, CONFIG_TEMPLATE_FILE } from "../src/ids/config-template.ts";
+import {
+  SHEET_ORDER,
+  XlsxRulesetError,
+  canonicalRuleset,
+  locate,
+  readRulesetXlsx,
+  rulesetDiff,
+  writeRulesetXlsx,
+  type XlsxRuleset,
+} from "../src/ids/xlsx.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
 import type { IdsRule, Ruleset } from "../src/ids/types.ts";
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
@@ -611,15 +625,15 @@ async function cmdSelftest(): Promise<number> {
 
   // The project mappings ride on code-lookup; the example config must stay
   // valid, and each constraint a mapping adds must actually refuse.
-  const knm = JSON.parse(
-    readFileSync(new URL("../examples/eks.ruleset.json", import.meta.url), "utf8"),
-  ) as Ruleset;
-  record(
-    "examples/eks.ruleset.json lints clean and validates",
-    "0 errors / valid",
-    `${lintRuleset(knm).filter((i) => i.severity === "error").length} errors / ` +
-      (shapeErrors(knm).length === 0 ? "valid" : "invalid"),
-  );
+  for (const name of exampleRulesets()) {
+    const example = JSON.parse(readFileSync(new URL(`../examples/${name}`, import.meta.url), "utf8")) as Ruleset;
+    record(
+      `examples/${name} lints clean and validates`,
+      "0 errors / valid",
+      `${lintRuleset(example).filter((i) => i.severity === "error").length} errors / ` +
+        (shapeErrors(example).length === 0 ? "valid" : "invalid"),
+    );
+  }
   const mappingRule = (mapping: string, check: Record<string, unknown>, id = mapping) => ({
     id,
     kind: "extended",
@@ -2075,6 +2089,8 @@ async function cmdSelftest(): Promise<number> {
   );
   record("layers: walls stand, slabs and roofs lie", "vertical horizontal horizontal", ["IfcWallStandardCase", "IfcSlab", "IfcRoof"].map(sectionOrientation).join(" "));
 
+  xlsxSelftest(record);
+
   const ok = assertions.every((a) => a.ok);
   emit({
     command: "selftest",
@@ -2084,6 +2100,189 @@ async function cmdSelftest(): Promise<number> {
     includedRuleIds: result.includedRuleIds,
   });
   return ok ? 0 : 1;
+}
+
+/* ------------------------------------------------------------------ xlsx */
+
+function exampleRulesets(): string[] {
+  return readdirSync(new URL("../examples/", import.meta.url)).filter((f) => f.endsWith(".json")).sort();
+}
+
+/** The ruleset as .xlsx (src/ids/xlsx.ts): the ruleset JSON on stdout. Lint
+ *  issues go to stderr at their Sheet!Cell; exit 1 when one is an error, and
+ *  the JSON is written anyway so it can be read. */
+async function cmdXlsx2json(args: string[]): Promise<number> {
+  const path = positionals(args)[0];
+  if (!path) fail("no .xlsx path given");
+  let read: XlsxRuleset;
+  try {
+    read = readRulesetXlsx(new Uint8Array(readFileSync(path)));
+  } catch (error) {
+    if (error instanceof XlsxRulesetError) {
+      for (const problem of error.problems) note(`${path}: ${problem}`);
+      return 1;
+    }
+    return fail(`cannot read ${path}: ${(error as Error).message}`);
+  }
+  emit(read.ruleset);
+  const issues = lintRuleset(read.ruleset);
+  for (const issue of issues) {
+    note(`${issue.severity} ${locate(issue.path, read.locations) ?? "-"} ${issue.path} [${issue.code}] ${issue.message}`);
+  }
+  return hasErrors(issues) ? 1 : 0;
+}
+
+/** A ruleset JSON to .xlsx, written to --out (default: the input's name with
+ *  .xlsx). The writer reads its own output back and fails on any difference. */
+async function cmdJson2xlsx(args: string[]): Promise<number> {
+  const path = positionals(args)[0];
+  const ruleset = loadRuleset(path);
+  const out = flagValue(args, "--out") ?? `${path!.replace(/(\.ruleset)?\.json$/i, "")}.xlsx`;
+  let bytes: Uint8Array;
+  try {
+    bytes = writeRulesetXlsx(ruleset);
+  } catch (error) {
+    return fail((error as Error).message);
+  }
+  writeFileSync(out, bytes);
+  emit({ command: "json2xlsx", ruleset: ruleset.name, out, bytes: bytes.length, sheets: [...SHEET_ORDER] });
+  return 0;
+}
+
+function xlsxSelftest(record: (name: string, expected: string, actual: string) => void): void {
+  // The committed template files are what the generator writes today.
+  const template = writeRulesetXlsx(CONFIG_TEMPLATE);
+  for (const dir of ["examples", "public"]) {
+    let current = "missing";
+    try {
+      const committed = readFileSync(new URL(`../${dir}/${CONFIG_TEMPLATE_FILE}`, import.meta.url));
+      current = Buffer.compare(committed, Buffer.from(template)) === 0 ? "current" : "stale";
+    } catch {
+      // stays "missing"
+    }
+    record(
+      `${dir}/${CONFIG_TEMPLATE_FILE} is current`,
+      "current",
+      current === "current" ? current : `${current}: run node scripts/gen-config-template.ts`,
+    );
+  }
+  record(
+    "xlsx: two writes of one ruleset give the same bytes",
+    "same",
+    Buffer.compare(Buffer.from(template), Buffer.from(writeRulesetXlsx(CONFIG_TEMPLATE))) === 0 ? "same" : "differ",
+  );
+
+  // json -> xlsx -> json, deep equal, for every ruleset the repo carries.
+  const roundTrip = (ruleset: Ruleset) => {
+    try {
+      const back = readRulesetXlsx(writeRulesetXlsx(ruleset)).ruleset;
+      return rulesetDiff(back, canonicalRuleset(ruleset)) ?? "equal";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  };
+  const inputs: [string, Ruleset][] = [["the template", CONFIG_TEMPLATE], ["SAMPLE_RULESET", SAMPLE_RULESET]];
+  for (const name of exampleRulesets()) {
+    inputs.push([`examples/${name}`, JSON.parse(readFileSync(new URL(`../examples/${name}`, import.meta.url), "utf8"))]);
+  }
+  const privateDir = new URL("../tests/fixtures/private/", import.meta.url);
+  if (existsSync(privateDir)) {
+    for (const name of readdirSync(privateDir).filter((f) => f.endsWith(".json")).sort()) {
+      inputs.push([`tests/fixtures/private/${name}`, JSON.parse(readFileSync(new URL(name, privateDir), "utf8"))]);
+    }
+  }
+  for (const [name, ruleset] of inputs) record(`xlsx round trip: ${name}`, "equal", roundTrip(ruleset));
+
+  // Each mapping lands on its sheet; the unfilled template is refused at its cells.
+  const read = readRulesetXlsx(template);
+  record(
+    "xlsx: the template's mappings sit on their sheets",
+    "Klassifikasjon Klassifikasjon MMI Kopiobjekt",
+    read.ruleset.rules.map((_, i) => (locate(`rules[${i}]`, read.locations) ?? "-").split("!")[0]).join(" "),
+  );
+  const placed = lintRuleset(read.ruleset).filter((i) => i.code === "from-project");
+  record(
+    "xlsx: the template lints from-project, located at Sheet!Cell",
+    "MMI!D3 Etasjer!B3 Kilder!D3",
+    ["rules[2].check.values[0]", "storeys[0].elevation", "projectLayer.phase.sources[0].property.propertySet"]
+      .map((path) => (placed.some((i) => i.path === path) ? (locate(path, read.locations) ?? "-") : "not linted"))
+      .join(" "),
+  );
+
+  // What does not fit a sheet is written as JSON and still comes back equal.
+  const odd = {
+    ...SAMPLE_RULESET,
+    $schema: "x",
+    storeys: [],
+    projectLayer: {},
+    rules: [
+      {
+        id: "mmi", kind: "extended", mapping: "progress-code", name: "MMI",
+        check: { type: "code-lookup", values: ["1,5"], source: { attribute: "Name" }, extract: "^(.+)$" },
+      },
+      {
+        id: "sys", kind: "extended", mapping: "system-classification", name: "S", enabled: false,
+        select: { entity: { group: "physicalElement" } },
+        check: { type: "code-lookup", list: "ns3451", source: { classification: {} }, extract: "^(.+)$" },
+      },
+    ],
+  } as unknown as Ruleset;
+  let oddResult: string;
+  try {
+    const oddRead = readRulesetXlsx(writeRulesetXlsx(odd));
+    oddResult =
+      `${rulesetDiff(oddRead.ruleset, canonicalRuleset(odd)) ?? "equal"} ` +
+      ["rules[0]", "rules[1]", "$schema", "storeys", "projectLayer"]
+        .map((p) => (locate(p, oddRead.locations) ?? "-").split("!")[0])
+        .join(" ");
+  } catch (error) {
+    oddResult = (error as Error).message;
+  }
+  record(
+    "xlsx: a misfit rule goes to Andre regler, odd top-level keys to Prosjekt, both round-trip",
+    "equal Klassifikasjon Andre regler Prosjekt Prosjekt Prosjekt",
+    oddResult,
+  );
+
+  // The reader refuses a broken workbook at the cell, all problems at once.
+  const edit = (bytes: Uint8Array, part: string, from: string, to: string) => {
+    const files = unzipSync(bytes);
+    const text = strFromU8(files[part]);
+    if (!text.includes(from)) return new Uint8Array();
+    files[part] = strToU8(text.replace(from, to));
+    return zipSync(files);
+  };
+  const refused = (bytes: Uint8Array) => {
+    try {
+      readRulesetXlsx(bytes);
+      return "accepted";
+    } catch (error) {
+      return error instanceof XlsxRulesetError
+        ? error.problems.map((p) => p.split(": ")[0]).join(" ")
+        : (error as Error).message;
+    }
+  };
+  const sheetPart = (name: string) => `xl/worksheets/sheet${(SHEET_ORDER as readonly string[]).indexOf(name) + 1}.xml`;
+  record("xlsx refuses: an unknown sheet", "Kildr", refused(edit(template, "xl/workbook.xml", 'name="Kilder"', 'name="Kildr"')));
+  record(
+    "xlsx refuses: an unknown field path in row 2",
+    "MMI!J2",
+    refused(edit(template, sheetPart("MMI"), ">rules[].check.extract<", ">rules[].check.extrakt<")),
+  );
+  record(
+    "xlsx refuses: property cells filled under an attribute source",
+    "Kilder!D3 Kilder!E3",
+    refused(edit(template, sheetPart("Kilder"), ">property<", ">attribute<")),
+  );
+  const withSelect = writeRulesetXlsx({
+    ...CONFIG_TEMPLATE,
+    rules: [{ ...CONFIG_TEMPLATE.rules[0], select: { entity: { group: "product" } } }],
+  });
+  record(
+    "xlsx refuses: a JSON cell that is not JSON",
+    "Klassifikasjon!N3",
+    refused(edit(withSelect, sheetPart("Klassifikasjon"), "{&quot;entity&quot;", "{entity")),
+  );
 }
 
 /* ------------------------------------------------------------------ main */
@@ -2121,9 +2320,15 @@ switch (command) {
   case "selftest":
     code = await cmdSelftest();
     break;
+  case "xlsx2json":
+    code = await cmdXlsx2json(rest);
+    break;
+  case "json2xlsx":
+    code = await cmdJson2xlsx(rest);
+    break;
   default:
     note(
-      "usage: node scripts/ids-cli.ts <lint|emit|run|ids|report|psets|schema|sample|selftest> [args]",
+      "usage: node scripts/ids-cli.ts <lint|emit|run|ids|report|psets|xlsx2json|json2xlsx|schema|sample|selftest> [args]",
     );
     code = 2;
 }

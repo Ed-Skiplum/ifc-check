@@ -323,6 +323,32 @@ const STRINGS = {
   "field.storeyName": { nb: "Navn", en: "Name" },
   "field.storeyElevation": { nb: "Kote (m)", en: "Elevation (m)" },
   "action.addRow": { nb: "Legg til", en: "Add" },
+  "action.downloadTemplate": { nb: "Last ned mal", en: "Download template" },
+
+  /* ------------------------------------------------- the .xlsx config file */
+  // Column headers of src/ids/xlsx.ts. Where the rule builder has the label,
+  // it is the builder's word (builder/strings.ts).
+  "field.id": { nb: "ID", en: "ID" },
+  "field.name": { nb: "Navn", en: "Name" },
+  "field.description": { nb: "Beskrivelse", en: "Description" },
+  "field.instructions": { nb: "Instruksjon", en: "Instructions" },
+  "field.select": { nb: "Utvalg", en: "Selection" },
+  "field.mapping": { nb: "Rolle", en: "Role" },
+  "field.ifcVersions": { nb: "IFC-versjoner", en: "IFC versions" },
+  "field.formatVersion": { nb: "Formatversjon", en: "Format version" },
+  "field.info": { nb: "Info", en: "Info" },
+  "field.requirement": { nb: "Krav", en: "Requirement" },
+  "field.rule": { nb: "Regel", en: "Rule" },
+  "xlsx.sheet": { nb: "Ark", en: "Sheet" },
+  "xlsx.column": { nb: "Kolonne", en: "Column" },
+  "xlsx.field": { nb: "Felt", en: "Field" },
+  "xlsx.type": { nb: "Type", en: "Type" },
+  "xlsx.example": { nb: "Eksempel", en: "Example" },
+  "xlsx.type.text": { nb: "tekst", en: "text" },
+  "xlsx.type.number": { nb: "tall", en: "number" },
+  "xlsx.type.boolean": { nb: "sann/usann", en: "true/false" },
+  "xlsx.type.list": { nb: "liste, kommaseparert", en: "list, comma-separated" },
+  "xlsx.type.json": { nb: "JSON", en: "JSON" },
 
   /* --------------------------------------------------------- requirements */
   // The mottakskontroll report's own terms (HI90 docs/rapport-rammeverk.md and
