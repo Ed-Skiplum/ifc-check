@@ -1,0 +1,522 @@
+/* Mottakskontroll, the treatment.
+ *
+ * Layout and look of the model report and the project report. Every colour, size and spacing
+ * value is a token from tokens.css; nothing here is a literal colour. The builder emits
+ * semantic classes only, so a design variant is a different file in place of this one
+ * (bygg_mottakskontroll.py --css <fil>).
+ *
+ * Grid: 186 mm as 4 columns of 43,5 mm with 4 mm gutters (docs/rapport-rammeverk.md).
+ */
+
+.mk {
+  width: var(--sk-bredde);
+  margin: 0;
+  background: var(--sk-sand);
+  color: var(--sk-blekk);
+  font-family: var(--sk-skrift);
+  font-size: var(--mk-tekst);
+  line-height: var(--mk-linjeh);
+  font-variant-numeric: tabular-nums;
+}
+@media screen { .mk { margin: var(--sk-marg) auto; } }
+
+.mk .rad4 {
+  display: grid;
+  grid-template-columns: repeat(4, var(--sk-kolonne));
+  column-gap: var(--sk-luft);
+}
+
+/* ---------------------------------------------------------------- header (brand) */
+.mk .hode {
+  display: grid;
+  grid-template-columns: 8mm 1fr auto;
+  column-gap: var(--sk-luft);
+  align-items: end;
+  padding-bottom: 1.6mm;
+  border-bottom: 1pt solid var(--sk-merke);
+}
+.mk .hode svg { width: 8mm; height: 8mm; fill: var(--sk-merke); display: block; }
+.mk .hode .over {
+  margin: 0 0 0.6mm;
+  font-size: var(--mk-tekst-liten);
+  font-weight: var(--sk-vekt-halvfet);
+  letter-spacing: var(--sk-spredt-eyebrow);
+  text-transform: uppercase;
+  color: var(--sk-merke-aksent);
+}
+.mk h1 {
+  margin: 0;
+  font-family: var(--sk-skrift-merke);
+  font-size: var(--mk-tittel);
+  font-weight: var(--sk-vekt-tittel);
+  letter-spacing: var(--sk-tett-tittel);
+  line-height: var(--sk-linjeh-display);
+}
+.mk .hode .dato { font-size: var(--mk-tall); color: var(--sk-merke); }
+
+.mk .meta { margin: 1.2mm 0 0; display: flex; flex-wrap: wrap; column-gap: 7mm; row-gap: 0.5mm; }
+.mk .meta div { min-width: 0; }
+.mk .meta dt {
+  font-size: var(--mk-tekst-mini);
+  color: var(--sk-svak);
+  text-transform: uppercase;
+  letter-spacing: var(--sk-spredt-eyebrow);
+}
+.mk .meta dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- section heads */
+.mk h2 {
+  display: flex;
+  align-items: baseline;
+  margin: 1.8mm 0 0.6mm;
+  padding-bottom: 0.6mm;
+  border-bottom: 0.6pt solid var(--sk-linje-sterk);
+  font-size: var(--mk-tekst);
+  font-weight: var(--sk-vekt-tittel);
+  letter-spacing: var(--sk-spredt-eyebrow);
+  text-transform: uppercase;
+}
+.mk h2 .nr { color: var(--sk-svak); margin-right: 1.5mm; }
+.mk h2 .legende { margin: 0 0 0 auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* ---------------------------------------------------------------- KPI band */
+.mk .kpi .flis {
+  border: var(--sk-flis-kant);
+  border-radius: var(--sk-flis-radius);
+  background: var(--sk-flis-flate);
+  padding: 0.8mm var(--sk-flis-luft);
+}
+.mk .kpi .etikett { font-size: var(--mk-tekst-liten); color: var(--sk-svak); }
+.mk .kpi .verdi { font-size: var(--mk-tall-stor); font-weight: var(--sk-vekt-halvfet); line-height: 1.1; }
+.mk .kpi .under { font-size: var(--mk-tekst-mini); color: var(--sk-svak); }
+
+
+/* ---------------------------------------------------------------- status symbols */
+.mk .st { font-weight: var(--sk-vekt-halvfet); }
+.mk .ok { color: var(--sk-oppfylt); }
+.mk .warn { color: var(--sk-avvik); }
+.mk .bad { color: var(--sk-mangler); }
+.mk .na { color: var(--sk-na); }
+
+/* ---------------------------------------------------------------- the block */
+.mk .blokk {
+  display: grid;
+  grid-template-columns: var(--sk-kolonne) minmax(0, 1fr);
+  column-gap: var(--sk-luft);
+  padding: 0.3mm 0 0.4mm;
+  border-top: 0.5pt solid var(--sk-linje);
+  break-inside: avoid;
+}
+.mk .blokk:first-of-type { border-top: 0; }
+.mk .blokk .navn { font-weight: var(--sk-vekt-tittel); font-size: var(--mk-tekst); }
+.mk .blokk .venstre { display: grid; grid-template-columns: 4.2mm 1fr; column-gap: 1.2mm; align-items: start; }
+.mk .blokk .lys { font-size: var(--mk-tall); line-height: 1; font-weight: var(--sk-vekt-halvfet); }
+.mk .blokk .lysord { font-size: var(--mk-tekst-mini); font-weight: var(--sk-vekt-halvfet); }
+.mk .blokk .navn .nr { color: var(--sk-svak); font-weight: var(--sk-vekt-halvfet); margin-right: 1mm; }
+.mk .blokk .kilde { font-size: var(--mk-tekst-mini); color: var(--sk-svak); }
+.mk .blokk .tegn { font-size: var(--mk-tekst-mini); color: var(--sk-svak); margin-top: 0.6mm; }
+.mk .blokk .tegn span { white-space: nowrap; margin-right: 1.6mm; }
+
+.mk .les {
+  display: grid;
+  grid-template-columns: 17mm 15mm 1fr 24mm;
+  column-gap: 2mm;
+  align-items: center;
+}
+.mk .les .lab {
+  font-size: var(--mk-tekst-mini);
+  color: var(--sk-svak);
+  text-transform: uppercase;
+  letter-spacing: var(--sk-spredt-eyebrow);
+}
+.mk .les .tall { font-size: var(--mk-tall); font-weight: var(--sk-vekt-halvfet); white-space: nowrap; }
+.mk .les .av { font-size: var(--mk-tekst-mini); color: var(--sk-svak); white-space: nowrap; text-align: right; padding-right: 0.8mm; }
+
+.mk .stolpe {
+  display: flex;
+  height: var(--sk-stolpe-h);
+  background: var(--sk-stolpe-bunn);
+  border-radius: var(--sk-stolpe-radius);
+  overflow: hidden;
+}
+.mk .stolpe i { display: block; height: 100%; }
+.mk .stolpe i.o { background: var(--sk-oppfylt-ren); }
+.mk .stolpe i.a { background: var(--sk-avvik-ren); }
+.mk .stolpe i.m { background: var(--sk-mangler-ren); }
+.mk .stolpe i.n { background: var(--sk-na-ren); }
+
+.mk .linje {
+  display: flex;
+  align-items: flex-start;
+  margin: 0.2mm 0 0 0;
+  font-size: var(--mk-tekst-mini);
+  line-height: 1.2;
+  color: var(--sk-blekk-svak);
+}
+.mk .linje .av { margin: 0 0 0 auto; padding-left: 2mm; color: var(--sk-svak); white-space: nowrap; }
+.mk .linje .rader { flex: 1 1 auto; display: flex; flex-direction: column; row-gap: 0.3mm; min-width: 0; }
+.mk .linje .rad { display: flex; flex-wrap: wrap; column-gap: 2mm; row-gap: 0.4mm; line-height: 1.35; }
+.mk .linje .kl { white-space: nowrap; }
+.mk .linje .gren { font-weight: var(--sk-vekt-tittel); color: var(--sk-blekk); min-width: 28mm; }
+.mk .linje span { white-space: nowrap; margin-right: 2mm; }
+.mk .linje .flagg { color: var(--sk-avvik); font-weight: var(--sk-vekt-halvfet); }
+.mk .linje .rod { color: var(--sk-mangler); font-weight: var(--sk-vekt-halvfet); }
+.mk .linje .niv {
+  display: inline-block;
+  line-height: 1.1;
+  vertical-align: 0.1mm;
+  margin: 0 0.8mm 0 0.4mm;
+  padding: 0 0.5mm;
+  border: 0.3pt solid var(--sk-na);
+  border-radius: var(--sk-stolpe-radius);
+  color: var(--sk-na);
+  font-size: var(--mk-tekst-mini);
+  font-weight: 400;
+}
+
+.mk .ford { display: grid; grid-template-columns: 34mm 1fr; column-gap: 2mm; margin-top: 0.2mm; }
+.mk .ford .lab {
+  font-size: var(--mk-tekst-mini);
+  color: var(--sk-svak);
+  text-transform: uppercase;
+  letter-spacing: var(--sk-spredt-eyebrow);
+  padding-top: 0.2mm;
+}
+.mk .fbar {
+  display: flex;
+  height: var(--sk-fordeling-h);
+  background: var(--sk-stolpe-bunn);
+  border-radius: var(--sk-stolpe-radius);
+  overflow: hidden;
+}
+.mk .fbar i { display: block; height: 100%; box-shadow: inset -0.4pt 0 0 var(--sk-fordeling-kant); }
+.mk .chips {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 2.2mm;
+  row-gap: 0.2mm;
+  margin-top: 0.6mm;
+  font-size: var(--mk-tekst-mini);
+  line-height: 1.25;
+}
+.mk .chip { white-space: nowrap; }
+.mk .chips.tom { margin-top: 0; }
+.mk .chip .sw {
+  display: inline-block;
+  width: 1.6mm;
+  height: 1.6mm;
+  margin-right: 0.6mm;
+  vertical-align: -0.1mm;
+  border: 0.3pt solid var(--sk-linje);
+}
+.mk .chip .x { color: var(--sk-svak); }
+.mk .chip.avvik { color: var(--sk-avvik); font-weight: var(--sk-vekt-halvfet); }
+.mk .chip.mangler { color: var(--sk-mangler); font-weight: var(--sk-vekt-halvfet); }
+.mk .chip.flagg { color: var(--sk-na); }
+.mk .chip .tag {
+  margin-left: 0.6mm;
+  padding: 0 0.6mm;
+  border: 0.4pt solid var(--sk-na);
+  border-radius: var(--sk-stolpe-radius);
+  color: var(--sk-na);
+  font-weight: var(--sk-vekt-halvfet);
+}
+.mk .aapen { margin-top: 0.5mm; font-size: var(--mk-tekst-mini); }
+.mk .aapen .tag {
+  padding: 0 0.6mm;
+  margin-right: 1mm;
+  border: 0.4pt solid var(--sk-na);
+  border-radius: var(--sk-stolpe-radius);
+  color: var(--sk-na);
+  font-weight: var(--sk-vekt-halvfet);
+}
+.mk .aapen span { margin-right: 1.6mm; white-space: nowrap; }
+
+.mk .merknad {
+  margin-top: 0.5mm;
+  padding: 0.2mm 1.2mm;
+  line-height: 1.2;
+  border-left: 0.8pt solid var(--sk-linje-sterk);
+  font-size: var(--mk-tekst-liten);
+}
+.mk .merknad .nar { color: var(--sk-svak); font-weight: var(--sk-vekt-halvfet); margin-right: 1.5mm; }
+
+.mk .gap { color: var(--sk-mangler); font-weight: var(--sk-vekt-halvfet); }
+
+/* ---------------------------------------------------------------- hygiene strip */
+.mk .hygiene .flis {
+  border: var(--sk-flis-kant);
+  border-radius: var(--sk-flis-radius);
+  padding: 1mm var(--sk-flis-luft);
+  min-width: 0;
+}
+.mk .hygiene .etikett { font-size: var(--mk-tekst-mini); color: var(--sk-svak); text-transform: uppercase; letter-spacing: var(--sk-spredt-eyebrow); }
+.mk .hygiene .verdi { font-size: var(--mk-tekst-liten); overflow-wrap: anywhere; }
+.mk .hygiene .under { font-size: var(--mk-tekst-mini); color: var(--sk-blekk-svak); overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- legend */
+.mk .legende { font-size: var(--mk-tekst-mini); color: var(--sk-svak); }
+.mk .legende span { margin-right: 2.4mm; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- type gallery */
+.mk .galleri { break-before: page; }
+.mk .kort-rutenett {
+  display: grid;
+  grid-template-columns: repeat(4, var(--sk-kolonne));
+  column-gap: var(--sk-luft);
+  row-gap: 2.4mm;
+}
+.mk .kort {
+  border: var(--sk-flis-kant);
+  border-radius: var(--sk-flis-radius);
+  padding: 1mm 1.4mm 1.2mm;
+  break-inside: avoid;
+  min-width: 0;
+  font-size: var(--mk-tekst-mini);
+}
+.mk .kort .tn { font-size: var(--mk-tekst-liten); font-weight: var(--sk-vekt-tittel); overflow-wrap: anywhere; line-height: 1.2; }
+.mk .kort .kl { color: var(--sk-svak); overflow-wrap: anywhere; }
+.mk .kort .inst { font-size: var(--mk-tall); font-weight: var(--sk-vekt-halvfet); margin: 0.3mm 0; }
+.mk .kort .inst small { font-size: var(--mk-tekst-mini); color: var(--sk-svak); font-weight: 400; margin-left: 0.6mm; }
+.mk .kort dl { display: grid; grid-template-columns: 15mm 1fr; margin: 0; row-gap: 0.1mm; }
+.mk .kort dd.warn { color: var(--sk-avvik); font-weight: var(--sk-vekt-halvfet); }
+.mk .kort dt { color: var(--sk-svak); }
+.mk .kort dd { margin: 0; overflow-wrap: anywhere; }
+.mk .kort .sw { display: inline-block; width: 1.6mm; height: 1.6mm; margin-right: 0.6mm; vertical-align: -0.1mm; border: 0.3pt solid var(--sk-linje); }
+
+/* ---------------------------------------------------------------- project report tables */
+.mk table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--mk-tekst-liten); }
+.mk th, .mk td { padding: 0.6mm 0.7mm; border-bottom: 0.4pt solid var(--sk-linje); vertical-align: top; text-align: left; overflow-wrap: anywhere; }
+.mk th { font-size: var(--mk-tekst-mini); font-weight: var(--sk-vekt-halvfet); color: var(--sk-blekk-svak); border-bottom: 0.6pt solid var(--sk-linje-sterk); vertical-align: bottom; }
+.mk td.tall, .mk th.tall { text-align: right; white-space: nowrap; }
+.mk td.c { text-align: center; }
+.mk td.c.ok { background: var(--sk-oppfylt-flate); }
+.mk td.c.warn { background: var(--sk-avvik-flate); }
+.mk td.c.bad { background: var(--sk-mangler-flate); }
+.mk td.c.na { background: var(--sk-na-flate); }
+.mk td.c .sub { display: block; font-size: var(--mk-tekst-mini); font-weight: 400; }
+.mk td.krav { font-weight: var(--sk-vekt-halvfet); }
+.mk td.krav small { display: block; font-weight: 400; color: var(--sk-svak); font-size: var(--mk-tekst-mini); }
+.mk tr { break-inside: avoid; }
+.mk tr.skille td { border-top: 0.6pt solid var(--sk-linje-sterk); }
+
+/* ---------------------------------------------------------------- code lists: compact, light rules */
+.mk .kodelister { break-before: page; }
+.mk .kodelister h3 { font-size: var(--mk-tekst-liten); font-weight: var(--sk-vekt-tittel); margin: 2.4mm 0 0.8mm; }
+.mk table.kodeliste { width: calc(3 * var(--sk-kolonne) + 2 * var(--sk-luft)); font-size: var(--mk-tekst-mini); }
+.mk table.kodeliste th { border-bottom: 0.4pt solid var(--sk-linje); padding: 0.3mm 0.7mm; }
+.mk table.kodeliste td { border-bottom: 0.3pt solid var(--sk-linje); padding: 0.25mm 0.7mm; }
+
+/* ---------------------------------------------------------------- pset gallery */
+.mk .psett { break-before: page; }
+.mk .psett-rutenett {
+  display: grid;
+  grid-template-columns: repeat(2, calc(2 * var(--sk-kolonne) + var(--sk-luft)));
+  column-gap: var(--sk-luft);
+  row-gap: 2.4mm;
+  align-items: start;
+}
+.mk .pkort {
+  border: var(--sk-flis-kant);
+  border-left: 1.4mm solid;
+  border-radius: var(--sk-flis-radius);
+  padding: 1mm 1.4mm 1.2mm;
+  break-inside: avoid;
+  min-width: 0;
+  font-size: var(--mk-tekst-mini);
+}
+.mk .pkort .pn { font-size: var(--mk-tekst-liten); font-weight: var(--sk-vekt-tittel); overflow-wrap: anywhere; }
+.mk .pkort .pm { color: var(--sk-blekk-svak); margin: 0.2mm 0; }
+.mk .pkort .pk { color: var(--sk-svak); margin-bottom: 0.6mm; overflow-wrap: anywhere; }
+.mk .pkort table { font-size: var(--mk-tekst-mini); }
+.mk .pkort td { padding: 0.2mm 0.5mm; border-bottom: 0.3pt solid var(--sk-linje); }
+.mk .pkort td.eks { color: var(--sk-blekk-svak); }
+.mk .pkort td.andre { color: var(--sk-svak); }
+.mk .sjekksum { margin: 1.4mm 0 0; font-size: var(--mk-tekst-mini); color: var(--sk-svak); overflow-wrap: anywhere; }
+.mk .kat { display: inline-block; width: 1.8mm; height: 1.8mm; margin-right: 0.8mm; vertical-align: -0.1mm; }
+
+/* KPI band on one line per tile: label, count, basis */
+.mk .kpi .flis { display: flex; align-items: baseline; column-gap: 1.6mm; padding: 0.6mm var(--sk-flis-luft); }
+.mk .kpi .verdi { font-size: var(--mk-tall); }
+.mk .kpi .under { margin-left: auto; white-space: nowrap; }
+.mk .kpi .etikett { white-space: nowrap; }
+.mk .kpi.rad4 { grid-template-columns: repeat(3, 1fr); }
+.mk .blokk > div { min-width: 0; }
+.mk .les > *, .mk .ford > * { min-width: 0; }
+
+/* ---------------------------------------------------------------- template round 2026-09-24 */
+.mk .kpi { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: var(--sk-luft); row-gap: 1.2mm; }
+.mk .kpi .flis .under .st { font-weight: var(--sk-vekt-halvfet); }
+.mk .rad-l { display: grid; grid-template-columns: 17mm minmax(0, 1fr); column-gap: 2mm; align-items: baseline;
+  font-size: var(--mk-tekst-mini); line-height: 1.3; color: var(--sk-blekk-svak); }
+.mk .rad-l .lab, .mk .etasjematrise .lab {
+  font-size: var(--mk-tekst-mini); color: var(--sk-svak); text-transform: uppercase; letter-spacing: var(--sk-spredt-eyebrow);
+}
+.mk .rad-l .kravtekst { color: var(--sk-blekk); }
+.mk .rad-l .gren { font-weight: var(--sk-vekt-tittel); color: var(--sk-blekk); margin-right: 1.5mm; }
+.mk .rad-l .niv, .mk .niv {
+  display: inline-block; line-height: 1.1; margin: 0 0.8mm 0 0; padding: 0 0.5mm;
+  border: 0.3pt solid var(--sk-na); border-radius: var(--sk-stolpe-radius); color: var(--sk-na); font-size: var(--mk-tekst-mini);
+}
+.mk .mock {
+  display: inline-block; margin-left: 1.2mm; padding: 0 0.6mm; line-height: 1.15;
+  border: 0.5pt solid var(--mk-mock); color: var(--mk-mock); font-size: var(--mk-tekst-mini);
+  font-weight: var(--sk-vekt-tittel); letter-spacing: var(--sk-spredt-eyebrow);
+}
+.mk .vannmerke {
+  position: fixed; top: 38%; left: 0; width: 100%; text-align: center; transform: rotate(-30deg);
+  font-size: 110pt; font-weight: var(--sk-vekt-tittel); color: var(--mk-mock); opacity: 0.08;
+  letter-spacing: 0.1em; pointer-events: none; z-index: 0;
+}
+.mk .etasjematrise { margin: 0.4mm 0 1mm calc(var(--sk-kolonne) + var(--sk-luft)); }
+.mk .etasjematrise .em-hode { display: flex; column-gap: 2mm; font-size: var(--mk-tekst-mini); color: var(--sk-svak); }
+.mk .etasjematrise .em-deler { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--sk-luft); }
+.mk .etasjematrise td.st { white-space: nowrap; font-weight: 400; }
+.mk .etasjematrise table { font-size: var(--mk-tekst-mini); }
+.mk .etasjematrise th, .mk .etasjematrise td { padding: 0.1mm 0.5mm; }
+.mk .modellmerknader { font-size: var(--mk-tekst-liten); }
+.mk .modellmerknader .linjert {
+  height: 3.5mm; margin-top: 0;
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(3.5mm - 0.3pt),
+                                              var(--sk-linje) calc(3.5mm - 0.3pt), var(--sk-linje) 3.5mm);
+}
+.mk .rad-l.to { grid-template-columns: 17mm minmax(0, 1fr) 10mm minmax(0, 1fr); }
+.mk .ford .lab .mock { margin-left: 0; margin-top: 0.3mm; display: block; width: fit-content; }
+.mk .les .tall { font-size: var(--mk-tekst); line-height: 1.2; }
+.mk .les { line-height: 1.2; }
+.mk .legende .nokkel { display: inline-block; width: 2mm; height: 1.6mm; margin: 0 0.5mm 0 1.2mm; vertical-align: -0.1mm; }
+.mk .legende .nokkel.o { background: var(--sk-oppfylt-ren); }
+.mk .legende .nokkel.a { background: var(--sk-avvik-ren); }
+.mk .legende .nokkel.m { background: var(--sk-mangler-ren); }
+.mk .legende .nokkel.n { background: var(--sk-na-ren); }
+
+/* ---------------------------------------------------------------- the requirement row, 2026-09-24:
+   a status square at the left edge, full row height, readable in a narrow vertical scan */
+.mk .blokk.krav {
+  grid-template-columns: 13mm calc(var(--sk-kolonne) - 13mm - 2mm) minmax(0, 1fr);
+  column-gap: 2mm;
+  align-items: stretch;
+}
+.mk .kvadrat {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; row-gap: 0.3mm;
+  min-height: 9mm; border-radius: var(--sk-flis-radius);
+  font-size: var(--mk-tekst-mini); font-weight: var(--sk-vekt-tittel); text-align: center; line-height: 1.05;
+}
+.mk .kvadrat .ksym { font-size: var(--mk-tall); line-height: 1; }
+.mk .kvadrat.oppfylt { background: var(--sk-oppfylt-ren); color: var(--sk-aksent-tekst); }
+.mk .kvadrat.ikke_oppfylt { background: var(--sk-mangler-ren); color: var(--sk-aksent-tekst); }
+.mk .kvadrat.gjelder_ikke, .mk .kvadrat.ikke_konfigurert { background: var(--sk-na-ren); color: var(--sk-blekk); }
+.mk .blokk.krav .navn { padding-top: 0.2mm; }
+.mk .blokk.krav .kropp { min-width: 0; }
+.mk .rad-l .sitat { color: var(--sk-svak); }
+.mk .rad-l .telling { color: var(--sk-blekk); }
+.mk .rad-l .fordeling { color: var(--sk-blekk-svak); }
+.mk .rad-l .fordeling .fv { white-space: nowrap; }
+.mk .rad-l .fordeling .sw { display: inline-block; width: 1.6mm; height: 1.6mm; margin-right: 0.5mm; vertical-align: -0.1mm; border: 0.3pt solid var(--sk-linje); }
+.mk .rad-l .utenfor { color: var(--sk-avvik); }
+.mk .blokk.krav .etasjematrise { margin: 0.3mm 0 0.3mm 0; }
+
+/* ================================================================ the requirement grid (2026-09-24)
+   The row sits on the page grid: square + title fill the first 43,5 mm column, the body the other
+   three (138,5 mm). Inside the body every line is a grid on the same tracks: label, content, and an
+   end track for counts. Every cell has min-width 0 and wraps inside its own track; nothing may
+   overflow into a neighbour. No table look: no borders, gridlines or zebra; rows are separated by
+   whitespace and one thin rule between requirements. */
+.mk .blokk.krav {
+  display: grid;
+  grid-template-columns: var(--mk-kvadrat) calc(var(--sk-kolonne) - var(--mk-kvadrat) - var(--mk-spor-luft)) minmax(0, 1fr);
+  column-gap: var(--mk-spor-luft);
+  align-items: stretch;
+}
+.mk .blokk.krav > * { min-width: 0; }
+.mk .blokk.krav .navn { overflow-wrap: break-word; hyphens: auto; }
+.mk .blokk.krav .kropp { margin-left: calc(var(--sk-luft) - var(--mk-spor-luft)); }
+.mk .blokk.krav .kropp > * + * { margin-top: 0.1mm; }
+
+.mk .kropp .rad-l, .mk .kropp .les {
+  display: grid;
+  grid-template-columns: var(--mk-lab) minmax(0, 1fr) var(--mk-antall);
+  column-gap: var(--mk-spor-luft);
+  align-items: baseline;
+}
+.mk .kropp .rad-l > * { min-width: 0; overflow-wrap: break-word; }
+.mk .kropp .rad-l > :nth-child(2) { grid-column: 2 / 4; }
+.mk .kropp .rad-l.to { grid-template-columns: var(--mk-lab) minmax(0, 1fr) 9mm minmax(0, 1fr); }
+.mk .kropp .rad-l.to > :nth-child(2) { grid-column: auto; }
+.mk .kropp .les { grid-template-columns: var(--mk-lab) 14mm minmax(0, 1fr) var(--mk-antall); align-items: center; }
+.mk .kropp .les > * { min-width: 0; }
+.mk .kropp .les .stolpespor { display: flex; align-items: center; column-gap: 1mm; min-width: 0; }
+.mk .kropp .les .stolpespor .stolpe { flex: 1 1 auto; min-width: 0; }
+.mk .kropp .les .stolpespor .mock { flex: 0 0 auto; margin-left: 0; }
+.mk .kropp .les .av { white-space: normal; text-align: right; overflow-wrap: break-word; padding-right: 0; }
+.mk .kropp .les .tall { white-space: normal; overflow-wrap: break-word; line-height: 1.1; }
+.mk .kropp .fordeling .fv, .mk .kropp .utenfor .fv { white-space: nowrap; }
+.mk .kropp .lab { overflow-wrap: break-word; letter-spacing: 0.04em; }
+.mk .kropp .telling .tlab { color: var(--sk-blekk-svak); }
+
+.mk .etasjematrise { margin: 0.2mm 0 0.3mm var(--mk-lab-inn); }
+.mk .etasjematrise .em-deler { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--sk-luft); }
+.mk .etasjematrise .em-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) 10mm minmax(0, 1.1fr) 10mm minmax(0, 1.7fr);
+  column-gap: 1.2mm; row-gap: 0;
+  font-size: var(--mk-tekst-mini); line-height: 1.3;
+}
+.mk .etasjematrise .em-grid > * { min-width: 0; overflow-wrap: break-word; }
+.mk .etasjematrise .em-grid .tall { text-align: right; white-space: nowrap; }
+.mk .etasjematrise .em-grid .emh { color: var(--sk-svak); }
+.mk .etasjematrise .em-grid .st { font-weight: 400; }
+.mk .kropp .em-meta { color: var(--sk-svak); }
+
+/* no bars (edkjo 2026-09-24): Dekning and Gyldig are plain numbers on the grid */
+.mk .kropp .rad-l .tall { font-size: var(--mk-tekst-liten); color: var(--sk-blekk); font-weight: 400; white-space: normal; }
+
+/* the status square: a fixed, true square on every requirement, top-aligned beside the title,
+   so the squares form one clean column down the page (edkjo 2026-09-24) */
+.mk .blokk.krav .kvadrat {
+  width: var(--mk-kvadrat); height: var(--mk-kvadrat); min-height: 0;
+  align-self: start; box-sizing: border-box; overflow: hidden;
+}
+.mk .blokk.krav .kvadrat .kord { font-size: var(--mk-kvadrat-ord); line-height: 1; }
+.mk .kropp .rad-l.to { grid-template-columns: var(--mk-lab) minmax(0, 1fr) 11mm minmax(0, 1fr); }
+.mk .blokk.krav { padding: 0.4mm 0 0.5mm; }
+
+/* Dekning and Gyldig as large numbers with a traffic light (edkjo 2026-09-24): colour on the number
+   itself, never a filled chip, with the symbol beside it so a black-and-white print reads */
+.mk .kropp .talrad { align-items: start; margin: 0.4mm 0 0.2mm; }
+.mk .kropp .talrad .lab { padding-top: 1.6mm; }
+.mk .kropp .stort { font-size: var(--mk-tall-stor); font-weight: var(--sk-vekt-halvfet); line-height: 1.05; white-space: nowrap; }
+.mk .kropp .stort .ssym { font-size: var(--mk-tall); margin-right: 1mm; vertical-align: 0.4mm; }
+.mk .kropp .stort.ok { color: var(--sk-oppfylt); }
+.mk .kropp .stort.warn { color: var(--sk-avvik); }
+.mk .kropp .stort.bad { color: var(--sk-mangler); }
+.mk .kropp .stort.na { color: var(--sk-na); }
+.mk .kropp .stort .mock { vertical-align: 1mm; }
+.mk .kropp .smatt { font-size: var(--mk-tekst-mini); color: var(--sk-blekk-svak); }
+.mk .kropp .talrad .utenfor { font-size: var(--mk-tekst-mini); overflow-wrap: break-word; }
+.mk .kvadrat.kan_brukes { background: var(--sk-avvik-ren); color: var(--sk-blekk); }
+
+/* Nøkkeltall cards with a traffic light over the whole card (edkjo 2026-09-24): border and a light
+   fill, the symbol next to the value so it reads in black and white */
+.mk .kpi .flis.ok { border-color: var(--sk-oppfylt-ren); background: var(--sk-oppfylt-flate); }
+.mk .kpi .flis.warn { border-color: var(--sk-avvik-ren); background: var(--sk-avvik-flate); }
+.mk .kpi .flis.bad { border-color: var(--sk-mangler-ren); background: var(--sk-mangler-flate); }
+.mk .kpi .flis .ksym { margin-right: 0.8mm; font-size: var(--mk-tall); }
+.mk .kpi .flis.ok .ksym { color: var(--sk-oppfylt); }
+.mk .kpi .flis.warn .ksym { color: var(--sk-avvik); }
+.mk .kpi .flis.bad .ksym { color: var(--sk-mangler); }
+
+/* the floors as their own component: a plain matrix Referanse · Navn · Kote (edkjo 2026-09-25).
+   Light rules only, no heavy borders, no zebra; the tint and the symbol sit in the cell */
+.mk .etg-komp .etg-meta { font-size: var(--mk-tekst-mini); color: var(--sk-svak); margin-bottom: 0.6mm; }
+.mk .etg-matrise { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--mk-tekst-liten); }
+.mk .etg-matrise th { text-align: left; font-size: var(--mk-tekst-mini); color: var(--sk-svak); font-weight: var(--sk-vekt-halvfet);
+  text-transform: uppercase; letter-spacing: var(--sk-spredt-eyebrow); border-bottom: 0.5pt solid var(--sk-linje); padding: 0.4mm 1mm; }
+.mk .etg-matrise td { padding: 0.5mm 1mm; border-bottom: 0.3pt solid var(--sk-linje); overflow-wrap: break-word; }
+.mk .etg-matrise td.ok { background: var(--sk-oppfylt-flate); color: var(--sk-oppfylt); }
+.mk .etg-matrise td.warn { background: var(--sk-avvik-flate); color: var(--sk-avvik); }
+.mk .etg-matrise td.bad { background: var(--sk-mangler-flate); color: var(--sk-mangler); }
+.mk .etg-matrise td.na { background: var(--sk-na-flate); color: var(--sk-na); }
+.mk .etg-matrise .esym { font-weight: var(--sk-vekt-halvfet); margin-right: 1mm; }
+.mk .etg-matrise .ekote { color: var(--sk-blekk-svak); margin-left: 1.5mm; }
+.mk .etg-matrise .etill { margin-left: 1.5mm; font-size: var(--mk-tekst-mini); }

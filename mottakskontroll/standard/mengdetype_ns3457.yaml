@@ -1,0 +1,4091 @@
+# mengdetype_ns3457.yaml
+#
+# Oppslagstabell: telleobjekt eller mengdeobjekt per komponentkode i NS 3457-8:2021.
+#
+# Hver rad er en ANBEFALING. Et prosjekt kan overstyre den (unit_override i typeregisteret).
+#
+# Generert 2026-09-23 av 02_Arbeid/gen_mengdetype_ns3457.py (Claude-agent for edkjo). Radene er satt for
+# hånd i skriptet, ikke utledet; kjøres det på nytt, gjenskapes filen, ikke vurderingene. Kilder:
+#   - C:/workspace/resources/standards/ns3457/ns3457_8_codes.py (kodelisten, 789 koder, navn ordrett)
+#   - HI90_Mottakskontroll/docs/begreper.md §6 (definisjonene av telleobjekt og mengdeobjekt)
+#   - HI90_Reduzer-klargjøring/.../src/build_type_register.py (COUNT_/LINEAR_/PLANAR_/VOLUME_CLASSES,
+#     classify_unit: den deterministiske regelen per IFC-klasse; tabellen følger den der klassen er opplagt)
+#   - HI90_Reduzer-klargjøring/.../docs/HI90-scope-config.md §3 (typetaksonomi = materialmodell)
+#   - ~/.claude/skills/qto-model-analysis/knowledge/method.md (ledeenhet per komponentklasse)
+#
+# Felt:
+#   mengdetype   telleobjekt   telles; ledeenhet stk; produktet er materialmodellen, én EPD per stk
+#                mengdeobjekt  måles; ledeenhet m, m2 eller m3; materiallag per ledeenhet
+#                avhenger      koden dekker begge kinds; begrunnelse sier hva det avhenger av. Et reelt svar,
+#                              aldri en tom celle: prosjektet må velge side per type
+#                ikke_relevant koden er ikke en komponent som kan telles eller måles (samme verdi som
+#                              søstertabellen per IFC-klasse bruker for det samme)
+#   ledeenhet    stk | m | m2 | m3 | kg | null. null der enheten varierer innenfor koden, og alltid ved
+#                avhenger og ikke_relevant
+#   begrunnelse  hva tingen er, og IFC-klassen regelen bygger på
+#   ikke_komponent  true, bare på rader med mengdetype ikke_relevant. Skiller «ikke en komponent» fra
+#                «genuint begge deler» (avhenger), slik rapporten skiller mangler fra avvik. Feltet
+#                finnes ikke på andre rader.
+#
+# Merk:
+#   - Nivå 1-koder (A, B, C ...) er kategorier, ikke komponenter: ikke_relevant, svaret ligger i underkoden.
+#   - Koder merket «Bør ikke benyttes» (P, T, W, Å, Æ, Ø), virtuelle komponenter (Y*), programvare (OQ),
+#     systembærer (OF), målepunkt (RX*), kjemikalier (CM) og åpninger (AU*) er ikke_relevant med
+#     begrunnelse som sier hvorfor.
+#   - Dører og vinduer står som stk etter typeregisteret. Solibri-rutekartet (qto/v1/metode.md) sier m².
+#     Punktet er åpent, se begreper.md §6.
+#   - Stål i volumklasser (bjelke, søyle, fagverk, plate) regnes til kg via volum × tetthet. Ledeenheten
+#     her er klassens (m3 / m2); kg er avledet.
+#
+
+# ---- A - Bærende, romdannende ----
+- kode: "A"
+  navn: "Bærende, romdannende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "AB"
+  navn: "Bjelker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Bjelke (IfcBeam), volumklasse: profil × akselengde. Stål regnes til kg via volum × tetthet."
+- kode: "ABA"
+  navn: "Konstruktive bjelker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Bjelke (IfcBeam), volumklasse: profil × akselengde. Stål regnes til kg via volum × tetthet."
+- kode: "ABB"
+  navn: "Ikke konstruktive bjelker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Bjelke (IfcBeam), volumklasse: profil × akselengde. Stål regnes til kg via volum × tetthet."
+- kode: "AD"
+  navn: "Dekker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Dekke (IfcSlab), flateklasse: areal med lagoppbygning per m²."
+- kode: "ADA"
+  navn: "Konstruktive dekker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Dekke (IfcSlab), flateklasse: areal med lagoppbygning per m²."
+- kode: "ADB"
+  navn: "Ikke konstruktive dekker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Dekke (IfcSlab), flateklasse: areal med lagoppbygning per m²."
+- kode: "AE"
+  navn: "Elementer"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Prefabrikkert dekkeelement (IfcSlab), flateklasse. Leveres i hele elementer, men mengdes som flate med lag per m²."
+- kode: "AEA"
+  navn: "Konstruktive elementer, dekker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Prefabrikkert dekkeelement (IfcSlab), flateklasse. Leveres i hele elementer, men mengdes som flate med lag per m²."
+- kode: "AEB"
+  navn: "Konstruktive elementer, vegger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Prefabrikkert veggelement (IfcWall), flateklasse. Leveres i hele elementer, men mengdes som flate med lag per m²."
+- kode: "AEC"
+  navn: "Ikke konstruktive elementer, dekker"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Prefabrikkert dekkeelement (IfcSlab), flateklasse. Leveres i hele elementer, men mengdes som flate med lag per m²."
+- kode: "AED"
+  navn: "Ikke konstruktive elementer, vegger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Prefabrikkert veggelement (IfcWall), flateklasse. Leveres i hele elementer, men mengdes som flate med lag per m²."
+- kode: "AF"
+  navn: "Fagverk"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Fagverk av staver (IfcMember), volumklasse. Stål regnes til kg via volum × tetthet."
+- kode: "AFA"
+  navn: "Konstruktive fagverk"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Fagverk av staver (IfcMember), volumklasse. Stål regnes til kg via volum × tetthet."
+- kode: "AFB"
+  navn: "Ikke konstruktive fagverk"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Fagverk av staver (IfcMember), volumklasse. Stål regnes til kg via volum × tetthet."
+- kode: "AFC"
+  navn: "Avstivningsstag"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Avstivningsstag (IfcMember), volumklasse. Stål regnes til kg via volum × tetthet."
+- kode: "AFD"
+  navn: "Innebygd konstruktivt fagverk"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Fagverk av staver (IfcMember), volumklasse. Stål regnes til kg via volum × tetthet."
+- kode: "AFE"
+  navn: "Innebygd ikke-konstruktivt bindingsverk"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Bindingsverk er normalt et lag i en vegg (stender som kg per m² veggflate). Modellert som egne IfcMember er det volumklasse (m³)."
+- kode: "AG"
+  navn: "Glassfelt"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Glassfelt (IfcCurtainWall eller IfcPlate), flateklasse: areal med lag (glass, profil) per m²."
+- kode: "AGZ"
+  navn: "Glassfelt"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Glassfelt (IfcCurtainWall eller IfcPlate), flateklasse: areal med lag (glass, profil) per m²."
+- kode: "AH"
+  navn: "Fundamenter"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Peler, pelehoder og fundamenter er volum (m³), gulv på grunn er flate (m²). Se underkodene."
+- kode: "AHA"
+  navn: "Peler"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Pel (IfcPile), volumklasse."
+- kode: "AHB"
+  navn: "Pelehoder"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Pelehode (IfcPileCap), volumklasse."
+- kode: "AHC"
+  navn: "Grunndrager"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Grunndrager (IfcBeam eller IfcFooting), volumklasse."
+- kode: "AHD"
+  navn: "Pilarer"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Pilar (IfcColumn eller IfcFooting), volumklasse."
+- kode: "AHE"
+  navn: "Punktfundamenter"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Fundament (IfcFooting), volumklasse."
+- kode: "AHF"
+  navn: "Sålefundamenter"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Fundament (IfcFooting), volumklasse."
+- kode: "AHG"
+  navn: "Gulv på grunn"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Gulv på grunn (IfcSlab), flateklasse: areal med lag per m²."
+- kode: "AK"
+  navn: "Komplette konstruksjoner"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Komplett konstruksjon er en sammenstilling (IfcElementAssembly) uten egen regel. Mengdes via delene, eller som ett produkt der den er kjøpt slik."
+- kode: "AKZ"
+  navn: "Komplette konstruksjoner"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Komplett konstruksjon er en sammenstilling (IfcElementAssembly) uten egen regel. Mengdes via delene, eller som ett produkt der den er kjøpt slik."
+- kode: "AL"
+  navn: "Lister, belistninger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Belistning eksporteres som IfcCovering (MOLDING, SKIRTINGBOARD) og følger klasseregelen m². I praksis en løpemeterkomponent."
+- kode: "ALA"
+  navn: "Bygningsmessige belistninger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Belistning eksporteres som IfcCovering (MOLDING, SKIRTINGBOARD) og følger klasseregelen m². I praksis en løpemeterkomponent."
+- kode: "ALB"
+  navn: "Bekledende belistninger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Belistning eksporteres som IfcCovering (MOLDING, SKIRTINGBOARD) og følger klasseregelen m². I praksis en løpemeterkomponent."
+- kode: "ALC"
+  navn: "Beskyttende belistninger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Belistning eksporteres som IfcCovering (MOLDING, SKIRTINGBOARD) og følger klasseregelen m². I praksis en løpemeterkomponent."
+- kode: "AO"
+  navn: "Oppbyggende, utførende"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Oppbyggende sjikt på vegg, dekke eller himling. Alle underkoder er flate (m²)."
+- kode: "AOA"
+  navn: "Påstøp"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Påstøp (IfcSlab eller IfcCovering), flateklasse: areal med tykkelse som lag."
+- kode: "AOB"
+  navn: "Oppforinger, nedforinger, utforinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Oppforing, nedforing, utforing er et sjikt på flaten det bygger opp. Mengdes per m² av flaten."
+- kode: "AOC"
+  navn: "Forblendinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Forblending (IfcWall eller IfcCovering), flateklasse."
+- kode: "AOD"
+  navn: "Systemer for utlekting og kledning"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Utlekting og kledningssystem er sjikt på en vegg- eller takflate. Mengdes per m²."
+- kode: "AP"
+  navn: "Plater"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Plate (IfcPlate), flateklasse. Stålplater: masse i kg der modellen bærer vekt."
+- kode: "APZ"
+  navn: "Plater"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Plate (IfcPlate), flateklasse. Stålplater: masse i kg der modellen bærer vekt."
+- kode: "AR"
+  navn: "Rammer, oppheng"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Braketter og knutepunkter er telleobjekt, stag og oppheng avhenger. Se underkodene."
+- kode: "ARA"
+  navn: "Brakett, konsoller"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Brakett, konsoll (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "ARB"
+  navn: "Komplette knutepunkter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Komplett knutepunkt (IfcDiscreteAccessory eller sammenstilling), telleklasse: én enhet per knutepunkt, stål i kg per stk."
+- kode: "ARC"
+  navn: "Stag og oppheng"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Strekkstag modellert som IfcMember er volum (m³, stål i kg). Oppheng og hengere er telleobjekt (IfcDiscreteAccessory, stk)."
+- kode: "AS"
+  navn: "Søyler"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Søyle (IfcColumn), volumklasse: profil × akselengde. Stål regnes til kg via volum × tetthet."
+- kode: "ASA"
+  navn: "Konstruktive søyler"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Søyle (IfcColumn), volumklasse: profil × akselengde. Stål regnes til kg via volum × tetthet."
+- kode: "ASB"
+  navn: "Ikke konstruktive søyler"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Søyle (IfcColumn), volumklasse: profil × akselengde. Stål regnes til kg via volum × tetthet."
+- kode: "AU"
+  navn: "Åpninger"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Åpning, utsparing, hull er fravær av materiale (IfcOpeningElement, hoppes over). Ingen mengdetype."
+  ikke_komponent: true
+- kode: "AUA"
+  navn: "Utsparinger"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Åpning, utsparing, hull er fravær av materiale (IfcOpeningElement, hoppes over). Ingen mengdetype."
+  ikke_komponent: true
+- kode: "AUB"
+  navn: "Hull"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Åpning, utsparing, hull er fravær av materiale (IfcOpeningElement, hoppes over). Ingen mengdetype."
+  ikke_komponent: true
+- kode: "AV"
+  navn: "Vegger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Vegg (IfcWall), flateklasse: areal med lagoppbygning per m²."
+- kode: "AVA"
+  navn: "Konstruktive yttervegger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Vegg (IfcWall), flateklasse: areal med lagoppbygning per m²."
+- kode: "AVB"
+  navn: "Konstruktive innervegger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Vegg (IfcWall), flateklasse: areal med lagoppbygning per m²."
+- kode: "AVC"
+  navn: "Ikke-konstruktive yttervegger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Vegg (IfcWall), flateklasse: areal med lagoppbygning per m²."
+- kode: "AVD"
+  navn: "Ikke-konstruktive innervegger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Vegg (IfcWall), flateklasse: areal med lagoppbygning per m²."
+
+# ---- B - Innebyggende ----
+- kode: "B"
+  navn: "Innebyggende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "BA"
+  navn: "Armeringer, forsterkninger"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Armering og støpeskjøter er målt, innstøpningsgods er telt. Se underkodene."
+- kode: "BAA"
+  navn: "Armeringer, forsterkninger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Armering (IfcReinforcingBar, IfcReinforcingMesh), lineær klasse: løpemeter. Nett med bredde over 1 m går til m². EPD er normalt per kg."
+- kode: "BAB"
+  navn: "Spunt"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Spuntvegg er en flate: m² veggareal, stål i kg. IFC-klassen varierer (IfcWall, IfcPile)."
+- kode: "BAC"
+  navn: "Støpeskjøter"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Støpeskjøt med fugebånd eller svellebånd er en løpemeterdetalj."
+- kode: "BAD"
+  navn: "Knutepunkt, innstøpningsgods"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Innstøpningsgods og knutepunkt (IfcDiscreteAccessory, IfcMechanicalFastener), telleklasse: produkt per stk."
+- kode: "BB"
+  navn: "Beskyttende, stoppende"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Membraner og sperresjikt (IfcCovering MEMBRANE), flateklasse: sjikt per m²."
+- kode: "BBZ"
+  navn: "Beskyttende, stoppende"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Membraner og sperresjikt (IfcCovering MEMBRANE), flateklasse: sjikt per m²."
+- kode: "BC"
+  navn: "Begrensende"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Uklar samlekode (kantprofiler, dilatasjonsfuger, sperrer). Mengdetype må settes per produkt."
+- kode: "BCZ"
+  navn: "Begrensende"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Uklar samlekode (kantprofiler, dilatasjonsfuger, sperrer). Mengdetype må settes per produkt."
+- kode: "BF"
+  navn: "Fuging"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Fuge er en løpemeterkomponent."
+- kode: "BFZ"
+  navn: "Fuging"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Fuge er en løpemeterkomponent."
+- kode: "BG"
+  navn: "Pakning, tetning"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Tettelister er løpemeter (m), pakninger til rør, luker og dører er stykk per enhet."
+- kode: "BGZ"
+  navn: "Pakning, tetning"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Tettelister er løpemeter (m), pakninger til rør, luker og dører er stykk per enhet."
+- kode: "BI"
+  navn: "Isolasjon"
+  mengdetype: mengdeobjekt
+  ledeenhet: null
+  begrunnelse: "Alltid målt. Enheten er m² for bygningsisolasjon og m for teknisk isolasjon, se underkodene."
+- kode: "BIA"
+  navn: "Bygningsmessig isolasjon"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Bygningsmessig isolasjon (IfcCovering INSULATION) er et lag i vegg, dekke eller tak. Mengdes per m² med tykkelse."
+- kode: "BIB"
+  navn: "Isolasjon av tekniske installasjoner"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør- og kanalisolasjon følger føringens løpemeter (m) med dimensjon og tykkelse."
+- kode: "BP"
+  navn: "Avretningsmasse"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Avretningsmasse er et sjikt på gulvet. Mengdes per m² med tykkelse."
+- kode: "BPZ"
+  navn: "Avretningsmasse"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Avretningsmasse er et sjikt på gulvet. Mengdes per m² med tykkelse."
+- kode: "BS"
+  navn: "Spikerslag"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Spikerslag (IfcMember), volumklasse."
+- kode: "BSZ"
+  navn: "Spikerslag"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Spikerslag (IfcMember), volumklasse."
+
+# ---- C - Kompletterende, utspringende ----
+- kode: "C"
+  navn: "Kompletterende, utspringende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "CB"
+  navn: "Balkonger"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Plasstøpt balkong er dekke (IfcSlab, m²). Prefabrikkert balkong leveres som ett produkt (stk)."
+- kode: "CBZ"
+  navn: "Balkonger"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Plasstøpt balkong er dekke (IfcSlab, m²). Prefabrikkert balkong leveres som ett produkt (stk)."
+- kode: "CC"
+  navn: "Baldakiner"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Bygget baldakin er tak og bjelker (m², m³). Prefabrikkert baldakin leveres som ett produkt (stk)."
+- kode: "CCZ"
+  navn: "Baldakiner"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Bygget baldakin er tak og bjelker (m², m³). Prefabrikkert baldakin leveres som ett produkt (stk)."
+- kode: "CD"
+  navn: "Karnapper, arker"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Karnapp og ark er en sammenstilling av vegg, tak og vindu. Mengdes via delene, eller som ett prefabrikkert produkt (stk)."
+- kode: "CDZ"
+  navn: "Karnapper, arker"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Karnapp og ark er en sammenstilling av vegg, tak og vindu. Mengdes via delene, eller som ett prefabrikkert produkt (stk)."
+- kode: "CG"
+  navn: "Ramper, repos"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Ramper: alle underkoder er flate (m²)."
+- kode: "CGA"
+  navn: "Baner"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Bane er en flate: areal med lag per m²."
+- kode: "CGB"
+  navn: "Rampeløp"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Rampeløp (IfcRampFlight), flateklasse."
+- kode: "CGC"
+  navn: "Ramperepos"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Ramperepos (IfcSlab LANDING), flateklasse."
+- kode: "CGD"
+  navn: "Samling av ramper"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Samlet rampe (IfcRamp) mengdes via løp og repos, flate per m²."
+- kode: "CK"
+  navn: "Komplett konstruksjon"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Komplett konstruksjon er en sammenstilling uten egen regel. Mengdes via delene, eller som ett produkt der den er kjøpt slik."
+- kode: "CM"
+  navn: "Kjemiske stoffer"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Kjemisk stoff (kuldemedium, glykol, tilsetning), ikke en bygningskomponent. Mengde i kg eller liter, utenfor telle/mengde-skillet."
+  ikke_komponent: true
+- kode: "CO"
+  navn: "Kobling, Overgang"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kobling og overgang (IfcPipeFitting, IfcDuctFitting), telleklasse: produkt per stk."
+- kode: "CP"
+  navn: "Piper, skorsteiner"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Murt pipe mengdes (m løp eller m³). Elementpipe og stålpipe er produkt per stk eller per modulmeter."
+- kode: "CPZ"
+  navn: "Piper, skorsteiner"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Murt pipe mengdes (m løp eller m³). Elementpipe og stålpipe er produkt per stk eller per modulmeter."
+- kode: "CQ"
+  navn: "Festemateriell"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Festemateriell (IfcFastener, IfcMechanicalFastener), telleklasse: produkt per stk."
+- kode: "CQZ"
+  navn: "Festemateriell"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Festemateriell (IfcFastener, IfcMechanicalFastener), telleklasse: produkt per stk."
+- kode: "CR"
+  navn: "Rammeverk, oppheng"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Kabelbroer er løpemeter, oppheng og stativer er telleobjekt. Se underkodene."
+- kode: "CRA"
+  navn: "Felles rammeverk, oppheng"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Felles rammeverk er stålprofiler (IfcMember, m³ eller kg) eller ferdige opphengssystemer (stk). Avgjøres av produktet."
+- kode: "CRB"
+  navn: "Kabelbroer"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Kabelbro (IfcCableCarrierSegment), lineær klasse: løpemeter med bredde."
+- kode: "CRC"
+  navn: "Oppheng for rør og kanaler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Oppheng for rør og kanaler (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "CRD"
+  navn: "Støtter, stativer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Støtte og stativ (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "CT"
+  navn: "Trapper, leidere"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Leidere er telleobjekt, trappeløp og repos er flate, samlet trapp avhenger. Se underkodene."
+- kode: "CTA"
+  navn: "Leidere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Leider er et ferdig produkt (IfcStair LADDER), telles per stk."
+- kode: "CTB"
+  navn: "Trappeløp"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Trappeløp (IfcStairFlight), flateklasse."
+- kode: "CTC"
+  navn: "Trapperepos"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Trapperepos (IfcSlab LANDING), flateklasse."
+- kode: "CTD"
+  navn: "Samling av trapper"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Plasstøpt trapp (IfcStair) mengdes via løp og repos (m²). Prefabrikkert betong- eller ståltrapp leveres som elementer (stk)."
+- kode: "CX"
+  navn: "Tunnel, bru (inne eller ute)"
+  mengdetype: mengdeobjekt
+  ledeenhet: null
+  begrunnelse: "Tunnel og bru er sammenstillinger av dekker, vegger og bjelker. Mengdes via delene (m², m³)."
+- kode: "CXZ"
+  navn: "Tunnel, bru (inne eller ute)"
+  mengdetype: mengdeobjekt
+  ledeenhet: null
+  begrunnelse: "Tunnel og bru er sammenstillinger av dekker, vegger og bjelker. Mengdes via delene (m², m³)."
+
+# ---- D - Åpnende ----
+- kode: "D"
+  navn: "Åpnende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "DB"
+  navn: "Dører med brannklasse"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DBZ"
+  navn: "Dører med brannklasse"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DF"
+  navn: "Foldedører, foldevegger"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Foldedør er IfcDoor (stk). Foldevegg som IfcWall MOVABLE er flate (m²)."
+- kode: "DFZ"
+  navn: "Foldedører, foldevegger"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Foldedør er IfcDoor (stk). Foldevegg som IfcWall MOVABLE er flate (m²)."
+- kode: "DI"
+  navn: "Dører – innvendig"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DIZ"
+  navn: "Dører – innvendig"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DK"
+  navn: "Kjøretøyregulering"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjøretøyregulering: alle underkoder er ferdige produkter, stk."
+- kode: "DKA"
+  navn: "Bommer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bom er et ferdig produkt, telles per stk."
+- kode: "DKB"
+  navn: "Pullerter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pullert er et ferdig produkt, telles per stk."
+- kode: "DKC"
+  navn: "Sperretrinn"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sperretrinn er et ferdig produkt, telles per stk."
+- kode: "DL"
+  navn: "Luker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luker: alle underkoder er ferdige produkter, stk."
+- kode: "DLA"
+  navn: "Ventilerende luker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventilerende luke er et ferdig produkt (IfcDoor eller IfcAirTerminal), telles per stk."
+- kode: "DLB"
+  navn: "Luker i tekniske sjakter og himling"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Inspeksjonsluke i sjakt og himling er et ferdig produkt (IfcDoor TRAPDOOR eller IfcCovering), telles per stk."
+- kode: "DLC"
+  navn: "Tekniske luker i rør og kanalnett"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Teknisk luke i rør og kanal (IfcDuctFitting, IfcPipeFitting), telleklasse: produkt per stk."
+- kode: "DLD"
+  navn: "Kumlokk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kumlokk er et ferdig produkt, telles per stk."
+- kode: "DP"
+  navn: "Porter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Port (IfcDoor GATE), telleklasse: produkt-EPD per stk."
+- kode: "DPZ"
+  navn: "Porter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Port (IfcDoor GATE), telleklasse: produkt-EPD per stk."
+- kode: "DT"
+  navn: "Dører – tilflutktsrom"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DTZ"
+  navn: "Dører – tilflutktsrom"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DU"
+  navn: "Dører – utvendig"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DUZ"
+  navn: "Dører – utvendig"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dør (IfcDoor), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DV"
+  navn: "Vinduer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vindu (IfcWindow), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+- kode: "DVZ"
+  navn: "Vinduer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vindu (IfcWindow), telleklasse: produkt-EPD per stk. Åpent punkt: Solibri-rutekartet sier m²."
+
+# ---- E - Bekledende ----
+- kode: "E"
+  navn: "Bekledende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "EB"
+  navn: "Overflatebekledning"
+  mengdetype: mengdeobjekt
+  ledeenhet: null
+  begrunnelse: "Alltid målt. Kledning, gulv og tak er m², beslag og rørmantling er m. Se underkodene."
+- kode: "EBA"
+  navn: "Kledning, på vegg eller himling, ute og inne"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Kledning (IfcCovering CLADDING), flateklasse: sjikt per m²."
+- kode: "EBB"
+  navn: "Gulvkledning og belegg"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Gulvkledning og belegg (IfcCovering FLOORING), flateklasse: sjikt per m²."
+- kode: "EBC"
+  navn: "Bygningsmessige beslag"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Bygningsmessig beslag (vindski, sålbenk, gesimsbeslag) er løpemeter platemetall."
+- kode: "EBD"
+  navn: "Takbelegg"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Takbelegg (IfcCovering ROOFING), flateklasse: sjikt per m²."
+- kode: "EBE"
+  navn: "Rørmantling"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rørmantling følger rørets løpemeter (m) med dimensjon."
+- kode: "EC"
+  navn: "Overflatebehandlinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Overflatebehandling (maling, lakk, impregnering) er et sjikt per m² av flaten."
+- kode: "ECZ"
+  navn: "Overflatebehandlinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Overflatebehandling (maling, lakk, impregnering) er et sjikt per m² av flaten."
+- kode: "EH"
+  navn: "Himlinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Himling (IfcCovering CEILING), flateklasse: system og sjikt per m²."
+- kode: "EHA"
+  navn: "Tette himlinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Himling (IfcCovering CEILING), flateklasse: system og sjikt per m²."
+- kode: "EHB"
+  navn: "Systemhimlinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Himling (IfcCovering CEILING), flateklasse: system og sjikt per m²."
+- kode: "EHC"
+  navn: "Åpne himlinger"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Himling (IfcCovering CEILING), flateklasse: system og sjikt per m²."
+
+# ---- F - Innredende, fastmontert ----
+- kode: "F"
+  navn: "Innredende, fastmontert"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "FA"
+  navn: "Ventilerte arbeidsplasser"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventilert arbeidsplass (avtrekkskap, sikkerhetsbenk, punktavsug) er et ferdig produkt, telles per stk."
+- kode: "FAA"
+  navn: "Sikkerhetsbenker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventilert arbeidsplass (avtrekkskap, sikkerhetsbenk, punktavsug) er et ferdig produkt, telles per stk."
+- kode: "FAB"
+  navn: "LAF-benker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventilert arbeidsplass (avtrekkskap, sikkerhetsbenk, punktavsug) er et ferdig produkt, telles per stk."
+- kode: "FAC"
+  navn: "Avtrekkskap"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventilert arbeidsplass (avtrekkskap, sikkerhetsbenk, punktavsug) er et ferdig produkt, telles per stk."
+- kode: "FAD"
+  navn: "Avtrekkshetter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventilert arbeidsplass (avtrekkskap, sikkerhetsbenk, punktavsug) er et ferdig produkt, telles per stk."
+- kode: "FAE"
+  navn: "Punktavsug"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventilert arbeidsplass (avtrekkskap, sikkerhetsbenk, punktavsug) er et ferdig produkt, telles per stk."
+- kode: "FB"
+  navn: "Benker, bord, plater, tavler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk. Benkeplater er løpemeter i bestilling, men typen er ett produkt."
+- kode: "FBA"
+  navn: "Benker, bord, plater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk. Benkeplater er løpemeter i bestilling, men typen er ett produkt."
+- kode: "FBB"
+  navn: "Plater, tavler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk. Benkeplater er løpemeter i bestilling, men typen er ett produkt."
+- kode: "FBC"
+  navn: "Benker, bord, plater med kummer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk. Benkeplater er løpemeter i bestilling, men typen er ett produkt."
+- kode: "FC"
+  navn: "Beslag"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Beslag (hengsler, lukkere, låskasser) er tilbehør per dør eller vindu (IfcDiscreteAccessory), telles per stk."
+- kode: "FCZ"
+  navn: "Beslag"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Beslag (hengsler, lukkere, låskasser) er tilbehør per dør eller vindu (IfcDiscreteAccessory), telles per stk."
+- kode: "FD"
+  navn: "Disker, skranker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FDA"
+  navn: "Disker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FDB"
+  navn: "Skranker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FF"
+  navn: "Fryserom"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert fryserom leveres som én enhet (stk) eller mengdes via panelene (m²). Avgjøres av leveransen."
+- kode: "FFZ"
+  navn: "Fryserom"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert fryserom leveres som én enhet (stk) eller mengdes via panelene (m²). Avgjøres av leveransen."
+- kode: "FH"
+  navn: "Hyller, reoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FHZ"
+  navn: "Hyller, reoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FI"
+  navn: "Kabinett"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FIZ"
+  navn: "Kabinett"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FK"
+  navn: "Kjølerom, svalrom"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert kjølerom leveres som én enhet (stk) eller mengdes via panelene (m²). Avgjøres av leveransen."
+- kode: "FKZ"
+  navn: "Kjølerom, svalrom"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert kjølerom leveres som én enhet (stk) eller mengdes via panelene (m²). Avgjøres av leveransen."
+- kode: "FO"
+  navn: "Sittebenker, sofaer, stoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FOZ"
+  navn: "Sittebenker, sofaer, stoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FR"
+  navn: "Prefabrikkerte moduler"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode for prefabrikkerte moduler. Telles per stk, men har ingen produkt-EPD. Se underkodene."
+- kode: "FRA"
+  navn: "Prefabrikkerte rom"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert rom eller romelement telles per stk, men har ingen produkt-EPD. Materialmodellen må dekomponeres via delene."
+- kode: "FRB"
+  navn: "Prefabrikkerte romelementer"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert rom eller romelement telles per stk, men har ingen produkt-EPD. Materialmodellen må dekomponeres via delene."
+- kode: "FRC"
+  navn: "Prefabrikkerte tekniske moduler i himlinger"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert teknisk modul telles per stk, men er en sammenstilling av kanaler, rør og kabler uten produkt-EPD. Dekomponeres via delene."
+- kode: "FRD"
+  navn: "Prefabrikkerte tekniske moduler i sjakt"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Prefabrikkert teknisk modul telles per stk, men er en sammenstilling av kanaler, rør og kabler uten produkt-EPD. Dekomponeres via delene."
+- kode: "FS"
+  navn: "Skap, skuffer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FSA"
+  navn: "Skap for lagring"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FSB"
+  navn: "Gjennomstikkskap"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FSC"
+  navn: "Tekniske skap for elektro"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Teknisk skap for elektro (IfcElectricDistributionBoard), telleklasse: produkt per stk."
+- kode: "FSD"
+  navn: "Tekniske skap for rørsystemer for væske"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Teknisk skap er et ferdig produkt, telles per stk."
+- kode: "FSE"
+  navn: "Skap for rørsystemer for gass eller trykkluft"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Teknisk skap er et ferdig produkt, telles per stk."
+- kode: "FSF"
+  navn: "Tekniske skap for EKOM"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Teknisk skap er et ferdig produkt, telles per stk."
+- kode: "FSG"
+  navn: "Skap for distribusjon eller retur"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Teknisk skap er et ferdig produkt, telles per stk."
+- kode: "FT"
+  navn: "Speil"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FTZ"
+  navn: "Speil"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert innredning (IfcFurnishingElement, IfcSystemFurnitureElement), telleklasse: produkt per stk."
+- kode: "FU"
+  navn: "Utstyr, utsmykning"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Utstyr og utsmykning: alle underkoder er enkeltprodukter, stk."
+- kode: "FUA"
+  navn: "Aktivitetsapparater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aktivitetsapparat er et ferdig produkt, telles per stk."
+- kode: "FUB"
+  navn: "Kunst, fastmontert i eller på byggverk eller bygningsintegrert"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert kunst er et unikt objekt, telles per stk."
+- kode: "FUC"
+  navn: "Kunst, fastmontert på bakke, terreng"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fastmontert kunst er et unikt objekt, telles per stk."
+- kode: "FV"
+  navn: "Vaskemaskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vaskemaskin (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "FVZ"
+  navn: "Vaskemaskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vaskemaskin (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "FX"
+  navn: "Kroker, knagger, håndtak"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Krok, knagg, håndtak (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "FXA"
+  navn: "Kroker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Krok, knagg, håndtak (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "FXB"
+  navn: "Knagger"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Krok, knagg, håndtak (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "FXC"
+  navn: "Håndtak"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Krok, knagg, håndtak (IfcDiscreteAccessory), telleklasse: produkt per stk."
+
+# ---- G - Møblerende, utstyr, inventar ----
+- kode: "G"
+  navn: "Møblerende, utstyr, inventar"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "GA"
+  navn: "Automater, maskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Automat og maskin (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GAZ"
+  navn: "Automater, maskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Automat og maskin (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GB"
+  navn: "Benker, bord, plater, tavler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GBA"
+  navn: "Benker, bord, plater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GBB"
+  navn: "Plater, tavler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GD"
+  navn: "Dekontaminatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GDZ"
+  navn: "Dekontaminatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GE"
+  navn: "Autoklaver"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GEZ"
+  navn: "Autoklaver"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GF"
+  navn: "Kjøle- og fryseskap"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GFA"
+  navn: "Kjøleskap, kjøledisk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GFB"
+  navn: "Fryseskap, frysedisk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GFC"
+  navn: "Kombiskap"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GG"
+  navn: "Gardiner, forheng, skjermer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gardiner og skjermer: alle underkoder er enkeltprodukter (IfcFurnishingElement), stk."
+- kode: "GGA"
+  navn: "Gardiner, forheng"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gardin og forheng (IfcFurnishingElement), telleklasse: produkt per stk."
+- kode: "GGB"
+  navn: "Skjermer, skjermvegger"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Skjerm og skjermvegg (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GH"
+  navn: "Hyller, reoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GHZ"
+  navn: "Hyller, reoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GK"
+  navn: "Kjøleskap / Kjøledisk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GL"
+  navn: "Låser, beslag"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lås og beslag (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "GLZ"
+  navn: "Låser, beslag"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lås og beslag (IfcDiscreteAccessory), telleklasse: produkt per stk."
+- kode: "GM"
+  navn: "Mattilberedning"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GMZ"
+  navn: "Mattilberedning"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GN"
+  navn: "Nøkler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Nøkkel er et enkeltprodukt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "GNZ"
+  navn: "Nøkler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Nøkkel er et enkeltprodukt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "GO"
+  navn: "Sofaer, sittebenker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GOZ"
+  navn: "Sofaer, sittebenker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GP"
+  navn: "Stoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GPZ"
+  navn: "Stoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GQ"
+  navn: "Senger, liggebenker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GQZ"
+  navn: "Senger, liggebenker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GS"
+  navn: "Skap, skuffer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GSZ"
+  navn: "Skap, skuffer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GT"
+  navn: "Tørkeskap, varmeskap"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GTZ"
+  navn: "Tørkeskap, varmeskap"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GU"
+  navn: "Løst utstyr, utsmykning"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst utstyr og utsmykning: alle underkoder er enkeltprodukter, stk."
+- kode: "GUA"
+  navn: "Aktivitetsapparater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aktivitetsapparat er et ferdig produkt, telles per stk."
+- kode: "GUB"
+  navn: "Kunst, flyttbar"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Flyttbar kunst er et unikt objekt, telles per stk."
+- kode: "GV"
+  navn: "Vaskemaskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GVA"
+  navn: "Oppvaskmaskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GVB"
+  navn: "Klesvaskemaskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GVC"
+  navn: "Tørketrommel"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GVD"
+  navn: "Vaskemaskiner for utstyr"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Apparat (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "GW"
+  navn: "Vekter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GWZ"
+  navn: "Vekter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GX"
+  navn: "Holdere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GXZ"
+  navn: "Holdere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GY"
+  navn: "Avfallsbeholdere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+- kode: "GYZ"
+  navn: "Avfallsbeholdere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst inventar (IfcFurniture), telleklasse: produkt per stk."
+
+# ---- H - Hjelpende (mobilt) ----
+- kode: "H"
+  navn: "Hjelpende (mobilt)"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "HA"
+  navn: "Automobil / Bil"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HB"
+  navn: "Rullebord, traller"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HBZ"
+  navn: "Rullebord, traller"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HC"
+  navn: "Konteinere, vogner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HCZ"
+  navn: "Konteinere, vogner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HM"
+  navn: "Maskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HMZ"
+  navn: "Maskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HS"
+  navn: "Rullestoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HSZ"
+  navn: "Rullestoler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HT"
+  navn: "Truck, kran"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HTZ"
+  navn: "Truck, kran"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+- kode: "HV"
+  navn: "Verktøy"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Løst, mobilt utstyr: diskret produkt, telles per stk. Utenfor bygningens materialmodell."
+
+# ---- I - Produserende ----
+- kode: "I"
+  navn: "Produserende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "IA"
+  navn: "Aggregater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aggregat (IfcUnitaryEquipment), telleklasse: produkt-EPD per stk."
+- kode: "IAZ"
+  navn: "Aggregater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aggregat (IfcUnitaryEquipment), telleklasse: produkt-EPD per stk."
+- kode: "IB"
+  navn: "Brennere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Brenner (IfcBurner), telleklasse: produkt per stk."
+- kode: "IBZ"
+  navn: "Brennere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Brenner (IfcBurner), telleklasse: produkt per stk."
+- kode: "IC"
+  navn: "Kompressorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kompressor (IfcCompressor), telleklasse: produkt per stk."
+- kode: "ICZ"
+  navn: "Kompressorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kompressor (IfcCompressor), telleklasse: produkt per stk."
+- kode: "ID"
+  navn: "Kjel for destruksjon"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IE"
+  navn: "Kjeler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IEA"
+  navn: "Varmekjeler, vann"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IEB"
+  navn: "Varmekjeler, damp"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IEC"
+  navn: "Elkjeler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IF"
+  navn: "Kjel for fast/bio brensel"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IG"
+  navn: "Generatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Generator (IfcElectricGenerator), telleklasse: produkt per stk."
+- kode: "IGZ"
+  navn: "Generatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Generator (IfcElectricGenerator), telleklasse: produkt per stk."
+- kode: "IH"
+  navn: "Varmepumpe"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmepumpe (IfcUnitaryEquipment eller IfcChiller), telleklasse: produkt-EPD per stk."
+- kode: "IHA"
+  navn: "Varmepumpe - væske/vann"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmepumpe (IfcUnitaryEquipment eller IfcChiller), telleklasse: produkt-EPD per stk."
+- kode: "IHB"
+  navn: "Varmepumpe - luft/vann"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmepumpe (IfcUnitaryEquipment eller IfcChiller), telleklasse: produkt-EPD per stk."
+- kode: "IHC"
+  navn: "Varmepumpe - luft/luft"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmepumpe (IfcUnitaryEquipment eller IfcChiller), telleklasse: produkt-EPD per stk."
+- kode: "IK"
+  navn: "Kjølemaskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjølemaskin (IfcChiller), telleklasse: produkt-EPD per stk."
+- kode: "IKA"
+  navn: "Kjølemaskiner - vann"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjølemaskin (IfcChiller), telleklasse: produkt-EPD per stk."
+- kode: "IKB"
+  navn: "Kjølemaskiner - luft"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjølemaskin (IfcChiller), telleklasse: produkt-EPD per stk."
+- kode: "IL"
+  navn: "Energibrønn"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Energibrønn måles i borede meter, kollektorslange per m. Ingen IFC-klasse i regeltabellen."
+- kode: "IM"
+  navn: "Motor"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Motor (IfcEngine), telleklasse: produkt per stk."
+- kode: "IO"
+  navn: "Oljekjel"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IP"
+  navn: "Gasskjel"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjel (IfcBoiler), telleklasse: produkt-EPD per stk."
+- kode: "IS"
+  navn: "Solfangere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Solfanger og solcellepanel (IfcSolarDevice) er et ferdig produkt, telles per stk. Areal er en egenskap på produktet."
+- kode: "ISA"
+  navn: "Solfangere, varme"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Solfanger og solcellepanel (IfcSolarDevice) er et ferdig produkt, telles per stk. Areal er en egenskap på produktet."
+- kode: "ISB"
+  navn: "Solceller (PV)"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Solfanger og solcellepanel (IfcSolarDevice) er et ferdig produkt, telles per stk. Areal er en egenskap på produktet."
+- kode: "IT"
+  navn: "Komplette maskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energiproduserende maskin (IfcEnergyConversionDevice), telleklasse: produkt-EPD per stk."
+- kode: "ITZ"
+  navn: "Komplette maskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energiproduserende maskin (IfcEnergyConversionDevice), telleklasse: produkt-EPD per stk."
+- kode: "IU"
+  navn: "Turbin"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Turbin (IfcEngine eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "IV"
+  navn: "Aggregatenhet"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energiproduserende maskin (IfcEnergyConversionDevice), telleklasse: produkt-EPD per stk."
+- kode: "IVZ"
+  navn: "Aggregatenhet"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energiproduserende maskin (IfcEnergyConversionDevice), telleklasse: produkt-EPD per stk."
+
+# ---- J - Forsterkende ----
+- kode: "J"
+  navn: "Forsterkende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "JF"
+  navn: "Forsterker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Forsterker (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "JK"
+  navn: "Kompressor"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kompressor (IfcCompressor), telleklasse: produkt per stk."
+- kode: "JP"
+  navn: "Pumper generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JPA"
+  navn: "Sirkulasjonspumper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JPB"
+  navn: "Varmtvannspumper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JPC"
+  navn: "Trykkøkningspumper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JPD"
+  navn: "Hovedpumper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JQ"
+  navn: "Pumper i VA-installasjoner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JQA"
+  navn: "Avløpspumper for VA"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JQB"
+  navn: "Trykkøkningspumper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pumpe (IfcPump), telleklasse: produkt-EPD per stk."
+- kode: "JV"
+  navn: "Vifte"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vifte (IfcFan), telleklasse: produkt-EPD per stk."
+- kode: "JW"
+  navn: "Vifter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vifte (IfcFan), telleklasse: produkt-EPD per stk."
+- kode: "JWA"
+  navn: "Tilluftvifter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vifte (IfcFan), telleklasse: produkt-EPD per stk."
+- kode: "JWB"
+  navn: "Avtrekksvifter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vifte (IfcFan), telleklasse: produkt-EPD per stk."
+- kode: "JWC"
+  navn: "Omluftsvifter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vifte (IfcFan), telleklasse: produkt-EPD per stk."
+- kode: "JWZ"
+  navn: "Spesialvifter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vifte (IfcFan), telleklasse: produkt-EPD per stk."
+
+# ---- K - Overførende, transporterende ----
+- kode: "K"
+  navn: "Overførende, transporterende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "KA"
+  navn: "Aktuatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aktuator (IfcActuator), telleklasse: produkt per stk."
+- kode: "KAA"
+  navn: "Spjeldmotorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aktuator (IfcActuator), telleklasse: produkt per stk."
+- kode: "KAB"
+  navn: "Ventilmotorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aktuator (IfcActuator), telleklasse: produkt per stk."
+- kode: "KAC"
+  navn: "Motorer for bygningsmessige komponenter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Aktuator (IfcActuator), telleklasse: produkt per stk."
+- kode: "KAD"
+  navn: "Dørautomatikk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dørautomatikk (IfcActuator), telleklasse: produkt per stk."
+- kode: "KAE"
+  navn: "Dørholdemagnet"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Dørholdemagnet (IfcActuator eller IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "KD"
+  navn: "Drivhjul / Drev"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Drivhjul og drev er en maskindel, telles per stk."
+- kode: "KE"
+  navn: "Induktiv energioverføring"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Induktiv energioverføring er et ferdig produkt, telles per stk."
+- kode: "KG"
+  navn: "Gjennomføringer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gjennomføring (hylse, tettesystem) er et produkt per gjennomføring, telles per stk."
+- kode: "KGA"
+  navn: "Gasstette gjennomføringer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gjennomføring (hylse, tettesystem) er et produkt per gjennomføring, telles per stk."
+- kode: "KGB"
+  navn: "Vanntette gjennomføringer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gjennomføring (hylse, tettesystem) er et produkt per gjennomføring, telles per stk."
+- kode: "KH"
+  navn: "Transportenhet (hevende, forflyttende)"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transportenhet (IfcTransportElement) er et ferdig produkt, telles per stk."
+- kode: "KHA"
+  navn: "Heisstol"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transportenhet (IfcTransportElement) er et ferdig produkt, telles per stk."
+- kode: "KHB"
+  navn: "Løftebord"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transportenhet (IfcTransportElement) er et ferdig produkt, telles per stk."
+- kode: "KHC"
+  navn: "Rulletrapp"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transportenhet (IfcTransportElement) er et ferdig produkt, telles per stk."
+- kode: "KHD"
+  navn: "Trappeheis"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transportenhet (IfcTransportElement) er et ferdig produkt, telles per stk."
+- kode: "KHE"
+  navn: "Arbeidsheis"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transportenhet (IfcTransportElement) er et ferdig produkt, telles per stk."
+- kode: "KJ"
+  navn: "Jordingskomponenter"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Jordelektroder og jordskinner er telleobjekt, jordledere er løpemeter. Se underkodene."
+- kode: "KJA"
+  navn: "Jordelektroder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Jordelektrode er et ferdig produkt, telles per stk."
+- kode: "KJB"
+  navn: "Jordledere"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Jordleder (IfcCableSegment), lineær klasse: løpemeter."
+- kode: "KJC"
+  navn: "Jordskinner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Jordskinne er et ferdig produkt, telles per stk."
+- kode: "KK"
+  navn: "Kanaler"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Kanaler er løpemeter, gulvbokser (KKW) er telleobjekt. Se underkodene."
+- kode: "KKA"
+  navn: "Ventilasjonskanaler"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Ventilasjonskanal (IfcDuctSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KKB"
+  navn: "Føringskanaler"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Føringskanal og installasjonskanal (IfcCableCarrierSegment), lineær klasse: løpemeter."
+- kode: "KKC"
+  navn: "Installasjonskanaler - elektro"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Føringskanal og installasjonskanal (IfcCableCarrierSegment), lineær klasse: løpemeter."
+- kode: "KKD"
+  navn: "Installasjonskanaler - tverrfaglig"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Føringskanal og installasjonskanal (IfcCableCarrierSegment), lineær klasse: løpemeter."
+- kode: "KKW"
+  navn: "Gulvbokser"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gulvboks (IfcJunctionBox, IfcOutlet), telleklasse: produkt per stk."
+- kode: "KM"
+  navn: "Mast / Antenne"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Mast og antenne er et ferdig produkt, telles per stk."
+- kode: "KN"
+  navn: "Nedløp, avløp"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Takrenner er løpemeter, sluk og avløp med vannlås er telleobjekt. Se underkodene."
+- kode: "KNA"
+  navn: "Takrenner"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Takrenne (IfcPipeSegment GUTTER), lineær klasse: løpemeter."
+- kode: "KNB"
+  navn: "Taksluk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sluk og avløp med vannlås (IfcWasteTerminal), telleklasse: produkt per stk."
+- kode: "KNC"
+  navn: "Avløp med vannlås"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sluk og avløp med vannlås (IfcWasteTerminal), telleklasse: produkt per stk."
+- kode: "KO"
+  navn: "Kraftoverføring"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kraftoverføring (aksel, reim, kobling) er en maskindel, telles per stk."
+- kode: "KOZ"
+  navn: "Kraftoverføring"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kraftoverføring (aksel, reim, kobling) er en maskindel, telles per stk."
+- kode: "KQ"
+  navn: "Rør for spesielle medier"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KQA"
+  navn: "Rør - drivstoff"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KQB"
+  navn: "Avgassrør"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KQC"
+  navn: "Transportrør"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KR"
+  navn: "Rør generelt"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KRA"
+  navn: "Rør for væske"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KRB"
+  navn: "Rør i rør"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KRC"
+  navn: "Rør for gass"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rør (IfcPipeSegment), lineær klasse: løpemeter med dimensjon."
+- kode: "KS"
+  navn: "Skinner, baner"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Skinner og baner: alle underkoder er løpemeter (m)."
+- kode: "KSA"
+  navn: "Gardin-/opphengsskinner"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Skinne er en løpemeterkomponent (m)."
+- kode: "KSB"
+  navn: "Transportskinner"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Skinne er en løpemeterkomponent (m)."
+- kode: "KSC"
+  navn: "Strømskinner"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Strømskinne (IfcCableCarrierSegment eller IfcCableSegment BUSBARSEGMENT), lineær klasse: løpemeter."
+- kode: "KT"
+  navn: "Tilkoblinger, terminaler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tilkobling og klemme (IfcCableFitting), telleklasse: produkt per stk."
+- kode: "KTA"
+  navn: "Kabelsko"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tilkobling og klemme (IfcCableFitting), telleklasse: produkt per stk."
+- kode: "KTB"
+  navn: "Klemmer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tilkobling og klemme (IfcCableFitting), telleklasse: produkt per stk."
+- kode: "KU"
+  navn: "Kombinert kabel"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Kabel (IfcCableSegment), lineær klasse: løpemeter med tverrsnitt."
+- kode: "KV"
+  navn: "Høyspenningskabel > 1000V"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Kabel (IfcCableSegment), lineær klasse: løpemeter med tverrsnitt."
+- kode: "KW"
+  navn: "Lavspenningskabel 50-1000V"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Kabel (IfcCableSegment), lineær klasse: løpemeter med tverrsnitt."
+- kode: "KX"
+  navn: "Lavspenningskabel < 50V"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Kabel (IfcCableSegment), lineær klasse: løpemeter med tverrsnitt."
+- kode: "KY"
+  navn: "Optisk kabel"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Kabel (IfcCableSegment), lineær klasse: løpemeter med tverrsnitt."
+- kode: "KZ"
+  navn: "Slange"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Slange (IfcPipeSegment FLEXIBLESEGMENT), lineær klasse: løpemeter."
+
+# ---- L - Omformende, vekslende ----
+- kode: "L"
+  navn: "Omformende, vekslende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "LA"
+  navn: "Varmevekslere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeveksler (IfcHeatExchanger), telleklasse: produkt-EPD per stk."
+- kode: "LAZ"
+  navn: "Varmevekslere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeveksler (IfcHeatExchanger), telleklasse: produkt-EPD per stk."
+- kode: "LB"
+  navn: "Varmeomformende med vifte"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Viftekonvektor og fancoil (IfcUnitaryEquipment eller IfcSpaceHeater), telleklasse: produkt per stk."
+- kode: "LBA"
+  navn: "Varmeomformende med vifte, vann"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Viftekonvektor og fancoil (IfcUnitaryEquipment eller IfcSpaceHeater), telleklasse: produkt per stk."
+- kode: "LBB"
+  navn: "Varmeomformende med vifte, elektrisk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Viftekonvektor og fancoil (IfcUnitaryEquipment eller IfcSpaceHeater), telleklasse: produkt per stk."
+- kode: "LC"
+  navn: "Kjøleomformende med vifte"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Viftekonvektor og fancoil (IfcUnitaryEquipment eller IfcSpaceHeater), telleklasse: produkt per stk."
+- kode: "LCZ"
+  navn: "Kjøleomformende med vifte"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Viftekonvektor og fancoil (IfcUnitaryEquipment eller IfcSpaceHeater), telleklasse: produkt per stk."
+- kode: "LD"
+  navn: "Kjøleflater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjøleflate (IfcCoil), telleklasse: produkt per stk."
+- kode: "LDZ"
+  navn: "Kjøleflater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjøleflate (IfcCoil), telleklasse: produkt per stk."
+- kode: "LE"
+  navn: "Kondensatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kondensator (IfcCondenser), telleklasse: produkt per stk."
+- kode: "LEZ"
+  navn: "Kondensatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kondensator (IfcCondenser), telleklasse: produkt per stk."
+- kode: "LF"
+  navn: "Fordamper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Fordamper (IfcEvaporator), telleklasse: produkt per stk."
+- kode: "LG"
+  navn: "Drivverk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Drivverk er en maskindel, telles per stk."
+- kode: "LGZ"
+  navn: "Drivverk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Drivverk er en maskindel, telles per stk."
+- kode: "LH"
+  navn: "Varmeflater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeflate, radiator, panelovn (IfcSpaceHeater, IfcCoil), telleklasse: produkt-EPD per stk."
+- kode: "LHA"
+  navn: "Varmeflater, vannbåren"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeflate, radiator, panelovn (IfcSpaceHeater, IfcCoil), telleklasse: produkt-EPD per stk."
+- kode: "LHB"
+  navn: "Varmeflater, elektrisk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeflate, radiator, panelovn (IfcSpaceHeater, IfcCoil), telleklasse: produkt-EPD per stk."
+- kode: "LI"
+  navn: "Varmeelementer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeelement (IfcSpaceHeater eller IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "LIA"
+  navn: "Motorvarmere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeelement (IfcSpaceHeater eller IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "LIE"
+  navn: "Varmeelementer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeelement (IfcSpaceHeater eller IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "LK"
+  navn: "Kjøleomformende"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kjøleomformer (IfcCoil eller IfcUnitaryEquipment), telleklasse: produkt per stk."
+- kode: "LL"
+  navn: "Lyskilder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lyskilde (IfcLamp), telleklasse: produkt per stk."
+- kode: "LLA"
+  navn: "Glødelamper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lyskilde (IfcLamp), telleklasse: produkt per stk."
+- kode: "LLB"
+  navn: "LED-lyskilder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lyskilde (IfcLamp), telleklasse: produkt per stk."
+- kode: "LLC"
+  navn: "Utladningslamper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lyskilde (IfcLamp), telleklasse: produkt per stk."
+- kode: "LN"
+  navn: "Likerettere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LNZ"
+  navn: "Likerettere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LO"
+  navn: "Omformere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LOZ"
+  navn: "Omformere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LP"
+  navn: "Pens, veksel, skifter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pens, veksel, skifter er et ferdig produkt, telles per stk."
+- kode: "LPZ"
+  navn: "Pens, veksel, skifter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Pens, veksel, skifter er et ferdig produkt, telles per stk."
+- kode: "LQ"
+  navn: "Vekselrettere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LQZ"
+  navn: "Vekselrettere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LR"
+  navn: "Frekvensomformere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LRA"
+  navn: "Frekvensomformere i ventilasjonssystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LRB"
+  navn: "Frekvensomformere i pumpesystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Omformer, likeretter, vekselretter, frekvensomformer (IfcElectricFlowStorageDevice eller IfcEnergyConversionDevice), telleklasse: produkt per stk."
+- kode: "LS"
+  navn: "Strilevarme"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Strålevarmepanel (IfcSpaceHeater), telleklasse: produkt per stk. Navnet «Strilevarme» er standardens."
+- kode: "LSZ"
+  navn: "Strilevarme"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Strålevarmepanel (IfcSpaceHeater), telleklasse: produkt per stk. Navnet «Strilevarme» er standardens."
+- kode: "LU"
+  navn: "Luftfukter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftfukter (IfcHumidifier), telleklasse: produkt per stk."
+- kode: "LV"
+  navn: "Varmeomformende"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmeomformer (IfcSpaceHeater eller IfcCoil), telleklasse: produkt per stk."
+- kode: "LX"
+  navn: "Varmegjenvinner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmegjenvinner (IfcAirToAirHeatRecovery), telleklasse: produkt per stk."
+- kode: "LZ"
+  navn: "Varmekabel"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Varmekabel (IfcCableSegment), lineær klasse: løpemeter."
+- kode: "LZA"
+  navn: "Selvregulerende varmekabel"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Varmekabel (IfcCableSegment), lineær klasse: løpemeter."
+- kode: "LZB"
+  navn: "Varmekabel"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Varmekabel (IfcCableSegment), lineær klasse: løpemeter."
+
+# ---- M - Filtrerende, rensende ----
+- kode: "M"
+  navn: "Filtrerende, rensende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "MA"
+  navn: "Absoluttfiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MAA"
+  navn: "HEPA-filter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MAB"
+  navn: "ULPA-filter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MB"
+  navn: "Posefiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MBZ"
+  navn: "Posefiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MC"
+  navn: "Kassefiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MCZ"
+  navn: "Kassefiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "ME"
+  navn: "Elektriske filtre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MEZ"
+  navn: "Elektriske filtre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MF"
+  navn: "Fettfiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MFZ"
+  navn: "Fettfiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MG"
+  navn: "Grovfiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MGZ"
+  navn: "Grovfiltre"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filter (IfcFilter), telleklasse: produkt per stk."
+- kode: "MK"
+  navn: "Kondenspotte"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kondenspotte (IfcInterceptor eller IfcValve), telleklasse: produkt per stk."
+- kode: "ML"
+  navn: "Luftutskiller"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftutskiller (IfcInterceptor), telleklasse: produkt per stk."
+- kode: "MM"
+  navn: "Membran"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Filtermembran i renseanlegg (IfcFilter), telleklasse: produkt per stk."
+- kode: "MO"
+  navn: "Utskiller"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Utskiller (IfcInterceptor), telleklasse: produkt per stk."
+- kode: "MR"
+  navn: "Rister"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Bygningsmessige rister er flate, ventilasjonsrister og takhatter er telleobjekt. Se underkodene."
+- kode: "MRA"
+  navn: "Bygningsmessige rister"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Gulvrist og gitterrist (IfcPlate eller IfcCovering), flateklasse: m²."
+- kode: "MRB"
+  navn: "Friskluftrister"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftrist (IfcAirTerminal), telleklasse: produkt per stk."
+- kode: "MRC"
+  navn: "Avkastrister"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftrist (IfcAirTerminal), telleklasse: produkt per stk."
+- kode: "MRD"
+  navn: "Overstrømningsrister"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftrist (IfcAirTerminal), telleklasse: produkt per stk."
+- kode: "MRE"
+  navn: "Takhatter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Takhatt (IfcAirTerminal eller IfcDuctFitting), telleklasse: produkt per stk."
+- kode: "MS"
+  navn: "Sykloner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Syklon (IfcFilter), telleklasse: produkt per stk."
+- kode: "MSZ"
+  navn: "Sykloner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Syklon (IfcFilter), telleklasse: produkt per stk."
+- kode: "MT"
+  navn: "Tørkere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tørker (IfcFlowTreatmentDevice), telleklasse: produkt per stk."
+- kode: "MTZ"
+  navn: "Tørkere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tørker (IfcFlowTreatmentDevice), telleklasse: produkt per stk."
+- kode: "MU"
+  navn: "Filtre for lyd, bilde, data"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Signalfilter (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "MUZ"
+  navn: "Filtre for lyd, bilde, data"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Signalfilter (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "MV"
+  navn: "Vannfiltre, vannsiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vannfilter og vannbehandling (IfcFilter, IfcFlowTreatmentDevice), telleklasse: produkt per stk."
+- kode: "MVZ"
+  navn: "Vannfiltre, vannsiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vannfilter og vannbehandling (IfcFilter, IfcFlowTreatmentDevice), telleklasse: produkt per stk."
+- kode: "MW"
+  navn: "Vannbehandling"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vannfilter og vannbehandling (IfcFilter, IfcFlowTreatmentDevice), telleklasse: produkt per stk."
+- kode: "MX"
+  navn: "Støyfilter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Støyfilter (IfcProtectiveDevice eller IfcCommunicationsAppliance), telleklasse: produkt per stk."
+
+# ---- N - Lagrende ----
+- kode: "N"
+  navn: "Lagrende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "NA"
+  navn: "Akkumulatortanker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Akkumulatortank (IfcTank), telleklasse: produkt-EPD per stk."
+- kode: "NAZ"
+  navn: "Akkumulatortanker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Akkumulatortank (IfcTank), telleklasse: produkt-EPD per stk."
+- kode: "NB"
+  navn: "Batterier"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Batteri (IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "NBA"
+  navn: "Batterier for UPS"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Batteri (IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "NBB"
+  navn: "Batterier for nødlys"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Batteri (IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "NBC"
+  navn: "Batterier generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Batteri (IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "NC"
+  navn: "Kondensator"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kondensator (IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "NE"
+  navn: "Elektriske kondensatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kondensator (IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "NEZ"
+  navn: "Elektriske kondensatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kondensator (IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "NI"
+  navn: "Informasjonslagring"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Informasjonslagring, server og lagringsenhet (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "NK"
+  navn: "Kum"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kum (IfcDistributionChamberElement), telleklasse: produkt per stk."
+- kode: "NM"
+  navn: "Bassenger"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Basseng er en konstruksjon som mengdes via delene (m², m³). Badekar er et produkt (stk). Se NMZ."
+- kode: "NMZ"
+  navn: "Badekar, basseng"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Badekar er et produkt (IfcSanitaryTerminal, stk). Basseng er en konstruksjon som mengdes via delene."
+- kode: "NO"
+  navn: "Åpne tanker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NOZ"
+  navn: "Åpne tanker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NT"
+  navn: "Tanker med trykk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NTA"
+  navn: "Trykktanker for vann"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NTB"
+  navn: "Tanker med trykk for gass"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NU"
+  navn: "Tanker uten trykk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NUA"
+  navn: "Trykkløse drivstofftanker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NUB"
+  navn: "Oppsamlingstanker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Tank (IfcTank), telleklasse: produkt per stk."
+- kode: "NV"
+  navn: "Vekt, Lodd"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vekt og lodd (motvekt) er en maskindel, telles per stk."
+- kode: "NW"
+  navn: "Varmtvannsbereder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Varmtvannsbereder (IfcTank eller IfcElectricAppliance), telleklasse: produkt-EPD per stk."
+- kode: "NX"
+  navn: "Toalett"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Toalett og servant (IfcSanitaryTerminal), telleklasse: produkt-EPD per stk."
+- kode: "NY"
+  navn: "Servant"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Toalett og servant (IfcSanitaryTerminal), telleklasse: produkt-EPD per stk."
+- kode: "NZ"
+  navn: "Brannslukkingsapparat"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Brannslukkingsapparat (IfcFireSuppressionTerminal), telleklasse: produkt per stk."
+
+# ---- O - Prosesserende, fordelende ----
+- kode: "O"
+  navn: "Prosesserende, fordelende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "OA"
+  navn: "AV-utstyr"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "AV-utstyr (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "OAA"
+  navn: "Projektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "AV-utstyr (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "OAB"
+  navn: "Spillere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "AV-utstyr (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "OB"
+  navn: "Shuntgruppe"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Shuntgruppe er et ferdig produkt (sammenstilt ventil, pumpe og rør), telles per stk."
+- kode: "OD"
+  navn: "Datamaskin"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Datamaskin (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "OE"
+  navn: "Energimålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energimåler (IfcFlowMeter), telleklasse: produkt per stk."
+- kode: "OEA"
+  navn: "Varmemålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energimåler (IfcFlowMeter), telleklasse: produkt per stk."
+- kode: "OEB"
+  navn: "Elektriske energimålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energimåler (IfcFlowMeter), telleklasse: produkt per stk."
+- kode: "OEC"
+  navn: "Vannmålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Energimåler (IfcFlowMeter), telleklasse: produkt per stk."
+- kode: "OF"
+  navn: "Systembærer"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Systembærer er en systemreferanse, ikke en fysisk komponent. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "OM"
+  navn: "Mottaker / Sender"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Mottaker og sender (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "OP"
+  navn: "PBX"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "PBX, telefonsentral (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "OQ"
+  navn: "Dataprogram, programvare"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Programvare er ikke en fysisk komponent. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "OR"
+  navn: "Router, Fordeler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Router og fordeler (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "OS"
+  navn: "Sentraler generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OSA"
+  navn: "Brannsentraler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OSB"
+  navn: "SD-sentraler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OT"
+  navn: "Telefonapparat"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Telefonapparat (IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "OU"
+  navn: "Undersentraler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUA"
+  navn: "Undersentraler for SD"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUB"
+  navn: "Sentraler for romkontroll"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUC"
+  navn: "Sentraler for adgangskontroll"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUD"
+  navn: "Sentraler for slukkeanlegg"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUE"
+  navn: "Sentraler for personsøk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUF"
+  navn: "Sentraler for nødlys"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUG"
+  navn: "Sentraler for lyd"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUH"
+  navn: "Sentraler for innbrudd"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+- kode: "OUI"
+  navn: "Sentraler for overfallsalarm"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sentral (IfcController, IfcAlarm), telleklasse: produkt per stk."
+
+# ---- P - Bør ikke benyttes ----
+- kode: "P"
+  navn: "Bør ikke benyttes"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Kode merket «Bør ikke benyttes» i NS 3457-8. Ingen komponent."
+  ikke_komponent: true
+
+# ---- Q - Vernende, dempende ----
+- kode: "Q"
+  navn: "Vernende, dempende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "QA"
+  navn: "Avledere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Avleder (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "QAA"
+  navn: "Overspenningsavledere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Avleder (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "QAB"
+  navn: "Lynavledere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Avleder (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "QB"
+  navn: "Belastningsvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QD"
+  navn: "Differansetrykkvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QDA"
+  navn: "Differansetrykkvakt i ventilasjon"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QDB"
+  navn: "Differansetrykkvakt i rørsystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QE"
+  navn: "Elektriske vern"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QEA"
+  navn: "Jordfeilbrytere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QEB"
+  navn: "Motorvern"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QEC"
+  navn: "0-spenningsvern"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QED"
+  navn: "EMP-vern"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QF"
+  navn: "Strømningsvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QH"
+  navn: "Fuktvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QHZ"
+  navn: "Fuktvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QL"
+  navn: "Lyddemper"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lyddemper (IfcDuctSilencer), telleklasse: produkt-EPD per stk."
+- kode: "QM"
+  navn: "Mekanisk beskyttelse"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Rekkverk er løpemeter, fender og taksikring avhenger. Se underkodene."
+- kode: "QMA"
+  navn: "Fender"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Fender og påkjøringsvern som profil langs vegg er løpemeter (m). Enkeltstående fender er stk."
+- kode: "QMB"
+  navn: "Sikring på tak"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Snøfanger og gangbane på tak er løpemeter (m). Festepunkt og sikringskrok er stk."
+- kode: "QMC"
+  navn: "Rekkverk"
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  begrunnelse: "Rekkverk (IfcRailing), lineær klasse: løpemeter."
+- kode: "QN"
+  navn: "Nivåvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QO"
+  navn: "Overtrykksventil"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QP"
+  navn: "Trykkvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QPA"
+  navn: "Trykkvakt i ventilasjon"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QPB"
+  navn: "Trykkvakt i rørsystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QPC"
+  navn: "Trykkvakt for sprinkler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QQ"
+  navn: "Vibrasjonsvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QR"
+  navn: "Rotasjonsvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QRZ"
+  navn: "Rotasjonsvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QS"
+  navn: "Strømvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QT"
+  navn: "Temperaturvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QTA"
+  navn: "Frostvakt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QTB"
+  navn: "Temperaturbegrenser"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QTC"
+  navn: "Termostater"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og vakt (IfcProtectiveDevice, IfcSensor), telleklasse: produkt per stk."
+- kode: "QV"
+  navn: "Sikkerhetsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sikkerhetsventil (IfcValve), telleklasse: produkt per stk."
+- kode: "QVZ"
+  navn: "Sikkerhetsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sikkerhetsventil (IfcValve), telleklasse: produkt per stk."
+- kode: "QX"
+  navn: "Solavskjerming"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Solavskjerming (IfcShadingDevice) er et produkt per vindu, telles per stk. Duk- og lamellareal er en egenskap på produktet."
+- kode: "QY"
+  navn: "Lynavleder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lynavleder (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "QYZ"
+  navn: "Lynavledere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Lynavleder (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "QZ"
+  navn: "Brannbeskyttelse"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Brannspjeld er telleobjekt, brannisolasjon og overflatebehandling er flate, branntetting avhenger. Se underkodene."
+- kode: "QZA"
+  navn: "Brannisolasjon"
+  mengdetype: mengdeobjekt
+  ledeenhet: null
+  begrunnelse: "Brannisolasjon er et sjikt: m² på konstruksjon, m på kanal og rør. Enheten følger bæreren."
+- kode: "QZB"
+  navn: "Brannspjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Brannspjeld (IfcDamper), telleklasse: produkt-EPD per stk."
+- kode: "QZC"
+  navn: "Branntetting"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Tetting av gjennomføring er stk per gjennomføring. Fugetetting mellom bygningsdeler er løpemeter (m)."
+- kode: "QZD"
+  navn: "Brannhemmende overflatebehandling"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Brannhemmende overflatebehandling er et sjikt per m² av flaten."
+
+# ---- R - Registrerende ----
+- kode: "R"
+  navn: "Registrerende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "RA"
+  navn: "AV-opptakere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "AV-opptaker, kamera, mikrofon (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "RAA"
+  navn: "Kameraer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "AV-opptaker, kamera, mikrofon (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "RAB"
+  navn: "Mikrofoner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "AV-opptaker, kamera, mikrofon (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "RAC"
+  navn: "Tekniske røntgenmaskiner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Røntgenmaskin og securityskanner (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "RAD"
+  navn: "Securityskannere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Røntgenmaskin og securityskanner (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "RB"
+  navn: "Bevegelse"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RC"
+  navn: "Seismometer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RD"
+  navn: "Differansetrykkgiver"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RE"
+  navn: "Elektriske variabler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RF"
+  navn: "Strømningsmåler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RG"
+  navn: "Posisjon / Lengde"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RH"
+  navn: "Fuktighetsgiver"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RI"
+  navn: "Bevegelsesdetektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RIA"
+  navn: "PIR-detektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RIB"
+  navn: "Mikrobølgedetektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RJ"
+  navn: "Fotocelle"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RK"
+  navn: "Kortlesere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kortleser (IfcSensor eller IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "RKZ"
+  navn: "Kortlesere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kortleser (IfcSensor eller IfcCommunicationsAppliance), telleklasse: produkt per stk."
+- kode: "RM"
+  navn: "Multifunksjonelle målere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RMA"
+  navn: "Værstasjoner"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RMB"
+  navn: "Multimålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RN"
+  navn: "Nivågivere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RNZ"
+  navn: "Nivågivere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RP"
+  navn: "Trykkgivere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RPA"
+  navn: "Trykkgivere generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RPB"
+  navn: "Trykkgivere i sprinkler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RQ"
+  navn: "Trykkmålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RQA"
+  navn: "Trykkmålere i ventilasjon"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RQB"
+  navn: "Trykkmålere i rørsystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RQC"
+  navn: "Trykkmålere for medisinske gasser"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RR"
+  navn: "Giver generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RS"
+  navn: "Hastighetsmåler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RT"
+  navn: "Temperaturgivere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RTA"
+  navn: "Temperaturgivere i ventilasjon"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RTB"
+  navn: "Temperaturgivere i rørsystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RTC"
+  navn: "Temperaturgivere i rom"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RTD"
+  navn: "Temperaturgivere utendørs"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RU"
+  navn: "Ur"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ur (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "RUZ"
+  navn: "Ur"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ur (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "RV"
+  navn: "Veieceller"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RVZ"
+  navn: "Veieceller"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RW"
+  navn: "Virkningsgradsmålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RWZ"
+  navn: "Virkningsgradsmålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RX"
+  navn: "Målepunkt"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Målepunkt er et referansepunkt, ikke et produkt med materiale. Er det et fysisk måleuttak, er det stk."
+  ikke_komponent: true
+- kode: "RXZ"
+  navn: "Målepunkt"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Målepunkt er et referansepunkt, ikke et produkt med materiale. Er det et fysisk måleuttak, er det stk."
+  ikke_komponent: true
+- kode: "RY"
+  navn: "Gassdetektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RYA"
+  navn: "CO2-følere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RYB"
+  navn: "CO-følere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RYC"
+  navn: "VOC-detektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RYG"
+  navn: "Multimålere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Giver og detektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZ"
+  navn: "Branndeteksjon"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZA"
+  navn: "Punktdetektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZB"
+  navn: "Linjedetektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZC"
+  navn: "Aspirerende detektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZD"
+  navn: "Varmedetektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZE"
+  navn: "Flammedetektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZF"
+  navn: "Kombinerte detektorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+- kode: "RZG"
+  navn: "Multisensor"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Branndetektor (IfcSensor), telleklasse: produkt per stk."
+
+# ---- S - Stengende, regulerende ----
+- kode: "S"
+  navn: "Stengende, regulerende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "SA"
+  navn: "Stengeventiler generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SAZ"
+  navn: "Stengeventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SB"
+  navn: "Stengeventiler med aktuator"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SBZ"
+  navn: "Stengeventiler med aktuator"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SC"
+  navn: "Stengeventil, motorstyrt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SD"
+  navn: "Dreneringsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SDZ"
+  navn: "Dreneringsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SE"
+  navn: "Ekspansjonsventil"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SF"
+  navn: "Flottørventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SFZ"
+  navn: "Flottørventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SG"
+  navn: "Tilbakeslagsventil / Overtrykkspjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SH"
+  navn: "Hurtigkoblinger"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Hurtigkobling (IfcPipeFitting), telleklasse: produkt per stk."
+- kode: "SHZ"
+  navn: "Hurtigkoblinger"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Hurtigkobling (IfcPipeFitting), telleklasse: produkt per stk."
+- kode: "SI"
+  navn: "Effektregulatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Effektregulator og dimmer (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "SIA"
+  navn: "Dimmere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Effektregulator og dimmer (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "SJ"
+  navn: "Gassventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SJA"
+  navn: "Gassmagnetventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SJB"
+  navn: "Gassreguleringsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SK"
+  navn: "Strømningsregulatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Strømningsregulator, CAV, VAV (IfcAirTerminalBox), telleklasse: produkt-EPD per stk."
+- kode: "SKA"
+  navn: "CAV"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Strømningsregulator, CAV, VAV (IfcAirTerminalBox), telleklasse: produkt-EPD per stk."
+- kode: "SKB"
+  navn: "VAV"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Strømningsregulator, CAV, VAV (IfcAirTerminalBox), telleklasse: produkt-EPD per stk."
+- kode: "SKZ"
+  navn: "Strømningsregulatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Strømningsregulator, CAV, VAV (IfcAirTerminalBox), telleklasse: produkt-EPD per stk."
+- kode: "SM"
+  navn: "Stengeventiler i rørsystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SMA"
+  navn: "Stengeventiler i rørsystem"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SMB"
+  navn: "Hovedstengeventil"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SP"
+  navn: "Trykkutjevningsventil"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SQ"
+  navn: "Spjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "SQA"
+  navn: "Brannspjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "SQB"
+  navn: "Røykspjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "SQZ"
+  navn: "Spjeld med aktuator"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "SR"
+  navn: "Reguleringsspjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "SRZ"
+  navn: "Reguleringsspjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "SS"
+  navn: "Stengespjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "SSZ"
+  navn: "Stengespjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+- kode: "ST"
+  navn: "Tilluftsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftventil (IfcAirTerminal), telleklasse: produkt-EPD per stk."
+- kode: "STA"
+  navn: "Tilluftsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftventil (IfcAirTerminal), telleklasse: produkt-EPD per stk."
+- kode: "STB"
+  navn: "Tilluftsventiler med strømningsregulator"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftventil (IfcAirTerminal), telleklasse: produkt-EPD per stk."
+- kode: "SU"
+  navn: "Avtrekksventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftventil (IfcAirTerminal), telleklasse: produkt-EPD per stk."
+- kode: "SUA"
+  navn: "Avtrekksventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftventil (IfcAirTerminal), telleklasse: produkt-EPD per stk."
+- kode: "SUB"
+  navn: "Avtrekksventiler med strømningsregulator"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Luftventil (IfcAirTerminal), telleklasse: produkt-EPD per stk."
+- kode: "SV"
+  navn: "Reguleringsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SVA"
+  navn: "2-veis reguleringsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SVB"
+  navn: "3-veis reguleringsventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SVC"
+  navn: "Shuntventiler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Ventil (IfcValve), telleklasse: produkt per stk."
+- kode: "SW"
+  navn: "Plenumskammer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Plenumskammer (IfcDuctFitting eller IfcAirTerminalBox), telleklasse: produkt per stk."
+- kode: "SX"
+  navn: "Regulator"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Regulator (IfcController eller IfcFlowController), telleklasse: produkt per stk."
+- kode: "SZ"
+  navn: "Brannspjeld / Røykspjeld"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spjeld (IfcDamper), telleklasse: produkt per stk."
+
+# ---- T - Bør ikke benyttes ----
+- kode: "T"
+  navn: "Bør ikke benyttes"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Kode merket «Bør ikke benyttes» i NS 3457-8. Ingen komponent."
+  ikke_komponent: true
+
+# ---- U - Uttakende ----
+- kode: "U"
+  navn: "Uttakende"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "UA"
+  navn: "Armaturer sanitær"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sanitærutstyr (IfcSanitaryTerminal), telleklasse: produkt-EPD per stk."
+- kode: "UAA"
+  navn: "Servanter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sanitærutstyr (IfcSanitaryTerminal), telleklasse: produkt-EPD per stk."
+- kode: "UAB"
+  navn: "Dusjer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sanitærutstyr (IfcSanitaryTerminal), telleklasse: produkt-EPD per stk."
+- kode: "UAC"
+  navn: "Toaletter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sanitærutstyr (IfcSanitaryTerminal), telleklasse: produkt-EPD per stk."
+- kode: "UAD"
+  navn: "Urinaler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sanitærutstyr (IfcSanitaryTerminal), telleklasse: produkt-EPD per stk."
+- kode: "UAE"
+  navn: "Blandebatterier"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Blandebatteri (IfcSanitaryTerminal eller IfcValve), telleklasse: produkt per stk."
+- kode: "UB"
+  navn: "Blandebatteri"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Blandebatteri (IfcSanitaryTerminal eller IfcValve), telleklasse: produkt per stk."
+- kode: "UD"
+  navn: "Datakontakter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UDZ"
+  navn: "Datakontakter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UE"
+  navn: "Stikkontakter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UEA"
+  navn: "Stikkontakter, vanlig"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UEB"
+  navn: "Stikkontakter, jord"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UEC"
+  navn: "Stikkontakter, industriell"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UF"
+  navn: "Fellesuttak"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UG"
+  navn: "Uttak gass"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gass- og trykkluftuttak (IfcFlowTerminal), telleklasse: produkt per stk."
+- kode: "UH"
+  navn: "Høyttaler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Høyttaler (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "UJ"
+  navn: "Skriver"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Skriver (IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "UK"
+  navn: "Kontrollpanel / Tablå"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Kontrollpanel og tablå (IfcUnitaryControlElement), telleklasse: produkt per stk."
+- kode: "UL"
+  navn: "Uttak trykkluft"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Gass- og trykkluftuttak (IfcFlowTerminal), telleklasse: produkt per stk."
+- kode: "UM"
+  navn: "Monitorer, skjermer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Monitor og display (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "UMA"
+  navn: "Monitorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Monitor og display (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "UMB"
+  navn: "Displays"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Monitor og display (IfcAudioVisualAppliance), telleklasse: produkt per stk."
+- kode: "UN"
+  navn: "Nødlys"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Nødlysarmatur (IfcLightFixture), telleklasse: produkt per stk."
+- kode: "UNA"
+  navn: "Markeringslys"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Nødlysarmatur (IfcLightFixture), telleklasse: produkt per stk."
+- kode: "UNB"
+  navn: "Ledelys"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Nødlysarmatur (IfcLightFixture), telleklasse: produkt per stk."
+- kode: "UNC"
+  navn: "Antipanikklys - sentralisert"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Nødlysarmatur (IfcLightFixture), telleklasse: produkt per stk."
+- kode: "UND"
+  navn: "Antipanikklys - desentralisert"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Nødlysarmatur (IfcLightFixture), telleklasse: produkt per stk."
+- kode: "UO"
+  navn: "Slangetromler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Slangetrommel og brannslange (IfcFireSuppressionTerminal FIREHOSEREEL), telleklasse: produkt per stk."
+- kode: "UOA"
+  navn: "Slangetromler generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Slangetrommel og brannslange (IfcFireSuppressionTerminal FIREHOSEREEL), telleklasse: produkt per stk."
+- kode: "UOB"
+  navn: "Brannslanger"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Slangetrommel og brannslange (IfcFireSuppressionTerminal FIREHOSEREEL), telleklasse: produkt per stk."
+- kode: "UOC"
+  navn: "Brannslangetromler"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Slangetrommel og brannslange (IfcFireSuppressionTerminal FIREHOSEREEL), telleklasse: produkt per stk."
+- kode: "UP"
+  navn: "Belysningsarmaturer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UPA"
+  navn: "Armaturer - innfelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UPB"
+  navn: "Armaturer - utenpåliggende vegg"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UPC"
+  navn: "Armaturer - utenpåliggende tak"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UPD"
+  navn: "Armaturer - nedfelt vegg"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UPE"
+  navn: "Armaturer - nedhengt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UPF"
+  navn: "Armaturer - nedfelt tak"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UPG"
+  navn: "Armaturer - nedfelt gulv"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Belysningsarmatur (IfcLightFixture), telleklasse: produkt-EPD per stk."
+- kode: "UQ"
+  navn: "Sprinklerhoder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sprinklerhode, dyse, spreder (IfcFireSuppressionTerminal), telleklasse: produkt per stk."
+- kode: "UQZ"
+  navn: "Sprinklerhoder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sprinklerhode, dyse, spreder (IfcFireSuppressionTerminal), telleklasse: produkt per stk."
+- kode: "UR"
+  navn: "Uttak radio"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "US"
+  navn: "Stasjon"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Stasjon (ladestasjon, arbeidsstasjon) er et ferdig produkt, telles per stk."
+- kode: "UT"
+  navn: "Telekontakter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UTZ"
+  navn: "Telekontakter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UV"
+  navn: "Drikkevannskjølere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Drikkevannskjøler (IfcSanitaryTerminal eller IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "UVZ"
+  navn: "Drikkevannskjølere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Drikkevannskjøler (IfcSanitaryTerminal eller IfcElectricAppliance), telleklasse: produkt per stk."
+- kode: "UX"
+  navn: "Koblingsboks"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Koblingsboks (IfcJunctionBox), telleklasse: produkt per stk."
+- kode: "UY"
+  navn: "Uttak antenne"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Uttak og kontakt (IfcOutlet), telleklasse: produkt per stk."
+- kode: "UZ"
+  navn: "Dyse / Spreder"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Sprinklerhode, dyse, spreder (IfcFireSuppressionTerminal), telleklasse: produkt per stk."
+
+# ---- V - Utvendig ----
+- kode: "V"
+  navn: "Utvendig"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "VA"
+  navn: "Asfalt, belegning"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Asfalt og belegning (IfcSlab PAVING eller IfcCovering), flateklasse: sjikt per m² med tykkelse."
+- kode: "VAZ"
+  navn: "Asfalt, belegning"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Asfalt og belegning (IfcSlab PAVING eller IfcCovering), flateklasse: sjikt per m² med tykkelse."
+- kode: "VB"
+  navn: "Ballast"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Ballast er løs masse, mengdes i m³."
+- kode: "VBZ"
+  navn: "Ballast"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Ballast er løs masse, mengdes i m³."
+- kode: "VD"
+  navn: "Dekke"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Utvendig dekke (IfcSlab), flateklasse: sjikt per m²."
+- kode: "VG"
+  navn: "Gress"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Gress er en flate, m²."
+- kode: "VK"
+  navn: "Kantstein, heller"
+  mengdetype: mengdeobjekt
+  ledeenhet: null
+  begrunnelse: "Alltid målt. Kantstein er løpemeter (m), heller er flate (m²)."
+- kode: "VL"
+  navn: "Løsmasser"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Løsmasser mengdes i m³."
+- kode: "VLZ"
+  navn: "Løsmasser"
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  begrunnelse: "Løsmasser mengdes i m³."
+- kode: "VM"
+  navn: "Mekanisk beskyttelse"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Utvendig mekanisk beskyttelse: pullert og påkjøringsvern er stk, beskyttelsesprofil langs kant er løpemeter (m)."
+- kode: "VMZ"
+  navn: "Mekanisk beskyttelse"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Utvendig mekanisk beskyttelse: pullert og påkjøringsvern er stk, beskyttelsesprofil langs kant er løpemeter (m)."
+- kode: "VP"
+  navn: "Vegetasjon"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Samlekode. Plen er flate, busker og trær er telleobjekt. Se underkodene."
+- kode: "VPA"
+  navn: "Gress, plen"
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  begrunnelse: "Gress og plen er en flate, m²."
+- kode: "VPB"
+  navn: "Busker"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Busk og tre plantes og telles per stk."
+- kode: "VPC"
+  navn: "Trær"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Busk og tre plantes og telles per stk."
+- kode: "VPZ"
+  navn: "Planter, busker, trær"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Busk og tre plantes og telles per stk."
+- kode: "VS"
+  navn: "Skilt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Skilt er et ferdig produkt, telles per stk."
+- kode: "VSA"
+  navn: "Informasjonsskilt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Skilt er et ferdig produkt, telles per stk."
+- kode: "VSB"
+  navn: "Trafikkskilt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Skilt er et ferdig produkt, telles per stk."
+- kode: "VSC"
+  navn: "Etterlysende skilt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Skilt er et ferdig produkt, telles per stk."
+- kode: "VSD"
+  navn: "Belyst skilt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Skilt er et ferdig produkt, telles per stk."
+
+# ---- W - Bør ikke benyttes ----
+- kode: "W"
+  navn: "Bør ikke benyttes"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Kode merket «Bør ikke benyttes» i NS 3457-8. Ingen komponent."
+  ikke_komponent: true
+
+# ---- X - El-produkter ----
+- kode: "X"
+  navn: "El-produkter"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "XA"
+  navn: "Automatsikringer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og sikring (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "XAZ"
+  navn: "Automatsikringer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og sikring (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "XB"
+  navn: "Smeltesikringer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og sikring (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "XBZ"
+  navn: "Smeltesikringer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og sikring (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "XC"
+  navn: "Kontaktorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XCZ"
+  navn: "Kontaktorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XD"
+  navn: "Binærlogikk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XDZ"
+  navn: "Komponenter for binærlogikk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XF"
+  navn: "Komponenter for vern"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og sikring (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "XG"
+  navn: "Spenningsforsyning"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spenningsforsyning (IfcElectricFlowStorageDevice eller IfcTransformer), telleklasse: produkt per stk."
+- kode: "XGZ"
+  navn: "Komponenter for spenningsforsyning"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Spenningsforsyning (IfcElectricFlowStorageDevice eller IfcTransformer), telleklasse: produkt per stk."
+- kode: "XH"
+  navn: "Komponenter for signalering"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XI"
+  navn: "Potensiometer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XK"
+  navn: "Releer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XKA"
+  navn: "Releer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XKB"
+  navn: "Tidreleer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XL"
+  navn: "Induktiv komponenter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XM"
+  navn: "Motorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Motor (IfcElectricMotor), telleklasse: produkt per stk."
+- kode: "XMA"
+  navn: "Motorer generelt"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Motor (IfcElectricMotor), telleklasse: produkt per stk."
+- kode: "XMB"
+  navn: "Heismotorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Motor (IfcElectricMotor), telleklasse: produkt per stk."
+- kode: "XMC"
+  navn: "Pumpemotorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Motor (IfcElectricMotor), telleklasse: produkt per stk."
+- kode: "XMD"
+  navn: "Viftemotorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Motor (IfcElectricMotor), telleklasse: produkt per stk."
+- kode: "XN"
+  navn: "Integrerte kretser for analogteknikk"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XO"
+  navn: "Urbryter / Timer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Urbryter og timer (IfcSwitchingDevice eller IfcController), telleklasse: produkt per stk."
+- kode: "XP"
+  navn: "Komponenter for måling og prøving"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XQ"
+  navn: "Effektbryter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Vern og sikring (IfcProtectiveDevice), telleklasse: produkt per stk."
+- kode: "XR"
+  navn: "Motstand"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XS"
+  navn: "Brytere, vendere, meldere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XSA"
+  navn: "Brytere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XSB"
+  navn: "Vendere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XSC"
+  navn: "Nødstoppbrytere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XSD"
+  navn: "Endestoppere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XSE"
+  navn: "Manuelle meldere"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Bryter, kontaktor, rele, melder (IfcSwitchingDevice), telleklasse: produkt per stk."
+- kode: "XT"
+  navn: "Transformatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transformator (IfcTransformer), telleklasse: produkt per stk."
+- kode: "XTA"
+  navn: "Transformatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transformator (IfcTransformer), telleklasse: produkt per stk."
+- kode: "XTB"
+  navn: "Strømtransformatorer"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Transformator (IfcTransformer), telleklasse: produkt per stk."
+- kode: "XV"
+  navn: "Halvlederkomponenter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XVZ"
+  navn: "Halvlederkomponenter"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+- kode: "XX"
+  navn: "Rekkeklemmer / Samlesignal"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "Rekkeklemme (IfcCableFitting), telleklasse: produkt per stk. Samlesignal er et signal, ikke en komponent."
+- kode: "XZ"
+  navn: "Terminering og tilpasning"
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  begrunnelse: "El-komponent i tavle (IfcProtectiveDevice, IfcSwitchingDevice, IfcElectricFlowStorageDevice), telleklasse: produkt per stk."
+
+# ---- Y - Spesielle komponenter for digitale bygningsmodeller ----
+- kode: "Y"
+  navn: "Spesielle komponenter for digitale bygningsmodeller"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "YA"
+  navn: "Virtuelle systemkomponenter"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAA"
+  navn: "Virtuelle systemkomponenter - varme"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAB"
+  navn: "Virtuelle systemkomponenter - kjøling"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAC"
+  navn: "Virtuelle systemkomponenter - forbruksvann"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAD"
+  navn: "Virtuelle systemkomponenter - avløp"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAE"
+  navn: "Virtuelle systemkomponenter - ventilasjon"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAF"
+  navn: "Virtuelle systemkomponenter - elkraft"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAG"
+  navn: "Virtuelle systemkomponenter - tele/data"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YAH"
+  navn: "Virtuelle systemkomponenter - bygningsmessig"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YB"
+  navn: "Virtuelle grupperingskomponenter"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YBZ"
+  navn: "Virtuelle grupperingskomponenter"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+- kode: "YC"
+  navn: "Koblingspunkt"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Virtuell komponent i modellen, ingen materie. Ingen mengdetype."
+  ikke_komponent: true
+
+# ---- Z - Spesielle komponenter og utstyr for virksomheten ----
+- kode: "Z"
+  navn: "Spesielle komponenter og utstyr for virksomheten"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Nivå 1-kategori, ikke en komponent. Avgjøres av underkoden."
+  ikke_komponent: true
+- kode: "ZA"
+  navn: "Virksomhetsspesifikke komponenter"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Virksomhetsspesifikk komponent uten fast innhold. Mengdetype settes per prosjekt."
+- kode: "ZAZ"
+  navn: "Virksomhetsspesifikke komponenter"
+  mengdetype: avhenger
+  ledeenhet: null
+  begrunnelse: "Virksomhetsspesifikk komponent uten fast innhold. Mengdetype settes per prosjekt."
+
+# ---- Å - Bør ikke benyttes ----
+- kode: "Å"
+  navn: "Bør ikke benyttes"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Kode merket «Bør ikke benyttes» i NS 3457-8. Ingen komponent."
+  ikke_komponent: true
+
+# ---- Æ - Bør ikke benyttes ----
+- kode: "Æ"
+  navn: "Bør ikke benyttes"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Kode merket «Bør ikke benyttes» i NS 3457-8. Ingen komponent."
+  ikke_komponent: true
+
+# ---- Ø - Bør ikke benyttes ----
+- kode: "Ø"
+  navn: "Bør ikke benyttes"
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  begrunnelse: "Kode merket «Bør ikke benyttes» i NS 3457-8. Ingen komponent."
+  ikke_komponent: true

@@ -1,0 +1,6 @@
+# The mottakskontroll engine. Besides these: Chrome, Chromium or Edge, for the PDF print.
+ifcfast>=0.6.0
+ifcopenshell>=0.8
+openpyxl>=3.1
+PyYAML>=6.0
+PyMuPDF>=1.24

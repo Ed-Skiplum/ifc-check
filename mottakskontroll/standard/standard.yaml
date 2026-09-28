@@ -1,0 +1,418 @@
+# Standardoppsett for mottakskontrollen: the default layer.
+#
+# Where the IFC standard itself puts each value the model report reads, and nothing else. It ships
+# with the tool and is the same for every project. A project file (here krav.yaml) configures the
+# project on top of it. Settled with edkjo 2026-09-24: «build the default against the IFC standard,
+# and have configurations on top.»
+#
+# ONE location per requirement (edkjo 2026-09-24). `sted` is where the requirement is checked, and
+# nowhere else: the control configures, it does not search. A project that requires the value
+# somewhere else declares its own `sted`, which REPLACES this one (konfig.py); it is never added
+# to it. A value that exists elsewhere in a model is not lost: it shows in the pset gallery. A
+# requirement with no `sted` in either layer is «ikke konfigurert».
+#
+# The location prints once, in the block's «Sted» row: the standard layer has no `kilde` citation.
+# A project's `kilde` (its BEP or manual section) prints after the requirement text.
+#
+# `krav_tekst` is the requirement as declared, printed as the block's first row. `gyldig` /
+# `gyldige` / `kodetabell` / `ikke_materiale` are declared accepted values: where one exists, the
+# block prints a validity row, and the requirement passes only with every value inside it.
+#
+# IFC4 definitions; where IFC2X3 differs it is noted.
+#
+# The standard property and quantity set names the pset gallery calls «IFC» ship beside this file,
+# in standard_psett.yaml.
+#
+# Location kinds:
+#   {pset, egenskap} / {pset_monster, egenskap_monster}   a property
+#   {ifc: typeobjekt | globalid | romlig | materialtilknytning}
+#   {ifc: klassifikasjon, system_monster}  IfcClassificationReference reached through
+#         IfcRelAssociatesClassification on the object or its type, whose classification system
+#         (IfcClassification.Name up the ReferencedSource chain) matches system_monster. The value is
+#         Identification in IFC4 and ItemReference in IFC2X3.
+
+# The schema is a KPI tile, not a requirement block (edkjo 2026-09-24): «There is only two things to
+# say about schema: schema version and is it the required schema.» FILE_SCHEMA as written; the
+# verdict compares its family (IFC2X3, IFC4, IFC4X3; «IFC4 ADD2 TC1» is IFC4) against `godtatte`.
+# A project may narrow or change the set, and may declare exceptions by exporter
+# (`unntak`: {skjema, system_monster} matched against FILE_NAME.originating_system).
+skjema:
+  kilde: IFC4 FILE_SCHEMA
+  godtatte: [IFC2X3, IFC4]
+
+# The requirement verdict's words (edkjo 2026-09-24). Three states from the two numbers: green
+# Oppfylt, yellow Kan brukes, red Ikke oppfylt (GUID is binary: green or red only). The green word
+# is under review («OK»); one line here changes it everywhere.
+# Labels (edkjo 2026-09-25, «but again, config»): section titles, list titles, gallery labels and
+# mark words. The report and workbook read them from here; a project overrides any key in krav.yaml
+# `etiketter`. Requirement titles are each requirement's `tittel` below.
+etiketter:
+  seksjon_nokkeltall: Nøkkeltall
+  seksjon_merknader: Merknader
+  seksjon_hygiene: Hygiene
+  seksjon_typegalleri: Typegalleri
+  seksjon_materialgalleri: Materialgalleri
+  seksjon_egenskapssett: Egenskapssett
+  seksjon_kodelister: Kodelister
+  materiale: materiale
+  ikke_materiale: ikke materiale
+  ifc_klasser: IFC-klasser
+  typer: Typer
+  kilde: Kilde
+  lag: Lag
+  objekter: objekter
+  kode: Kode
+  navn: Navn
+  objekter_kolonne: Objekter
+  gyldig: Gyldig
+  ikke_i_tabellen: ikke i tabellen
+  kodeliste_systemkode: Systemkoder NS 3451
+  kodeliste_funksjonskode: Komponentkoder NS 3457-8
+  ark_materialer: Materialer
+  ark_systemkode: Systemkoder
+  ark_funksjonskode: Komponentkoder
+  etasjer_telling: Etasjer
+  konfigurert: konfigurert
+  i_modellen: i modellen
+  med_en_eier: med én eier
+  rapport_navn: Mottakskontroll
+  prosjektrapport: prosjekt
+  fagkode: Fagkode
+  firma: Firma
+  dalux_versjon: Dalux-versjon
+  opplastingsdato: Opplastingsdato
+  eksport: Eksport
+  dato: Dato
+  modeller: Modeller
+  modell: Modell
+  niva_standard: IFC
+  niva_prosjekt: prosjekt
+  krav: Krav
+  egenskap: Egenskap
+  dekning: Dekning
+  fordeling: Fordeling
+  mengdetype: Mengdetype
+  etasjematrise: Etasjematrise
+  av: av
+  unike_verdier: unike verdier
+  telleobjekter: telleobjekter
+  mengdeobjekter: mengdeobjekter
+  aapen: åpen
+  mock: MOCK
+  em_konfigurert: Konfigurert
+  kote: Kote
+  em_modellen: Modellen
+  status: Status
+  kote_i_m: kote i m
+  toleranse: toleranse
+  etasjedefinisjon: Etasjedefinisjon
+  referanse: Referanse
+  ingen_treff: ingen treff
+  etasje_som_registeret: som registeret
+  etasje_feil_navn: feil navn
+  etasje_koteavvik: koteavvik
+  etasje_mangler: mangler
+  etasje_andre_nivaaer: andre nivåer
+  etasje_ikke_konfigurert: ikke konfigurert
+  ifc_skjema: IFC-skjema
+  godtatt: godtatt
+  sjekksum: 'Sjekksum (SHA256)'
+  andre: andre
+  instanser: instanser
+  type_ns3451: NS 3451
+  type_ns3457: NS 3457-8
+  type_materiale: Materiale
+  type_produkt: Produkt
+  type_mmi: MMI
+  typer_med_en_instans: typer med én instans
+  duplikater_i_fila: Duplikater i fila
+  delt_med_andre_modeller: Delt med andre modeller
+  status_ok: oppfylt
+  status_warn: avvik
+  status_bad: mangler
+  status_na: gjelder ikke
+  mengde_telleobjekt: telleobjekt
+  mengde_mengdeobjekt: mengdeobjekt
+  mengde_avhenger: avhenger
+  mengde_ikke_relevant: ikke relevant
+  mengde_ukjent: ukjent
+  psett_ifc: IFC
+  psett_krevd: 'egendefinert, krevd'
+  psett_annen: 'egendefinert, ikke krevd'
+  seksjon_leveransen: Leveransen
+  seksjon_krav_modell: 'Krav × modell'
+  seksjon_bruk: Bruk
+  seksjon_guid_paa_tvers: GUID på tvers
+  bruk: Bruk
+  ark_sammendrag: Sammendrag
+  ark_krav: Krav
+  ark_funn: Funn
+  ark_per_modell: Per modell
+  ark_verdier: Verdier
+  ark_type_1til1: Type 1 til 1
+  ark_etasjer: Etasjer
+  ark_filer: Filer
+  ark_typer: Typer
+  ark_egenskapssett: Egenskapssett
+  ark_lesmeg: Lesmeg
+  instanser_per_type: Instanser per type
+  typer_med_en_instans_kol: Typer med én instans
+  dekning_prosent: 'dekning %'
+  verdi: Verdi
+  antall: Antall
+  ifc_klasse: IFC-klasse
+  kol_oppfylt: oppfylt
+  antall_objekter: Antall objekter
+  retning: Retning
+  nokkel: Nøkkel
+  motparter: Motparter
+  kun_skrivemaate: Kun skrivemåte
+  konfigurert_navn: Konfigurert navn
+  konfigurert_kote_mm: 'Konfigurert kote (mm)'
+  modellens_navn: Modellens navn
+  modellens_kote_mm: 'Modellens kote (mm)'
+  fil: Fil
+  eksportor: Eksportør
+  eksportert: Eksportert
+  byte: Byte
+  merknad: Merknad
+  type: Type
+  objektklasser: Objektklasser
+  instanser_kol: Instanser
+  egenskapssett: Egenskapssett
+  kategori: Kategori
+  utfylt: Utfylt
+  utfylt_prosent: 'Utfylt %'
+  ulike_verdier: Ulike verdier
+  eksempler: Eksempler
+  del: Del
+  id: Id
+  tittel: Tittel
+  maaler_oppslag: Måler / oppslag
+  telte_objekter: Telte objekter
+  terskel: Terskel
+  ja: 'ja'
+  nei: 'nei'
+  flagg_avvik: avvik
+  flagg_mangler: mangler
+  flagg_flagg: flagg
+  spenn_avvik: bunn inntil toleransen under etasjen
+  spenn_mangler: bunn utenfor etasjen
+  spenn_uten_geometri: uten geometri
+  produkt_prefiks: Produkt
+  materiale_prefiks: Materiale
+  lesmeg_krav: Krav
+  lesmeg_nokkeltall: Nøkkeltall
+  ikke_konfigurert: ikke konfigurert
+  materiale_kol: Materiale
+  i_kodetabellen: I kodetabellen
+  lagtykkelse_mm: 'Lagtykkelse (mm)'
+  guid: GUID
+  typenavn: Typenavn
+  etasje: Etasje
+  funnet_verdi: Funnet verdi
+  aarsak: Årsak
+  hull: 'hull: ingen liste per element i de lagrede målingene'
+  delt_med: delt med
+  delt_mellom_delmodellene: delt mellom delmodellene
+  ikke_i_etasje: ikke i etasje
+  avvik_mangler: mangler
+  tom_verdi: tom verdi
+  mangler_eller_tom_verdi: mangler eller tom verdi
+  ugyldig_verdi: ugyldig verdi
+
+# Moved from krav.yaml 2026-09-25: generic, so a standard-only run has them. A project may
+# override each key in krav.yaml.
+standard:
+  terskel: {ok: 95, warn: 5}
+  telte_objekter: >-
+    Alle IfcProduct med 3D-geometri, uten IfcFeatureElementSubtraction. Andeler er av dette
+    tallet, i både regneark og PDF.
+  navnematching: >-
+    Navn på egenskapssett og egenskaper matches uten hensyn til mellomrom og store/små
+    bokstaver. Varianten som ble funnet rapporteres.
+
+# The KPI band on the model report (docs/rapport-rammeverk.md, «KPI band»): counts only. The
+# schema is a requirement (skjema), not a KPI. The other kpi entries stay in the workbook.
+kpi_band: [antall_typer, antall_elementer, instanser_per_type_alle, typer_med_en_instans_alle, utypede_instanser]
+
+# The band's counts (edkjo 2026-09-24): all over every IfcProduct in the file, the grunnlag of
+# Typeobjekt, and types by name + IFC class (begreper §1). Plain numbers, no verdict.
+kpi_alle:
+  - id: antall_typer
+    tittel: Antall typer
+    maaler: Typer i bruk, typenavn + IFC-klasse, over alle IfcProduct.
+  - id: antall_elementer
+    tittel: Antall elementer
+    maaler: Alle IfcProduct i fila, grunnlaget for Typeobjekt.
+  - id: instanser_per_type_alle
+    tittel: Instanser per type
+    maaler: Typede IfcProduct delt på antall typer.
+  - id: typer_med_en_instans_alle
+    tittel: Typer med én instans
+    maaler: Typer med ett IfcProduct, med andel av typene.
+  - id: utypede_instanser
+    tittel: Utypede instanser
+    maaler: IfcProduct uten IfcRelDefinesByType, med andel av elementene.
+
+verdiktord:
+  oppfylt: OK
+  kan_brukes: Kan brukes
+  ikke_oppfylt: Ikke oppfylt
+  gjelder_ikke: gjelder ikke
+  ikke_konfigurert: ikke konfigurert
+
+# Traffic lights on the Nøkkeltall cards (edkjo 2026-09-24; defaults for edkjo to confirm). `retning:
+# lav` is green below `gronn`, yellow up to `gul`, red above; `hoy` is green at or above `gronn`,
+# yellow from `gul`, red below. Antall typer and Antall elementer are context, with no threshold and
+# no tint, unless a project configures one. The IFC-skjema card is green in the accepted set, red not.
+kpi_terskler:
+  typer_med_en_instans_alle: {retning: lav, gronn: 20, gul: 40}    # % of types
+  utypede_instanser: {retning: lav, gronn: 5, gul: 20}             # % of elements
+  instanser_per_type_alle: {retning: hoy, gronn: 10, gul: 3}
+
+# Traffic light for Gyldig, the share of present values that are valid (edkjo 2026-09-24, default
+# for edkjo to confirm): green at 100 %, amber from 95 %, red below. Dekning uses the project's
+# `standard.terskel` (green ≥ 95 %, red < 5 %). The requirement's verdict needs Gyldig ≥ `ok`.
+terskel_gyldig: {ok: 100, warn: 95}
+
+seksjoner:
+  - {id: ifc_helse, tittel: IFC-struktur}
+  - {id: standardkrav, tittel: Standardkrav}
+
+blokker:
+  # ---- IFC-struktur
+  - id: typeobjekt
+    seksjon: ifc_helse
+    tittel: Typeobjekt
+    krav_tekst: alle IfcProduct har typeobjekt med navn
+    # Every IfcProduct in the file, not only the counted set (edkjo 2026-09-24).
+    grunnlag: alle_ifcproduct
+    sted: {ifc: typeobjekt, navn: IfcRelDefinesByType}
+
+  - id: guid
+    seksjon: ifc_helse
+    tittel: GUID
+    krav_tekst: ingen GlobalId to ganger i fila
+    # Counts, not coverage: «Duplikater i fila» decides (0 = oppfylt); «Delt med andre modeller»
+    # is a reading.
+    telling: true
+    sted: {ifc: globalid, navn: GlobalId}
+
+  - id: etasjedefinisjon
+    seksjon: ifc_helse
+    tittel: Etasjedefinisjon
+    krav_tekst: modellens etasjer er de konfigurerte, med navn og kote
+    # The model's IfcBuildingStorey against the configured floors (the etasjematrise). Oppfylt when
+    # the model has no extra levels and every matched level's name and kote are within tolerance; a
+    # configured level the model lacks is allowed and shown. No floors configured: «ikke
+    # konfigurert» for the verdict, and the matrix lists the model's floors only.
+    sted: {ifc: etasjer, navn: IfcBuildingStorey}
+
+  - id: etasjer
+    seksjon: ifc_helse
+    tittel: Objekter i etasje
+    krav_tekst: alle objekter plassert i en etasje, med bunnen i etasjens spenn
+    # Contained in a storey (dekning), and, as its validity, where the object's geometry sits against
+    # its stated storey's span [elev, next_elev), the top storey open, elevations being
+    # IfcBuildingStorey.Elevation scaled by the unit scale. Three states (Ed-Skiplum/ifc-check#2,
+    # the same rule ifc-check applies):
+    #   oppfylt  elev <= bunn < next_elev
+    #   avvik    elev - spenn_under_toleranse_m <= bunn < elev, and topp >= elev
+    #   mangler  anything else, a bottom at or above next_elev included; no tolerance upward
+    # Refused (a gap with its reason) with fewer than two distinct storey elevations, or when the
+    # elevation span and the span of the mesh bottoms do not overlap.
+    spenn_under_toleranse_m: 0.10
+    sted: {ifc: romlig, navn: IfcRelContainedInSpatialStructure}
+
+  # ---- Standardkrav
+  - id: systemkode
+    seksjon: standardkrav
+    tittel: Systemkode NS 3451
+    krav_tekst: tresifret NS 3451-kode
+    gyldig: '^\d{3}$'
+    sted: {ifc: klassifikasjon, system_monster: '3451', navn: IfcClassificationReference NS 3451}
+    # The aggregated code list (a catalogue, not a check): rendered only while the requirement has
+    # a location. Names and validity from the bundled table.
+    # The code table is a reference: `kilde` names the list, `fil` the file (a YAML or JSON list,
+    # beside this file or an absolute path), `felt` its code and name keys. Swapping to another
+    # table (e.g. ifc-check's bundled NS 3451, 813 codes) is a change here, not in code.
+    kodeliste: {kilde: ns3451, fil: kodetabell_ns3451.yaml, felt: {kode: kode, navn: navn}}
+
+  - id: funksjonskode
+    seksjon: standardkrav
+    tittel: Funksjonskode NS 3457-8
+    krav_tekst: komponentkode fra NS 3457-8
+    # Accepted values: the NS 3457-8 code table.
+    kodetabell: mengdetype_ns3457.yaml
+    sted: {ifc: klassifikasjon, system_monster: '3457', navn: IfcClassificationReference NS 3457}
+    kodeliste: {kilde: ns3457-8, fil: mengdetype_ns3457.yaml, felt: {kode: kode, navn: navn}}
+
+  # Produkt and Materiale are two requirements (edkjo 2026-09-24), switched by mengdetype
+  # (begreper §6): a telleobjekt must carry a product, a mengdeobjekt a material configuration.
+  # Mengdetype is the tool's analysis (the class table first, the code table where the class cannot
+  # decide), not a requirement and not a checked location. Each is «gjelder ikke» when the model has
+  # no objects of its kind.
+  - id: produkt
+    seksjon: standardkrav
+    tittel: Produkt
+    krav_tekst: telleobjekter har produkt
+    grunnlag: telleobjekt
+    mengdetype:
+      - {ifc: ifcklasse, tabell: mengdetype_ifcklasse.yaml, navn: IFC-klasse}
+      - {ifc: komponentkode, tabell: mengdetype_ns3457.yaml, navn: komponentkode}
+    # Pset_ManufacturerTypeInformation.ModelReference, the product model's designator (IFC4 and
+    # IFC2X3 alike).
+    sted: {pset: Pset_ManufacturerTypeInformation, egenskap: ModelReference}
+
+  - id: materiale
+    seksjon: standardkrav
+    tittel: Materiale
+    krav_tekst: mengdeobjekter har materiale
+    grunnlag: mengdeobjekt
+    mengdetype:
+      - {ifc: ifcklasse, tabell: mengdetype_ifcklasse.yaml, navn: IFC-klasse}
+      - {ifc: komponentkode, tabell: mengdetype_ns3457.yaml, navn: komponentkode}
+    sted: {ifc: materialtilknytning, navn: IfcRelAssociatesMaterial}
+    # Not a material (docs/begreper.md §4): a colour or finish, an element word, a bare number or
+    # dimension, a tool's placeholder. Carried but not usable: outside the accepted values.
+    ikke_materiale:
+      - '\bRAL\b'
+      - '\bNCS\b'
+      - 'lakkert'
+      - '^hvit$'
+      - '^(dekke|innervegg|yttervegg|vegg|gulv|tak)$'
+      - '^[\d\s.,x×]+$'
+      - '^default(\(\d+\))?$'
+      - '^MC_\d+_\d+_\d+'
+      - '^<.*>$'
+
+  - id: kopiobjekt
+    seksjon: standardkrav
+    tittel: Kopiobjekt
+    krav_tekst: feltet finnes, verdien er eierens fagkode
+    # No home in the IFC standard: «ikke konfigurert» until a project declares where it lives.
+    dekning: finnes
+
+  - id: mmi
+    seksjon: standardkrav
+    tittel: MMI
+    krav_tekst: feltet finnes, verdien er en prosjektkode
+    # No home in the IFC standard (MMI-veilederen 2.0 §3.3 leaves the property set to the project):
+    # «ikke konfigurert» until a project declares it.
+    dekning: finnes
+
+  - id: fase
+    seksjon: standardkrav
+    tittel: Fase
+    krav_tekst: status NEW, EXISTING, DEMOLISH eller TEMPORARY
+    # PEnum_ElementStatus. OTHER, NOTKNOWN and UNSET are carried but say nothing: outside. The same
+    # property and values in IFC2X3's Common property sets.
+    gyldige: [NEW, EXISTING, DEMOLISH, TEMPORARY]
+    sted: {pset_monster: '^Pset_\w*Common$', egenskap: Status}
+    # MMI phasing (edkjo 2026-09-25): when the project declares `forventet.mmi.fase` (MMI code ->
+    # phase), Fase's one location is the MMI requirement's location and the phase is read through
+    # that mapping: Dekning = the element has an MMI value, Gyldig = the value maps to a phase, the
+    # Fordeling shows the phases. Without it, the location above. Exactly one location either way;
+    # a value that is not where it should be is reported, never looked for elsewhere.
+    krav_tekst_mmi_fase: fase fra MMI-kode

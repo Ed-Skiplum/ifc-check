@@ -60,6 +60,8 @@ scripts/
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
+mottakskontroll/       the mottakskontroll report engine (Python): measure a round, render the
+                       PDFs and workbooks; see mottakskontroll/README.md
 ```
 
 ## Running the checks without a browser

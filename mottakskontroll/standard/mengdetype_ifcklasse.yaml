@@ -1,0 +1,989 @@
+# mengdetype_ifcklasse.yaml
+#
+# Oppslagstabell: er et objekt av denne IFC-klassen et TELLEOBJEKT (telles, ledeenhet stk,
+# én produkt-EPD per stykk) eller et MENGDEOBJEKT (måles, ledeenhet m, m2 eller m3,
+# materiallag per ledeenhet)? Se docs/begreper.md §6.
+#
+# Hver rad er en ANBEFALING. Et prosjekt kan overstyre den per type med `unit_override`.
+#
+# Generert 2026-09-23. Klasselisten er lest programmatisk fra ifcopenshell 0.8.5
+# (`ifcopenshell_wrapper.schema_by_name("IFC4")` og `("IFC2X3")`): alle konkrete
+# subtyper av IfcProduct, abstrakte supertyper utelatt. `schema` sier hvilke skjema
+# klassen finnes i. Ingen av de sju klassene som bare finnes i IFC2X3
+# (IfcElectricalElement, IfcEquipmentElement, IfcElectricDistributionPoint,
+# IfcChamferEdgeFeature, IfcRoundedEdgeFeature, IfcStructuralLinearActionVarying,
+# IfcStructuralPlanarActionVarying) forekommer i HI90-modellene, så de er ikke tatt med.
+# Tildelingene er satt for hånd i denne økta, ikke regnet ut.
+#
+# Verdier:
+#   mengdetype   telleobjekt | mengdeobjekt | avhenger | ikke_relevant
+#   ledeenhet    stk | m | m2 | m3 | kg | null
+#   kilde        eksisterende_regel  svaret står i en av regeltabellene under
+#                utledet             svaret er utledet her, uten presedens
+#   avhenger     klassen spenner reelt over begge; begrunnelsen sier hva det avhenger av
+#   ikke_relevant klassen bærer ingen mengde i denne forstand (romlig, påskrift, akse, virtuell,
+#                analysemodell) eller mengden bæres av et annet objekt (hull, delelement)
+#
+# Kilder, i prioritert rekkefølge der de er uenige:
+#   1. HI90_Reduzer-klargjøring/02_Arbeid/qto-lca/02_Arbeid/src/build_type_register.py
+#      COUNT_CLASSES, LINEAR_CLASSES, PLANAR_CLASSES, VOLUME_CLASSES, SKIP_ENTITIES, classify_unit()
+#   2. HI90_Reduzer-klargjøring/02_Arbeid/typeregister.py
+#      ENHETSREGLER (is_a, så subtyper arver), EKSKLUDERTE_KLASSER
+#   3. HI90_Reduzer-klargjøring/02_Arbeid/qto/v1/metode.md §2 HOVEDENHET (Solibri-rutekartet)
+#   4. HI90_Mottakskontroll/docs/begreper.md §6
+#   5. ~/.claude/skills/qto-model-analysis/knowledge/method.md, «Lead unit per component class»
+#
+# Der tabellene er uenige er svaret fra kilde 1 båret inn, og uenigheten står i begrunnelsen.
+# Kjent uavklart punkt: IfcDoor og IfcWindow (stk i 1 og 2, m2 i 3). Uenigheten er ikke avgjort her.
+#
+
+# ---- Bygningsdeler (IfcBuildingElement) ----
+
+- klasse: IfcBeam
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "VOLUME_CLASSES; stål går til kg via volum × tetthet (edkjo 2026-09-03); ENHETSREGLER og HOVEDENHET sier m"
+- klasse: IfcBeamStandardCase
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcBeam (VOLUME_CLASSES)"
+- klasse: IfcBuildingElementProxy
+  schema: [IFC4, IFC2X3]
+  mengdetype: avhenger
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Ingen klasseregel; avhenger av hva proxyen representerer, typenavn og geometri avgjør (HOVEDENHET gir stk som standard, typeregisteret går på geometri)"
+- klasse: IfcChimney
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: utledet
+  begrunnelse: "Løpemeter pipe (elementpipe); murt pipe overstyres til m3"
+- klasse: IfcColumn
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "VOLUME_CLASSES; stål går til kg via volum × tetthet (edkjo 2026-09-03); ENHETSREGLER og HOVEDENHET sier m"
+- klasse: IfcColumnStandardCase
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcColumn (VOLUME_CLASSES)"
+- klasse: IfcCovering
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES, ENHETSREGLER og HOVEDENHET enige"
+- klasse: IfcCurtainWall
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES og ENHETSREGLER enige"
+- klasse: IfcDoor
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES og ENHETSREGLER; HOVEDENHET (Solibri) sier m2, uavklart, se begreper.md §6"
+- klasse: IfcDoorStandardCase
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcDoor (COUNT_CLASSES)"
+- klasse: IfcFooting
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "VOLUME_CLASSES og ENHETSREGLER enige"
+- klasse: IfcMember
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "VOLUME_CLASSES; stål går til kg via volum × tetthet (edkjo 2026-09-03); ENHETSREGLER og HOVEDENHET sier m"
+- klasse: IfcMemberStandardCase
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcMember (VOLUME_CLASSES)"
+- klasse: IfcPile
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m3
+  kilde: eksisterende_regel
+  begrunnelse: "VOLUME_CLASSES; ENHETSREGLER sier m (materialavhengig)"
+- klasse: IfcPlate
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES og ENHETSREGLER; stålplate går til kg via m2 × tykkelse × tetthet"
+- klasse: IfcPlateStandardCase
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcPlate (PLANAR_CLASSES)"
+- klasse: IfcRailing
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES og ENHETSREGLER enige"
+- klasse: IfcRamp
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER; plasstøpt rampe kan overstyres til m3 med unit_override"
+- klasse: IfcRampFlight
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES; ENHETSREGLER sier stk"
+- klasse: IfcRoof
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES; ENHETSREGLER sier m3"
+- klasse: IfcShadingDevice
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: utledet
+  begrunnelse: "Solskjerming regnes per m2 skjermet flate, EPD for screen og persienne er per m2"
+- klasse: IfcSlab
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES og HOVEDENHET; ENHETSREGLER sier m3 (tykkelsen ligger i laget)"
+- klasse: IfcSlabElementedCase
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcSlab (PLANAR_CLASSES); delene (IfcBuildingElementPart) telles ikke separat"
+- klasse: IfcSlabStandardCase
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcSlab (PLANAR_CLASSES)"
+- klasse: IfcStair
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER; prefabrikkert trapp per stk, plasstøpt kan overstyres til m3"
+- klasse: IfcStairFlight
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES; ENHETSREGLER sier stk"
+- klasse: IfcWall
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES, ENHETSREGLER og HOVEDENHET enige"
+- klasse: IfcWallElementedCase
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcWall (PLANAR_CLASSES); delene (IfcBuildingElementPart) telles ikke separat"
+- klasse: IfcWallStandardCase
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m2
+  kilde: eksisterende_regel
+  begrunnelse: "PLANAR_CLASSES, ENHETSREGLER og HOVEDENHET enige"
+- klasse: IfcWindow
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES og ENHETSREGLER; HOVEDENHET (Solibri) sier m2, uavklart, se begreper.md §6"
+- klasse: IfcWindowStandardCase
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcWindow (COUNT_CLASSES)"
+
+# ---- Komponenter og armering (IfcElementComponent) ----
+
+- klasse: IfcBuildingElementPart
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "SKIP_ENTITIES og EKSKLUDERTE_KLASSER; mengden bæres av moderelementet, delen telles ikke separat"
+- klasse: IfcDiscreteAccessory
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFastener
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcMechanicalFastener
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcReinforcingBar
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES; armerings-EPD er per kg, masse via m × kg/m"
+- klasse: IfcReinforcingMesh
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES; armerings-EPD er per kg, masse via m × kg/m"
+- klasse: IfcTendon
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: utledet
+  begrunnelse: "Som armering (LINEAR_CLASSES for IfcReinforcingBar); spennkabel per løpemeter, EPD per kg"
+- klasse: IfcTendonAnchor
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: utledet
+  begrunnelse: "Diskret forankring, telles"
+- klasse: IfcVibrationIsolator
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: utledet
+  begrunnelse: "Diskret komponent, telles"
+
+# ---- VVS, elektro og automasjon (IfcDistributionElement) ----
+
+- klasse: IfcDistributionElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: avhenger
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Generisk klasse uten funksjon; segment gir m, øvrig stk, avgjøres per type"
+- klasse: IfcDistributionFlowElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: avhenger
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Generisk klasse uten funksjon; segment gir m, øvrig stk, avgjøres per type"
+- klasse: IfcDistributionChamberElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: utledet
+  begrunnelse: "Kum og kammer er diskrete produkter"
+- klasse: IfcDistributionControlElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcActuator
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcAlarm
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcController
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFlowInstrument
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcProtectiveDeviceTrippingUnit
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcSensor
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcUnitaryControlElement
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcEnergyConversionDevice
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcAirToAirHeatRecovery
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcBoiler
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcBurner
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcChiller
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcCoil
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcCondenser
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcCooledBeam
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES (HI90-tillegg)"
+- klasse: IfcCoolingTower
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcElectricGenerator
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcElectricMotor
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcEngine
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcEvaporativeCooler
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcEvaporator
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcHeatExchanger
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcHumidifier
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcMotorConnection
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcSolarDevice
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel; solcellepanel har ofte EPD per m2, vurder unit_override"
+- klasse: IfcTransformer
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcTubeBundle
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcEnergyConversionDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcUnitaryEquipment
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFlowController
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcAirTerminalBox
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcDamper
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcElectricDistributionBoard
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcElectricTimeControl
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcFlowController, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcFlowMeter
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcProtectiveDevice
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcSwitchingDevice
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcValve
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFlowFitting
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcCableCarrierFitting
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcCableFitting
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcDuctFitting
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcJunctionBox
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcPipeFitting
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFlowMovingDevice
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcCompressor
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFan
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcPump
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFlowSegment
+  schema: [IFC4, IFC2X3]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES og ENHETSREGLER enige"
+- klasse: IfcCableCarrierSegment
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES og ENHETSREGLER enige"
+- klasse: IfcCableSegment
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES og ENHETSREGLER enige"
+- klasse: IfcDuctSegment
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES, ENHETSREGLER og HOVEDENHET enige; deklarert *.*Length_mm* vinner"
+- klasse: IfcPipeSegment
+  schema: [IFC4]
+  mengdetype: mengdeobjekt
+  ledeenhet: m
+  kilde: eksisterende_regel
+  begrunnelse: "LINEAR_CLASSES, ENHETSREGLER og HOVEDENHET enige; deklarert *.*Length_mm* vinner"
+- klasse: IfcFlowStorageDevice
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcElectricFlowStorageDevice
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcTank
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFlowTerminal
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcAirTerminal
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcAudioVisualAppliance
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcCommunicationsAppliance
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcElectricAppliance
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFireSuppressionTerminal
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcFlowTerminal, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcLamp
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcFlowTerminal, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcLightFixture
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcMedicalDevice
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcFlowTerminal, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcOutlet
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcSanitaryTerminal
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcSpaceHeater
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcStackTerminal
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcFlowTerminal, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcWasteTerminal
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES"
+- klasse: IfcFlowTreatmentDevice
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER"
+- klasse: IfcDuctSilencer
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES (HI90-tillegg)"
+- klasse: IfcFilter
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcFlowTreatmentDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+- klasse: IfcInterceptor
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "ENHETSREGLER (IfcFlowTreatmentDevice, is_a); ikke navngitt i COUNT_CLASSES, men samme regel"
+
+# ---- Øvrige elementer, plassholdere og porter ----
+
+- klasse: IfcCivilElement
+  schema: [IFC4]
+  mengdetype: avhenger
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Anleggselement; konstruksjon m3, utstyr stk, avgjøres per type; utenfor bygnings-LCA i HI90"
+- klasse: IfcElementAssembly
+  schema: [IFC4, IFC2X3]
+  mengdetype: avhenger
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "stk når sammenstillingen er produktet (prefab); ikke_relevant når delene er modellert og bærer mengden"
+- klasse: IfcFurnishingElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES; ekskludert fra LCA-omfanget i typeregister.py og felles.py, det er en omfangsbeslutning, ikke en mengdetype"
+- klasse: IfcFurniture
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES; ekskludert fra LCA-omfanget i typeregister.py og felles.py, det er en omfangsbeslutning, ikke en mengdetype"
+- klasse: IfcSystemFurnitureElement
+  schema: [IFC4]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: eksisterende_regel
+  begrunnelse: "COUNT_CLASSES; samme omfangsforbehold som IfcFurnishingElement"
+- klasse: IfcGeographicElement
+  schema: [IFC4]
+  mengdetype: avhenger
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Terreng m3, vegetasjon og utstyr stk; Revit eksporterer tomta hit (én i HI90_RIE og HI90_RIV)"
+- klasse: IfcTransportElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: telleobjekt
+  ledeenhet: stk
+  kilde: utledet
+  begrunnelse: "Heis og rulletrapp er ett produkt med produkt-EPD per stk"
+- klasse: IfcVirtualElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "SKIP_ENTITIES og EKSKLUDERTE_KLASSER; ingen fysisk mengde"
+- klasse: IfcProxy
+  schema: [IFC4, IFC2X3]
+  mengdetype: avhenger
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Plassholder uten klasse; avgjøres av ProxyType, typenavn og geometri"
+- klasse: IfcAnnotation
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "SKIP_ENTITIES og EKSKLUDERTE_KLASSER; påskrift, ingen mengde"
+- klasse: IfcGrid
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "SKIP_ENTITIES og EKSKLUDERTE_KLASSER; aksesystem, ingen mengde"
+- klasse: IfcDistributionPort
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "SKIP_ENTITIES og EKSKLUDERTE_KLASSER; tilkoblingspunkt, ingen mengde"
+
+# ---- Hulltaking og features (IfcFeatureElement) ----
+
+- klasse: IfcOpeningElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "SKIP_ENTITIES og EKSKLUDERTE_KLASSER; hullet er fradrag i moderelementet"
+- klasse: IfcOpeningStandardCase
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "Arver IfcOpeningElement (SKIP_ENTITIES)"
+- klasse: IfcProjectionElement
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "EKSKLUDERTE_KLASSER (IfcFeatureElement, is_a); hull og påbygg er ikke egne mengder"
+- klasse: IfcSurfaceFeature
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "EKSKLUDERTE_KLASSER (IfcFeatureElement, is_a); hull og påbygg er ikke egne mengder"
+- klasse: IfcVoidingFeature
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "EKSKLUDERTE_KLASSER (IfcFeatureElement, is_a); hull og påbygg er ikke egne mengder"
+
+# ---- Romlig struktur (IfcSpatialElement) ----
+
+- klasse: IfcSite
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "EKSKLUDERTE_KLASSER; romlig struktur, ingen fysisk mengde"
+- klasse: IfcBuilding
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "EKSKLUDERTE_KLASSER; romlig struktur, ingen fysisk mengde"
+- klasse: IfcBuildingStorey
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "EKSKLUDERTE_KLASSER; romlig struktur, ingen fysisk mengde"
+- klasse: IfcSpace
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: eksisterende_regel
+  begrunnelse: "SKIP_ENTITIES og EKSKLUDERTE_KLASSER; rom, ingen fysisk mengde"
+- klasse: IfcSpatialZone
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Romlig sone, ingen fysisk mengde"
+- klasse: IfcExternalSpatialElement
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Uterom, ingen fysisk mengde"
+
+# ---- Analysemodell (IfcStructuralItem, IfcStructuralActivity) ----
+
+- klasse: IfcStructuralCurveAction
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralCurveConnection
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralCurveMember
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralCurveMemberVarying
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralCurveReaction
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralLinearAction
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralPlanarAction
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralPointAction
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralPointConnection
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralPointReaction
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralSurfaceAction
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralSurfaceConnection
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralSurfaceMember
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralSurfaceMemberVarying
+  schema: [IFC4, IFC2X3]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
+- klasse: IfcStructuralSurfaceReaction
+  schema: [IFC4]
+  mengdetype: ikke_relevant
+  ledeenhet: null
+  kilde: utledet
+  begrunnelse: "Analysemodell (statikk), ingen fysisk mengde; den fysiske mengden ligger på IfcBeam, IfcColumn, IfcSlab"
