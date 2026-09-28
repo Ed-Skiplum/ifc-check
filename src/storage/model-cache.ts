@@ -70,8 +70,13 @@ import { ask, BOARD, DROPKEYS, META, MODELS, transact } from "./idb.ts";
  * LongNames read from the STEP bytes at parse (the Rom tab groups by them). A
  * format-4 record has none, and a restored schedule would group by Name
  * alone, which on HI90_ARK is empty on every space.
+ *
+ * 6 (2026-09-28): the graph carries `body_declared`, the Body declarations
+ * of the elements that streamed no mesh, read from the STEP bytes at parse
+ * (`body-no-mesh`). A format-5 record has none, and a restored board would
+ * report that check as not read for a file the parse path answers.
  */
-export const CACHE_FORMAT = 5;
+export const CACHE_FORMAT = 6;
 
 /**
  * The ceiling, and why it is where it is.

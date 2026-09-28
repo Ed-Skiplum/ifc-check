@@ -85,6 +85,7 @@ const STRINGS = {
   "check.element-material": { nb: "Materiale", en: "Material" },
   "check.mesh-placement": { nb: "Plassering", en: "Placement" },
   "check.storey-config": { nb: "Etasjeoppsett", en: "Storey setup" },
+  "check.body-no-mesh": { nb: "Mangler mesh", en: "Missing mesh" },
 
   /* ---------------------------------------------------------------- tiles */
   "tile.verify": { nb: "Verifikasjon", en: "Verification" },
@@ -223,6 +224,22 @@ const STRINGS = {
   "trace.notes": { nb: "Forbehold", en: "Caveats" },
   "trace.reason": { nb: "Begrunnelse", en: "Reason" },
   "trace.rule": { nb: "Regel", en: "Rule" },
+
+  /* ------------------------------------- ifcopenshell (body-no-mesh check) */
+  "ifcos.verify": { nb: "Verifiser med ifcopenshell", en: "Verify with ifcopenshell" },
+  "ifcos.loading": { nb: "Laster ifcopenshell", en: "Loading ifcopenshell" },
+  "ifcos.running": { nb: "Kjører ifcopenshell", en: "Running ifcopenshell" },
+  "ifcos.failed": { nb: "ifcopenshell feilet", en: "ifcopenshell failed" },
+  "ifcos.noFile": { nb: "IFC-filen er ikke åpnet i denne økten", en: "IFC file not open in this session" },
+  "ifcos.geometry": { nb: "ifcopenshell fant geometri", en: "ifcopenshell found geometry" },
+  "ifcos.none": { nb: "ifcopenshell fant ingen geometri", en: "ifcopenshell found no geometry" },
+  "ifcos.error": { nb: "ifcopenshell-feil", en: "ifcopenshell error" },
+  "ifcos.vertices": { nb: "punkter", en: "vertices" },
+  "ifcos.faces": { nb: "flater", en: "faces" },
+  "ifcos.issue.new": { nb: "Ny ifcfast-sak", en: "New ifcfast issue" },
+  "ifcos.issue.open": { nb: "ifcfast-sak", en: "ifcfast issue" },
+  "ifcos.issue.searching": { nb: "Søker i ifcfast-saker", en: "Searching ifcfast issues" },
+  "ifcos.issue.searchFailed": { nb: "Søk feilet", en: "Search failed" },
 
   /* ----------------------------------------------------------- type ledger */
   // Column heads that are IFC ATTRIBUTE NAMES stay verbatim in both languages:

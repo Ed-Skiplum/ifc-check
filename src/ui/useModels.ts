@@ -58,6 +58,7 @@ import { collectBoxes, unshiftBoxes, type ElementBox } from "../engine/placement
 import type { RestoreWorkerRequest } from "../storage/restore-worker";
 import type { ModelProfile } from "./profile";
 import type { ModelWorkerResponse } from "./model-worker";
+import { clearIfcosRun } from "./ifcos-verify";
 import type { ElementQuantity } from "../engine/quantities";
 
 export type FileState = "queued" | "parsing" | "ready" | "failed";
@@ -110,6 +111,10 @@ export interface ModelEntry {
    *  BaseQuantities alone, then once more when the geometry pass completes.
    *  The Typer type page folds them per type. */
   elementQuantities?: { byGuid: Record<string, ElementQuantity>; complete: boolean };
+  /** The dropped file itself, a handle and not its bytes: `body-no-mesh`
+   *  hands it to ifcopenshell on demand (`ifcos-verify.ts`). Absent on a model
+   *  restored from the cache, which this session never had the file for. */
+  file?: File;
 }
 
 const MAX_CONCURRENT = Math.min(4, Math.max(1, (navigator.hardwareConcurrency ?? 4) - 1));
@@ -241,6 +246,7 @@ function createController(setModels: SetModels): Controller {
     drafts.delete(id);
     feeds.delete(id);
     fedAt.delete(id);
+    clearIfcosRun(id);
   }
 
   /** Hand the worker the next batch to measure, or the closing null. */
@@ -550,7 +556,7 @@ function createController(setModels: SetModels): Controller {
           // Dropping it on the floor is how a user ends up staring at a screen
           // that did nothing and does not say why.
           state: accepted ? "queued" : "failed",
-          ...(accepted ? {} : { rejected: true }),
+          ...(accepted ? { file } : { rejected: true }),
         };
         live.add(entry.id);
         order.push(entry.id);

@@ -109,6 +109,10 @@ const REASONS: Record<ReasonCode, Record<Lang, Render>> = {
     nb: (p) => `${p.count} etasjer, etasjeoppsettet har ${p.config}`,
     en: (p) => `${p.count} storeys, config has ${p.config}`,
   },
+  "body-no-mesh": {
+    nb: (p) => `${p.identifier} ${p.type} (${p.items}), ingen mesh`,
+    en: (p) => `${p.identifier} ${p.type} (${p.items}), no mesh`,
+  },
 };
 
 export function reasonText(finding: Finding, lang: Lang): string {
