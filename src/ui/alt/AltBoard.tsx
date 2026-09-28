@@ -48,7 +48,8 @@ import { VERDICT_GLYPH } from "../state-visuals";
 import { boardCards, claimedChecks } from "../board-data";
 import { REQ_GROUPS, requirementRowIds, requirements, type Requirement } from "../requirements";
 import { ReqBlock, ReqCard, ReqPanel, ReqRow, ReqSection } from "./Requirements";
-import { CodeTreemap, MmiChart } from "./Charts";
+import { CodeTreemap, MeasureSwitch, MmiChart } from "./Charts";
+import type { Measure } from "../../engine/quantities";
 import { treeTitle } from "./req-view";
 import {
   MG_GAP,
@@ -161,7 +162,12 @@ export function AltBoard(props: AltBoardProps) {
     if (selectionKey) setPrefer("detail");
   }, [selectionKey]);
 
-  const bodies = layout ? tileBodies(props, reqs, counts, layout) : null;
+  // Antall / Volum / Areal per treemap. A measure still waiting on the
+  // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
+  const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
+  const bodies = layout
+    ? tileBodies(props, reqs, counts, layout, measure, (axis, m) => setMeasure((prev) => ({ ...prev, [axis]: m })))
+    : null;
 
   return (
     <div ref={ref} className="w-full min-w-0" style={VARS}>
@@ -196,6 +202,9 @@ export function AltBoard(props: AltBoardProps) {
 interface TileBody {
   label?: string;
   sub?: string;
+  /** Controls at the head's end (the treemaps' measure switch), in place of
+   *  `sub`. */
+  head?: ReactNode;
   body: ReactNode;
   /** Bare: no head, the body is the whole tile. */
   bare?: boolean;
@@ -231,7 +240,7 @@ function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefe
       style={{ gridColumn: `${place.x + 1} / span ${place.w}`, gridRow: `${place.y + 1} / span ${place.h}` }}
     >
       {tabbed ? (
-        <div className="alt-head flex shrink-0 items-center gap-1 overflow-x-auto px-2" style={{ height: MG_HEAD }}>
+        <div className="alt-head relative flex shrink-0 items-center gap-1 overflow-x-auto px-2" style={{ height: MG_HEAD }}>
           {tabs.map((id) => {
             const b = id === place.id ? own : bodies(id);
             return (
@@ -249,13 +258,19 @@ function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefe
           })}
         </div>
       ) : body.bare ? null : (
-        <div className="alt-head flex shrink-0 items-center gap-2 px-3" style={{ height: MG_HEAD }}>
+        <div className="alt-head relative flex shrink-0 items-center gap-2 px-3" style={{ height: MG_HEAD }}>
           {body.label ? <span className="alt-label truncate">{body.label}</span> : null}
-          {body.sub ? (
+          {body.head ?? null}
+          {!body.head && body.sub ? (
             <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted">{body.sub}</span>
           ) : null}
         </div>
       )}
+      {tabbed && body.head ? (
+        // A tab strip has no room left at its end: the head's controls get
+        // their own thin row under it.
+        <div className="relative flex h-7 shrink-0 items-center px-2">{body.head}</div>
+      ) : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body.body}</div>
     </section>
   );
@@ -263,7 +278,14 @@ function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefe
 
 /* ── bodies ─────────────────────────────────────────────────────────────── */
 
-function tileBodies(props: AltBoardProps, reqs: Requirement[], counts: KpiCard[], layout: MgLayout): Bodies {
+function tileBodies(
+  props: AltBoardProps,
+  reqs: Requirement[],
+  counts: KpiCard[],
+  layout: MgLayout,
+  measure: { system: Measure; function: Measure },
+  onMeasure: (axis: "system" | "function", m: Measure) => void,
+): Bodies {
   const { design, lang, model, selected, onFocus, view, matched, onPick, onHover } = props;
   const door = { lang, model, selected, onFocus };
   const board = model.board;
@@ -303,12 +325,22 @@ function tileBodies(props: AltBoardProps, reqs: Requirement[], counts: KpiCard[]
         body: <MmiChart req={mmi} {...door} />,
       };
     }
-    const tree = board?.trees[id === "tree-system" ? "system" : "function"];
+    const axis = id === "tree-system" ? "system" : "function";
+    const tree = board?.trees[axis];
     if (!tree) return null;
     return {
       label: t(treeTitle(tree), lang),
-      sub: formatCount(tree.n, lang),
-      body: <CodeTreemap tree={tree} {...door} />,
+      head: (
+        <MeasureSwitch
+          tree={tree}
+          measures={board?.measures}
+          progress={model.measureProgress}
+          measure={measure[axis]}
+          onMeasure={(m) => onMeasure(axis, m)}
+          lang={lang}
+        />
+      ),
+      body: <CodeTreemap tree={tree} measure={measure[axis]} measures={board?.measures} {...door} />,
     };
   };
 
@@ -373,7 +405,7 @@ function tileBodies(props: AltBoardProps, reqs: Requirement[], counts: KpiCard[]
                 const body = chart(c);
                 return body ? (
                   <div key={c} data-inline-chart={c} className="flex shrink-0 flex-col">
-                    <GroupHead label={body.label ?? ""} sub={body.sub} />
+                    <GroupHead label={body.label ?? ""} sub={body.sub} extra={body.head} />
                     <div className="flex h-64 shrink-0 flex-col">{body.body}</div>
                   </div>
                 ) : null;
@@ -462,11 +494,12 @@ function Secondary(props: AltBoardProps & { reqs: Requirement[]; counts: KpiCard
   );
 }
 
-function GroupHead({ label, sub }: { label: string; sub?: string }) {
+function GroupHead({ label, sub, extra }: { label: string; sub?: string; extra?: ReactNode }) {
   return (
     <div className="alt-group-head sticky top-0 z-20 flex h-8 shrink-0 items-center gap-2 px-3">
       <span className="alt-label truncate">{label}</span>
-      {sub ? <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted">{sub}</span> : null}
+      {extra ?? null}
+      {!extra && sub ? <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted">{sub}</span> : null}
     </div>
   );
 }

@@ -59,8 +59,14 @@ import { ask, BOARD, DROPKEYS, META, MODELS, transact } from "./idb.ts";
  * record has none, and restoring it would turn that check into "not supplied"
  * for a file the parse path answers in full. `validate` also refuses a record
  * without the table.
+ *
+ * 4 (2026-09-28): the graph carries `quantity_units`, the area and volume
+ * units the BaseQuantities are in, read from the STEP bytes at parse. A
+ * format-3 record has none, and a restored treemap would then drop every
+ * BaseQuantity for the computed estimate. Absent stays legal in a format-4
+ * record: an ifczip's units are not read.
  */
-export const CACHE_FORMAT = 3;
+export const CACHE_FORMAT = 4;
 
 /**
  * The ceiling, and why it is where it is.

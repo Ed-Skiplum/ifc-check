@@ -94,6 +94,9 @@ export interface ModelEntry {
   evaluation?: ModelResult;
   evaluationError?: string;
   evaluating?: boolean;
+  /** The treemap measures' geometry pass: batches measured of those handed
+   *  back, refreshed with the measures (throttled). Absent before it starts. */
+  measureProgress?: { done: number; total: number; complete: boolean };
 }
 
 const MAX_CONCURRENT = Math.min(4, Math.max(1, (navigator.hardwareConcurrency ?? 4) - 1));
@@ -164,6 +167,12 @@ function createController(setModels: SetModels): Controller {
    *  are in the store, so a board record never points at nothing. */
   const keys = new Map<string, string>();
   const drafts = new Map<string, Draft>();
+  /** The batches handed back to the worker for the treemap measures
+   *  (`measure-state.ts`): the viewer's own arrays, copied one batch per
+   *  message, the next only once the worker has answered. `fedAt` is the
+   *  next batch index; one past the end is the closing null. */
+  const feeds = new Map<string, MeshBatch[]>();
+  const fedAt = new Map<string, number>();
   let active = 0;
   let counter = 0;
   let ruleset: Ruleset | null = null;
@@ -215,6 +224,31 @@ function createController(setModels: SetModels): Controller {
     workers.delete(id);
     meshes.delete(id);
     drafts.delete(id);
+    feeds.delete(id);
+    fedAt.delete(id);
+  }
+
+  /** Hand the worker the next batch to measure, or the closing null. */
+  function feed(id: string, worker: Worker) {
+    const batches = feeds.get(id);
+    if (!batches) return;
+    const at = fedAt.get(id) ?? 0;
+    if (at > batches.length) {
+      feeds.delete(id);
+      fedAt.delete(id);
+      return;
+    }
+    fedAt.set(id, at + 1);
+    const b = at < batches.length ? batches[at] : null;
+    worker.postMessage({
+      kind: "measure",
+      total: batches.length,
+      batch: b && {
+        meta: b.meta.map((m) => ({ guid: m.guid, v0: m.v0, vn: m.vn, i0: m.i0, in: m.in })),
+        positions: b.positions,
+        indices: b.indices,
+      },
+    });
   }
 
   function ask(id: string, worker: Worker) {
@@ -282,6 +316,28 @@ function createController(setModels: SetModels): Controller {
           commit(id);
         }
         ask(id, worker);
+        // The board is on screen; the geometric measures follow behind it.
+        feed(id, worker);
+      } else if (message.kind === "measured") {
+        if (message.complete || message.base) {
+          const base = message.base;
+          const current = message.current;
+          const progress = { ...message.progress, complete: message.complete };
+          setModels((all) =>
+            all.map((m) => {
+              if (m.id !== id) return m;
+              if (!base) return { ...m, measureProgress: progress };
+              const baseBoard = m.baseBoard && { ...m.baseBoard, measures: base };
+              const board =
+                m.board === m.baseBoard ? baseBoard : m.board && current ? { ...m.board, measures: current } : m.board;
+              return { ...m, measureProgress: progress, baseBoard, board };
+            }),
+          );
+        }
+        if (message.complete) {
+          feeds.delete(id);
+          fedAt.delete(id);
+        } else feed(id, worker);
       } else if (message.kind === "parse-error") {
         release();
         dispose(id);
@@ -299,6 +355,7 @@ function createController(setModels: SetModels): Controller {
           meshError: undefined,
         });
         meshes.delete(id);
+        feeds.set(id, batches);
         const draft = drafts.get(id);
         if (draft) {
           draft.mesh = { batches, shift: message.shift, budget: message.budget };
@@ -307,6 +364,9 @@ function createController(setModels: SetModels): Controller {
         }
       } else if (message.kind === "mesh-error") {
         meshes.delete(id);
+        // No geometry: the pass closes at once, and every element without a
+        // BaseQuantity is missing.
+        feeds.set(id, []);
         patch(id, { meshError: message.message });
         const draft = drafts.get(id);
         if (draft) {
@@ -352,6 +412,7 @@ function createController(setModels: SetModels): Controller {
       });
       workers.set(id, worker);
       attach(id, worker, () => {});
+      feeds.set(id, record.mesh?.batches ?? []);
 
       if (record.mesh !== null) {
         patch(id, {
@@ -562,6 +623,8 @@ function createController(setModels: SetModels): Controller {
       live.clear();
       meshes.clear();
       drafts.clear();
+      feeds.clear();
+      fedAt.clear();
       order.length = 0;
       keys.clear();
       for (const id of [...workers.keys()]) dispose(id);

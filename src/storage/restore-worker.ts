@@ -29,6 +29,7 @@ import { profileOf } from "./rehydrate.ts";
 // or the type ledger renders dead on exactly the path the cache exists for.
 import { withTypeFacts } from "../ui/types/facts.ts";
 import { boardData } from "../ui/report-rows.ts";
+import { MeasureChannel, MeasureState, type MeasureBatch } from "../ui/measure-state.ts";
 
 export type RestoreWorkerRequest =
   | {
@@ -47,13 +48,15 @@ export type RestoreWorkerRequest =
       boxes: Map<string, ElementBox> | null;
       noGeometry?: string;
     }
-  | { kind: "evaluate"; ruleset: Ruleset };
+  | { kind: "evaluate"; ruleset: Ruleset }
+  | { kind: "measure"; batch: MeasureBatch | null; total: number };
 
 let heldGraph: IfcGraph | null = null;
 let heldSummary: IfcSummary | null = null;
 let heldName = "";
 let heldBoxes: Map<string, ElementBox> | null = null;
 let heldNoGeometry: string | undefined;
+let measures: MeasureChannel | null = null;
 
 const post = self.postMessage.bind(self) as (message: ModelWorkerResponse) => void;
 
@@ -64,6 +67,9 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
     heldName = request.fileName;
     heldBoxes = request.boxes;
     heldNoGeometry = request.noGeometry;
+    // The cached batches come back one at a time (`measure`), as on the
+    // parse path; this worker never holds them.
+    measures = new MeasureChannel(new MeasureState(request.graph));
 
     const report: ModelReport = {
       fileName: request.fileName,
@@ -80,7 +86,7 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
       kind: "parsed",
       report,
       profile: withTypeFacts(profileOf(request.graph), request.graph),
-      board: boardData(request.graph, request.summary, request.fileName, report.checks, null, null),
+      board: measures.baseBoard(boardData(request.graph, request.summary, request.fileName, report.checks, null, null)),
     });
   } catch (err) {
     // A restore that cannot be completed fails as loudly as a parse that
@@ -109,7 +115,8 @@ function evaluate(ruleset: Ruleset) {
       checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded, heldNoGeometry),
     ];
-    const board = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
+    const built = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
+    const board = measures ? measures.currentBoard(built) : built;
     post({ kind: "evaluated", result, checks, board });
   } catch (err) {
     post({
@@ -122,5 +129,7 @@ function evaluate(ruleset: Ruleset) {
 self.onmessage = (event: MessageEvent<RestoreWorkerRequest>) => {
   const message = event.data;
   if (message.kind === "restore") restore(message);
-  else evaluate(message.ruleset);
+  else if (message.kind === "measure") {
+    if (measures) post(measures.feed(message.batch, message.total));
+  } else evaluate(message.ruleset);
 };

@@ -15,6 +15,7 @@ import { codeLookupSubjects, type ModelResult } from "../ids/evaluate.ts";
 import type { ExtendedRule, MappingRole, Ruleset } from "../ids/types.ts";
 import type { ModelGraph } from "../ids/model.ts";
 import { CODE_LISTS } from "../codelists/index.ts";
+import type { BoardMeasures } from "./measure-state.ts";
 
 export interface BoardData {
   rows: ReportRow[];
@@ -22,6 +23,9 @@ export interface BoardData {
    *  objects that carry it, so a value in a fordeling is a door. */
   values: Record<string, [string | null, string[]][]>;
   trees: { system: CodeTree; function: CodeTree };
+  /** Volume and area per tree node (`measure-state.ts`), attached by the
+   *  worker and refreshed as the geometry pass measures. Absent until then. */
+  measures?: BoardMeasures;
 }
 
 export function mappingRule(ruleset: Ruleset | null | undefined, role: MappingRole): ExtendedRule | null {

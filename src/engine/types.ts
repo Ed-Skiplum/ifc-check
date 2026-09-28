@@ -6,6 +6,8 @@
  * the JSON payloads are untyped there.
  */
 
+import type { QuantityUnits } from "./quantities.ts";
+
 export interface ProductRow {
   guid: string;
   entity: string;
@@ -160,6 +162,12 @@ export interface IfcGraph {
    *  Materiale / Produkt report row read it. Absent = not supplied, and both
    *  say so rather than count layer-set materials alone (#5). */
   materials?: MaterialRow[];
+  /** The project's area and volume units (`quantityUnits`, read from the
+   *  STEP bytes by the parse worker), which `quantities` values are in. No
+   *  wasm accessor gives them. Absent = not read (a CLI, an ifczip): the
+   *  BaseQuantities are then not used for the treemap measures, never read
+   *  as if they were metres. */
+  quantity_units?: QuantityUnits;
 }
 
 /** One material assignment row — `materialsJson()`, long format.

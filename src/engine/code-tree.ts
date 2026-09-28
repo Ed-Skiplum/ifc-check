@@ -9,7 +9,8 @@
  * and its report row count, so a cell and the requirement's fordeling agree.
  *
  *   system    the `system-classification` code (NS 3451), nested by level
- *             (2 → 22 → 226). With no mapping: IFC class, then type name.
+ *             (2 → 22 → 226). With no mapping: IFC class, one level, no
+ *             further split.
  *   function  the `component-classification` code (NS 3457-8), nested by
  *             level (Q → QL → QLD). An object with no code falls back to its
  *             PredefinedType, as its own kind of cell (`fallback`), never
@@ -125,16 +126,10 @@ export function systemTree(
 ): CodeTree {
   const top = new Map<string, Draft>();
   if (readings === null) {
-    for (const o of objects) {
-      const klass = add(top, `class:${o.entity}`, () => draft(`class:${o.entity}`, o.entity, null, "class"), o.guid);
-      const typeKey = `class:${o.entity}/type:${o.typeName ?? ""}`;
-      add(
-        klass.kids,
-        typeKey,
-        () => (o.typeName ? draft(typeKey, o.typeName, null, "type") : draft(typeKey, null, null, "missing")),
-        o.guid,
-      );
-    }
+    // One level, the class only (edkjo 2026-09-28: *"the treemap is doing a
+    // split by ifcentity that I dont want"*). The type-name level under each
+    // class is gone.
+    for (const o of objects) add(top, `class:${o.entity}`, () => draft(`class:${o.entity}`, o.entity, null, "class"), o.guid);
     return { axis: "system", by: "ifc-class", n: objects.length, root: finish(top) };
   }
   for (const r of readings) {

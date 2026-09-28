@@ -19,6 +19,11 @@ export function formatCount(value: number, lang: Lang): string {
   return value.toLocaleString(locale(lang));
 }
 
+/** A volume or an area with its SI symbol: one decimal under 10, else whole. */
+export function formatQuantity(value: number, unit: "m³" | "m²", lang: Lang): string {
+  return `${value.toLocaleString(locale(lang), { maximumFractionDigits: value < 10 ? 1 : 0 })} ${unit}`;
+}
+
 export function formatMs(ms: number, lang: Lang): string {
   return `${Math.round(ms).toLocaleString(locale(lang))} ms`;
 }

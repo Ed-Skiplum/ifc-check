@@ -992,8 +992,8 @@ async function cmdSelftest(): Promise<number> {
     record("code tree: a code cell carries its list name", "Bæresystemer", sys.root[0].children[0].name ?? "");
     const byClass = systemTree(objects, null, {});
     record(
-      "code tree: no mapping groups by IFC class, then type name",
-      "class:IfcSlab=2(class:IfcSlab/type:S1=1 class:IfcSlab/type:=1) class:IfcWall=2(class:IfcWall/type:W1=2)",
+      "code tree: no mapping groups by IFC class, one level, no entity or type split under it",
+      "class:IfcSlab=2 class:IfcWall=2",
       describe(byClass.root),
     );
     const fn = functionTree(
@@ -1012,6 +1012,91 @@ async function cmdSelftest(): Promise<number> {
       fn.root.map((n) => `${describe([n])}:${n.kind}`).join(" "),
     );
     record("code tree: leaf counts sum to the objects handed in", "4,4,4", [leaves(sys.root), leaves(byClass.root), leaves(fn.root)].join(","));
+
+    // The treemap measures (src/engine/quantities.ts).
+    const step = new TextEncoder().encode(
+      [
+        "#1=IFCPROJECT('g',#2,'P',$,$,$,$,(#9),#10);",
+        "#3=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);",
+        "#4=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);",
+        "#5=IFCSIUNIT(*,.VOLUMEUNIT.,.MILLI.,.CUBIC_METRE.);",
+        "#6=IFCSIUNIT(*,.AREAUNIT.,.CENTI.,.SQUARE_METRE.);",
+        "#7=IFCCONVERSIONBASEDUNIT(#8,.AREAUNIT.,'square foot',#11);",
+        "#10=IFCUNITASSIGNMENT((#3,#4,#5));",
+      ].join("\n"),
+    );
+    // A 40-byte chunk forces statements across chunk edges.
+    const units = quantityUnits(step, 40);
+    record(
+      "quantities: project units resolve with their prefix (MILLI CUBIC_METRE = 1e-9 m³), a conversion unit does not",
+      "1,1e-9,0.0001,null",
+      [units.area, units.volume, units.byId["6"]?.factor, units.byId["7"]?.factor].map(String).join(","),
+    );
+    const q = (guid: string, qto_name: string, quantity_name: string, value: string, type: string, source = "instance", unit: number | null = null) => ({
+      guid, qto_name, quantity_name, value, quantity_type: type, unit_step_id: unit, source,
+    });
+    const qto = qtoQuantities(
+      [
+        q("w", "Qto_WallBaseQuantities", "GrossVolume", "3000000000", "Volume"),
+        q("w", "Qto_WallBaseQuantities", "NetVolume", "2000000000", "Volume"),
+        q("w", "Qto_WallBaseQuantities", "NetArea", "9", "Area"),
+        q("w", "Qto_WallBaseQuantities", "NetSideArea", "10", "Area", "type"),
+        q("w", "Qto_WallBaseQuantities", "NetSideArea", "12", "Area"),
+        q("s", "BaseQuantities", "GrossArea", "50000", "Area", "instance", 6),
+        q("s", "BaseQuantities", "NetArea", "0", "Area"),
+        q("s", "Pset_Custom", "NetVolume", "5", "Volume"),
+        q("f", "Qto_WallBaseQuantities", "NetArea", "3", "Area", "instance", 7),
+      ],
+      new Map([["w", "IfcWall"], ["s", "IfcSlab"], ["f", "IfcSlab"]]),
+      units,
+    );
+    const pk = (p: { value: number; name: string } | null | undefined) => (p ? `${p.name}=${+p.value.toPrecision(6)}` : "-");
+    record(
+      "quantities: precedence (net before gross, instance before type, per-class area), unit scale, skips",
+      "w:NetVolume=2,NetSideArea=12 s:-,GrossArea=5 f:absent",
+      `w:${pk(qto.get("w")?.volume)},${pk(qto.get("w")?.area)} s:${pk(qto.get("s")?.volume)},${pk(qto.get("s")?.area)} f:${qto.has("f") ? "present" : "absent"}`,
+    );
+    // A 2 x 3 x 4 box, flat-shaded: 24 vertices, every corner repeated per face.
+    const corners = [
+      [0, 0, 0], [2, 0, 0], [2, 3, 0], [0, 3, 0], [0, 0, 4], [2, 0, 4], [2, 3, 4], [0, 3, 4],
+    ];
+    const faces = [
+      [0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7],
+    ];
+    const pos: number[] = [9, 9, 9]; // one foreign vertex first: v0 is not 0
+    const idx: number[] = [];
+    for (const f of faces) {
+      const base = pos.length / 3;
+      for (const c of f) pos.push(...corners[c]);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+    const box = meshMeasure(new Float32Array(pos), new Uint32Array(idx), 1, 24, 0, 36);
+    record("quantities: a closed box's volume by signed tetrahedra, area as its largest face direction", "true,24,12", `${box.closed},${box.volume},${box.area}`);
+    const open = meshMeasure(new Float32Array(pos), new Uint32Array(idx.slice(0, 30)), 1, 24, 0, 30);
+    record("quantities: an open mesh has no volume and no area, never zero", "false,null,null", `${open.closed},${open.volume},${open.area}`);
+    const tree = systemTree(
+      [
+        { guid: "w", entity: "IfcWall", typeName: null, predefinedType: null },
+        { guid: "b", entity: "IfcWall", typeName: null, predefinedType: null },
+        { guid: "o", entity: "IfcWall", typeName: null, predefinedType: null },
+        { guid: "n", entity: "IfcWall", typeName: null, predefinedType: null },
+      ],
+      null,
+      {},
+    );
+    const meshes = new Map([
+      ["b", box],
+      ["o", open],
+    ]);
+    const running = measureTree(tree, qto, { byGuid: meshes, complete: false });
+    const done = measureTree(tree, qto, { byGuid: meshes, complete: true });
+    record(
+      "quantities: the fold keeps Qto, computed, missing and pending apart; an element with no mesh is missing once complete",
+      "run v 1/1/1/1 · done v 1/1/2/0 · node 26,2,24,2",
+      `run v ${running.volume.qto}/${running.volume.computed}/${running.volume.missing}/${running.volume.pending} · ` +
+        `done v ${done.volume.qto}/${done.volume.computed}/${done.volume.missing}/${done.volume.pending} · ` +
+        `node ${done.nodes["class:IfcWall"].map((x) => +x.toPrecision(6)).join(",")}`,
+    );
   }
 
   // Gap 2, the IFC-skjema allowlist. The fold matches HI90's skjema_grunn:

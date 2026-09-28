@@ -312,6 +312,8 @@ const STRINGS = {
   "req.av": { nb: "av", en: "of" },
   "req.avvik": { nb: "avvik", en: "deviating" },
   "req.mangler": { nb: "mangler", en: "missing" },
+  "measure.volume": { nb: "Volum", en: "Volume" },
+  "measure.area": { nb: "Areal", en: "Area" },
   "req.gjelderIkke": { nb: "gjelder ikke", en: "not applicable" },
   "req.aapen": { nb: "åpen", en: "open" },
   "req.unike": { nb: "unike verdier", en: "unique values" },

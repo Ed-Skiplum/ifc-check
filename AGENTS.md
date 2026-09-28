@@ -21,8 +21,12 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   report.ts      the report contract: one row per requirement × model
                  (see "Report contract")
   code-tree.ts   the board's two code treemaps as data: system (NS 3451, or
-                 IFC class then type) and function (NS 3457-8, PredefinedType
+                 IFC class, one level) and function (NS 3457-8, PredefinedType
                  as a marked fallback); pure, selftested
+  quantities.ts  the treemaps' Volum / Areal: project units from the STEP
+                 bytes, BaseQuantities by precedence, closed-mesh volume and
+                 face-direction area, the fold onto a tree; pure, selftested
+                 (see "Treemap measures")
   standard-layer.ts  the `ifc-schema`, `phase` and `material-product` report rows, with the
                  ruleset's `projectLayer` on top (see "The standard layer")
   storey-config.ts  `storey-config`: file storeys against the ruleset's floor
@@ -66,6 +70,8 @@ src/ui/requirements.ts  the report's eleven requirements, in its order, over
                  the report contract rows (see "Round two" below)
 src/ui/report-rows.ts   what the workers build for the board: the contract
                  rows, per-value doors of the mapping rows, the two treemaps
+src/ui/measure-state.ts the treemap measures held in either worker, fed the
+                 mesh batches one at a time after the board is posted
 src/ui/board-doors.ts   the elements behind a requirement, a value or a cell
 src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
@@ -1509,6 +1515,96 @@ model per file (krav.yaml `kopi_eier`), which a copy-object code list cannot
 say. On HI90_ARK: NS 3451 fail (2 294 ok, 431 avvik, 413 mangler of 3 138),
 NS 3457-8 all mangler, MMI 134 on the list, 2 591 «Status ikke satt», 413
 mangler.
+
+### Treemap measures: Antall / Volum / Areal (2026-09-28)
+
+Owner: *"the treemap is doing a split by ifcentity that I dont want. Go by
+count, volume and area. Base quantities if possible, calculated if not. But
+make sure we dont hold the entire dataset while waiting for the geometry
+analysis - output the dash and then let the geometric analysis happen in the
+background."*
+
+**The entity split.** It was the unconfigured system tree: IFC class, then
+type name under each class (`systemTree` with no mapping). It is one level
+now, the class only; the code trees (NS 3451 2 → 24 → 243, NS 3457-8 Q → QL
+→ QLD) are unchanged and never had an entity level. With no
+`system-classification` mapping the class IS the only grouping, by his
+earlier spec (*"defaults to ifctype/class"*).
+
+**The switch.** Antall · Volum · Areal (`col.count`, `measure.volume`,
+`measure.area`) in the treemap tile's head; in a tabbed tile, whose head is
+the tab strip, in a thin row under it. Under a Volum or Areal map one mono
+line gives the source split, the non-zero parts of «Qto n · beregnet n ·
+mangler n». A cell's size is its summed value; a node whose every element is
+missing has no area on screen and is counted in «mangler», never drawn as 0.
+
+**Precedence (`src/engine/quantities.ts`).** Only `BaseQuantities` and
+`Qto_*BaseQuantities` sets; instance rows before type rows at each name; a
+value that does not parse, is not > 0, or whose unit does not resolve is
+skipped and the next name tried.
+
+| | names, first found wins |
+|---|---|
+| volume, every class | NetVolume, GrossVolume, Volume |
+| area, IfcWall(StandardCase/ElementedCase), IfcCurtainWall | NetSideArea, GrossSideArea, NetArea, GrossArea, Area |
+| area, IfcSpace | NetFloorArea, GrossFloorArea, NetArea, GrossArea, Area |
+| area, IfcBeam, IfcColumn, IfcMember (+StandardCase), IfcPile | NetSurfaceArea, GrossSurfaceArea, OuterSurfaceArea, NetArea, GrossArea, Area |
+| area, every other class | NetArea, GrossArea, Area, NetSideArea, GrossSideArea |
+
+**Units.** No wasm accessor gives the area or volume unit (`unit_step_id` is
+a bare STEP id), so the parse worker reads them from the STEP bytes in 8 MB
+latin1 chunks (`quantityUnits`, 48 ms on HI90_ARK's 21 MB): the IfcProject's
+IfcUnitAssignment, SI prefix applied to the base (MILLI SQUARE_METRE = 1e-6
+m²), and every area / volume IfcSIUnit by id for a quantity naming its own. A
+conversion-based unit (square foot) is not resolved and its quantities are
+skipped, never read as metres; an ifczip's bytes are compressed, so its units
+stay unread. The result rides on the graph as `quantity_units`, so a restore
+has it: `CACHE_FORMAT` 4.
+
+**Computed, when no BaseQuantity.** From the streamed mesh (world metres),
+only for a CLOSED mesh: vertices welded at identical float coordinates, every
+directed edge matched by its reverse. Volume by signed tetrahedra. Area is the
+largest face direction: triangles binned by unit normal (components in steps
+of 1/20, about 3°), the largest bin's area; a wall's side, a slab's top, a
+space's floor. An estimate, always counted as «beregnet»: a curved face reads
+low, and the wasm mesh has no openings cut, so walls read gross. Chosen over
+half the surface on HI90_ARK, median computed / Qto on elements carrying
+both: slab 1.00 vs 1.04, wall 1.02 vs 1.24, space 1.17 vs 3.19, door 1.34 vs
+1.90; volume 1.00 on slabs, walls, doors, spaces, windows. No BaseQuantity and
+no closed mesh (open, or no geometry) is «mangler».
+
+**Progressive, never blocking (`src/ui/measure-state.ts`).**
+
+1. The worker posts the board with no geometric work: BaseQuantities are in
+   its `measures` at once, every other element `pending`.
+2. The main thread then hands the mesh batches it already holds for the
+   viewer back one per message (a copy, not a transfer), the next only when
+   the worker answers; the worker measures each and keeps the numbers only.
+   Batches the triangle ceiling withheld are measured in the stream callback,
+   where they are dropped anyway. The restore path feeds the cached batches
+   the same way.
+3. A closing `null` completes the pass: an element with no measure then has
+   no mesh and is missing.
+4. The worker re-folds and posts the measures at most every 250 ms and on
+   completion (`measured`), over the parsed board and the ruleset's board.
+
+Rule: Volum or Areal is enabled when its tree has no `pending` element, so a
+model whose every element carries the BaseQuantity has it with the board.
+Until then the button is disabled and a 2 px bar along the head's foot shows
+batches measured of batches handed back, no text.
+
+Measured on HI90_ARK with the fixture (headless, `tmp/treemap-measures/
+measure-hi90.ts`): at the board, volume Qto 1 170 and 1 968 pending, area Qto
+1 193 and 1 945 pending (NS 3451 tree, 3 138 objects); complete, volume Qto
+1 170 · beregnet 1 552 · mangler 416, area Qto 1 193 · beregnet 1 523 ·
+mangler 422. The whole geometric pass costs 94 ms over 12 batches and 228 523
+triangles. In a LOCAL `vite preview` build in headless Chrome
+(`tmp/treemap-measures/timing.mjs`, HEAD plus this change only, 5 runs):
+board data at 2.37 s median, painted 2.52 s, Volum and Areal enabled 2.85 s.
+HEAD alone: 3.2 s / 3.5 s on its one uncontended run; the other four ran
+while the box was loaded (mesh pass 15 to 49 s), so the before side is not a
+clean median. IfcSpace is in the treemaps' object set (`physicalProducts`), so
+on Volum the rooms (17 100 m³ of about 17 600) fill the map.
 
 ### The three alternatives (2026-09-26, on the canon)
 

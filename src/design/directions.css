@@ -356,6 +356,35 @@
   background-color: var(--color-ink);
   color: var(--color-cream);
 }
+/* The treemaps' measure switch: compact, and a measure still waiting on the
+   geometry pass is inert. The pass itself is a thin line along the head's
+   foot, no text. */
+.alt-measure {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+.alt-measure:disabled {
+  opacity: 0.38;
+  cursor: default;
+  box-shadow: none;
+}
+.alt-measure-track {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background-color: rgba(var(--d-shade), 0.08);
+  overflow: hidden;
+}
+.alt-measure-bar {
+  display: block;
+  height: 100%;
+  background-color: var(--color-ink);
+  opacity: 0.45;
+  transition: width 200ms linear;
+}
 /* The Graf tab: its dark field is the two tiles' rectangle on the grid; the
    surfaces are the tiles, rounded as every tile. */
 .alt-graf-field {

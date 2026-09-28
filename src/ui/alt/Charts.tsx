@@ -13,9 +13,11 @@ import { useLayoutEffect, useState } from "react";
 import type { CodeTree, TreeNode } from "../../engine/code-tree";
 import type { Requirement } from "../requirements";
 import type { DoorProps } from "./Requirements";
-import { t } from "../i18n";
+import { locale, t, type Lang } from "../i18n";
 import { serialiseFocus, type Focus } from "../trace";
-import { formatCount } from "../format";
+import { formatCount, formatQuantity } from "../format";
+import type { Measure, SourceSplit } from "../../engine/quantities";
+import { measureReady, type BoardMeasures } from "../measure-state";
 import { squarify, type Rect } from "./treemap";
 import { StateBadge } from "./Requirements";
 import { mmiBars, valueFocus } from "./req-view";
@@ -59,15 +61,21 @@ function collapse(node: TreeNode): TreeNode {
   return n;
 }
 
-function place(nodes: TreeNode[], rect: Rect, depth: number, out: Placed[]) {
-  const shown = nodes.map(collapse);
-  const rects = squarify(
-    shown.map((n) => n.n),
-    rect,
-  );
+/** A node's size under the chosen measure. Count is `n`; volume and area
+ *  are the node's summed known values (the worker's `measureTree`), so a
+ *  node whose every element is missing has no area on screen and is told in
+ *  the split under the map instead. */
+type ValueOf = (node: TreeNode) => number;
+
+function place(nodes: TreeNode[], rect: Rect, depth: number, out: Placed[], value: ValueOf) {
+  const shown = nodes
+    .map(collapse)
+    .filter((n) => value(n) > 0)
+    .sort((a, b) => value(b) - value(a));
+  const rects = squarify(shown.map(value), rect);
   shown.forEach((node, i) => {
     const r = rects[i];
-    const frame = node.children.length > 1 && depth < 3 && r.w > 70 && r.h > HEADER + 24;
+    const frame = node.children.filter((c) => value(c) > 0).length > 1 && depth < 3 && r.w > 70 && r.h > HEADER + 24;
     out.push({ node, rect: r, depth, frame });
     if (frame) {
       place(
@@ -75,9 +83,80 @@ function place(nodes: TreeNode[], rect: Rect, depth: number, out: Placed[]) {
         { x: r.x + PAD, y: r.y + HEADER, w: Math.max(0, r.w - 2 * PAD), h: Math.max(0, r.h - HEADER - PAD) },
         depth + 1,
         out,
+        value,
       );
     }
   });
+}
+
+/** Antall / Volum / Areal, in the tile head, with the geometry pass as a thin
+ *  bar under it while a measure still waits. */
+export function MeasureSwitch({
+  tree,
+  measures,
+  progress,
+  measure,
+  onMeasure,
+  lang,
+}: {
+  tree: CodeTree;
+  measures: BoardMeasures | undefined;
+  progress: { done: number; total: number; complete: boolean } | undefined;
+  measure: Measure;
+  onMeasure: (m: Measure) => void;
+  lang: Lang;
+}) {
+  const options: [Measure, string][] = [
+    ["count", t("col.count", lang)],
+    ["volume", t("measure.volume", lang)],
+    ["area", t("measure.area", lang)],
+  ];
+  const waiting = !measureReady(tree, measures, "volume") || !measureReady(tree, measures, "area");
+  const share = progress && progress.total > 0 ? progress.done / progress.total : 0;
+  return (
+    <>
+      <span className="ml-auto flex shrink-0 items-center gap-0.5" data-measure-switch={tree.axis}>
+        {options.map(([m, label]) => {
+          const ready = measureReady(tree, measures, m);
+          return (
+            <button
+              key={m}
+              type="button"
+              data-measure={m}
+              aria-pressed={measure === m}
+              disabled={!ready}
+              onClick={(event) => {
+                event.stopPropagation();
+                onMeasure(m);
+              }}
+              className="alt-tab alt-measure shrink-0 px-1.5 py-0.5"
+            >
+              {label}
+            </button>
+          );
+        })}
+      </span>
+      {waiting ? (
+        <span className="alt-measure-track" data-measure-progress={share.toFixed(3)}>
+          <span className="alt-measure-bar" style={{ width: `${Math.round(share * 100)}%` }} />
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** The source split under a volume or area map: Qto · beregnet · mangler,
+ *  the parts that are not zero. */
+function SourceLine({ split, lang }: { split: SourceSplit; lang: Lang }) {
+  const parts: string[] = [];
+  if (split.qto) parts.push(`Qto ${formatCount(split.qto, lang)}`);
+  if (split.computed) parts.push(`${t("object.derived", lang).toLocaleLowerCase(locale(lang))} ${formatCount(split.computed, lang)}`);
+  if (split.missing) parts.push(`${t("req.mangler", lang)} ${formatCount(split.missing, lang)}`);
+  return (
+    <div data-measure-split className="shrink-0 truncate px-2 pb-1 pt-0.5 font-mono text-[10px] tabular-nums text-muted">
+      {parts.join(" · ")}
+    </div>
+  );
 }
 
 function nodeVerdict(node: TreeNode): string | undefined {
@@ -86,19 +165,41 @@ function nodeVerdict(node: TreeNode): string | undefined {
   return undefined;
 }
 
-export function CodeTreemap({ tree, ...door }: DoorProps & { tree: CodeTree }) {
+export function CodeTreemap({
+  tree,
+  measure = "count",
+  measures,
+  ...door
+}: DoorProps & { tree: CodeTree; measure?: Measure; measures?: BoardMeasures }) {
   const { lang, selected, onFocus } = door;
   const { ref, box } = useBox();
+  const m = measure !== "count" && measureReady(tree, measures, measure) ? measures?.[tree.axis] : undefined;
+  const shown: Measure = m ? measure : "count";
+  const at = shown === "area" ? 2 : 0;
+  const value: ValueOf = m ? (node) => m.nodes[node.key]?.[at] ?? 0 : (node) => node.n;
+  const missingOf = (node: TreeNode) => (m ? (m.nodes[node.key]?.[at + 1] ?? 0) : 0);
+  const unit = shown === "area" ? "m²" : "m³";
+  const figure = (node: TreeNode) => (m ? formatQuantity(value(node), unit, lang) : formatCount(node.n, lang));
   const placed: Placed[] = [];
-  if (box && box.w > 0 && box.h > 0) place(tree.root, { x: 0, y: 0, w: box.w, h: box.h }, 0, placed);
+  if (box && box.w > 0 && box.h > 0) place(tree.root, { x: 0, y: 0, w: box.w, h: box.h }, 0, placed, value);
   const label = (node: TreeNode) =>
     node.kind === "missing" ? t("req.mangler", lang) : (node.label ?? "—");
   return (
-    <div ref={ref} data-treemap={tree.axis} className="relative min-h-0 flex-1 overflow-hidden">
+    <>
+    <div ref={ref} data-treemap={tree.axis} data-measure-shown={shown} className="relative min-h-0 flex-1 overflow-hidden">
       {placed.map(({ node, rect, depth, frame }) => {
         const focus: Focus = { kind: "tree", axis: tree.axis, key: node.key };
         const chosen = selected === serialiseFocus(focus);
-        const title = [label(node), node.name, `×${node.n}`].filter(Boolean).join(" · ");
+        const gone = missingOf(node);
+        const title = [
+          label(node),
+          node.name,
+          m ? figure(node) : null,
+          `×${node.n}`,
+          gone ? `${t("req.mangler", lang)} ${gone}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
         const small = rect.w < 44 || rect.h < 22;
         return (
           <button
@@ -127,13 +228,15 @@ export function CodeTreemap({ tree, ...door }: DoorProps & { tree: CodeTree }) {
                 ) : null}
                 <span className="truncate font-mono font-semibold">{label(node)}</span>
                 {node.name ? <span className="truncate opacity-75">{node.name}</span> : null}
-                <span className="ml-auto shrink-0 font-mono tabular-nums opacity-70">{formatCount(node.n, lang)}</span>
+                <span className="ml-auto shrink-0 font-mono tabular-nums opacity-70">{figure(node)}</span>
               </span>
             )}
           </button>
         );
       })}
     </div>
+    {m ? <SourceLine split={m[shown as "volume" | "area"]} lang={lang} /> : null}
+    </>
   );
 }
 

@@ -44,10 +44,21 @@ import { profileOf } from "../storage/rehydrate.ts";
 // board-specific payload. See `src/ui/types/facts.ts`.
 import { withTypeFacts } from "./types/facts";
 import type { ModelProfile } from "./profile";
+import { quantityUnits, type MeshMeasure } from "../engine/quantities";
+import {
+  MeasureChannel,
+  MeasureState,
+  measureInto,
+  type MeasureBatch,
+  type MeasuredMessage,
+} from "./measure-state";
 
 export type ModelWorkerRequest =
   | { kind: "parse"; fileName: string; bytes: ArrayBuffer }
-  | { kind: "evaluate"; ruleset: Ruleset };
+  | { kind: "evaluate"; ruleset: Ruleset }
+  /** One mesh batch handed back for the treemap measures, or null for "no
+   *  more" (`measure-state.ts`). */
+  | { kind: "measure"; batch: MeasureBatch | null; total: number };
 
 export type ModelWorkerResponse =
   /** `graph` is the parse path handing the raw graph out ONCE, so the main
@@ -65,7 +76,8 @@ export type ModelWorkerResponse =
    *  same rows the parse produced when the copy-object mapping is absent or
    *  excludes nothing, filtered when it excludes reference objects. */
   | { kind: "evaluated"; result: ModelResult; checks: CheckResult[]; board: BoardData }
-  | { kind: "evaluate-error"; message: string };
+  | { kind: "evaluate-error"; message: string }
+  | MeasuredMessage;
 
 let ready: Promise<unknown> | null = null;
 
@@ -81,6 +93,8 @@ let heldName = "";
  *  so a ruleset's copy-object filter can re-run it without re-meshing. null
  *  when the mesh pass failed: the check then reports it could not run. */
 let heldBoxes: Map<string, ElementBox> | null = null;
+/** The treemap measures: the numbers only, never the meshes. */
+let measures: MeasureChannel | null = null;
 
 /** `self` inside a module worker is a `DedicatedWorkerGlobalScope`, whose
  *  `postMessage` takes a transfer list. The project compiles against the DOM
@@ -115,6 +129,7 @@ function send(response: ModelWorkerResponse, transfer?: Transferable[]) {
 function streamMeshes(
   model: IfcModel,
   boxes: Map<string, ElementBox>,
+  withheld: Map<string, MeshMeasure>,
 ): { shift: [number, number, number]; budget: MeshBudget } {
   let elements = 0;
   let totalElements = 0;
@@ -137,6 +152,9 @@ function streamMeshes(
 
     if (triangles + batchTriangles > MESH_TRIANGLE_CEILING) {
       capped = true;
+      // Never reaches the main thread, so it is never handed back for the
+      // treemap measures: measured here, then dropped with the batch.
+      measureInto(withheld, { meta, positions, indices });
       return;
     }
     elements += meta.length;
@@ -170,12 +188,20 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
 
     const summary = JSON.parse(model.summaryJson()) as IfcSummary;
 
+    // The units the BaseQuantities are in. No wasm accessor gives them, so
+    // they are read from the STEP bytes (chunked). An ifczip is compressed:
+    // its units stay unread and its BaseQuantities unused.
+    const view = new Uint8Array(bytes);
+    const zipped = view[0] === 0x50 && view[1] === 0x4b;
+    const units = zipped ? undefined : quantityUnits(view);
+
     // Geometry first, then the graph — see `streamMeshes`. A mesh failure is
     // reported as itself and does NOT take the checks down with it: the board
     // is a checker that happens to draw, not a viewer that happens to check.
     let boxes: Map<string, ElementBox> | null = new Map();
+    const withheld = new Map<string, MeshMeasure>();
     try {
-      const meshes = streamMeshes(model, boxes);
+      const meshes = streamMeshes(model, boxes, withheld);
       unshiftBoxes(boxes, meshes.shift);
       send({ kind: "mesh-done", shift: meshes.shift, budget: meshes.budget });
     } catch (err) {
@@ -202,7 +228,9 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
     graph.classifications = classifications;
     graph.quantities = quantities;
     graph.materials = materials;
+    if (units) graph.quantity_units = units;
     model.free();
+    measures = new MeasureChannel(new MeasureState(graph, withheld));
 
     heldGraph = graph;
     heldSummary = summary;
@@ -220,7 +248,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
         checkMeshPlacement(graph, summary, boxes),
       ],
     };
-    const board = boardData(graph, summary, fileName, report.checks, null, null);
+    const board = measures.baseBoard(boardData(graph, summary, fileName, report.checks, null, null));
     send({ kind: "parsed", report, profile: withTypeFacts(profileOf(graph), graph), board, graph });
   } catch (err) {
     // A file that cannot be parsed is reported as itself, never folded into
@@ -248,7 +276,8 @@ function evaluate(ruleset: Ruleset) {
       checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
       checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
     ];
-    const board = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
+    const built = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
+    const board = measures ? measures.currentBoard(built) : built;
     send({ kind: "evaluated", result, checks, board });
   } catch (err) {
     send({
@@ -261,5 +290,7 @@ function evaluate(ruleset: Ruleset) {
 self.onmessage = (event: MessageEvent<ModelWorkerRequest>) => {
   const message = event.data;
   if (message.kind === "parse") void parse(message.fileName, message.bytes);
-  else evaluate(message.ruleset);
+  else if (message.kind === "measure") {
+    if (measures) send(measures.feed(message.batch, message.total));
+  } else evaluate(message.ruleset);
 };
