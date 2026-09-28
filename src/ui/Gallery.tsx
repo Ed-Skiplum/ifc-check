@@ -14,7 +14,7 @@
  */
 
 import { useLayoutEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { MG_GAP, MG_MODULE } from "./alt/module-grid";
 
 export function Gallery({
@@ -24,7 +24,8 @@ export function Gallery({
 }: {
   /** The card's canon size in modules: S [2, 2], M [3, 2]. */
   unit: readonly [number, number];
-  children: ReactNode;
+  /** Or a function of how many cards fit across, for a card that grows. */
+  children: ReactNode | ((across: number) => ReactNode);
   label?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -63,44 +64,102 @@ export function Gallery({
             gap: MG_GAP,
             gridTemplateColumns: `repeat(${cards}, ${cardW}px)`,
             gridAutoRows: `${cardH}px`,
+            // A grown card leaves holes before it; the cards after fill them.
+            gridAutoFlow: "row dense",
           }}
         >
-          {children}
+          {typeof children === "function" ? children(cards) : children}
         </div>
       ) : null}
     </div>
   );
 }
 
-/** One card: a floating glass tile. A door when `onClick` is given. */
+/** One card: a floating glass tile. A door when `onClick` is given.
+ *
+ * A door is a `div` with the button role rather than a `<button>`, because a
+ * card can carry doors of its own (the link chips, the instance controls) and
+ * a button inside a button is not valid HTML. Enter and Space open it when the
+ * card itself has focus; a click on an inner control stops there.
+ *
+ * `span` is the card's size in gallery cells, for the one card that grows (the
+ * open type, 2026-09-28). */
 export function GalleryCard({
   children,
   onClick,
   active,
   title,
+  span,
+  cardRef,
+  data,
 }: {
   children: ReactNode;
   onClick?: () => void;
   active?: boolean;
   title?: string;
+  span?: readonly [number, number];
+  cardRef?: Ref<HTMLDivElement>;
+  data?: Record<`data-${string}`, string | number | undefined>;
 }) {
   const className =
     "gallery-card flex min-h-0 min-w-0 flex-col overflow-hidden text-left" +
     (onClick ? " gallery-door cursor-pointer" : "");
-  return onClick ? (
-    <button
-      type="button"
+  const style = span ? { gridColumn: `span ${span[0]}`, gridRow: `span ${span[1]}` } : undefined;
+  return (
+    <div
+      ref={cardRef}
       title={title}
-      aria-current={active ? "true" : undefined}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-current={onClick && active ? "true" : undefined}
       onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+              e.preventDefault();
+              onClick();
+            }
+          : undefined
+      }
       className={className}
+      style={style}
+      {...data}
     >
       {children}
-    </button>
-  ) : (
-    <div title={title} className={className}>
-      {children}
     </div>
+  );
+}
+
+/** A link to another card: the other end of "what goes with what". A small
+ *  pill carrying the name and how many elements carry both ends. */
+export function LinkChip({
+  label,
+  n,
+  title,
+  onOpen,
+  data,
+}: {
+  label: string;
+  n: number;
+  title?: string;
+  onOpen: () => void;
+  data?: Record<`data-${string}`, string | number | undefined>;
+}) {
+  return (
+    <button
+      type="button"
+      title={title ?? label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      className="inline-flex max-w-full min-w-0 items-baseline gap-1 rounded-full border border-line bg-panel/70 px-1.5 py-px font-mono text-[10px] leading-[14px] text-ink hover:border-ink"
+      {...data}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="shrink-0 text-muted tabular-nums">{n}</span>
+    </button>
   );
 }
 

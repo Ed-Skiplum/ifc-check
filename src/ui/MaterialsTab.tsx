@@ -3,13 +3,18 @@
  * 2026-09-26 (owner: "the types and materials tabs need to be galleries, not
  * rows"):
  *
- *   Materialer   one card per material name: a swatch, the name, the classes
- *                that carry it and how many elements. A card makes a chip,
- *                so the 3D isolates what is made of it.
+ *   Materialer   one card per material name: a swatch, the name, how many
+ *                elements, and the types that carry it (a class's untyped
+ *                elements by the class name), each a link to its Typer
+ *                card. A card makes a chip, so the 3D isolates what is made
+ *                of it.
  *   Layer sets   one S card per material layer set: its layers as a strip in
  *                proportion to their thickness (`materialsJson()`, role
- *                `layer`), each layer's thickness and material, and how many
- *                elements use it.
+ *                `layer`), each layer's thickness and material, how many
+ *                elements use it, and the types that do, as links.
+ *
+ * The collections and the links are `type-links.ts`'s, computed once per
+ * profile by the panel (2026-09-28); this file only draws them.
  *
  * The swatch is neutral: the engine gives no IfcMaterial surface colour (the
  * mesh colour is per PRODUCT and falls back to a per-class palette, so it is
@@ -25,108 +30,95 @@
  *   · the model dots (one model per panel).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
 import type { ModelProfile } from "./profile";
 import type { FilterChip } from "./cross-filter";
-import { Gallery, GalleryCard } from "./Gallery";
+import { Gallery, GalleryCard, LinkChip } from "./Gallery";
 import { useFillHeight } from "./useFillHeight";
-
-interface MaterialLine {
-  name: string;
-  entities: string[];
-  guids: string[];
-}
-
-interface LayerSetLine {
-  key: string;
-  /** `IfcMaterialLayerSet.Name`, or null when the engine does not give it. */
-  name: string | null;
-  layers: { material: string | null; thickness: number | null }[];
-  total: number | null;
-  count: number;
-}
-
-function materialLines(profile: ModelProfile): MaterialLine[] {
-  const lines = new Map<string, { entities: Set<string>; guids: string[] }>();
-  for (const row of profile.rows) {
-    for (const name of row.materials ?? []) {
-      let line = lines.get(name);
-      if (!line) lines.set(name, (line = { entities: new Set(), guids: [] }));
-      line.entities.add(row.entity);
-      line.guids.push(row.guid);
-    }
-  }
-  return [...lines.entries()]
-    .map(([name, line]) => ({ name, entities: [...line.entities].sort(), guids: line.guids }))
-    .sort((a, b) => b.guids.length - a.guids.length);
-}
-
-function layerSetLines(profile: ModelProfile): LayerSetLine[] | null {
-  const table = profile.materialRows;
-  if (!table) return null;
-  const layersOf = new Map<string, { index: number; material: string | null; thickness: number | null }[]>();
-  for (const row of table) {
-    if (row.role !== "layer") continue;
-    let list = layersOf.get(row.guid);
-    if (!list) layersOf.set(row.guid, (list = []));
-    list.push({ index: row.layer_index, material: row.material_name, thickness: row.layer_thickness_mm });
-  }
-  // A set is keyed by its NAME when the engine gives one. The wasm build does
-  // not (`layer_set` is null on every HI90_ARK product, 2026-09-25), so then
-  // the key is the layer stack itself and the header says `ikke levert`:
-  // two differently named sets with the same layers read as one row, and the
-  // row claims the stack, never a name.
-  const sets = new Map<string, LayerSetLine>();
-  for (const product of profile.rows) {
-    const rows = layersOf.get(product.guid);
-    if (!rows || rows.length === 0) continue;
-    const layers = rows
-      .slice()
-      .sort((a, b) => a.index - b.index)
-      .map((l) => ({ material: l.material, thickness: l.thickness }));
-    const name = product.layerSet ?? null;
-    const key = name ?? `stack:${layers.map((l) => `${l.material}|${l.thickness}`).join("/")}`;
-    let set = sets.get(key);
-    if (!set) {
-      const known = layers.every((l) => l.thickness !== null);
-      set = {
-        key,
-        name,
-        layers,
-        total: known ? layers.reduce((sum, l) => sum + (l.thickness ?? 0), 0) : null,
-        count: 0,
-      };
-      sets.set(key, set);
-    }
-    set.count += 1;
-  }
-  return [...sets.values()].sort((a, b) => b.count - a.count);
-}
+import type { Catalogue, LayerSetCard, Link, TypeCard } from "./type-links";
+import type { Reveal } from "./TypesTab";
 
 const mm = (value: number, lang: Lang) =>
   `${value.toLocaleString(lang === "nb" ? "nb-NO" : "en-GB", { maximumFractionDigits: 0 })} mm`;
 
+/** The types behind a material or a layer set, as links to their cards
+ *  (2026-09-28, "what goes with what"). An untyped card is named by its
+ *  class, since that is what it is. */
+function TypeLinks({
+  links,
+  types,
+  onOpenType,
+}: {
+  links: Link[];
+  types: Map<string, TypeCard>;
+  onOpenType: (key: string) => void;
+}) {
+  if (links.length === 0) return <span className="font-mono text-[10px] text-muted">—</span>;
+  return (
+    <>
+      {links.map((link) => {
+        const card = types.get(link.key);
+        const label = card ? (card.typeName ?? card.entity) : link.key;
+        return (
+          <LinkChip
+            key={link.key}
+            label={label}
+            n={link.n}
+            title={card ? `${card.entity} · ${label} · ${link.n}` : link.key}
+            onOpen={() => onOpenType(link.key)}
+            data={{ "data-link-type": link.key }}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 export function MaterialsTab({
   lang,
   profile,
+  catalogue,
   chips,
+  reveal,
   onToggleChip,
+  onOpenType,
 }: {
   lang: Lang;
   profile: ModelProfile | null;
+  /** `type-links.ts`, computed once per profile by the panel. */
+  catalogue: Catalogue | null;
   /** The panel's chips, to mark the rows that are filtering. */
   chips: FilterChip[];
+  /** A material card another tab asked for (a type's material link). */
+  reveal: Reveal | null;
   onToggleChip: (chip: FilterChip) => void;
+  onOpenType: (key: string) => void;
 }) {
   const [view, setView] = useState<"materials" | "sets">("materials");
-  const materials = useMemo(() => (profile ? materialLines(profile) : []), [profile]);
-  const sets = useMemo(() => (profile ? layerSetLines(profile) : null), [profile]);
+  const materials = catalogue?.materials ?? [];
+  const sets = catalogue ? catalogue.sets : null;
+  const types = useMemo(() => new Map((catalogue?.types ?? []).map((c) => [c.key, c])), [catalogue]);
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
   const active = new Set(chips.map((c) => c.key));
+
+  // A type's material link lands here: the Materialer view, that card in
+  // view and marked until the next request.
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const handled = useRef(0);
+  useEffect(() => {
+    if (!reveal || reveal.seq === handled.current) return;
+    handled.current = reveal.seq;
+    setView("materials");
+    setRevealed(reveal.key);
+  }, [reveal]);
+  const revealRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    revealRef.current?.scrollIntoView({ block: "nearest" });
+  }, [revealed, view]);
 
   return (
     <section ref={fillRef} style={{ height: fillHeight ?? undefined }} className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden">
@@ -170,11 +162,13 @@ export function MaterialsTab({
               return (
                 <GalleryCard
                   key={line.name}
-                  title={line.name}
+                  title={`${line.name} · ${line.entities.join(", ")}`}
                   active={active.has(key)}
                   onClick={() => onToggleChip({ key, kind: "material", label: line.name, guids: line.guids })}
+                  cardRef={revealed === line.name ? revealRef : undefined}
+                  data={{ "data-material-card": line.name, "data-revealed": revealed === line.name ? "" : undefined }}
                 >
-                  <div className="gallery-swatch m-2.5 mb-0 h-16 shrink-0 rounded-[8px]" />
+                  <div className="gallery-swatch m-2.5 mb-0 h-10 shrink-0 rounded-[8px]" />
                   <div className="flex min-h-0 flex-1 flex-col gap-1 px-2.5 pt-1.5 pb-2">
                     <div className="flex items-baseline gap-2">
                       <span className="line-clamp-2 min-w-0 flex-1 font-mono text-[11.5px] leading-snug break-all text-ink">
@@ -187,12 +181,8 @@ export function MaterialsTab({
                         {formatCount(line.guids.length, lang)}
                       </span>
                     </div>
-                    <div className="min-h-0 flex-1 overflow-hidden font-mono text-[10px] leading-[14px] text-muted" title={line.entities.join(", ")}>
-                      {line.entities.map((entity) => (
-                        <div key={entity} className="truncate">
-                          {entity}
-                        </div>
-                      ))}
+                    <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-auto" data-material-types>
+                      <TypeLinks links={catalogue?.materialTypes.get(line.name) ?? []} types={types} onOpenType={onOpenType} />
                     </div>
                   </div>
                 </GalleryCard>
@@ -221,7 +211,7 @@ export function MaterialsTab({
                 <div className="font-mono text-[10px] text-muted tabular-nums">
                   {`${formatCount(set.layers.length, lang)} · ${set.total === null ? "—" : mm(set.total, lang)}`}
                 </div>
-                <div className="min-h-0 flex-1 overflow-auto">
+                <div className="min-h-0 flex-[3_1_0] overflow-auto">
                   {set.layers.map((layer, i) => (
                     <div key={i} className="flex items-baseline gap-2 font-mono text-[10.5px] leading-[15px] text-muted">
                       <span className="w-14 shrink-0 text-right text-ink tabular-nums">
@@ -230,6 +220,9 @@ export function MaterialsTab({
                       <span className="min-w-0 truncate">{layer.material ?? "—"}</span>
                     </div>
                   ))}
+                </div>
+                <div className="flex min-h-0 flex-[2_1_0] flex-wrap content-start gap-1 overflow-auto" data-set-types>
+                  <TypeLinks links={catalogue?.setTypes.get(set.key) ?? []} types={types} onOpenType={onOpenType} />
                 </div>
               </div>
             </GalleryCard>
@@ -247,7 +240,7 @@ function Empty({ children }: { children: string }) {
 /** The layers, side by side in the order of the set, each as wide as its
  *  thickness is of the total. A layer with no thickness takes an equal share
  *  and is hatched, so it cannot pass for a measure. */
-function LayerStrip({ layers, lang }: { layers: LayerSetLine["layers"]; lang: Lang }) {
+function LayerStrip({ layers, lang }: { layers: LayerSetCard["layers"]; lang: Lang }) {
   const known = layers.filter((l) => l.thickness !== null && l.thickness > 0);
   const sum = known.reduce((s, l) => s + (l.thickness ?? 0), 0);
   const unknownShare = layers.length > 0 ? (layers.length - known.length) / layers.length : 0;

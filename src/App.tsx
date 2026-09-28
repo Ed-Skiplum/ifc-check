@@ -332,6 +332,7 @@ export default function App() {
                 onClearChips={() => cross.clearChips(model.id)}
                 onClearElements={() => cross.clearElements(model.id)}
                 onPick={(guid, additive) => cross.pick(model.id, guid, additive)}
+                onSelect={(guids) => cross.setSelection(model.id, guids)}
                 onHover={(guid) => cross.setHover(model.id, guid)}
                 floors={ruleset?.storeys?.length ? ruleset.storeys : null}
                 peers={peers}

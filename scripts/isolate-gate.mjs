@@ -427,6 +427,22 @@ await send("Emulation.setDeviceMetricsOverride", {
   deviceScaleFactor: 1,
   mobile: false,
 });
+// `--only types`: the Typer instance mode alone (see `typesPhase`).
+if (opt("only") === "types") {
+  try {
+    await typesPhase();
+  } catch (error) {
+    fails.push(String(error));
+    console.log(`FAIL ${error}`);
+  }
+  if (logs.length) {
+    console.log(`page exceptions (${logs.length}):\n  ${logs.slice(0, 5).join("\n  ")}`);
+    fails.push("page exceptions");
+  }
+  console.log(fails.length ? `isolate gate (types): FAILED (${fails.length})` : "isolate gate (types): all assertions hold");
+  ws.close();
+  process.exit(fails.length ? 1 : 0);
+}
 await send("Page.navigate", { url: `${base}#lang=nb` });
 await until(`!!document.querySelector('input[type=file][accept=".ifc,.ifczip"]')`, 30000, "app");
 await sleep(1200);
@@ -1021,6 +1037,8 @@ for (const design of designs) {
   }
 }
 
+await typesPhase();
+
 writeFileSync(
   resolve(OUT, "report.json"),
   JSON.stringify({ base, model: modelPath, klass, states: { base0, afterClass, cleared, one, back, picked }, fails, exceptions: logs }, null, 2),
@@ -1032,3 +1050,150 @@ if (logs.length) {
 console.log(fails.length ? `isolate gate: FAILED (${fails.length})` : "isolate gate: all assertions hold");
 ws.close();
 process.exit(fails.length ? 1 : 0);
+
+/* ---- phase T: the Typer instance mode (2026-09-28) --------------------
+
+   edkjo: *"For types: Single instance selector like in lca_qto, with a toggle
+   for all instances of type. So either see them one by one with a navigation
+   "next/former" or see all."* A type card opens its instance mode: ONE
+   instance selected, ‹ › and ↑ ↓ step it, Alle forekomster selects all N, and
+   the material links go to the Materialer card and back. What the card prints
+   as the selection (`data-selection-*`) is the panel's own `view.selection`,
+   so these read the state, not the label. Screenshots in tmp/type-instances/. */
+async function typesPhase() {
+  const shots = resolve(ROOT, "tmp/type-instances");
+  mkdirSync(shots, { recursive: true });
+  const shot = async (name, expr) => {
+    const rect = await evaluate(
+      `(() => { const el = ${expr}; if (!el) return null; const r = el.getBoundingClientRect();
+        return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height), scale: 1 }; })()`,
+    );
+    if (!rect || rect.width === 0) return;
+    const { data } = await send("Page.captureScreenshot", { format: "png", clip: rect });
+    writeFileSync(resolve(shots, `${name}.png`), Buffer.from(data, "base64"));
+  };
+  const key = async (k, code) => {
+    for (const type of ["keyDown", "keyUp"]) {
+      await send("Input.dispatchKeyEvent", { type, key: k, code: k, windowsVirtualKeyCode: code });
+    }
+    await sleep(500);
+  };
+  const OPEN = `(() => {
+    const c = document.querySelector('main > section [role=tabpanel]:not([hidden]) [data-type-open]');
+    if (!c) return null;
+    return {
+      key: c.dataset.typeCard, mode: c.dataset.instanceMode, pos: c.dataset.instancePos,
+      guid: c.dataset.instanceGuid, count: Number(c.dataset.selectionCount), first: c.dataset.selectionFirst,
+      canvas: !!c.querySelector('[data-type-viewer] canvas'),
+      counter: c.querySelector('[data-instance-counter]')?.textContent.trim() ?? '',
+    };
+  })()`;
+  const PANEL = `document.querySelector('main > section [role=tabpanel]:not([hidden])')`;
+
+  await send("Page.navigate", { url: "about:blank" });
+  await sleep(400);
+  await send("Page.navigate", { url: `${base}#lang=nb` });
+  await until(`!!document.querySelector('input[type=file][accept=".ifc,.ifczip"]')`, 30000, "app");
+  await sleep(1200);
+  await evaluate(
+    `(() => { const b = [...document.querySelectorAll('button')].find((x) => /^(Tøm alle|Clear all)$/.test(x.textContent.trim())); b && b.click(); return true; })()`,
+  );
+  await until(`!document.querySelector('[role=tablist]')`, 30000, "empty landing");
+  await setFiles('input[type=file][accept=".ifc,.ifczip"]', [resolve(modelPath)]);
+  await until(
+    `(() => { const t = document.body.innerText; return !/Leser|I kø/.test(t) && !!document.querySelector('canvas'); })()`,
+    300000,
+    "T: model ready",
+  );
+  await sleep(4000);
+  const tabAt = await centre(`[...document.querySelectorAll('main > section [role=tab]')].find((b) => /^(Typer|Types)$/.test(b.textContent.trim()))`);
+  await clickAt(tabAt.x, tabAt.y);
+  await until(`!!document.querySelector('[data-gallery=types] [data-type-card]')`, 30000, "T: types gallery");
+  await sleep(1500);
+
+  // A multi-instance type: the largest with at most 60 instances and at least 3.
+  const pick = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-gallery=types] [data-type-card]')]
+      .map((c) => ({ c, n: Number(c.dataset.typeCount) }))
+      .filter((x) => x.n >= 3 && x.n <= 60)
+      .sort((a, b) => b.n - a.n);
+    if (!cards[0]) return null;
+    cards[0].c.setAttribute('data-gate-type', '');
+    cards[0].c.scrollIntoView({ block: 'center' });
+    return { key: cards[0].c.dataset.typeCard, n: cards[0].n };
+  })()`);
+  check(pick !== null, `T1 a type with 3 to 60 instances exists (${pick?.key} ×${pick?.n})`);
+  if (!pick) return;
+  await sleep(600);
+  const cardAt = await centre(`document.querySelector('[data-gate-type]')`);
+  await clickAt(cardAt.x, cardAt.y);
+  await sleep(1500);
+  const o1 = await evaluate(OPEN);
+  check(o1 !== null && o1.key === pick.key, `T1 the card opens its instance mode (${o1?.key})`);
+  if (!o1) return;
+  check(
+    o1.mode === "one" && o1.pos === `1/${pick.n}` && o1.counter.replace(/\s/g, "") === `1/${pick.n}`,
+    `T1 one by one, the counter reads 1 / ${pick.n} (${o1.counter})`,
+  );
+  check(o1.count === 1 && o1.first === o1.guid && o1.guid !== "", `T1 ONE instance is selected, the one shown (${o1.first})`);
+  check(o1.canvas, `T1 the 3D is lent into the open card`);
+  const pose1 = await evaluate(POSE(0, [o1.guid]));
+  if (pose1 && pose1.box) console.log(`info T1 the instance projects at ${JSON.stringify(pose1.box)} (framing is the viewer's rule)`);
+  await shot("1-one-by-one", `document.querySelector('[data-type-open]')`);
+  await shot("1-one-by-one-tab", PANEL);
+
+  const nextAt = await centre(`document.querySelector('[data-type-open] [data-instance-next]')`);
+  await clickAt(nextAt.x, nextAt.y);
+  await sleep(800);
+  const o2 = await evaluate(OPEN);
+  check(o2 && o2.pos === `2/${pick.n}` && o2.guid !== o1.guid, `T2 Neste steps to 2 / ${pick.n} and a different GlobalId (${o2?.guid})`);
+  check(o2 && o2.count === 1 && o2.first === o2.guid, `T2 the selection follows it (${o2?.first})`);
+
+  await key("ArrowUp", 38);
+  const o3 = await evaluate(OPEN);
+  check(o3 && o3.pos === `1/${pick.n}` && o3.guid === o1.guid && o3.first === o1.guid, `T3 ↑ steps back to the first (${o3?.pos} ${o3?.first})`);
+  await key("ArrowDown", 40);
+  const o3b = await evaluate(OPEN);
+  check(o3b && o3b.pos === `2/${pick.n}` && o3b.first === o2?.guid, `T3 ↓ steps forward again (${o3b?.pos})`);
+
+  const allAt = await centre(`document.querySelector('[data-type-open] [data-instance-all]')`);
+  await clickAt(allAt.x, allAt.y);
+  await sleep(1200);
+  const o4 = await evaluate(OPEN);
+  check(o4 && o4.mode === "all" && o4.count === pick.n, `T4 Alle forekomster selects all N (${o4?.count} = ${pick.n})`);
+  await shot("2-all-instances", `document.querySelector('[data-type-open]')`);
+  const oneAt = await centre(`document.querySelector('[data-type-open] [data-instance-one]')`);
+  await clickAt(oneAt.x, oneAt.y);
+  await sleep(800);
+  const o5 = await evaluate(OPEN);
+  check(o5 && o5.mode === "one" && o5.count === 1 && o5.first === o2?.guid, `T4 Per forekomst goes back to the one it was on (${o5?.pos})`);
+
+  // What goes with what: the type's material link, and back.
+  const mat = await evaluate(`(() => { const b = document.querySelector('[data-type-open] [data-link-material]'); return b ? b.dataset.linkMaterial : null; })()`);
+  if (mat === null) {
+    console.log(`skip T5 — ${pick.key} carries no material`);
+  } else {
+    const matAt = await centre(`document.querySelector('[data-type-open] [data-link-material]')`);
+    await clickAt(matAt.x, matAt.y);
+    await sleep(1200);
+    const landed = await evaluate(`(() => {
+      const c = document.querySelector('main > section [role=tabpanel]:not([hidden]) [data-material-card][data-revealed]');
+      if (!c) return null;
+      return { name: c.dataset.materialCard, links: [...c.querySelectorAll('[data-link-type]')].map((b) => b.dataset.linkType) };
+    })()`);
+    check(landed !== null && landed.name === mat, `T5 the material link opens Materialer on that card (${landed?.name})`);
+    check(landed !== null && landed.links.includes(pick.key), `T5 that card links back to the type (${landed?.links.length} type links)`);
+    await shot("3-material-card-links", `document.querySelector('[data-material-card][data-revealed]')`);
+    await shot("3-material-tab", PANEL);
+    const backAt = await centre(`document.querySelector('[data-material-card][data-revealed] [data-link-type="${pick.key.replace(/"/g, '\\"')}"]')`);
+    await clickAt(backAt.x, backAt.y);
+    await sleep(1500);
+    const o6 = await evaluate(OPEN);
+    check(o6 !== null && o6.key === pick.key, `T5 the type link opens the type again (${o6?.key} ${o6?.pos})`);
+  }
+
+  await key("Escape", 27);
+  const closed = await evaluate(OPEN);
+  const sel = await evaluate(`document.querySelectorAll('[data-type-open]').length`);
+  check(closed === null && sel === 0, `T6 Esc closes the instance mode`);
+}

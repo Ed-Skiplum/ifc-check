@@ -63,6 +63,8 @@ import { psetInventory, requiredSetRefs } from "../src/engine/pset-inventory.ts"
 import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../src/codelists/mengdetype-ifcklasse.ts";
 import { MENGDETYPE_NS3457 } from "../src/codelists/mengdetype-ns3457.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
+import { catalogue as typeCatalogue } from "../src/ui/type-links.ts";
+import type { ModelProfile } from "../src/ui/profile.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -1433,6 +1435,57 @@ async function cmdSelftest(): Promise<number> {
     `${noTables.tabeller.psets}/${noTables.tabeller.quantities} ` +
       noTables.grenser.filter((g) => g.kode.startsWith("table-absent")).map((g) => g.kode).join(","),
   );
+
+  // What goes with what (Typer ↔ Materialer, 2026-09-28): the instance order
+  // and the three link maps, on a synthetic profile where every answer is
+  // known. Storey L2 is ABOVE L1 but listed first, and the GlobalIds are out
+  // of order in the rows, so a sort that trusted either would fail.
+  {
+    const p = (guid: string, entity: string, storeyGuid: string | null, typeName: string | null, materials: string[]) =>
+      ({ guid, entity, name: null, storeyGuid, typeName, typeGuid: typeName ? `T-${typeName}` : null, materials });
+    const profile = {
+      storeys: [
+        { guid: "L2", name: "02", elevation: 3 },
+        { guid: "L1", name: "01", elevation: 0 },
+      ],
+      spatial: { projects: 1, sites: 1, buildings: 1, storeys: 2, spaces: 0 },
+      rows: [
+        p("w-c", "IfcWall", "L2", "V1", ["Betong", "Gips"]),
+        p("w-b", "IfcWall", null, "V1", ["Betong"]),
+        p("w-a", "IfcWall", "L1", "V1", ["Betong"]),
+        p("w-d", "IfcWall", "L1", "V1", ["Betong"]),
+        p("s-1", "IfcSlab", "L1", null, ["Betong"]),
+        p("d-1", "IfcDoor", "L1", "D9", ["Tre"]),
+      ],
+      materialRows: [
+        { guid: "w-a", role: "layer", layer_index: 0, material_name: "Betong", layer_thickness_mm: 200, category: null, fraction: null, source: "t" },
+        { guid: "w-d", role: "layer", layer_index: 0, material_name: "Betong", layer_thickness_mm: 200, category: null, fraction: null, source: "t" },
+        { guid: "s-1", role: "layer", layer_index: 0, material_name: "Betong", layer_thickness_mm: 200, category: null, fraction: null, source: "t" },
+      ],
+    } as unknown as ModelProfile;
+    const cat = typeCatalogue(profile);
+    const wall = cat.types.find((c) => c.key === "IfcWall::V1");
+    record(
+      "type instances: by storey from the lowest, then GlobalId, no storey last",
+      "w-a,w-d,w-c,w-b",
+      wall ? wall.guids.join(",") : "no IfcWall::V1 card",
+    );
+    const show = (m: Map<string, { key: string; n: number }[]>, k: string) =>
+      (m.get(k) ?? []).map((l) => `${l.key}×${l.n}`).join(",");
+    record("type → materials, most elements first", "Betong×4,Gips×1", show(cat.typeMaterials, "IfcWall::V1"));
+    record(
+      "material → types, an untyped class as its own card",
+      "IfcWall::V1×4,IfcSlab::×1",
+      show(cat.materialTypes, "Betong"),
+    );
+    const set = cat.sets?.[0];
+    record(
+      "layer set → the types that use it",
+      "3 IfcWall::V1×2,IfcSlab::×1",
+      set ? `${set.count} ${show(cat.setTypes, set.key)}` : "no set",
+    );
+    record("type_guid carried per card", "T-V1", wall ? wall.typeGuids.join(",") : "");
+  }
 
   const result = exportRuleset(SAMPLE_RULESET);
   const { included, excluded } = partitionRules(SAMPLE_RULESET);

@@ -231,6 +231,13 @@ const STRINGS = {
   "col.materials": { nb: "Materialer", en: "Materials" },
   "col.properties": { nb: "Egenskaper", en: "Properties" },
   "type.untyped": { nb: "Uten type", en: "Untyped" },
+  // The Typer instance mode, labels verbatim from the G55 QTO-LCA type viewer
+  // (`10027…/G55_QTO-LCA/02_arbeid/verify_app.html`, 2026-06-17).
+  "inst.one": { nb: "Per forekomst", en: "Per instance" },
+  "inst.all": { nb: "Alle forekomster", en: "All instances" },
+  "inst.prev": { nb: "Forrige (↑)", en: "Previous (↑)" },
+  "inst.next": { nb: "Neste (↓)", en: "Next (↓)" },
+  "inst.close": { nb: "Lukk (Esc)", en: "Close (Esc)" },
   "type.disagree": { nb: "Ulike verdier", en: "Values differ" },
   "type.perType": { nb: "Forekomster per type", en: "Instances per type" },
   "type.median": { nb: "Median", en: "Median" },

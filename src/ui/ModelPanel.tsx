@@ -31,7 +31,7 @@
  * filter is on cannot answer "what am I filtered to?".
  */
 
-import { cloneElement, isValidElement, useCallback, useMemo, type ReactElement, type ReactNode } from "react";
+import { cloneElement, isValidElement, useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
 import type { Focus } from "./trace";
@@ -49,6 +49,8 @@ import { ObjectPanel } from "./ObjectPanel";
 import { GraphTab } from "./GraphTab";
 import { TypesTab } from "./TypesTab";
 import { MaterialsTab } from "./MaterialsTab";
+import type { Reveal } from "./TypesTab";
+import { catalogue as buildCatalogue } from "./type-links";
 import { FilterBar } from "./FilterBar";
 import { ReadoutStrip, type Readout } from "./forms";
 import { BENTO_MAX_WIDTH } from "./bento-spec";
@@ -85,6 +87,9 @@ interface ModelPanelProps {
   /** Drop the element refinement when a different set is chosen. */
   onClearElements: () => void;
   onPick: (guid: string | null, additive: boolean) => void;
+  /** Set the selection outright (the Typer instance mode: one instance, or
+   *  all N of a type). */
+  onSelect: (guids: string[]) => void;
   onHover: (guid: string | null) => void;
   /** The ruleset's floor config, or null when none is loaded. */
   floors: FloorConfig[] | null;
@@ -112,6 +117,7 @@ export function ModelPanel({
   onClearChips,
   onClearElements,
   onPick,
+  onSelect,
   onHover,
   floors,
   peers,
@@ -144,6 +150,27 @@ export function ModelPanel({
           })
         : null,
     [profile, model.meshBatches, model.meshBudget, model.report],
+  );
+
+  // Typer and Materialer: the collections and what goes with what, once per
+  // profile (`type-links.ts`). A link chip on one tab opens the other tab on
+  // the linked card.
+  const catalogue = useMemo(() => (profile ? buildCatalogue(profile) : null), [profile]);
+  const [revealType, setRevealType] = useState<Reveal | null>(null);
+  const [revealMaterial, setRevealMaterial] = useState<Reveal | null>(null);
+  const openType = useCallback(
+    (key: string) => {
+      setRevealType((r) => ({ key, seq: (r?.seq ?? 0) + 1 }));
+      onTab("types");
+    },
+    [onTab],
+  );
+  const openMaterial = useCallback(
+    (key: string) => {
+      setRevealMaterial((r) => ({ key, seq: (r?.seq ?? 0) + 1 }));
+      onTab("materials");
+    },
+    [onTab],
   );
 
   // This model's column first on the floor tile, then the rest as loaded.
@@ -387,16 +414,26 @@ export function ModelPanel({
               <TypesTab
                 lang={lang}
                 profile={profile ?? null}
+                catalogue={catalogue}
                 meshBatches={model.meshBatches}
                 selected={selected}
+                chips={view.chips}
+                selection={view.selection}
+                reveal={revealType}
                 onFocus={focus}
+                onRemoveChip={onRemoveChip}
+                onSelect={onSelect}
+                onOpenMaterial={openMaterial}
               />
             </div>
             <div role="tabpanel" hidden={tab !== "materials"} className="flex flex-col">
               <MaterialsTab
                 lang={lang}
                 profile={profile ?? null}
+                catalogue={catalogue}
                 chips={view.chips}
+                reveal={revealMaterial}
+                onOpenType={openType}
                 onToggleChip={(chip) =>
                   view.chips.some((c) => c.key === chip.key) ? onRemoveChip(chip.key) : onAddChip(chip)
                 }

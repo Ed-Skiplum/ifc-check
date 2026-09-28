@@ -1049,6 +1049,53 @@ before; a click does what the row did (Type chip, material chip).
   thickness (a layer without one is hatched at an equal share), count, layer
   count and total, then each layer's thickness and material.
 
+### Type instances and what goes with what (2026-09-28)
+
+edkjo: *"for the types and materials to show what goes with what. For types:
+Single instance selector like in lca_qto, with a toggle for all instances of
+type. So either see them one by one with a navigation "next/former" or see
+all."*
+
+**Reference mirrored:** the G55 QTO-LCA type viewer,
+`skiplum/client-projects/10027-grønland-55/underprosjekter/G55_QTO-LCA/02_arbeid/verify_app.html`
+(worklog `2026-06-17-22-40_edkjo-type-viewer-show-all-instances-toggle.md`):
+`Per forekomst | Alle forekomster`, ‹ › titled `Forrige (↑)` / `Neste (↓)`,
+↑ ↓ step the instances, ← → the types, Esc closes. Labels verbatim (`inst.*`).
+
+- **Instance mode** (`TypesTab.tsx`): a type card click opens it. The card
+  grows in place to XL (3 × 2 cards, 6 × 4 modules; fewer across on a narrow
+  gallery, `grid-auto-flow: row dense` fills the holes) and borrows the
+  board's one 3D scene (`viewer/dock.ts`, as Graf does). Per forekomst selects
+  ONE instance (`onSelect` = `cross.setSelection`; the viewer frames every new
+  selection), counter `n / N`, Navn · GlobalId · Etasje of the current one.
+  Alle forekomster selects all N; the Type chip (the card's old click, kept)
+  isolates. Back to Per forekomst returns to the instance it was on.
+- **Order:** by storey, lowest elevation first, storeys without elevation
+  after, elements in no storey last; then GlobalId, plain string order.
+- **Links** (`type-links.ts`, pure, `catalogue(profile)`, once per profile in
+  `ModelPanel`): a product belongs to one type card (`entity::typeName`, the
+  Typer grouping; the card carries its `type_guid`s), names its materials
+  (`ProductRowLite.materials`, from `graph.materials`) and has its layer rows
+  (`materialsJson()`). Type ↔ material and layer set → type are the union over
+  the products, each link counted in elements. A class's untyped elements are
+  the card `entity::` and link under the class name.
+- **Drawn as chips** (`LinkChip`): the open type lists its materials, a
+  material card its types, a layer set card its types. A chip switches tab and
+  opens / marks (`data-revealed`) the linked card. `GalleryCard` is a
+  `div role=button` now, since a card holds doors of its own.
+
+Verified: selftest (order across storeys and no storey, type → materials,
+material → types with an untyped class, layer set → types, type_guid per
+card). `isolate-gate --only types` (phase T, also run at the end of a full
+run), first run on HI90_ARK (IfcPlate "System Panel:Glassfelt 25mm", 56
+instances): open, one selected, the 3D lent into the card, Neste changes the
+GlobalId and the selection, ↑ ↓ step, Alle forekomster selects 56, Per
+forekomst returns, the material link lands on Glass which links back
+(7 types), the type link reopens the type. Two assertions failed on that run
+(a regex escape in the gate's counter check; Esc after a cross-tab link, focus
+left on the hidden tab); both fixed, not re-run. Local headless run only; not
+seen on a deployed site. No screenshots taken.
+
 ## The dashboard grid — binding, not advisory
 
 The board is an INSTANCE of the house bento grid, not a layout of its own.

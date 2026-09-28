@@ -118,3 +118,8 @@ body {
 .gallery-layer.gallery-layer-unknown {
   background: repeating-linear-gradient(135deg, var(--color-panel) 0 4px, var(--color-line) 4px 8px);
 }
+/* A card another tab linked to (Typer <-> Materialer, 2026-09-28). */
+.gallery-card[data-revealed] {
+  outline: 2px dashed var(--d-accent, var(--color-green));
+  outline-offset: -2px;
+}
