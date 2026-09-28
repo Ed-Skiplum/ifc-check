@@ -13,11 +13,16 @@
  *
  * ── How it behaves (the demo's interaction model) ────────────────────────
  *   · click a storey: it opens into its class buckets, and the storey becomes
- *     the filter (an Etasje chip, the same click as the board's storey row)
+ *     THE filter (an Etasje filter, replacing whatever was on)
  *   · click a bucket: it opens into its products, and storey × class becomes
- *     the filter (a Celle chip, the same click as the census cell)
- *   · click a product: it is selected, exactly as a table row selects; its
- *     relationships bloom out of it. Shift or Ctrl adds to the selection.
+ *     the filter (a Celle filter)
+ *   · click a product: it becomes the filter and the selection; its
+ *     relationships bloom out of it. Shift or Ctrl adds to that element set.
+ *
+ * The cross-filter, one origin (2026-09-28): clicked here, the graph is the
+ * origin and keeps every node, the chosen storey or bucket ringed and the
+ * rest sunk back. Clicked anywhere else, the graph draws only the storeys,
+ * buckets and products that match (`scopedProfile`).
  *   · click the empty field: the selection clears
  *   · drag a node: it moves and stays put; drag the field: pan; wheel: zoom
  *     about the pointer. A press that moves is never a click.
@@ -49,7 +54,7 @@ import { MicroLabel } from "./BentoGrid";
 import { Switch } from "./Switch";
 import type { ModelProfile } from "./profile";
 import type { Design } from "./useHashView";
-import type { Focus } from "./trace";
+import { parseFocus, type Focus } from "./trace";
 import type { CheckResult } from "../engine/types";
 import type { MeshBatch } from "../viewer/mesh-stream";
 import { findDock, lend, onDocksChanged } from "../viewer/dock";
@@ -139,6 +144,8 @@ export function GraphTab({
   lang,
   design,
   profile,
+  scopedProfile = null,
+  chosen = null,
   checks,
   meshBatches,
   selection,
@@ -148,6 +155,10 @@ export function GraphTab({
   lang: Lang;
   design: Design | null;
   profile: ModelProfile | null;
+  /** The cross-filter's matching rows, when another view is its origin. */
+  scopedProfile?: ModelProfile | null;
+  /** The graph is the origin: the chosen storey or bucket's focus key. */
+  chosen?: string | null;
   /** The model's check results, for the verdict colours. */
   checks?: CheckResult[];
   /** The key the board's 3D scene is lent under (`viewer/dock.ts`). */
@@ -175,6 +186,14 @@ export function GraphTab({
   const centreGuid = selection.length > 0 ? selection[0] : null;
 
   const index = useMemo(() => (profile ? indexProfile(profile) : null), [profile]);
+  const scopedIndex = useMemo(() => (scopedProfile ? indexProfile(scopedProfile) : null), [scopedProfile]);
+  // The chosen storey or bucket's node, when the graph is the origin.
+  const chosenId = useMemo(() => {
+    const f = parseFocus(chosen);
+    if (f?.kind === "storey" && f.storeyGuids.length === 1) return storeyId(f.storeyGuids[0]);
+    if (f?.kind === "cell") return groupId(f.storeyGuid, f.entity);
+    return null;
+  }, [chosen]);
   const tones = useMemo(() => tonesOf(checks), [checks]);
 
   // The field is `hidden` while another tab is active: nothing runs then.
@@ -241,8 +260,8 @@ export function GraphTab({
 
   const drill = useMemo<Drill>(() => {
     if (!profile || !index || !shown) return { nodes: [], edges: [] };
-    return buildDrill(profile, index, tones, expanded, centreGuid, { psets, quantities }, lang);
-  }, [profile, index, tones, expanded, centreGuid, psets, quantities, lang, shown]);
+    return buildDrill(profile, index, tones, expanded, centreGuid, { psets, quantities }, lang, scopedIndex ?? index);
+  }, [profile, index, scopedIndex, tones, expanded, centreGuid, psets, quantities, lang, shown]);
 
   /* ── The viewer, borrowed ──────────────────────────────────────────────── */
 
@@ -308,11 +327,15 @@ export function GraphTab({
     nodes.forEach((node, i) => {
       if (node.guid && picked.has(node.guid)) chosen.add(i);
     });
+    // The graph as the origin: the chosen storey or bucket is ringed, and
+    // with no element in focus it is what the rest sinks back from.
+    const origin = chosenId ? nodes.findIndex((node) => node.id === chosenId) : -1;
+    if (origin >= 0) chosen.add(origin);
     selected.current = chosen;
     const centre = nodes.findIndex((node) => node.guid !== undefined && node.guid === centreGuid);
-    selHops.current = hopsFrom(centre >= 0 ? [centre] : [], look.adjacency, nodes.length);
+    selHops.current = hopsFrom(centre >= 0 ? [centre] : origin >= 0 ? [origin] : [], look.adjacency, nodes.length);
     hoverHops.current = hopsFrom([hovered.current], look.adjacency, nodes.length);
-  }, [selection, centreGuid]);
+  }, [selection, centreGuid, chosenId]);
 
   /* ── Drawing ───────────────────────────────────────────────────────────── */
 

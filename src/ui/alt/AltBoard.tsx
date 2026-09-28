@@ -26,6 +26,14 @@
  * to) and Detail (the one selected identity) are docked tiles. Every body is
  * data the worker built or an existing component; `onFocus` decides what a
  * click means.
+ *
+ * The cross-filter (2026-09-28, one origin): each tile names the view it is
+ * (`viewer`, `tree-system`, `tree-function`, `checks`, `reqs`, `floors`).
+ * The tile the click came from keeps every item and dims all but the chosen
+ * one (`data-xf="origin"`); the 3D, the treemaps and the floor sidebar
+ * isolate to the filter; the KPI cards and the checks keep the whole model's
+ * figures and say so (`data-xf="whole"`, «Hele modellen»), because a
+ * requirement's base is not known per element.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -36,7 +44,8 @@ import type { ModelEntry } from "../useModels";
 import type { Focus } from "../trace";
 import type { Lang } from "../i18n";
 import type { Design } from "../useHashView";
-import type { ModelView } from "../cross-filter";
+import type { ModelView, Origin } from "../cross-filter";
+import { isoOf, xfMark, type Xf } from "../origins";
 import type { KpiCard } from "../forms";
 import type { Census } from "../profile";
 import type { FloorConfig } from "../../engine/storey-config";
@@ -62,9 +71,11 @@ export interface AltBoardProps {
   model: ModelEntry;
   claims: KpiClaims;
   selected: string | null;
-  onFocus: (focus: Focus) => void;
+  /** A click on a board number, and the view it came from. */
+  onFocus: (focus: Focus, origin: Origin) => void;
   view: ModelView;
-  matched: Set<string> | null;
+  /** The one filter: its origin and the elements it resolves to. */
+  xf: Xf;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
   /** The project rules. Not drawn on the Overview (they are the project
@@ -77,6 +88,8 @@ export interface AltBoardProps {
   /** The floor sidebar: the config floors (or null) against every loaded
    *  model, this one first; with no config, the file's own storeys. */
   census: Census;
+  /** The census over the filter's elements, when the floor sidebar isolates. */
+  scopedCensus: Census | null;
   floors: FloorConfig[] | null;
   peers: FloorPeer[];
 }
@@ -205,6 +218,11 @@ export interface TileBody {
   /** A dock with nothing in it yet (Scope, Detail): a tile whose own body is
    *  empty shows its first tab that is not, until a click brings it back. */
   empty?: boolean;
+  /** The cross-filter: `origin` dims all but the chosen item; `whole` marks
+   *  whole-model figures under a filter from another view, with `whole`'s
+   *  text in the corner. */
+  xf?: "origin" | "whole";
+  wholeText?: string;
 }
 
 export type Bodies = (id: string) => TileBody | null;
@@ -271,7 +289,14 @@ export function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies
         // their own thin row under it.
         <div className="relative flex h-7 shrink-0 items-center px-2">{body.head}</div>
       ) : null}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body.body}</div>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-xf={body.xf}>
+        {body.body}
+        {body.xf === "whole" && body.wholeText ? (
+          <span data-xf-whole className="alt-label pointer-events-none absolute top-1 right-2 text-[9px] whitespace-nowrap">
+            {body.wholeText}
+          </span>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -286,8 +311,9 @@ function tileBodies(
   measure: { system: Measure; function: Measure },
   onMeasure: (axis: "system" | "function", m: Measure) => void,
 ): Bodies {
-  const { lang, model, selected, onFocus, view, matched, onPick, onHover } = props;
-  const door = { lang, model, selected, onFocus };
+  const { lang, model, selected, onFocus, view, xf, onPick, onHover } = props;
+  const door = (origin: Origin) => ({ lang, model, selected, onFocus: (focus: Focus) => onFocus(focus, origin) });
+  const whole = (self: Origin) => ({ xf: xfMark(xf, self, true), wholeText: t("filter.wholeModel", lang) });
   const board = model.board;
   const placed = new Set(layout.tiles.map((t) => t.id));
   const countsInList = counts.filter((_, i) => !placed.has(`count${i}`));
@@ -302,7 +328,9 @@ function tileBodies(
         shift={model.meshShift}
         budget={model.meshBudget}
         meshError={model.meshError}
-        matched={matched}
+        // The 3D is the origin of a canvas pick: it keeps the whole model and
+        // highlights the pick. From any other view it isolates.
+        matched={isoOf(xf, "viewer")}
         mode={view.mode}
         selection={view.selection}
         hover={view.hover}
@@ -317,6 +345,7 @@ function tileBodies(
     const code = board?.trees[axis];
     if (!code || code.by === "mapping") return null;
     return {
+      xf: xfMark(xf, id),
       label: t(treeTitle(code), lang),
       head: (
         <MeasureSwitch
@@ -328,7 +357,17 @@ function tileBodies(
           lang={lang}
         />
       ),
-      body: <CodeTreemap tree={code} measure={measure[axis]} measures={board?.measures} {...door} />,
+      body: (
+        <CodeTreemap
+          tree={code}
+          measure={measure[axis]}
+          measures={board?.measures}
+          iso={isoOf(xf, id)}
+          lit={xfMark(xf, id) === "origin" ? xf.matched : null}
+          quantities={model.elementQuantities?.byGuid}
+          {...door(id)}
+        />
+      ),
     };
   };
 
@@ -336,6 +375,7 @@ function tileBodies(
   const checksHost = layout.tiles.find((t) => t.id === "checks" || t.tabs.includes("checks"));
   const checksPx = checksHost ? checksHost.w * layout.u + (checksHost.w - 1) * MG_GAP : Infinity;
   const checks: TileBody = {
+    ...whole("checks"),
     label: t("tile.verify", lang),
     body: (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -366,21 +406,22 @@ function tileBodies(
     const count = /^count(\d+)$/.exec(id);
     if (count) {
       const card = counts[Number(count[1])];
-      return card ? { bare: true, label: card.label, body: <CountTile card={card} /> } : null;
+      return card ? { ...whole("counts"), bare: true, label: card.label, body: <CountTile card={card} /> } : null;
     }
     const kpi = /^ifc(\d+)$/.exec(id);
     if (kpi) {
       const req = reqs[Number(kpi[1])];
-      return req ? { bare: true, label: t(req.label, lang), body: <ReqCard req={req} {...door} /> } : null;
+      return req ? { ...whole("reqs"), bare: true, label: t(req.label, lang), body: <ReqCard req={req} {...door("reqs")} /> } : null;
     }
     // The narrow fallback: the IFC-struktur requirements as one list.
     if (id === "reqs") {
       return {
+        ...whole("reqs"),
         label: t("req.group.ifc", lang),
         body: (
           <div className="alt-list flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
             {reqs.map((req, i) => (
-              <ReqBlock key={req.key} req={req} index={i + 1} {...door} />
+              <ReqBlock key={req.key} req={req} index={i + 1} {...door("reqs")} />
             ))}
           </div>
         ),
@@ -393,7 +434,7 @@ function tileBodies(
 /** The floor sidebar: the config floors against every loaded model, or the
  *  file's own storeys when no config is loaded (the bento board's Etasjer
  *  tile, the same two components). */
-function floorsBody({ lang, model, census, floors, peers, selected, onFocus }: AltBoardProps): TileBody {
+function floorsBody({ lang, model, census, scopedCensus, floors, peers, selected, onFocus, xf }: AltBoardProps): TileBody {
   const configured = !!floors && floors.length > 0;
   const extra = configured
     ? peers.reduce(
@@ -403,15 +444,25 @@ function floorsBody({ lang, model, census, floors, peers, selected, onFocus }: A
         0,
       )
     : 0;
+  const open = (focus: Focus) => onFocus(focus, "floors");
+  // Isolating: only the storeys that hold a matching element.
+  const keep = scopedCensus ? new Set(scopedCensus.storeys.filter((s) => s.elements > 0).map((s) => s.guid)) : null;
   return {
+    xf: xfMark(xf, "floors"),
     label: t("tile.storeys", lang),
     sub: configured
       ? `${formatCount(floors!.length, lang)} × ${formatCount(peers.length, lang)}` + (extra > 0 ? ` · +${formatCount(extra, lang)}` : "")
       : formatCount(census.storeys.length, lang),
     body: configured ? (
-      <FloorSetupMatrix lang={lang} config={floors!} peers={peers} selected={selected} onFocus={onFocus} />
+      <FloorSetupMatrix lang={lang} config={floors!} peers={peers} selected={selected} onFocus={open} keep={keep} />
     ) : (
-      <StoreyList lang={lang} storeys={census.storeys} summary={model.report!.summary} selected={selected} onFocus={onFocus} />
+      <StoreyList
+        lang={lang}
+        storeys={scopedCensus ? scopedCensus.storeys.filter((s) => s.elements > 0) : census.storeys}
+        summary={model.report!.summary}
+        selected={selected}
+        onFocus={open}
+      />
     ),
   };
 }
@@ -445,7 +496,15 @@ function Checks(props: AltBoardProps & { counts: KpiCard[]; compact: boolean }) 
   return (
     <div className="flex shrink-0 flex-col">
       <div className="flex shrink-0 flex-col">
-        <Verification lang={lang} checks={rest} claimed={none} selected={selected} onFocus={onFocus} fill compact={compact} />
+        <Verification
+          lang={lang}
+          checks={rest}
+          claimed={none}
+          selected={selected}
+          onFocus={(focus) => onFocus(focus, "checks")}
+          fill
+          compact={compact}
+        />
       </div>
       {counts.length > 0 ? <div className="alt-group-rule shrink-0" /> : null}
       {counts.map((card: KpiCard) => (

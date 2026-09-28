@@ -2,14 +2,22 @@
  *  2026-09-25). Data from the worker (`report-rows.ts`): the treemaps from
  *  `src/engine/code-tree.ts`, the MMI bars from the MMI row's fordeling and
  *  its accepted values (`godtatte`). Every cell and bar is a door: a click
- *  fills Scope and makes a chip, as any other number on the board does.
+ *  fills Scope and replaces the one filter, as any other number does.
  *
  *  Colour per group (2026-09-28, `../chart-colors.ts`): a class its class
  *  colour (the Graf tab's too), a code its top level's hue with children as
  *  steps of it, MMI levels an ordinal ramp. Status never owns a fill: a
  *  deviating value is an amber outline with its glyph, an object with
  *  nothing red hatching with its glyph. A PredefinedType fallback keeps a
- *  light hatch and its caption, so it never reads as a code. */
+ *  light hatch and its caption, so it never reads as a code.
+ *
+ *  Under a cross-filter from another view (`iso`) both charts are recomputed
+ *  over the matching elements only (2026-09-28, one origin): a cell's count,
+ *  volume and area are its elements in the set, a bar's height its elements
+ *  in the set; cells and bars with none are not drawn. As the origin, a
+ *  chart keeps everything and the tile dims all but the chosen item; `lit`
+ *  marks the cells holding the chosen elements (a frame around the chosen
+ *  cell, a cell inside a chosen frame). */
 
 import { useLayoutEffect, useState, type CSSProperties } from "react";
 import { VERDICT_GLYPH } from "../state-visuals";
@@ -20,11 +28,11 @@ import type { DoorProps } from "./Requirements";
 import { locale, t, type Lang } from "../i18n";
 import { serialiseFocus, type Focus } from "../trace";
 import { formatCount, formatQuantity } from "../format";
-import type { Measure, SourceSplit } from "../../engine/quantities";
+import type { ElementQuantity, Measure, SourceSplit } from "../../engine/quantities";
 import { measureReady, type BoardMeasures } from "../measure-state";
 import { squarify, type Rect } from "./treemap";
 import { StateBadge } from "./Requirements";
-import { barLook, mmiBars, valueFocus } from "./req-view";
+import { barLook, mmiBars, mmiBarsWithin, valueFocus } from "./req-view";
 
 /** The box of whichever element the chart renders; a callback ref, so a
  *  chart that swaps its element (MMI columns and rows) keeps measuring the
@@ -181,21 +189,83 @@ function cellStyle(node: TreeNode, frame: boolean): Record<string, string> {
   return { "--cell": css(fill), "--cell-ink": css(labelOn(fill)) };
 }
 
+/** A node's elements that are in `iso`, counted once per render. */
+function isoCounter(iso: Set<string>) {
+  const memo = new Map<string, string[]>();
+  return (node: TreeNode): string[] => {
+    let hit = memo.get(node.key);
+    if (!hit) {
+      hit = node.guids.filter((g) => iso.has(g));
+      memo.set(node.key, hit);
+    }
+    return hit;
+  };
+}
+
 export function CodeTreemap({
   tree,
   measure = "count",
   measures,
+  iso = null,
+  lit = null,
+  quantities,
   ...door
-}: DoorProps & { tree: CodeTree; measure?: Measure; measures?: BoardMeasures }) {
+}: DoorProps & {
+  tree: CodeTree;
+  measure?: Measure;
+  measures?: BoardMeasures;
+  /** The cross-filter from another view: draw only these elements. */
+  iso?: Set<string> | null;
+  /** This chart is the origin: the chosen elements, for `data-xf-in`. */
+  lit?: Set<string> | null;
+  /** Per element volume and area, for a measure over `iso`. */
+  quantities?: Record<string, ElementQuantity>;
+}) {
   const { lang, selected, onFocus } = door;
   const { ref, box } = useBox();
-  const m = measure !== "count" && measureReady(tree, measures, measure) ? measures?.[tree.axis] : undefined;
+  const ready = measure !== "count" && measureReady(tree, measures, measure);
+  // Over `iso` a measure is summed per element, so it needs the elements'
+  // own quantities; without them the chart honestly falls back to count.
+  const m = ready && (!iso || quantities) ? measures?.[tree.axis] : undefined;
   const shown: Measure = m ? measure : "count";
   const at = shown === "area" ? 2 : 0;
-  const value: ValueOf = m ? (node) => m.nodes[node.key]?.[at] ?? 0 : (node) => node.n;
-  const missingOf = (node: TreeNode) => (m ? (m.nodes[node.key]?.[at + 1] ?? 0) : 0);
+  const inIso = iso ? isoCounter(iso) : null;
+  const count = (node: TreeNode) => (inIso ? inIso(node).length : node.n);
+  const sum = (node: TreeNode, missing: boolean): number => {
+    let total = 0;
+    for (const g of inIso!(node)) {
+      const q = quantities?.[g];
+      if (!q) continue;
+      const src = q[at + 1] as number;
+      const v = q[at];
+      if (missing) total += src === 2 ? 1 : 0;
+      else if (src < 2 && typeof v === "number") total += v;
+    }
+    return total;
+  };
+  const value: ValueOf = m
+    ? inIso
+      ? (node) => sum(node, false)
+      : (node) => m.nodes[node.key]?.[at] ?? 0
+    : count;
+  const missingOf = (node: TreeNode) => (m ? (inIso ? sum(node, true) : (m.nodes[node.key]?.[at + 1] ?? 0)) : 0);
   const unit = shown === "area" ? "m²" : "m³";
-  const figure = (node: TreeNode) => (m ? formatQuantity(value(node), unit, lang) : formatCount(node.n, lang));
+  const figure = (node: TreeNode) => (m ? formatQuantity(value(node), unit, lang) : formatCount(count(node), lang));
+  // The source split under the map, over `iso` when there is one.
+  const split = (): SourceSplit | null => {
+    if (!m) return null;
+    if (!inIso) return m[shown as "volume" | "area"];
+    const out: SourceSplit = { qto: 0, computed: 0, missing: 0, pending: 0 };
+    for (const node of tree.root)
+      for (const g of inIso(node)) {
+        const src = quantities?.[g]?.[at + 1];
+        if (src === 0) out.qto += 1;
+        else if (src === 1) out.computed += 1;
+        else if (src === 2) out.missing += 1;
+        else out.pending += 1;
+      }
+    return out;
+  };
   const placed: Placed[] = [];
   if (box && box.w > 0 && box.h > 0) place(tree.root, { x: 0, y: 0, w: box.w, h: box.h }, 0, placed, value);
   const label = (node: TreeNode) =>
@@ -211,7 +281,7 @@ export function CodeTreemap({
           label(node),
           node.name,
           m ? figure(node) : null,
-          `×${node.n}`,
+          `×${count(node)}`,
           gone ? `${t("req.mangler", lang)} ${gone}` : null,
         ]
           .filter(Boolean)
@@ -227,6 +297,7 @@ export function CodeTreemap({
             data-kind={node.kind}
             data-verdict={verdict}
             data-depth={depth}
+            data-xf-in={lit && node.guids.some((g) => lit.has(g)) ? "" : undefined}
             title={title}
             onClick={(event) => {
               event.stopPropagation();
@@ -272,14 +343,14 @@ export function CodeTreemap({
         );
       })}
     </div>
-    {m ? <SourceLine split={m[shown as "volume" | "area"]} lang={lang} /> : null}
+    {m ? <SourceLine split={split()!} lang={lang} /> : null}
     </>
   );
 }
 
 /* ── MMI ────────────────────────────────────────────────────────────────── */
 
-export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
+export function MmiChart({ req, iso = null, ...door }: DoorProps & { req: Requirement; iso?: Set<string> | null }) {
   const { lang, selected, onFocus, model } = door;
   const { ref, box } = useBox();
   const row = req.row;
@@ -291,7 +362,8 @@ export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
       </div>
     );
   }
-  const bars = mmiBars(req);
+  const bars = iso ? mmiBarsWithin(req, model, iso) : mmiBars(req);
+  if (bars.length === 0 && iso) return <div ref={ref} data-mmi="none-in-filter" className="min-h-0 flex-1" />;
   if (bars.length === 0) {
     return (
       <div ref={ref} data-mmi="no-values" className="flex min-h-0 flex-1 items-center justify-center">
@@ -300,7 +372,8 @@ export function MmiChart({ req, ...door }: DoorProps & { req: Requirement }) {
     );
   }
   const peak = Math.max(1, ...bars.map((b) => b.n));
-  const look = barLook(bars);
+  // The ramp of the whole scale, so a level keeps its shade under a filter.
+  const look = barLook(iso ? mmiBars(req) : bars);
   // Columns while every level gets 26 px; else one row per level, read down,
   // which a narrow tile seats (and scrolls, past its height).
   // A strip (one module tall, the canon's named exception) always reads

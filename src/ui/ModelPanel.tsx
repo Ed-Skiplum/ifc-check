@@ -12,7 +12,7 @@
  * Innhold is the census and the type ledger; Graf is the selected element's
  * relationships as a node-link diagram (`GraphTab.tsx`). The tab is in the URL
  * hash, so Back/Forward walk it. The filter bar sits on the strip's line, outside the tab panels, because a
- * chip belongs to the model, not to a tab: chips persist across tabs. Every
+ * filter belongs to the model, not to a tab: it persists across tabs. Every
  * tab stays mounted and the inactive ones are hidden, so the 3D scene and its
  * camera survive a trip to Innhold or Graf and back.
  *
@@ -23,12 +23,14 @@
  * under it (2026-09-22) — never from what the band takes. The page scrolls.
  *
  * ── Where the cross-filter is joined ─────────────────────────────────────
- * The same click that opens a derivation makes a chip. `onFocus` still does
- * what it did — open the band for that number — and the chip is added beside
- * it, so the board narrows IN PLACE and nothing navigates. The bar sits here,
- * on the tab line and always rendered, because the filter belongs to the model
- * rather than to any one tile, and because a bar that appears only when a
- * filter is on cannot answer "what am I filtered to?".
+ * ONE filter per model, one origin (`filter-state.ts`, edkjo 2026-09-28:
+ * *"Original: Highlight, everything else: Isolate"*). Every click here names
+ * the view it came from; the reducer replaces the filter and Scope's list in
+ * one step. Every view below is handed the same resolved set (`xf`): the
+ * origin keeps all its items and dims the rest, every other view is given
+ * the filtered profile, catalogue or census and shows only what matches. The
+ * bar sits on the tab line and is always rendered, so "what am I filtered
+ * to?" is answerable at a glance.
  */
 
 import { cloneElement, isValidElement, useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
@@ -37,8 +39,10 @@ import type { ModelEntry } from "./useModels";
 import type { Focus } from "./trace";
 import type { Lang, StringKey } from "./i18n";
 import type { Design } from "./useHashView";
-import type { FilterChip, Mode, ModelView } from "./cross-filter";
-import { chipOf, resolveFilter } from "./cross-filter";
+import type { FilterAction, Mode, ModelView, Origin } from "./cross-filter";
+import { chooseFocus, filterOf, resolveActive } from "./cross-filter";
+import { serialiseFocus } from "./trace";
+import type { Xf } from "./origins";
 import { t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatBytes, formatCount, formatMs } from "./format";
@@ -82,22 +86,11 @@ interface ModelPanelProps {
   /** The loaded ruleset, for the type page's required-property marks. */
   ruleset: Ruleset | null;
   claims: KpiClaims;
-  selected: string | null;
-  onFocus: (focus: Focus) => void;
   onRemove: () => void;
+  /** This model's one filter, Scope's list and the selection. */
   view: ModelView;
   onMode: (mode: Mode) => void;
-  onAddChip: (chip: FilterChip) => void;
-  onRemoveChip: (key: string) => void;
-  onClearChips: () => void;
-  /** Replace the chips outright (the Typer type page). */
-  onSetChips: (chips: FilterChip[]) => void;
-  /** Drop the element refinement when a different set is chosen. */
-  onClearElements: () => void;
-  onPick: (guid: string | null, additive: boolean) => void;
-  /** Set the selection outright (the Typer instance mode: one instance, or
-   *  all N of a type). */
-  onSelect: (guids: string[]) => void;
+  onDispatch: (action: FilterAction) => void;
   onHover: (guid: string | null) => void;
   /** The ruleset's floor config, or null when none is loaded. */
   floors: FloorConfig[] | null;
@@ -124,18 +117,10 @@ export function ModelPanel({
   hasRuleset,
   ruleset,
   claims,
-  selected,
-  onFocus,
   onRemove,
   view,
   onMode,
-  onAddChip,
-  onRemoveChip,
-  onClearChips,
-  onSetChips,
-  onClearElements,
-  onPick,
-  onSelect,
+  onDispatch,
   onHover,
   floors,
   peers,
@@ -154,7 +139,16 @@ export function ModelPanel({
   const reading = model.state === "queued" || model.state === "parsing";
   const ready = model.state === "ready";
 
-  const filter = useMemo(() => resolveFilter(view.chips, model), [view.chips, model]);
+  // The one filter, resolved once; every view reads THIS, never a copy.
+  const filter = useMemo(() => resolveActive(view.filter, model), [view.filter, model]);
+  const xf = useMemo<Xf>(() => ({ origin: view.origin, matched: filter.matched }), [view.origin, filter.matched]);
+  const selected = view.scope ? serialiseFocus(view.scope) : null;
+  // The model as the isolating views see it: only the matching rows.
+  const scopedProfile = useMemo(
+    () => (profile && filter.matched ? { ...profile, rows: profile.rows.filter((r) => filter.matched!.has(r.guid)) } : null),
+    [profile, filter.matched],
+  );
+  const isolating = (self: Origin) => scopedProfile !== null && view.origin !== self;
 
   // One pass over the products per (profile, geometry) change, not per render.
   // Triangles come from the STREAMED mesh, the only place a per-element count
@@ -180,6 +174,20 @@ export function ModelPanel({
   // profile (`type-links.ts`). A link chip on one tab opens the other tab on
   // the linked card.
   const catalogue = useMemo(() => (profile ? buildCatalogue(profile) : null), [profile]);
+  const scopedCatalogue = useMemo(() => (scopedProfile ? buildCatalogue(scopedProfile) : null), [scopedProfile]);
+  // Innhold and the floor sidebar, over the matching rows.
+  const scopedFacts = useMemo(() => (scopedProfile ? census(scopedProfile) : null), [scopedProfile]);
+  const scopedLedger = useMemo(
+    () =>
+      scopedProfile
+        ? aggregateTypes(scopedProfile, {
+            mesh: meshIndex(model.meshBatches),
+            meshCapped: model.meshBudget?.capped ?? false,
+            typeObjectsDeclared: null,
+          })
+        : null,
+    [scopedProfile, model.meshBatches, model.meshBudget],
+  );
   const [revealMaterial, setRevealMaterial] = useState<Reveal | null>(null);
   // Each type card's system and function line, off the board's code trees.
   const board = model.board;
@@ -214,33 +222,20 @@ export function ModelPanel({
     [peers, model.id],
   );
 
-  /** One click, two consequences, kept in step.
-   *
-   * `onFocus` opens the derivation for this number, or CLOSES it when the same
-   * number is already open. The chip follows that same decision, so a chip is
-   * present exactly while its derivation is — clicking A, then B, then A again
-   * cannot leave the band showing A while the filter has dropped it. A chip can
-   * still outlive its band, by design: the ✕ is the only other way off, and
-   * closing the band by its own Close button leaves the filter alone. */
+  /** A click on a board number, from the view `origin`: it REPLACES the
+   *  filter and Scope's list in one step, or clears both when it is the
+   *  chosen item again. */
   const focus = useCallback(
-    (next: Focus) => {
-      onFocus(next);
-      // A NUMBER was clicked, so the drill starts over: the element chip from
-      // the last one refines a set that is no longer the one on screen, and
-      // carried across it would AND to nothing. See `clearElements`.
-      onClearElements();
-      const chip = chipOf(next, model, lang);
-      if (!chip) return;
-      // Decide from the CHIPS, not from the open derivation. `selected` is the
-      // band's focus, restored from the URL hash, and three paths move the
-      // chips without touching it: the chip's own x, Tom filter, and a reload
-      // against a stale hash. Once they were out of step, the next click on
-      // that row was read as "remove a chip that is not there" and silently
-      // did nothing — which is what the owner saw.
-      if (view.chips.some((c) => c.key === chip.key)) onRemoveChip(chip.key);
-      else onAddChip(chip);
+    (next: Focus, origin: Origin) => onDispatch(chooseFocus(origin, next, model, lang)),
+    [lang, model, onDispatch],
+  );
+  /** A click on one element in a view (the canvas, a graph product). */
+  const pickIn = useCallback(
+    (origin: Origin) => (guid: string | null, additive: boolean) => {
+      const row = guid ? profile?.rows.find((r) => r.guid === guid) : undefined;
+      onDispatch({ type: "element", origin, guid, label: row?.name ?? null, additive });
     },
-    [lang, model, onAddChip, onClearElements, onFocus, onRemoveChip, view.chips],
+    [onDispatch, profile],
   );
 
   // The file's own facts, on the header line beside name · state · size. They
@@ -253,7 +248,7 @@ export function ModelPanel({
         {
           label: t("kpi.products", lang),
           value: formatCount(report.summary.products, lang),
-          onClick: () => focus({ kind: "kpi", kpi: "products" }),
+          onClick: () => focus({ kind: "kpi", kpi: "products" }, "checks"),
         },
         { label: t("kpi.parseTime", lang), value: formatMs(report.parseMs, lang) },
         { label: t("kpi.project", lang), value: report.summary.project_name ?? "—", text: true },
@@ -269,13 +264,12 @@ export function ModelPanel({
   const filterProps = {
     lang,
     mode: view.mode,
-    chips: view.chips,
+    filter: view.filter,
     unresolved: filter.unresolved,
     matchedCount: filter.matched?.size ?? null,
     total: profile?.rows.length ?? 0,
     onMode,
-    onRemove: onRemoveChip,
-    onClear: onClearChips,
+    onClear: () => onDispatch({ type: "clear" }),
   };
 
   // The design alternatives dock two panels on Kontroll (2026-09-25; edkjo:
@@ -287,7 +281,7 @@ export function ModelPanel({
   const docked = (design !== null && tab === "checks") || tab === "project";
   const scope =
     docked && isValidElement(trace)
-      ? cloneElement(trace as ReactElement<{ alone?: boolean }>, { alone: true })
+      ? cloneElement(trace as ReactElement<{ alone?: boolean; origin?: boolean }>, { alone: true, origin: view.origin === "scope" })
       : null;
   const detail =
     docked && view.selection.length > 0 ? (
@@ -408,12 +402,13 @@ export function ModelPanel({
                 lang={lang}
                 model={model}
                 census={facts}
+                scopedCensus={isolating("floors") ? scopedFacts : null}
                 claims={claims}
                 selected={selected}
                 onFocus={focus}
                 view={view}
-                matched={filter.matched}
-                onPick={onPick}
+                xf={xf}
+                onPick={pickIn("viewer")}
                 onHover={onHover}
                 floors={floors}
                 peers={ownFirst}
@@ -424,13 +419,15 @@ export function ModelPanel({
               />
             </div>
             <div role="tabpanel" hidden={tab !== "contents"} className="flex flex-col">
+              <div className="contents" data-xf={view.origin === "census" ? "origin" : undefined}>
               <Contents
                 lang={lang}
-                census={facts}
-                ledger={ledger}
+                census={isolating("census") && scopedFacts ? scopedFacts : facts}
+                ledger={isolating("census") && scopedLedger ? scopedLedger : ledger}
                 selected={selected}
-                onFocus={focus}
+                onFocus={(next) => focus(next, "census")}
               />
+              </div>
             </div>
             {/* Same mounted-and-hidden pattern as the other two: the 3D scene
                 on Kontroll must survive a trip here and back. */}
@@ -439,11 +436,13 @@ export function ModelPanel({
                 lang={lang}
                 design={design}
                 profile={profile ?? null}
+                scopedProfile={isolating("graph") ? scopedProfile : null}
+                chosen={view.origin === "graph" ? selected : null}
                 checks={model.report?.checks}
                 meshBatches={model.meshBatches}
                 selection={view.selection}
-                onPick={onPick}
-                onFocus={focus}
+                onPick={pickIn("graph")}
+                onFocus={(next) => focus(next, "graph")}
               />
             </div>
             <div role="tabpanel" hidden={tab !== "types"} className="flex flex-col">
@@ -451,21 +450,31 @@ export function ModelPanel({
                 lang={lang}
                 profile={profile ?? null}
                 catalogue={catalogue}
+                scopedCatalogue={isolating("types") ? scopedCatalogue : null}
                 meshBatches={model.meshBatches}
                 selection={view.selection}
-                chips={view.chips}
-                mode={view.mode}
+                view={view}
                 page={typePage}
-                onSelect={onSelect}
-                onChips={onSetChips}
+                onDispatch={onDispatch}
                 onMode={onMode}
                 onPage={onTypePage}
                 onOpenMaterial={openMaterial}
                 pageInput={pageInput}
                 codes={codes}
                 onOpenType={openType}
-                onScope={(next, target) => {
-                  focus(next);
+                onScope={(next, target, within) => {
+                  // The line's findings among the type's instances: ONE
+                  // filter, not a type AND a requirement.
+                  const made = filterOf(next, model, lang);
+                  const all = resolveActive(made ? { origin: "typepage", key: "", ...made } : null, model).matched;
+                  const guids = within.filter((g) => all?.has(g));
+                  onDispatch({
+                    type: "choose",
+                    origin: "typepage",
+                    key: `${serialiseFocus(next)}@type`,
+                    filter: made ? { kind: made.kind, label: made.label, guids } : null,
+                    scope: made ? { kind: "element", guids } : next,
+                  });
                   onTab(target);
                 }}
               />
@@ -475,10 +484,11 @@ export function ModelPanel({
                 lang={lang}
                 profile={profile ?? null}
                 catalogue={catalogue}
+                scopedCatalogue={isolating("materials") ? scopedCatalogue : null}
                 meshBatches={model.meshBatches}
-                selection={view.selection}
+                view={view}
                 reveal={revealMaterial}
-                onSelect={onSelect}
+                onDispatch={onDispatch}
                 onOpenType={openType}
               />
             </div>
@@ -488,6 +498,7 @@ export function ModelPanel({
                 model={model}
                 selected={selected}
                 onFocus={focus}
+                xf={xf}
                 selection={view.selection}
                 scope={tab === "project" ? scope : null}
                 detail={tab === "project" ? detail : null}

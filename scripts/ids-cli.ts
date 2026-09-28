@@ -70,6 +70,7 @@ import { MENGDETYPE_NS3457 } from "../src/codelists/mengdetype-ns3457.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 import { catalogue as typeCatalogue, typeCodes, typeObjectClass } from "../src/ui/type-links.ts";
 import { typePage } from "../src/ui/type-page.ts";
+import { EMPTY_FILTER, reduceFilter } from "../src/ui/filter-state.ts";
 import type { BoardData } from "../src/ui/report-rows.ts";
 import type { ElementQuantity } from "../src/engine/quantities.ts";
 import type { ModelProfile } from "../src/ui/profile.ts";
@@ -2006,6 +2007,39 @@ async function cmdSelftest(): Promise<number> {
     "ordered",
     [0, 1, 2, 3, 4, 5, 6].every((i) => i === 0 || luminance(mmiColour(i, 7)) < luminance(mmiColour(i - 1, 7))) ? "ordered" : "not",
   );
+
+  // The cross-filter reducer (src/ui/filter-state.ts, 2026-09-28): one
+  // filter, one origin. A click replaces, the chosen item again clears, and
+  // nothing is ever the intersection of two clicks.
+  {
+    const cell = (key: string, guids: string[]) =>
+      ({ type: "choose", origin: "tree-system", key, filter: { kind: "tree", label: key, guids }, scope: null }) as const;
+    const a = reduceFilter(EMPTY_FILTER, cell("A", ["g1", "g2", "g3"]));
+    const b = reduceFilter(a, {
+      type: "choose",
+      origin: "graph",
+      key: "storey:s1",
+      filter: { kind: "storey", label: "s1", guids: ["g3", "g4"] },
+      scope: null,
+    });
+    const f = (s: typeof a) => (s.filter ? `${s.filter.origin}:${s.filter.key}=${(s.filter.guids ?? []).join(",")}` : "none");
+    record("xfilter: a click sets the one filter and its origin", "tree-system:A=g1,g2,g3", f(a));
+    record("xfilter: a click in another view REPLACES it (not the intersection g3)", "graph:storey:s1=g3,g4", f(b));
+    record("xfilter: the chosen item again clears it", "none", f(reduceFilter(b, { type: "choose", origin: "graph", key: "storey:s1", filter: null, scope: null })));
+    record("xfilter: another item in the same view replaces", "tree-system:B=g9", f(reduceFilter(a, cell("B", ["g9"]))));
+    const pick = (s: typeof a, origin: string, guid: string | null, additive = false) =>
+      reduceFilter(s, { type: "element", origin, guid, label: null, additive });
+    const p1 = pick(b, "viewer", "g7");
+    record("xfilter: a canvas pick is the 3D's own filter, selected", "viewer:element:g7=g7 sel g7", `${f(p1)} sel ${p1.selection.join(",")}`);
+    const p2 = pick(p1, "viewer", "g8", true);
+    record("xfilter: Shift adds within the same view", "viewer:element:g7+g8=g7,g8", f(p2));
+    record("xfilter: Shift in ANOTHER view replaces", "graph:element:g5=g5", f(pick(p2, "graph", "g5", true)));
+    record("xfilter: the lone element again clears", "none", f(pick(p1, "viewer", "g7")));
+    const s1 = pick(a, "scope", "g2");
+    record("xfilter: a Scope pick keeps Scope's list and isolates the element", "scope:element:g2=g2", f(s1));
+    record("xfilter: the same Scope row again steps back to the list's filter", "tree-system:A=g1,g2,g3", f(pick(s1, "scope", "g2")));
+    record("xfilter: Tøm clears", "none", f(reduceFilter(b, { type: "clear" })));
+  }
 
   const ok = assertions.every((a) => a.ok);
   emit({

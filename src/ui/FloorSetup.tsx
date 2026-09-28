@@ -205,6 +205,7 @@ export function FloorSetupMatrix({
   peers,
   selected,
   onFocus,
+  keep = null,
 }: {
   lang: Lang;
   config: FloorConfig[];
@@ -212,6 +213,9 @@ export function FloorSetupMatrix({
   peers: FloorPeer[];
   selected: string | null;
   onFocus: (focus: Focus) => void;
+  /** The cross-filter from another view: only the rows whose storey in THIS
+   *  model (the first column) holds a matching element. */
+  keep?: Set<string> | null;
 }) {
   const open = (guids: string[]) => onFocus({ kind: "storey", storeyGuids: guids });
   const isOpen = (guids: string[]) => selected === serialiseFocus({ kind: "storey", storeyGuids: guids });
@@ -239,6 +243,7 @@ export function FloorSetupMatrix({
         </thead>
         <tbody>
           {config.map((floor, row) => (
+            keep && !(perModel[0] ?? []).some((m) => m.config === row && keep.has(m.storey.guid)) ? null :
             <tr key={`cfg-${row}`}>
               <td data-essential title={floor.name} className={`${NAME_TD} w-full`}>
                 {floor.name}
@@ -262,7 +267,7 @@ export function FloorSetupMatrix({
               })}
             </tr>
           ))}
-          {extras.map(({ col, match }, index) => (
+          {extras.filter(({ col, match }) => !keep || (col === 0 && keep.has(match.storey.guid))).map(({ col, match }, index) => (
             <tr key={`extra-${peers[col].id}-${match.storey.guid}`}>
               <td
                 title={match.storey.name ?? match.storey.guid}

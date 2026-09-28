@@ -21,15 +21,13 @@
  * ── And the second step of the drill ─────────────────────────────────────
  * edkjo: *"so you click to see rejected instances, then select an instance and
  * see that."* So a row click is not only a selection: it also narrows the
- * cross-filter to that one element, through an `element` chip on the model's
- * own filter bar. Under "Vis kun" the scene is then that element alone, which
- * is the "see that" half. Clicking the same row again drops the chip and the
- * scene is the set the row was drilled from; the chip's ✕ and Tøm filter do
- * what they always did.
+ * cross-filter to that one element, with Scope as the filter's origin
+ * (2026-09-28, one origin): Scope keeps every row, the picked one marked and
+ * the rest dimmed, while every other view isolates to the element. Clicking
+ * the same row again steps back to the filter the list came from.
  *
- * This is the one place a single element narrows the scene. A pick in the 3D
- * tile still only highlights — a click that hid what the pointer was over
- * would make the scene unusable for the thing it is for.
+ * A pick in the 3D tile is the 3D's own origin: it keeps the whole model and
+ * highlights, and the other views (this list included) isolate to it.
  *
  * A row click frames what it picked, like every selection: "always frame the
  * selected object. pivot on it and frame it." (edkjo, 2026-09-28). The viewer
@@ -110,6 +108,9 @@ interface TraceBandProps {
   /** The list alone, no object panel beside it: the Scope panel of the design
    *  alternatives, where the object panel is its own docked Detail panel. */
   alone?: boolean;
+  /** Scope is the cross-filter's origin (a row was picked here): every row
+   *  stays, the picked ones highlighted and the rest dimmed. */
+  origin?: boolean;
 }
 
 export function TraceBand({
@@ -123,6 +124,7 @@ export function TraceBand({
   onClose,
   stack = false,
   alone = false,
+  origin = false,
 }: TraceBandProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -317,7 +319,7 @@ export function TraceBand({
         <span className="text-[10px]">{t("col.reason", lang)}</span>
       </div>
 
-      <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto bg-input">
+      <div ref={scroller} onScroll={onScroll} data-xf={origin ? "origin" : undefined} className="min-h-0 flex-1 overflow-auto bg-input">
         <div style={{ height: rows.length * ROW_HEIGHT, position: "relative" }}>
           {visible.map((row, index) => {
             const at = first + index;
@@ -328,6 +330,7 @@ export function TraceBand({
               <div
                 key={`${row.guid}-${at}`}
                 data-guid={row.guid}
+                data-chosen={picked ? "" : undefined}
                 onClick={(event) =>
                   onPick(row.guid, row.name, event.shiftKey || event.ctrlKey || event.metaKey)
                 }

@@ -14,7 +14,7 @@ import { t, locale } from "../i18n";
 import { formatCount } from "../format";
 import { VERDICT_GLYPH } from "../state-visuals";
 import { css, mmiColour } from "../chart-colors";
-import { valueDoorSize } from "../board-doors";
+import { reqDoor, valueDoorSize } from "../board-doors";
 
 export function stateLook(state: ReportState, lang: Lang): { verdict: Verdict; glyph: string; word: string } {
   switch (state) {
@@ -184,6 +184,20 @@ export function mmiBars(req: Requirement): Bar[] {
   return [...off, ...bars];
 }
 
+/** The bars over the elements of a cross-filter from another view: each
+ *  bar's height is its value's elements in `iso` (the same door a click on
+ *  the bar opens), and a bar with none is not drawn. */
+export function mmiBarsWithin(req: Requirement, model: ModelEntry, iso: Set<string>): Bar[] {
+  const row = req.row;
+  if (!row) return [];
+  return mmiBars(req)
+    .map((bar) => ({
+      ...bar,
+      n: reqDoor(model, { kind: "req", id: row.mapping ?? row.id, value: bar.value }).guids.filter((g) => iso.has(g)).length,
+    }))
+    .filter((bar) => bar.n > 0);
+}
+
 /** How a bar is drawn: a level on the scale takes its step of the ordinal
  *  ramp; an avvik or mangler bar takes no fill (the CSS draws its outline or
  *  hatching) and carries its glyph. */
@@ -198,6 +212,7 @@ export function barLook(bars: readonly Bar[]): (bar: Bar) => BarLook {
   return (bar): BarLook => {
     if (bar.flag === "avvik") return { verdict: "warn", glyph: VERDICT_GLYPH.warn, style: {} };
     if (bar.flag === "mangler") return { verdict: "fail", glyph: VERDICT_GLYPH.fail, style: {} };
-    return { verdict: undefined, glyph: null, style: { "--bar": css(mmiColour(scale.indexOf(bar), scale.length)) } };
+    const step = scale.findIndex((b) => b.value === bar.value);
+    return { verdict: undefined, glyph: null, style: { "--bar": css(mmiColour(step, scale.length)) } };
   };
 }

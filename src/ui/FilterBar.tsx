@@ -1,11 +1,15 @@
-/** The active-filter bar: what the board is narrowed to, and how the narrowing
- *  is expressed in 3D.
+/** The active-filter bar: the ONE filter the board is narrowed to, and how the
+ *  narrowing is expressed in 3D.
+ *
+ * One chip at most (2026-09-28, one origin): the active filter, its kind and
+ * label, and its ✕, which clears it. A click elsewhere replaces the chip; it
+ * never adds a second one.
  *
  * It rides the right-hand end of the tab strip's line (2026-09-24): on a line
  * of its own it was a band of chrome above the board that said nothing until
- * a click. It never wraps, so a chip appearing moves nothing on the page and
+ * a click. It never wraps, so the chip appearing moves nothing on the page and
  * the row just clicked is still under the pointer for the click that undoes
- * it; more chips than the line holds scroll sideways inside it.
+ * it.
  *
  * Always rendered, empty or not. The point of the bar is that *"what am I
  * filtered to?"* is answerable at a glance, and a bar that appears only when
@@ -16,34 +20,31 @@
  * active mode is a WHOLE-SURFACE colour commitment, never an edge stripe.
  */
 
-import type { FilterChip, Mode } from "./cross-filter";
+import type { ActiveFilter, Mode } from "./cross-filter";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 
 interface FilterBarProps {
   lang: Lang;
   mode: Mode;
-  chips: FilterChip[];
-  /** Chips whose source no longer exists — drawn as broken rather than
-   *  quietly dropped. */
-  unresolved: string[];
+  filter: ActiveFilter | null;
+  /** The filter's source no longer exists: drawn broken, not dropped. */
+  unresolved: boolean;
   /** How many elements the filter resolves to, or `null` with no filter. */
   matchedCount: number | null;
   total: number;
   onMode: (mode: Mode) => void;
-  onRemove: (key: string) => void;
   onClear: () => void;
 }
 
 export function FilterBar({
   lang,
   mode,
-  chips,
+  filter,
   unresolved,
   matchedCount,
   total,
   onMode,
-  onRemove,
   onClear,
 }: FilterBarProps) {
   return (
@@ -65,45 +66,32 @@ export function FilterBar({
         />
       </span>
 
-      {chips.map((chip) => {
-        const broken = unresolved.includes(chip.key);
-        return (
+      {filter ? (
+        <>
           <span
-            key={chip.key}
+            data-filter-origin={filter.origin}
             className={
               "flex items-center gap-1.5 border px-2 py-0.5 text-[11px] " +
-              (broken ? "border-bad bg-bad text-cream" : "border-line bg-input text-ink")
+              (unresolved ? "border-bad bg-bad text-cream" : "border-line bg-input text-ink")
             }
           >
             <span className="text-[9px] font-semibold tracking-[0.1em] uppercase opacity-70">
-              {t(`filter.kind.${chip.kind}`, lang)}
+              {t(`filter.kind.${filter.kind}`, lang)}
             </span>
-            <span className="font-mono">{chip.label}</span>
+            <span className="font-mono">{filter.label}</span>
             <button
               type="button"
-              onClick={() => onRemove(chip.key)}
-              aria-label={`${t("filter.remove", lang)} ${chip.label}`}
-              title={t("filter.remove", lang)}
+              onClick={onClear}
+              aria-label={`${t("filter.clear", lang)} ${filter.label}`}
+              title={t("filter.clear", lang)}
               className="font-mono font-bold hover:text-bad"
             >
               ✕
             </button>
           </span>
-        );
-      })}
-
-      {chips.length > 0 ? (
-        <>
           <span className="font-mono text-[11px] tabular-nums text-muted">
             {matchedCount === null ? total : matchedCount} / {total}
           </span>
-          <button
-            type="button"
-            onClick={onClear}
-            className="border border-line bg-input px-2 py-0.5 text-[11px] text-ink hover:border-green hover:text-green"
-          >
-            {t("filter.clear", lang)}
-          </button>
         </>
       ) : null}
     </div>

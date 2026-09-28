@@ -118,6 +118,21 @@ body {
 .gallery-layer.gallery-layer-unknown {
   background: repeating-linear-gradient(135deg, var(--color-panel) 0 4px, var(--color-line) 4px 8px);
 }
+/* The cross-filter's ORIGIN view (2026-09-28, edkjo: "Original: Highlight,
+   everything else: Isolate"): every item stays, the chosen one keeps its own
+   highlight and the rest fall back. `data-xf-in` is a treemap cell holding
+   chosen elements (the frame around a chosen cell, a cell inside a chosen
+   frame). The other views isolate in code; nothing here hides anything. */
+[data-xf="origin"]
+  :is(.alt-hover, .cursor-pointer, .gallery-door, [data-tree-cell]):not(
+    .alt-chosen,
+    .outline-ink,
+    [aria-current="true"],
+    [data-chosen],
+    [data-xf-in]
+  ) {
+  opacity: 0.38;
+}
 /* A card another tab linked to (Typer <-> Materialer, 2026-09-28). */
 .gallery-card[data-revealed] {
   outline: 2px dashed var(--d-accent, var(--color-green));

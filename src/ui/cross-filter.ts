@@ -1,42 +1,23 @@
-/** Cross-filter: the same click that opens a derivation also narrows the 3D.
+/** Cross-filter: ONE active filter per model, one origin (2026-09-28).
  *
- * The ruling this implements, verbatim from the canon: *"Crossfilter = FILTER
- * IN PLACE, not cross-navigate: clicking a dashboard class narrows every panel
- * (KPIs, Topp-20, 3D) to that class and STAYS on the dash, surfaced as a
- * removable filter chip"*, plus *"show an ACTIVE-FILTER CHIP BAR so 'what am I
- * filtered to?' is always answerable at a glance"*.
+ * edkjo: *"cross filter should have one origin: all other views show only the
+ * matching results. The clicked origin highlights. So: Original: Highlight,
+ * everything else: Isolate."* The state and its reducer are
+ * `filter-state.ts`; this file turns a board click into a filter, resolves a
+ * filter to its elements, and holds the per-model state for React.
  *
- * So a `Focus` — the thing the board already produces when a class row, a
- * matrix cell, a universal check or a project rule is clicked — becomes a
- * CHIP. Nothing new has to be clicked, and no tile learns a second gesture.
- *
- * ── How chips combine ────────────────────────────────────────────────────
- * OR within a facet, AND across facets. Two class chips mean "either class";
- * a class chip and a check chip mean "this class AND failing that check". That
- * is the semantics the sprucelab embed contract encodes by giving each facet an
- * array (`ifc_class?: string[]`) and intersecting the facets, and it is the
- * only combination rule that makes a second click feel like a refinement
- * rather than a replacement.
+ * It replaced facet chips that OR-ed within a facet and AND-ed across facets
+ * (2026-09-23 to 2026-09-28). A second click then refined the first, a
+ * treemap cell AND a graph storey AND a type card, and the owner read the
+ * result as *"cumulative somehow"*. Now a click replaces.
  *
  * ── What is deliberately NOT a filter ────────────────────────────────────
  * `kpi:products` is every product and `kpi:storeys` is not a product set at
- * all. Neither narrows anything, so neither makes a chip. A chip that silently
- * means "no constraint" is worse than no chip.
- *
- * Nor is a row whose check NEVER RAN: a `not_applicable` check and a
- * `not_evaluable` rule have no element set, and an empty scene under a `0 /
- * 851` chip would state "these elements" where the honest answer is "this was
- * not answered". Same rule the engine keeps (`not_applicable` is never folded
- * into `pass`), at the filter. The derivation still opens and prints the
- * reason — the row is not dead, it just does not pretend to be a set.
- *
- * ── Two steps, one gesture ───────────────────────────────────────────────
- * edkjo: *"so you click to see rejected instances, then select an instance and
- * see that."* Step one is the chip above. Step two is an ELEMENT chip, made by
- * a row inside the derivation band: it carries its own guid rather than a
- * board number, and because facets AND, `check ∧ element` is that one element.
- * It rides the same bar, the same ✕ and the same Tøm filter as every other
- * chip, so stepping back out is the gesture the user already knows.
+ * all. Neither narrows anything. Nor is a row whose check NEVER RAN: a
+ * `not_applicable` check and a `not_evaluable` rule have no element set, and
+ * an empty scene under it would state "these elements" where the honest
+ * answer is "this was not answered". Such a click still opens Scope and
+ * prints the reason; it clears the filter, since it is a new click.
  */
 
 import { useCallback, useState } from "react";
@@ -50,84 +31,34 @@ import { reqDoor, treeDoor } from "./board-doors";
 import { labelOfRow } from "./requirements";
 import { findNode } from "../engine/code-tree";
 import type { ModelEntry } from "./useModels";
+import { EMPTY_FILTER, reduceFilter, type ActiveFilter, type ChipKind, type FilterAction, type FilterState, type Origin } from "./filter-state";
 
-export type { Mode };
+export type { Mode, ActiveFilter, ChipKind, FilterAction, FilterState, Origin };
 
-export type ChipKind =
-  | "class"
-  | "cell"
-  | "check"
-  | "rule"
-  | "type"
-  | "storey"
-  | "element"
-  /** A material row of the Materialer tab; carries its own `guids`. */
-  | "material"
-  | "tree"
-  /** One specification of the loaded `.ids`: its failing elements. */
-  | "ids";
-
-export interface FilterChip {
-  /** `serialiseFocus(focus)` — the same key the hash view uses, so a chip and
-   *  an open derivation are recognisably the same thing. An element chip has
-   *  no focus, so its key is `element:<guid>`. */
-  key: string;
-  kind: ChipKind;
-  label: string;
-  /** The board number this chip was made from. Absent on an element chip: it
-   *  comes from a row INSIDE a derivation, and re-targeting the band to that
-   *  row would destroy the very list being drilled. */
-  focus?: Focus;
-  /** The elements this chip stands for, when it carries them itself. */
-  guids?: string[];
-}
-
-/** One element, from a row of the open derivation. */
-export function elementChip(guid: string, label: string | null): FilterChip {
-  return { key: `element:${guid}`, kind: "element", label: label || guid, guids: [guid] };
-}
-
-/** A focus that narrows nothing returns `null` rather than an empty chip. */
-export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip | null {
-  const key = serialiseFocus(focus);
-  if (focus.kind === "class") {
-    return { key, kind: "class", label: focus.entity, focus };
-  }
+/** What a board click narrows to, or `null` when it is not an element set. */
+export function filterOf(focus: Focus, model: ModelEntry, lang: Lang): { kind: ChipKind; label: string; focus: Focus } | null {
+  if (focus.kind === "class") return { kind: "class", label: focus.entity, focus };
   if (focus.kind === "cell") {
     const storey = model.profile?.storeys.find((s) => s.guid === focus.storeyGuid);
-    const where =
-      focus.storeyGuid === null
-        ? t("matrix.noStorey", lang)
-        : (storey?.name ?? focus.storeyGuid);
-    return { key, kind: "cell", label: `${where} · ${focus.entity}`, focus };
+    const where = focus.storeyGuid === null ? t("matrix.noStorey", lang) : (storey?.name ?? focus.storeyGuid);
+    return { kind: "cell", label: `${where} · ${focus.entity}`, focus };
   }
   if (focus.kind === "storey") {
     if (!model.profile) return null;
-    return {
-      key,
-      kind: "storey",
-      label: storeyNames(model.profile, focus.storeyGuids, t("matrix.noStorey", lang)),
-      focus,
-    };
+    return { kind: "storey", label: storeyNames(model.profile, focus.storeyGuids, t("matrix.noStorey", lang)), focus };
   }
   if (focus.kind === "check") {
-    // A check that could not run stands for no elements — see the header.
     const check = model.report?.checks.find((c) => c.id === focus.checkId);
     if (!check || check.state === "not_applicable") return null;
-    return { key, kind: "check", label: t(`check.${focus.checkId}` as StringKey, lang), focus };
+    return { kind: "check", label: t(`check.${focus.checkId}` as StringKey, lang), focus };
   }
   if (focus.kind === "rule") {
     const rule = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
-    if (!rule) return null;
-    if (rule.state === "not_evaluable" || rule.state === "not_applicable") return null;
-    return { key, kind: "rule", label: rule.ruleName ?? focus.ruleId, focus };
+    if (!rule || rule.state === "not_evaluable" || rule.state === "not_applicable") return null;
+    return { kind: "rule", label: rule.ruleName ?? focus.ruleId, focus };
   }
-  if (focus.kind === "type") {
-    return { key, kind: "type", label: focus.typeName ?? t("type.untyped", lang), focus };
-  }
+  if (focus.kind === "type") return { kind: "type", label: focus.typeName ?? t("type.untyped", lang), focus };
   if (focus.kind === "req") {
-    // A requirement that was not answered stands for no elements, as a check
-    // that could not run does.
     const door = reqDoor(model, focus);
     if (!door.row) return null;
     const state = door.row.state;
@@ -135,62 +66,51 @@ export function chipOf(focus: Focus, model: ModelEntry, lang: Lang): FilterChip 
     if (focus.value !== undefined && door.guids.length === 0) return null;
     const name = labelOfRow(door.row);
     const head = name ? t(name, lang) : door.row.id;
-    const label = focus.value === undefined ? head : `${head} · ${focus.value ?? "—"}`;
-    return { key, kind: "check", label, focus };
+    return { kind: "check", label: focus.value === undefined ? head : `${head} · ${focus.value ?? "—"}`, focus };
   }
   if (focus.kind === "tree") {
     const tree = model.board?.trees[focus.axis];
     const node = tree ? findNode(tree.root, focus.key) : null;
-    if (!node) return null;
-    return { key, kind: "tree", label: node.label ?? "—", focus };
+    return node ? { kind: "tree", label: node.label ?? "—", focus } : null;
   }
   if (focus.kind === "ids") {
-    // Not applied or not evaluable: no element set, as a rule that did not run.
     const spec = model.ids?.specs[focus.index];
     if (!spec || spec.state === "not_applicable" || spec.state === "not_evaluable") return null;
-    return { key, kind: "ids", label: spec.name, focus };
+    return { kind: "ids", label: spec.name, focus };
   }
-  // `kpi` and `element`: neither is a set to narrow to. See `guidsOf`.
+  // `kpi` and `element`: neither is a set a board number narrows to.
   return null;
 }
 
-/** The elements one chip stands for, or `null` when the chip's source is gone
- *  (a rule chip outliving its ruleset). `null` is reported, never folded into
- *  "matches everything" — a filter that quietly stops constraining is the same
- *  failure as a check that quietly stops matching. */
-function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
-  if (chip.guids) return new Set(chip.guids);
-  const focus = chip.focus;
-  const profile = model.profile;
-  if (!focus) return null;
+/** The action a click on a board number makes. */
+export function chooseFocus(origin: Origin, focus: Focus, model: ModelEntry, lang: Lang): FilterAction {
+  return { type: "choose", origin, key: serialiseFocus(focus), filter: filterOf(focus, model, lang), scope: focus };
+}
 
+/** The elements a focus stands for, or `null` when its source is gone (a
+ *  rule outliving its ruleset). `null` is reported, never folded into
+ *  "matches everything". */
+function guidsOfFocus(focus: Focus, model: ModelEntry): Set<string> | null {
+  const profile = model.profile;
   if (focus.kind === "class") {
-    if (!profile) return null;
-    return new Set(profile.rows.filter((r) => r.entity === focus.entity).map((r) => r.guid));
+    return profile ? new Set(profile.rows.filter((r) => r.entity === focus.entity).map((r) => r.guid)) : null;
   }
   if (focus.kind === "cell") {
-    if (!profile) return null;
-    return new Set(cellRows(profile, focus.storeyGuid, focus.entity).map((r) => r.guid));
+    return profile ? new Set(cellRows(profile, focus.storeyGuid, focus.entity).map((r) => r.guid)) : null;
   }
   if (focus.kind === "check") {
     const check = model.report?.checks.find((c) => c.id === focus.checkId);
-    if (!check) return null;
-    return new Set(check.findings.map((f) => f.guid));
+    return check ? new Set(check.findings.map((f) => f.guid)) : null;
   }
   if (focus.kind === "rule") {
     const rule = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
-    if (!rule) return null;
     // A finding about a type object names the type; its members are the
     // elements in the model.
-    return new Set(rule.findings.flatMap((f) => f.members ?? [f.guid]));
+    return rule ? new Set(rule.findings.flatMap((f) => f.members ?? [f.guid])) : null;
   }
-  if (focus.kind === "type") {
-    if (!profile) return null;
-    return typeGuids(profile, focus.typeName);
-  }
+  if (focus.kind === "type") return profile ? typeGuids(profile, focus.typeName) : null;
   if (focus.kind === "storey") {
-    if (!profile) return null;
-    return new Set(storeyRows(profile, focus.storeyGuids).map((r) => r.guid));
+    return profile ? new Set(storeyRows(profile, focus.storeyGuids).map((r) => r.guid)) : null;
   }
   if (focus.kind === "req") {
     const door = reqDoor(model, focus);
@@ -207,113 +127,42 @@ function guidsOf(chip: FilterChip, model: ModelEntry): Set<string> | null {
     // a type object's finding stands for the elements that use it.
     return new Set(spec.findings.filter((f) => f.guid !== "-").flatMap((f) => f.members ?? [f.guid]));
   }
-  // `kpi` and `element` never reach here. `chipOf` refuses both: a KPI focus
-  // narrows nothing, and an `element` focus is the SELECTION — it opens the
-  // band, and a canvas pick must never isolate what the pointer is over. The
-  // exhaustive fallthrough keeps that true if a focus kind is added.
+  if (focus.kind === "element") return new Set(focus.guids);
   return null;
 }
 
 export interface ResolvedFilter {
-  /** `null` means no constraint — show everything. An EMPTY set means the
-   *  filter matched nothing, which is a real answer and is drawn as an empty
-   *  scene, never as the whole model. */
+  /** `null` means no constraint. An EMPTY set is a filter that matched
+   *  nothing: a real answer, drawn as an empty scene, never as the model. */
   matched: Set<string> | null;
-  /** Chip keys whose source no longer exists. Rendered as broken chips. */
-  unresolved: string[];
+  /** The filter's source no longer exists; the bar draws it broken. */
+  unresolved: boolean;
 }
 
-export function resolveFilter(chips: FilterChip[], model: ModelEntry): ResolvedFilter {
-  if (chips.length === 0) return { matched: null, unresolved: [] };
-
-  const byKind = new Map<ChipKind, Set<string>>();
-  const unresolved: string[] = [];
-
-  for (const chip of chips) {
-    const guids = guidsOf(chip, model);
-    if (guids === null) {
-      unresolved.push(chip.key);
-      continue;
-    }
-    const existing = byKind.get(chip.kind);
-    if (!existing) byKind.set(chip.kind, guids);
-    else for (const guid of guids) existing.add(guid);
-  }
-
-  if (byKind.size === 0) return { matched: null, unresolved };
-
-  let matched: Set<string> | null = null;
-  for (const facet of byKind.values()) {
-    if (matched === null) {
-      matched = facet;
-      continue;
-    }
-    const next = new Set<string>();
-    for (const guid of facet) if (matched.has(guid)) next.add(guid);
-    matched = next;
-  }
-  return { matched, unresolved };
+export function resolveActive(filter: ActiveFilter | null, model: ModelEntry): ResolvedFilter {
+  if (!filter) return { matched: null, unresolved: false };
+  if (filter.guids) return { matched: new Set(filter.guids), unresolved: false };
+  const guids = filter.focus ? guidsOfFocus(filter.focus, model) : null;
+  return guids ? { matched: guids, unresolved: false } : { matched: null, unresolved: true };
 }
 
-/** Per-model interaction state: what is filtered, what is chosen, what the
- *  pointer is over. Selection and hover are separate from the filter on
- *  purpose — selecting in the scene never isolates, and filtering never
- *  selects. */
-export interface ModelView {
+/** Per-model interaction state: the one filter (with Scope's list and the
+ *  selection it implies), the 3D's `Vis kun / Uthev`, and the hover. */
+export interface ModelView extends FilterState {
   mode: Mode;
-  chips: FilterChip[];
-  selection: string[];
   hover: string | null;
-  /** How many times a SELECTION GESTURE has landed on a non-empty selection.
-   *
-   * The band opens on a selection (`App`), and that has to fire for the same
-   * element picked twice: a user who closed the band and clicked the object
-   * again is asking for it back, and a watcher keyed on the selection alone
-   * cannot see that — the set did not change. So the gesture is counted.
-   * `setSelection` (a restore) deliberately does NOT bump it. */
+  /** How many times a selection gesture has landed; a watcher keyed on the
+   *  selection alone cannot see the same element picked twice. */
   selectSeq: number;
 }
 
-export const EMPTY_VIEW: ModelView = {
-  mode: "filter",
-  chips: [],
-  selection: [],
-  hover: null,
-  selectSeq: 0,
-};
+export const EMPTY_VIEW: ModelView = { ...EMPTY_FILTER, mode: "filter", hover: null, selectSeq: 0 };
 
 export interface CrossFilterApi {
   view: (modelId: string) => ModelView;
-  /** Every model's view at once. `App` watches this to decide whether a
-   *  SELECTION should open the derivation band; a per-model getter cannot be a
-   *  dependency of one effect that has to see them all. */
   views: Record<string, ModelView>;
+  dispatch: (modelId: string, action: FilterAction) => void;
   setMode: (modelId: string, mode: Mode) => void;
-  /** Idempotent. The caller decides whether a click is opening or closing —
-   *  see `ModelPanel` — so that a chip is present exactly when its derivation
-   *  is, and one gesture keeps one meaning. */
-  addChip: (modelId: string, chip: FilterChip) => void;
-  removeChip: (modelId: string, key: string) => void;
-  clearChips: (modelId: string) => void;
-  /** Replace the chips outright (the Typer type page, which filters to its
-   *  one type and hands the gallery's chips back when it closes). */
-  setChips: (modelId: string, chips: FilterChip[]) => void;
-  setSelection: (modelId: string, guids: string[]) => void;
-  /** Plain click replaces; Shift or Ctrl adds/toggles; `null` clears. */
-  pick: (modelId: string, guid: string | null, additive: boolean) => void;
-  /** A row of the derivation: select the element and narrow the filter to it.
-   *  Plain click on the element already isolated steps back out to the set it
-   *  was drilled from; Shift or Ctrl builds a set of them. This is the ONE path
-   *  that narrows on a single element: a pick in the SCENE only highlights, and
-   *  must not start hiding what the pointer is over. (Framing is not asked for
-   *  here: the viewer frames every new selection, `ModelScene.followChoice`.) */
-  pickElement: (modelId: string, chip: FilterChip | null, additive: boolean) => void;
-  /** Drop the element refinement, because a different SET was just chosen. An
-   *  element chip narrows the set it was drilled from; carried onto the next
-   *  set it would AND with a set that does not contain it and draw an empty
-   *  scene. The selection goes with it only when it IS the drill's own — a
-   *  selection made in the 3D tile is the user's and is left alone. */
-  clearElements: (modelId: string) => void;
   setHover: (modelId: string, guid: string | null) => void;
 }
 
@@ -321,102 +170,25 @@ export function useCrossFilter(): CrossFilterApi {
   const [views, setViews] = useState<Record<string, ModelView>>({});
 
   const patch = useCallback((modelId: string, next: (current: ModelView) => ModelView) => {
-    setViews((current) => ({
-      ...current,
-      [modelId]: next(current[modelId] ?? EMPTY_VIEW),
-    }));
+    setViews((current) => ({ ...current, [modelId]: next(current[modelId] ?? EMPTY_VIEW) }));
   }, []);
 
-  const view = useCallback(
-    (modelId: string) => views[modelId] ?? EMPTY_VIEW,
-    [views],
-  );
+  const view = useCallback((modelId: string) => views[modelId] ?? EMPTY_VIEW, [views]);
 
   return {
     view,
     views,
-    setMode: useCallback(
-      (modelId, mode) => patch(modelId, (v) => ({ ...v, mode })),
-      [patch],
-    ),
-    addChip: useCallback(
-      (modelId, chip) =>
-        patch(modelId, (v) =>
-          v.chips.some((c) => c.key === chip.key) ? v : { ...v, chips: [...v.chips, chip] },
-        ),
-      [patch],
-    ),
-    removeChip: useCallback(
-      (modelId, key) =>
-        patch(modelId, (v) => ({ ...v, chips: v.chips.filter((c) => c.key !== key) })),
-      [patch],
-    ),
-    clearChips: useCallback(
-      (modelId) => patch(modelId, (v) => ({ ...v, chips: [] })),
-      [patch],
-    ),
-    setChips: useCallback(
-      (modelId, chips) => patch(modelId, (v) => ({ ...v, chips })),
-      [patch],
-    ),
-    setSelection: useCallback(
-      (modelId, guids) => patch(modelId, (v) => ({ ...v, selection: guids })),
-      [patch],
-    ),
-    pick: useCallback(
-      (modelId, guid, additive) =>
+    dispatch: useCallback(
+      (modelId, action) =>
         patch(modelId, (v) => {
-          const bump = v.selectSeq + 1;
-          if (guid === null) return { ...v, selection: [], selectSeq: bump };
-          if (!additive) return { ...v, selection: [guid], selectSeq: bump };
-          return v.selection.includes(guid)
-            ? { ...v, selection: v.selection.filter((g) => g !== guid), selectSeq: bump }
-            : { ...v, selection: [...v.selection, guid], selectSeq: bump };
+          const next = reduceFilter(v, action);
+          return { ...v, ...next, selectSeq: action.type === "element" ? v.selectSeq + 1 : v.selectSeq };
         }),
       [patch],
     ),
-    pickElement: useCallback(
-      (modelId, chip, additive) =>
-        patch(modelId, (v) => {
-          const others = v.chips.filter((c) => c.kind !== "element");
-          v = { ...v, selectSeq: v.selectSeq + 1 };
-          if (chip === null) return { ...v, chips: others, selection: [] };
-          const guid = chip.guids![0];
-          const mine = v.chips.filter((c) => c.kind === "element");
-          const already = mine.some((c) => c.key === chip.key);
-          if (!additive) {
-            // Toggle: the same row twice steps back to the set it drilled from.
-            const single = already && mine.length === 1;
-            return single
-              ? { ...v, chips: others, selection: [] }
-              : { ...v, chips: [...others, chip], selection: [guid] };
-          }
-          const next = already ? mine.filter((c) => c.key !== chip.key) : [...mine, chip];
-          return {
-            ...v,
-            chips: [...others, ...next],
-            selection: next.map((c) => c.guids![0]),
-          };
-        }),
-      [patch],
-    ),
-    clearElements: useCallback(
-      (modelId) =>
-        patch(modelId, (v) => {
-          const mine = v.chips.filter((c) => c.kind === "element");
-          if (mine.length === 0) return v;
-          const guids = new Set(mine.map((c) => c.guids![0]));
-          return {
-            ...v,
-            chips: v.chips.filter((c) => c.kind !== "element"),
-            selection: v.selection.every((g) => guids.has(g)) ? [] : v.selection,
-          };
-        }),
-      [patch],
-    ),
+    setMode: useCallback((modelId, mode) => patch(modelId, (v) => ({ ...v, mode })), [patch]),
     setHover: useCallback(
-      (modelId, guid) =>
-        patch(modelId, (v) => (v.hover === guid ? v : { ...v, hover: guid })),
+      (modelId, guid) => patch(modelId, (v) => (v.hover === guid ? v : { ...v, hover: guid })),
       [patch],
     ),
   };

@@ -6,13 +6,19 @@
  *   Materialer   one card per material name: a swatch, the name, how many
  *                elements, and the types that carry it (a class's untyped
  *                elements by the class name), each a link to its Typer
- *                card. A click selects what is made of it in the board's 3D,
- *                which sits beside the gallery (`BoardViewer.tsx`).
+ *                card. A click makes what is made of it THE filter (origin
+ *                `materials`, one origin, 2026-09-28): this gallery dims
+ *                all but the chosen card, the board's 3D beside it
+ *                (`BoardViewer.tsx`) and every other view isolate.
  *   Layer sets   one S card per material layer set: its layers as a strip in
  *                proportion to their thickness (`materialsJson()`, role
  *                `layer`), each layer's thickness and material, how many
  *                elements use it, and the types that do, as links. A click
- *                selects those elements.
+ *                makes those elements the filter, as above.
+ *
+ * A filter from another view isolates the gallery: the panel hands it the
+ * catalogue over the matching rows, so only materials and sets with matching
+ * elements show, their counts recomputed.
  *
  * The collections and the links are `type-links.ts`'s, computed once per
  * profile by the panel (2026-09-28); this file only draws them.
@@ -32,6 +38,7 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { FilterAction, ModelView } from "./cross-filter";
 import type { Ref } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
@@ -84,41 +91,53 @@ export function MaterialsTab({
   lang,
   profile,
   catalogue,
+  scopedCatalogue = null,
   meshBatches,
-  selection,
+  view: xview,
   reveal,
-  onSelect,
+  onDispatch,
   onOpenType,
 }: {
   lang: Lang;
   profile: ModelProfile | null;
   /** `type-links.ts`, computed once per profile by the panel. */
   catalogue: Catalogue | null;
+  /** The same over the cross-filter's matching rows, when another view is
+   *  its origin: the gallery then shows only these. */
+  scopedCatalogue?: Catalogue | null;
   /** The streamed geometry, for the lent 3D. */
   meshBatches: MeshBatch[] | undefined;
-  /** The panel's `view.selection`, to unmark the card when it is cleared. */
-  selection: string[];
+  /** The panel's one filter: the card it is on, when this tab is its origin. */
+  view: ModelView;
   /** A material card another tab asked for (a type's material link). */
   reveal: Reveal | null;
-  onSelect: (guids: string[]) => void;
+  onDispatch: (action: FilterAction) => void;
   onOpenType: (key: string) => void;
 }) {
   const [view, setView] = useState<"materials" | "sets">("materials");
-  const materials = catalogue?.materials ?? [];
-  const sets = catalogue ? catalogue.sets : null;
+  // Shown: the isolated collections under a filter from elsewhere. Picked:
+  // always the whole card, so a click replaces the filter rather than
+  // intersecting with it.
+  const shown = scopedCatalogue ?? catalogue;
+  const materials = shown?.materials ?? [];
+  const sets = shown ? shown.sets : null;
+  const fullMaterial = (name: string) => catalogue?.materials.find((m) => m.name === name)?.guids ?? [];
+  const fullSet = (key: string) => catalogue?.sets?.find((x) => x.key === key)?.guids ?? [];
   const types = useMemo(() => new Map((catalogue?.types ?? []).map((c) => [c.key, c])), [catalogue]);
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
-  // A card click selects the elements using it (2026-09-28); the card stays
-  // marked until the selection is cleared or another card is clicked.
-  const [picked, setPicked] = useState<string | null>(null);
-  useEffect(() => {
-    if (selection.length === 0) setPicked(null);
-  }, [selection.length]);
-  const pick = (key: string, guids: string[]) => {
-    setPicked(key);
-    onSelect(guids);
-  };
+  // A card click makes its elements the one filter; the card is marked
+  // while it is (read off the filter, never a copy of it).
+  const origin = xview.origin === "materials";
+  const picked = origin ? xview.key : null;
+  const pick = (key: string, label: string, guids: string[]) =>
+    onDispatch({
+      type: "choose",
+      origin: "materials",
+      key,
+      filter: { kind: "material", label, guids },
+      scope: { kind: "element", guids },
+    });
 
   // A type's material link lands here: the Materialer view, that card in
   // view and marked until the next request.
@@ -168,6 +187,7 @@ export function MaterialsTab({
         </span>
       </div>
       <WithViewer meshBatches={meshBatches} active>
+      <div className="contents" data-xf={origin ? "origin" : undefined}>
       {view === "materials" ? (
         materials.length === 0 ? (
           <Empty>{profile ? t("type.none", lang) : notSupplied}</Empty>
@@ -183,7 +203,7 @@ export function MaterialsTab({
                 active={picked === `material:${line.name}`}
                 revealed={revealed === line.name}
                 cardRef={revealed === line.name ? revealRef : undefined}
-                onClick={() => pick(`material:${line.name}`, line.guids)}
+                onClick={() => pick(`material:${line.name}`, line.name, fullMaterial(line.name))}
                 onOpenType={onOpenType}
               />
             ))}
@@ -203,12 +223,13 @@ export function MaterialsTab({
               links={catalogue?.setTypes.get(set.key) ?? []}
               types={types}
               active={picked === `set:${set.key}`}
-              onClick={() => pick(`set:${set.key}`, set.guids)}
+              onClick={() => pick(`set:${set.key}`, set.name ?? set.key, fullSet(set.key))}
               onOpenType={onOpenType}
             />
           ))}
         </Gallery>
       )}
+      </div>
       </WithViewer>
     </section>
   );

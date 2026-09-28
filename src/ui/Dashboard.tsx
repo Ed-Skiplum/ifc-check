@@ -46,7 +46,8 @@ import { LAYOUT_13, LAYOUT_21 } from "./bento-layouts";
 import { boardCards, chainLevels, claimedChecks } from "./board-data";
 import { useBentoCols } from "./useBentoCols";
 import { Verification } from "./Verification";
-import type { ModelView } from "./cross-filter";
+import type { ModelView, Origin } from "./cross-filter";
+import { isoOf, type Xf } from "./origins";
 import { ViewerTile } from "../viewer/ViewerTile";
 import { ClassDistribution, KpiRow, SpatialGauge } from "./forms";
 import { formatCount } from "./format";
@@ -60,16 +61,18 @@ interface DashboardProps {
   lang: Lang;
   model: ModelEntry;
   census: Census;
+  /** The census over the filter's elements, when the floor sidebar isolates. */
+  scopedCensus?: Census | null;
   claims: KpiClaims;
   selected: string | null;
-  onFocus: (focus: Focus) => void;
+  /** A click on a board number, and the view it came from. */
+  onFocus: (focus: Focus, origin: Origin) => void;
   /** Cross-filter and selection state for THIS model. The board does not own
    *  it — the same state drives the derivation band below the grid, which is
    *  what makes row and mesh two views of one selection. */
   view: ModelView;
-  /** The elements the active chips resolve to. `null` = no filter; an EMPTY
-   *  set is a filter that matched nothing and draws an empty scene. */
-  matched: Set<string> | null;
+  /** The one filter: its origin and the elements it resolves to. */
+  xf: Xf;
   onPick: (guid: string | null, additive: boolean) => void;
   onHover: (guid: string | null) => void;
   floors: FloorConfig[] | null;
@@ -91,11 +94,12 @@ export function Dashboard({
   lang,
   model,
   census,
+  scopedCensus,
   claims,
   selected,
   onFocus,
   view,
-  matched,
+  xf,
   onPick,
   onHover,
   floors,
@@ -105,6 +109,10 @@ export function Dashboard({
   scope,
   detail,
 }: DashboardProps) {
+  // The bento board (no design) is not mounted since b became the only
+  // version; it reads the filter as one origin all the same.
+  const matched = isoOf(xf, "viewer");
+  const bentoFocus = (focus: Focus) => onFocus(focus, "checks");
   const { ref, cols, space } = useBentoCols();
   const report = model.report;
   const profile = model.profile;
@@ -124,7 +132,7 @@ export function Dashboard({
           census,
           claimed,
           selected,
-          onFocus,
+          onFocus: bentoFocus,
           view,
           matched,
           onPick,
@@ -145,13 +153,14 @@ export function Dashboard({
         selected={selected}
         onFocus={onFocus}
         view={view}
-        matched={matched}
+        xf={xf}
         onPick={onPick}
         onHover={onHover}
         rules={rules}
         scope={scope ?? null}
         detail={detail ?? null}
         census={census}
+        scopedCensus={scopedCensus ?? null}
         floors={floors}
         peers={peers}
       />

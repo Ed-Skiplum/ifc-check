@@ -124,6 +124,9 @@ const STRINGS = {
   "filter.mode.highlight": { nb: "Uthev", en: "Highlight" },
   "filter.clear": { nb: "Tøm filter", en: "Clear filter" },
   "filter.remove": { nb: "Fjern", en: "Remove" },
+  // The KPI cards under a filter from another view: their figures stay the
+  // whole model's (a requirement's base is not known per element).
+  "filter.wholeModel": { nb: "Hele modellen", en: "Whole model" },
   "filter.kind.class": { nb: "Klasse", en: "Class" },
   "filter.kind.cell": { nb: "Celle", en: "Cell" },
   "filter.kind.check": { nb: "Kontroll", en: "Check" },

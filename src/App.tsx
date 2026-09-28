@@ -18,7 +18,8 @@ import { AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
 import { t } from "./ui/i18n";
 import { SetupPage } from "./ui/SetupPage";
 import { kpiClaims } from "./ui/claims";
-import { elementChip, useCrossFilter } from "./ui/cross-filter";
+import { chooseFocus, useCrossFilter } from "./ui/cross-filter";
+import { originOfFocus } from "./ui/origins";
 import { Landing } from "./ui/Landing";
 import { ModelPanel } from "./ui/ModelPanel";
 import { TraceBand } from "./ui/TraceBand";
@@ -26,7 +27,7 @@ import type { FloorPeer } from "./ui/FloorSetup";
 import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
 import type { IdsSession } from "./ui/IdsResults";
 import { importIds } from "./ids/import.ts";
-import { buildTrace, parseFocus, serialiseFocus, type Focus } from "./ui/trace";
+import { buildTrace, parseFocus, serialiseFocus } from "./ui/trace";
 import { loadDesignFonts } from "./design/fonts";
 import { useHashView } from "./ui/useHashView";
 import { isAcceptedFile, useModels } from "./ui/useModels";
@@ -116,8 +117,9 @@ export default function App() {
     setIds(null);
     setIdsError(null);
     applyIds(null);
-    if (view.focus?.startsWith("ids:")) setView({ focus: null });
-  }, [applyIds, setView, view.focus]);
+    // A filter on a specification that is gone would resolve to nothing.
+    for (const [id, v] of Object.entries(cross.views)) if (v.scope?.kind === "ids") cross.dispatch(id, { type: "clear" });
+  }, [applyIds, cross]);
 
   const takeFiles = useCallback(
     (files: File[]) => {
@@ -139,8 +141,8 @@ export default function App() {
     setRuleset(null);
     setRulesetError(null);
     applyRuleset(null);
-    if (view.focus?.startsWith("rule:")) setView({ focus: null });
-  }, [applyRuleset, setView, view.focus]);
+    for (const [id, v] of Object.entries(cross.views)) if (v.scope?.kind === "rule") cross.dispatch(id, { type: "clear" });
+  }, [applyRuleset, cross]);
 
   // The setup page edits the ruleset in place and the board re-evaluates on
   // every change. The evaluator answers a half-filled mapping with its own
@@ -186,88 +188,57 @@ export default function App() {
         })),
     [models],
   );
-  const focus = parseFocus(view.focus);
-  const selectedModel = models.find((m) => m.id === view.model);
-  const trace = selectedModel && focus ? buildTrace(selectedModel, focus) : null;
-
-  const onFocus = useCallback(
-    (modelId: string, next: Focus) => {
-      const key = serialiseFocus(next);
-      const same = view.model === modelId && view.focus === key;
-      setView(same ? { model: null, focus: null } : { model: modelId, focus: key });
-    },
-    [setView, view.focus, view.model],
-  );
-
-  /* ── A SELECTION opens the band (2026-09-23) ──────────────────────────────
+  /* ── The hash mirrors the filter ─────────────────────────────────────────
    *
-   * edkjo: *"where is the properties panel?"* — it lived only behind a drill,
-   * so selecting an element in the 3D tile showed nothing. The rule, exactly:
-   *
-   *   A model's selection opens the band on that model, on an `element` focus
-   *   naming the selected GUIDs, WHEN no derivation is open for that model or
-   *   when the one that is open is that model's own `element` focus. A real
-   *   drill — a check, rule, class, type, storey, cell or KPI — is never
-   *   re-targeted by a selection, so clicking down a list of findings keeps
-   *   the list. An emptied selection closes the band only when what is open is
-   *   that element focus.
-   *
-   * Driven off the selection rather than off each call site, so every path
-   * reaches it: a canvas pick, a band row, Escape, and a shift-click that
-   * grows the set. The ref holds the last selection this effect acted on, so
-   * re-renders from the hash change it makes do not re-enter, and the FIRST
-   * pass only records — a hash restored with an `element` focus rebuilds its
-   * selection instead of being closed by an effect that has seen nothing yet.
-   */
-  const actedOn = useRef<Record<string, string> | null>(null);
+   * The one filter lives in `cross` (per model) and Scope lists its
+   * `scope`. The hash carries that focus so a view is a link: restored once
+   * on load, as a click from the view the focus belongs to, and written back
+   * with `replace` on every change. Back/Forward walk tabs and the type page,
+   * not filters: a filter the hash could step back into would be a second
+   * source of truth. An element scope of more than eight guids is not
+   * written; it would make the link unreadable. */
+  const restored = useRef(false);
   useEffect(() => {
-    const first = actedOn.current === null;
-    const seen = actedOn.current ?? {};
-    actedOn.current = seen;
-    for (const model of models) {
-      const view_ = cross.views[model.id];
-      const selection = view_?.selection ?? [];
-      // The GESTURE, not only the set: picking the same element again after
-      // closing the band is a request to open it again, and the set did not
-      // change. `selectSeq` is what makes that visible here.
-      const key = `${view_?.selectSeq ?? 0}|${selection.join("+")}`;
-      if (seen[model.id] === key) continue;
-      seen[model.id] = key;
-      if (first) continue;
-      // The design alternatives dock a Detail panel that shows the selection
-      // itself, so a selection never re-targets their Scope (2026-09-25).
-      if (view.design) continue;
-      const open = view.model === model.id ? parseFocus(view.focus) : null;
-      // A drill in progress owns the band.
-      if (open !== null && open.kind !== "element") continue;
-      if (selection.length > 0) {
-        setView({ model: model.id, focus: `element:${selection.join("+")}` });
-      }
-      else if (open?.kind === "element") setView({ model: null, focus: null });
+    if (restored.current) return;
+    const focus = parseFocus(view.focus);
+    if (!view.model || !focus) {
+      restored.current = true;
+      return;
     }
-    if (!first) return;
-    // First pass: a restored `element` focus puts its selection back, so the
-    // object panel is filled rather than showing a list of rows nothing is
-    // selected in.
-    const restored = parseFocus(view.focus);
-    if (restored?.kind === "element" && view.model) {
-      seen[view.model] = `${cross.views[view.model]?.selectSeq ?? 0}|${restored.guids.join("+")}`;
-      cross.setSelection(view.model, restored.guids);
+    const target = models.find((m) => m.id === view.model);
+    // Wait for the model the link names to be read.
+    if (!target || target.state !== "ready") {
+      if (models.length > 0 && !target) restored.current = true;
+      return;
     }
-  }, [cross, models, setView, view.focus, view.model, view.design]);
+    restored.current = true;
+    if (focus.kind === "element") {
+      for (const [i, guid] of focus.guids.entries())
+        cross.dispatch(target.id, { type: "element", origin: "viewer", guid, label: null, additive: i > 0 });
+    } else cross.dispatch(target.id, chooseFocus(originOfFocus(focus), focus, target, view.lang));
+  }, [cross, models, view.model, view.focus, view.lang]);
+
+  useEffect(() => {
+    if (!restored.current) return;
+    const open = models.find((m) => cross.views[m.id]?.scope);
+    const scope = open ? cross.views[open.id].scope : null;
+    const key = scope && !(scope.kind === "element" && scope.guids.length > 8) ? serialiseFocus(scope) : null;
+    const model = key && open ? open.id : null;
+    if (view.model !== model || view.focus !== key) setView({ model, focus: key }, true);
+  }, [cross.views, models, setView, view.model, view.focus]);
 
   const onRemove = useCallback(
     (id: string) => {
-      if (view.model === id) setView({ model: null, focus: null });
+      cross.dispatch(id, { type: "clear" });
       removeModel(id);
     },
-    [removeModel, setView, view.model],
+    [cross, removeModel],
   );
 
   const onClearAll = useCallback(() => {
-    setView({ model: null, focus: null });
+    for (const id of Object.keys(cross.views)) cross.dispatch(id, { type: "clear" });
     clearModels();
-  }, [clearModels, setView]);
+  }, [clearModels, cross]);
 
   return (
     <div
@@ -354,18 +325,10 @@ export default function App() {
                 hasRuleset={rulesetName !== null}
                 ruleset={ruleset}
                 claims={claims}
-                selected={view.model === model.id ? view.focus : null}
-                onFocus={(next) => onFocus(model.id, next)}
                 onRemove={() => onRemove(model.id)}
                 view={cross.view(model.id)}
                 onMode={(mode) => cross.setMode(model.id, mode)}
-                onAddChip={(chip) => cross.addChip(model.id, chip)}
-                onRemoveChip={(key) => cross.removeChip(model.id, key)}
-                onClearChips={() => cross.clearChips(model.id)}
-                onSetChips={(chips) => cross.setChips(model.id, chips)}
-                onClearElements={() => cross.clearElements(model.id)}
-                onPick={(guid, additive) => cross.pick(model.id, guid, additive)}
-                onSelect={(guids) => cross.setSelection(model.id, guids)}
+                onDispatch={(action) => cross.dispatch(model.id, action)}
                 onHover={(guid) => cross.setHover(model.id, guid)}
                 floors={ruleset?.storeys?.length ? ruleset.storeys : null}
                 peers={peers}
@@ -377,8 +340,10 @@ export default function App() {
                 idsError={idsError}
                 onIdsFile={(file) => void loadIds(file)}
                 onClearIds={clearIds}
-                trace={
-                  trace && trace.modelId === model.id ? (
+                trace={(() => {
+                  const v = cross.view(model.id);
+                  const trace = v.scope ? buildTrace(model, v.scope) : null;
+                  return trace ? (
                     <TraceBand
                       // A different target is a different list: remount so it
                       // starts at the top.
@@ -386,18 +351,20 @@ export default function App() {
                       lang={view.lang}
                       trace={trace}
                       model={model}
-                      selection={cross.view(trace.modelId).selection}
-                      hover={cross.view(trace.modelId).hover}
-                      // A band row is the second step of the drill: it
-                      // selects the element AND narrows the filter to it.
+                      selection={v.selection}
+                      hover={v.hover}
+                      // A Scope row is a pick IN Scope: Scope is the origin,
+                      // keeps its list and highlights the row; every other
+                      // view isolates to the element.
                       onPick={(guid, name, additive) =>
-                        cross.pickElement(trace.modelId, elementChip(guid, name), additive)
+                        cross.dispatch(model.id, { type: "element", origin: "scope", guid, label: name, additive })
                       }
-                      onHover={(guid) => cross.setHover(trace.modelId, guid)}
-                      onClose={() => setView({ model: null, focus: null })}
+                      onHover={(guid) => cross.setHover(model.id, guid)}
+                      // Scope is the filter's derivation: closing it clears.
+                      onClose={() => cross.dispatch(model.id, { type: "clear" })}
                     />
-                  ) : null
-                }
+                  ) : null;
+                })()}
               />
             ))}
           </main>

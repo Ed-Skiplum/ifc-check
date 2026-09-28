@@ -364,10 +364,10 @@ the file's own facts as a `ReadoutStrip` (schema · unit · products · parse
 time · project · application; products opens its derivation). Under it the
 tab strip, and the filter bar on the SAME line, right-aligned over the strip's
 empty end (2026-09-24; it used to be a line of its own above the tabs). It is
-outside the tab panels, so chips still belong to the model and persist across
-tabs. It never wraps: a chip appearing moves nothing, so the row just clicked
-is still under the pointer for the click that undoes it; more chips than fit
-scroll sideways in the bar. `isolate-gate` finds it by `[data-filter-bar]`.
+outside the tab panels, so the filter belongs to the model and persists across
+tabs. It never wraps: the one filter chip appearing moves nothing, so the row
+just clicked is still under the pointer for the click that undoes it. The
+gates find it by `[data-filter-bar]`, the chip by `[data-filter-origin]`.
 "Åpne IFC" is the filled primary only on the empty landing; with a model
 loaded it drops to the outlined style of the other bar controls. Then:
 
@@ -413,68 +413,84 @@ The app bar wraps at narrow widths, so BCF, the ruleset, Oppsett and NB/EN
 stay reachable at 390 px. The board itself has no portrait layout (canon
 2026-08-01); that is out of scope, not a defect.
 
-## Clicking: the UI isolates, the viewer highlights
+## Clicking: one filter, one origin (2026-09-28)
 
-edkjo's rule, settled on the ifcfast-site work and restated here 2026-09-23:
-*"When clicking an item from the table I want that to isolate in the model"*,
-and the drill is two steps — *"so you click to see rejected instances, then
-select an instance and see that."*
+edkjo's rule, now canon in `resources/design-system/data-workspace.md`:
+*"cross filter should have one origin: all other views show only the matching
+results. The clicked origin highlights. So: Original: Highlight, everything
+else: Isolate."* It replaced facet chips that OR-ed within a facet and AND-ed
+across facets, which the owner saw as *"it seems like the cross filter is
+cumulative somehow, or that selecting something in the graph and list dont
+respect that the xc filter has changed."* It was: a treemap cell AND a graph
+storey AND a type card intersected, the type card and the Materialer card
+carried the ISOLATED card's guids (so a click intersected even where it meant
+to replace), and the graph, galleries, treemaps, MMI and floor sidebar read
+the unfiltered profile while only the 3D obeyed the chips.
 
-**A click on a row or a cell makes a CHIP** (`src/ui/cross-filter.ts`), which
-is what narrows the 3D. Nothing navigates and no tile learns a second gesture:
-the same click that opens the derivation band adds the chip. Chips OR within a
-facet and AND across facets. The bar above the tabs is the only way back —
-each chip's ✕, or `Tøm filter`; clicking the same row again removes its chip,
-so the gesture is its own undo.
+**The state** (`src/ui/filter-state.ts`, pure, selftested): per model ONE
+`{ origin, key, filter, scope, selection }`. `origin` is the view clicked,
+`key` what was chosen in it, `filter` its elements (a focus resolved by
+`cross-filter.ts` `resolveActive`, or guids carried by a card), `scope` what
+the Scope dock lists. `reduceFilter` is the only writer; `useCrossFilter`
+holds it per model and every view reads the one resolved set (`ModelPanel`
+builds `xf = { origin, matched }` once). No view keeps a copy.
 
-The surfaces whose rows are a set of elements, and all of them are doors:
+- **A click replaces.** Any click in any view sets the filter and makes that
+  view the origin; the previous filter is gone, never intersected. The chosen
+  item again clears it. The bar shows the one filter (kind, label, ✕ to
+  clear) and `N / total`; nothing accumulates.
+- **Shift or Ctrl** adds or removes an element WITHIN one view, where it
+  existed before: the canvas, a Scope row, a graph product. From another view
+  it replaces like any click.
+- **A Scope row** makes Scope the origin: it keeps its list and highlights the
+  row, everything else isolates to the element. The same row again steps back
+  to the filter the list came from (`base`).
+- **A click on something that is not an element set** (`kpi:products`, a
+  `not_applicable` check, a `not_evaluable` rule, a `not_configured`
+  requirement) opens Scope with its reason and clears the filter. An empty
+  scene there would report "was not answered" as "no elements".
+- **The type page** is its own view-local mode (origin `typepage`): Per
+  forekomst sets the filter to the current instance, Alle forekomster to the
+  type's instances, all selected (`set`, no toggle); leaving hands the
+  gallery's filter back. A requirement line leaves with ONE filter: that
+  requirement's findings among the type's instances.
+- **The hash mirrors it**: `focus=` is the Scope focus, written with
+  `replace`, restored once on load as a click from the focus's own view
+  (`origins.ts` `originOfFocus`). Back/Forward walk tabs and the type page,
+  not filters.
 
-| surface | chip | the set |
+**Origin highlights.** The origin view keeps every item; the chosen one keeps
+its own highlight and the rest are dimmed (`data-xf="origin"` on the view,
+one CSS rule in `index.css`; `data-xf-in` keeps a treemap frame around, or
+cells inside, the chosen cell). The graph as origin draws every node, the
+chosen storey or bucket ringed and the rest sunk back.
+
+**Every other view isolates** to the filter's elements:
+
+| view | origin id | isolated |
 |---|---|---|
-| Verifikasjon check row | Kontroll | the check's findings |
-| Regler rule row | Regel | the rule's findings (a type finding's `members`) |
-| KPI card (Uten type · Uten etasje · Plassering) | Kontroll | the same |
-| Klasser bar | Klasse | every element of that IFC class |
-| Etasjer row (no config) | Etasje | everything the graph places on that floor |
-| Etasjer matrix cell, OWN column | Etasje | that file storey, both storeys on a `×2` cell |
-| Etasje × klasse storey row / total | Etasje | that floor, every class |
-| Etasje × klasse cell | Celle | that floor × that class |
-| Typer ledger row | Type | that type's instances (the untyped row too) |
-| IDS specification row (Prosjekt) | IDS | the spec's failing elements; a type object's finding stands for the elements using it |
-| a row of the derivation band | Element | that one element (below) |
+| 3D (Oversikt, lent to Graf, Typer, Materialer, Prosjekt) | `viewer` | `Vis kun` draws the set, `Uthev` ghosts the rest; as origin (a canvas pick) the whole model, the pick highlighted |
+| Graf | `graph` | only the storeys, buckets and products that match (`buildDrill` over the matching rows; relations still read the whole model) |
+| Scope | `scope` | lists the filter's derivation (`scope`) |
+| Detail | | the selection the filter implies (an element pick); empty for a set |
+| Typer gallery | `types` | only types with matching instances, counts recomputed (`catalogue` over the matching rows) |
+| under the Typer viewer | `type-materials` | the chosen type's materials, a click makes that material the filter |
+| Materialer | `materials` | only materials and layer sets with matching elements, counts recomputed |
+| treemaps (Oversikt, Prosjekt) | `tree-system`, `tree-function` | cells recomputed over the matching elements; volume and area summed per element (`elementQuantities`), else count |
+| MMI bars | `mmi` | each bar its value's elements in the set; bars with none not drawn; shades keep the full scale |
+| Etasjer sidebar | `floors` | only storeys (config rows) holding matching elements |
+| Innhold | `census` | Klasser, Etasje × klasse and the type ledger over the matching rows |
+| KPI cards, checks, IDS table, counts | `reqs`, `checks`, `ids` | **whole model, marked** «Hele modellen» (`data-xf="whole"`): a requirement's base is not known per element, so a figure over the set would be invented |
 
-**The second step is an `element` chip.** A row of the open derivation selects
-its element — as it always did — and now also narrows the filter to it, so
-under `Vis kun` the scene IS that element. It ANDs with the set chip above it,
-the same row again steps back out to the set, and choosing a different NUMBER
-drops it (`clearElements`): carried onto another set it would AND to nothing
-and draw an empty scene. It is the one path where a single element narrows the
-scene — a pick in the 3D tile still only highlights, because a click that hid
-what the pointer was over would make the tile useless for what it is for.
+A click from an isolated view always takes the WHOLE item (the full type
+card, the full storey), so it replaces and never intersects.
 
-**`Vis kun / Uthev` is unchanged, and it is not what makes a click isolate.**
-It says how the cross-filter is EXPRESSED in the scene: `Vis kun` (the
-default) draws the matched set alone, `Uthev` keeps the model and dims the
-rest. Both modes narrow the same set; only the drawing differs.
+**`Vis kun / Uthev`** says only how the 3D expresses the isolation; it does
+not decide whether a click isolates.
 
-**Rows that stand for no element set are not doors**, and each says so the way
-that surface already did rather than by a chip reading `0 / 851`:
-
-- a `not_applicable` check or a `not_evaluable` / `not_applicable` rule makes
-  NO chip (`chipOf` returns null). The row still opens its derivation, which
-  prints the reason. An empty scene there would report "was not answered" as
-  "no elements", the same conflation `not_applicable` exists to prevent.
-- a census cell of 0 is an empty `td`, a storey with no elements is an inert
-  row, a `—` matrix cell is not a storey — all as before.
-- a `kpi:products` / `kpi:storeys` click still makes no chip: one is every
-  product, the other is not a product set.
-
-**Cross-model: a click narrows its own panel only.** The filter is per model
-(`useCrossFilter` keys every view by model id), so the other panels and their
-viewers are untouched. That is why only the panel's OWN column in the floor
-matrix — the first, `ownFirst` — is clickable: a cell under another file's
-column names a storey this panel's viewer does not contain. Every such storey
-is one click away in its own model's panel.
+**Cross-model: a click narrows its own panel only.** The filter is per model,
+so the other panels are untouched; only the panel's OWN column in the floor
+matrix is a door.
 
 **Every selection is framed** (edkjo, 2026-09-28): *"always frame the selected
 object. pivot on it and frame it."* This replaced the 2026-09-23 rule that a
@@ -762,9 +778,10 @@ is open re-targets it.
 - `Focus` gains `{ kind: "element", guids }`, serialised `element:<g>+<g>`, so
   the selection rides the URL hash like every other derivation and Back walks
   it. `buildTrace` lists those rows.
-- **It makes no chip.** `chipOf` returns null for it, so a canvas pick still
-  only highlights: a click that hid what the pointer was over would make the
-  tile useless for what it is for.
+- **Superseded 2026-09-28 (one origin):** a canvas pick now makes the 3D the
+  filter's origin. The 3D keeps the whole model and highlights the pick (so
+  the tile still shows what the pointer was over); every other view isolates
+  to it. See "Clicking: one filter, one origin".
 - **Opening the band frames nothing by itself.** The camera follows the
   selection (`followChoice`), not the band.
 - The effect is driven off the SELECTION rather than off each call site, so
@@ -854,7 +871,29 @@ ticks without ever rising; 44 ticks from the floor back to 283.63 m, past the
 npm run build && node scripts/zoom-gate.mjs        # or --url <deployed>
 ```
 
+### `scripts/xfilter-gate.mjs` (2026-09-28)
+
+The one-origin cross-filter, three real clicks on HI90_ARK: a treemap cell
+(Oversikt), a storey node (Graf), a type card (Typer). After each: one filter
+with that origin; the origin keeps all its items (14 cells, 12 storeys, 200
+cards) with the chosen one marked and the rest dimmed; the 3D draws exactly
+the filter's elements with geometry (`drawnElements()` = the HUD's shown);
+and the filter is the new click's WHOLE set (storey 402, not its 128 in the
+cell; type 334, not its 128 on the storey). Local preview build, mechanism
+only.
+
+```bash
+npm run build && node scripts/xfilter-gate.mjs [--model PATH]
+```
+
+Verified 2026-09-28: all assertions hold (first run caught the type card
+carrying the isolated card's guids, which intersected; fixed).
+
 ### `scripts/isolate-gate.mjs`
+
+**Stale since 2026-09-28:** it asserts the chip model (a canvas click makes
+no chip, an element chip beside the class chip, `Tøm filter`). Not updated
+with the one-origin change; `xfilter-gate.mjs` asserts the new rule.
 
 Real CDP mouse events against a real model in headless Chrome — a synthetic
 `click()` on a React handler would prove the handler, not the gesture.
@@ -970,10 +1009,12 @@ drawn, pure), `graph-sim.ts` (physics), `graph-paint.ts` (palette, sprites),
 
 **The drill (the demo's).** Opens at the crown (building, storeys with their
 element counts, the no-storey bucket, the site roster). Click a storey: it opens
-into class buckets AND becomes the filter (an Etasje chip, the board's own
-click). Click a bucket: it opens into its products (cap 400, then `+N`) and
-storey × class becomes the filter (a Celle chip). Click a product: it is
-selected, as a table row selects; Shift or Ctrl adds. Click the empty field:
+into class buckets AND becomes THE filter (Etasje, replacing whatever was on).
+Click a bucket: it opens into its products (cap 400, then `+N`) and storey ×
+class becomes the filter (Celle). Click a product: it becomes the filter and
+the selection; Shift or Ctrl adds within the graph. As the origin the graph
+keeps every node, the chosen one ringed; a filter from any other view draws
+only the matching storeys, buckets and products (2026-09-28). Click the empty field:
 the selection clears. `Tøm alle` folds every drill. A selection made elsewhere
 (the 3D, a table) drills to where it lives. Drag a node and it stays put; drag
 the field to pan; the wheel zooms about the pointer.
@@ -1127,12 +1168,12 @@ view by a double-click now (`dblClickAt`); NOT re-run. Not seen live.
 of course needs to filter on the type. Currently it does not"*. The two rounds above
 only SELECTED, which highlights and hides nothing.
 
-- **Click** a type card: a `typecard:<key>` chip (kind `type`, carries the
-  card's guids) under Vis kun, so the viewer beside the gallery draws only
-  that type's instances, framed as every new set is. It replaces any type
-  chip and element chip; other facets still AND. The same card again, its ✕
-  or Tøm filter restores the model. The marked card is the one whose chip is
-  in the bar. The second click of a double-click is ignored.
+- **Click** a type card: the type's instances become THE filter (origin
+  `types`; since 2026-09-28 it replaces every other filter, nothing ANDs).
+  The gallery keeps every card, the chosen one marked and the rest dimmed;
+  the viewer beside it draws only that type's instances, framed. The same
+  card again or the ✕ clears it. The second click of a double-click is
+  ignored.
 - **Double-click**: `#…&tab=types&type=<key>` (`useHashView` key `type`,
   pushed; ← → between types replace it). The route drives the page, so a
   pasted link opens it once the catalogue has the key, and Back/Forward walk
@@ -1142,8 +1183,9 @@ only SELECTED, which highlights and hides nothing.
   one type; the current instance (or all) is the selection. ‹, Esc (history
   back when the gallery opened it) or Back restores the saved state. A tab
   switch clears `type`. A material's type link opens the page.
-- `cross.setChips` (new) replaces the chips outright; `ModelScene.drawnElements()`
-  (new, read-only) counts the distinct elements the scene draws, for gates.
+- `ModelScene.drawnElements()` (read-only) counts the distinct elements the
+  scene draws, for gates. (`cross.setChips` is gone with the chips; the page
+  sets the one filter with a `set` action.)
 
 Verified: tsc, selftest, `vite build`, `isolate-gate --only types` on
 HI90_ARK (IfcWallStandardCase "Betong 96", 58 instances): a click draws 58 of
@@ -1173,12 +1215,13 @@ the instances of the type has for instance properties: MMI, QTO, IsReference
 etc"*, *"and what instances there are. GUID etc"*, *"see my QTO_LCA type view
 for inspiration"*.
 
-- **Isolation.** Per forekomst sets the chips to the type chip AND an element
-  chip (`elementChip`), so the viewer draws ONE element, framed; ‹ › ↑ ↓ and
-  a list row re-isolate. Alle forekomster: the type chip alone. A
+- **Isolation.** Per forekomst sets the one filter to the current instance
+  (origin `typepage`), so the viewer draws ONE element, framed; ‹ › ↑ ↓ and
+  a list row re-isolate. Alle forekomster: the type's instances. A
   requirement / IDS line leaves for its Scope (`onScope`: `focus` plus the
-  tab, `std` and IDS to Prosjekt, the rest to Kontroll) with the type chip
-  kept, the saved gallery state dropped.
+  tab, `std` and IDS to Prosjekt, the rest to Kontroll) with ONE filter,
+  that line's findings among the type's instances; the saved gallery state
+  is dropped.
 - **Data** (`src/ui/type-page.ts`, pure, selftest): identity (class, the type
   object's class via `typeObjectClass`, type GlobalIds, PredefinedType and
   ObjectType over the instances, classification refs with the bundled list

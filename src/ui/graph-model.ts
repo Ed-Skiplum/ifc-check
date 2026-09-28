@@ -170,7 +170,14 @@ export function buildDrill(
   centre: string | null,
   show: { psets: boolean; quantities: boolean },
   lang: Lang,
+  /** The drill's own index (storeys, buckets, products): the cross-filter's
+   *  matching rows when another view is the origin, so only matching nodes
+   *  and buckets are drawn (2026-09-28). The selected element's relations
+   *  still read the whole model (`index`): a type's siblings are its
+   *  siblings whatever is filtered. */
+  drillIndex: DrillIndex = index,
 ): Drill {
+  const isolated = drillIndex !== index;
   const nodes: GNode[] = [];
   const edges: GEdge[] = [];
   const seen = new Set<string>();
@@ -221,7 +228,7 @@ export function buildDrill(
     if (storey.buildingGuid) {
       buildingTotal.set(
         storey.buildingGuid,
-        (buildingTotal.get(storey.buildingGuid) ?? 0) + (index.storeyTotal.get(storey.guid) ?? 0),
+        (buildingTotal.get(storey.buildingGuid) ?? 0) + (drillIndex.storeyTotal.get(storey.guid) ?? 0),
       );
     }
   }
@@ -239,14 +246,16 @@ export function buildDrill(
     });
   }
 
-  const storeyKeys: (string | null)[] = profile.storeys.map((s) => s.guid);
-  if ((index.storeyTotal.get(null) ?? 0) > 0) storeyKeys.push(null);
+  const storeyKeys: (string | null)[] = profile.storeys
+    .map((s) => s.guid)
+    .filter((g) => !isolated || (drillIndex.storeyTotal.get(g) ?? 0) > 0);
+  if ((drillIndex.storeyTotal.get(null) ?? 0) > 0) storeyKeys.push(null);
 
   for (const key of storeyKeys) {
     const storey = key === null ? null : profile.storeys.find((s) => s.guid === key);
-    const count = index.storeyTotal.get(key) ?? 0;
+    const count = drillIndex.storeyTotal.get(key) ?? 0;
     const name = key === null ? t("matrix.noStorey", lang) : (storey?.name ?? key);
-    const cell = index.cells.get(key);
+    const cell = drillIndex.cells.get(key);
     let tone: Tone = null;
     for (const rows of cell?.values() ?? []) tone = worst(tone, toneOfRows(rows));
     const parent = storey?.buildingGuid && buildings.has(storey.buildingGuid)

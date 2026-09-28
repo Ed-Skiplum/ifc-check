@@ -21,20 +21,25 @@
  *
  * ── The viewer and the type page (2026-09-28) ────────────────────────────
  * The board's ONE 3D scene sits beside the gallery (`BoardViewer.tsx`, lent
- * through `viewer/dock.ts` as the Graf tab lends it). A click on a card
- * FILTERS the viewer to the type's instances (a `typecard:` chip under Vis
- * kun), framed; the same card again takes it off. Under the viewer, the
- * filtered type's material cards and layer set cards (owner: *"there is an
+ * through `viewer/dock.ts` as the Graf tab lends it). A click on a card makes
+ * the type's instances THE filter (origin `types`, one origin, 2026-09-28):
+ * the gallery keeps every card and dims all but the chosen one, the viewer
+ * and every other view isolate to the instances; the same card again clears
+ * it. A filter from any other view isolates the gallery instead: only the
+ * types with matching instances, their counts recomputed. Under the viewer,
+ * the chosen type's material cards and layer set cards (owner: *"there is an
  * unused space below the viewer. Would be cool to show the material cards
- * tied to the selected type"*), the Materialer tab's own cards; a click does
- * what it does there. No type filtered, the space stays empty.
+ * tied to the selected type"*); a click there makes that material the filter
+ * (origin `type-materials`). No type chosen, the space stays empty.
  *
  * A double-click opens the TYPE PAGE (`TypePage.tsx`, data `type-page.ts`),
  * its own route (`#…&type=<key>`, so Back, Forward and a pasted link work).
- * Per forekomst ISOLATES the current instance: the type chip and an element
- * chip, so the viewer draws that one element, framed (owner: *"remember to
- * isolate the per instance view"*). Alle forekomster draws the type's
- * instances. ‹ › and ↑ ↓ step the instance and re-isolate; ← → step the
+ * Per forekomst ISOLATES the current instance: the filter is that one
+ * element (origin `typepage`), so the viewer draws it alone, framed (owner:
+ * *"remember to isolate the per instance view"*). Alle forekomster: the
+ * filter is the type's instances, all of them selected. This is the page's
+ * own view-local mode; it sets the one filter outright (`set`), and leaving
+ * the page hands the gallery's filter back. ‹ › and ↑ ↓ step the instance and re-isolate; ← → step the
  * type. ‹, Esc or the browser's Back returns to the gallery, which stays
  * mounted (unseen) under it, so its scroll holds, and the gallery's filter is
  * handed back. The instance order is `type-links.ts`'s: by storey from the
@@ -53,7 +58,7 @@ import { Gallery, GalleryCard, NoGeometryMark } from "./Gallery";
 import { WithViewer } from "./BoardViewer";
 import { useFillHeight } from "./useFillHeight";
 import type { Catalogue, TypeCard, TypeCodes } from "./type-links";
-import { elementChip, type FilterChip, type Mode } from "./cross-filter";
+import type { FilterAction, FilterState, Mode, ModelView } from "./cross-filter";
 import { typePage, type TypePageInput } from "./type-page";
 import { CodeLineView, TypePage, type Open } from "./TypePage";
 import { MaterialCardView, SetCardView } from "./MaterialsTab";
@@ -113,37 +118,44 @@ export interface Reveal {
   seq: number;
 }
 
-/** The gallery's filter and selection, handed back when the page closes. */
+/** The gallery's filter, handed back when the page closes. */
 interface GalleryState {
-  chips: FilterChip[];
-  selection: string[];
+  state: FilterState;
   mode: Mode;
 }
 
-/** The filter chip a type card makes: its own instances, isolated. */
-const TYPE_CHIP = "typecard:";
-function typeChip(row: TypeCard, lang: Lang): FilterChip {
+/** The filter a type card makes: its own instances. */
+const TYPE_KEY = "typecard:";
+function chooseType(row: TypeCard, lang: Lang): FilterAction {
   return {
-    key: TYPE_CHIP + row.key,
-    kind: "type",
-    label: row.typeName ?? t("type.untyped", lang),
-    guids: row.guids,
+    type: "choose",
+    origin: "types",
+    key: TYPE_KEY + row.key,
+    filter: { kind: "type", label: row.typeName ?? t("type.untyped", lang), guids: row.guids },
+    scope: { kind: "element", guids: row.guids },
   };
 }
+
+const own = (v: FilterState): FilterState => ({
+  origin: v.origin,
+  key: v.key,
+  filter: v.filter,
+  scope: v.scope,
+  selection: v.selection,
+});
 
 export function TypesTab({
   lang,
   profile,
   catalogue,
+  scopedCatalogue = null,
   codes,
   meshBatches,
   selection,
-  chips,
-  mode,
+  view,
   page,
   pageInput,
-  onSelect,
-  onChips,
+  onDispatch,
   onMode,
   onPage,
   onOpenMaterial,
@@ -154,21 +166,22 @@ export function TypesTab({
   profile: ModelProfile | null;
   /** `type-links.ts`, computed once per profile by the panel. */
   catalogue: Catalogue | null;
+  /** The same over the cross-filter's matching rows, when another view is
+   *  its origin: the gallery then shows only these. */
+  scopedCatalogue?: Catalogue | null;
   /** Each card's system and function line (`typeCodes`), per board. */
   codes: Map<string, TypeCodes> | null;
   /** The streamed geometry, for the card renders and the lent 3D. */
   meshBatches: MeshBatch[] | undefined;
   /** The panel's `view.selection`, for scripts. */
   selection: string[];
-  /** The panel's filter chips and mode: a type card filters the viewer. */
-  chips: FilterChip[];
-  mode: Mode;
+  /** The panel's one filter and the 3D's mode. */
+  view: ModelView;
   /** The type page's key from the URL hash (`type=`), or null. */
   page: string | null;
   /** What the type page reads beside the card (`type-page.ts`). */
   pageInput: Omit<TypePageInput, "profile" | "card" | "codes">;
-  onSelect: (guids: string[]) => void;
-  onChips: (chips: FilterChip[]) => void;
+  onDispatch: (action: FilterAction) => void;
   onMode: (mode: Mode) => void;
   /** Open (a key) or leave (null) the type page. `replace` for a step from
    *  one type to the next, so Back still returns to the gallery. */
@@ -176,16 +189,29 @@ export function TypesTab({
   onOpenMaterial: (name: string) => void;
   /** A layer set card's type link. */
   onOpenType: (key: string) => void;
-  /** A requirement or IDS line of the page: its Scope, on its tab. */
-  onScope: (focus: Focus, tab: "checks" | "project") => void;
+  /** A requirement or IDS line of the page: its Scope, on its tab, within
+   *  the type's instances. */
+  onScope: (focus: Focus, tab: "checks" | "project", within: string[]) => void;
 }) {
-  const rows = useMemo(() => catalogue?.types ?? [], [catalogue]);
-  const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
+  const { mode } = view;
+  // The page and the links always read the whole catalogue; the gallery
+  // shows the isolated one when another view is the origin.
+  const allRows = useMemo(() => catalogue?.types ?? [], [catalogue]);
+  const byKey = useMemo(() => new Map(allRows.map((r) => [r.key, r])), [allRows]);
+  const rows = scopedCatalogue?.types ?? allRows;
   const notSupplied = t("type.notSupplied", lang);
   const { ref: fillRef, height: fillHeight } = useFillHeight<HTMLElement>();
 
-  // The card the gallery's filter is on: its chip is in the bar.
-  const filtered = chips.find((c) => c.key.startsWith(TYPE_CHIP))?.key.slice(TYPE_CHIP.length) ?? null;
+  // The card the one filter is on, when this gallery is its origin.
+  const filtered =
+    view.filter?.origin === "types" && view.filter.key.startsWith(TYPE_KEY) ? view.filter.key.slice(TYPE_KEY.length) : null;
+  // The type whose materials sit under the viewer: the chosen card, kept
+  // while one of those material cards is the filter.
+  const [underType, setUnderType] = useState<string | null>(null);
+  useEffect(() => {
+    if (filtered) setUnderType(filtered);
+    else if (view.filter?.origin !== "type-materials") setUnderType(null);
+  }, [filtered, view.filter]);
 
   // The type page: the route's key, once the catalogue has it.
   const card = page ? (byKey.get(page) ?? null) : null;
@@ -196,22 +222,18 @@ export function TypesTab({
       : { key: card.key, pos: 0, all: false }
     : null;
 
-  /** A click filters the viewer to the card's instances (Vis kun), framed;
-   *  the same card again takes the filter off. The type facet is replaced,
-   *  other facets stay. The second click of a double-click is not a click. */
+  /** A click makes the card's instances THE filter, replacing whatever was
+   *  on; the same card again clears it. The second click of a double-click
+   *  is not a click. */
   const pick = useCallback(
     (row: TypeCard) => {
-      prePick.current = { key: row.key, at: performance.now(), state: { chips, selection, mode } };
-      const others = chips.filter((c) => c.kind !== "type" && c.kind !== "element");
-      if (filtered === row.key) {
-        onChips(others);
-        return;
-      }
-      if (mode !== "filter") onMode("filter");
-      onSelect([]);
-      onChips([...others, typeChip(row, lang)]);
+      prePick.current = { key: row.key, at: performance.now(), state: { state: own(view), mode } };
+      if (filtered !== row.key && mode !== "filter") onMode("filter");
+      // The WHOLE type, never the isolated card's instances: a click
+      // replaces the filter, it does not intersect with it.
+      onDispatch(chooseType(byKey.get(row.key) ?? row, lang));
     },
-    [chips, filtered, lang, mode, onChips, onMode, onSelect, selection],
+    [byKey, filtered, lang, mode, onDispatch, onMode, view],
   );
 
   // Opened from the gallery by this tab: Back is the browser's own.
@@ -239,8 +261,8 @@ export function TypesTab({
   // Entering the page saves the gallery's filter; leaving hands it back.
   // Driven by the route, so a direct link, Back and Forward all take this path.
   const saved = useRef<GalleryState | null>(null);
-  const live = useRef({ chips, selection, mode });
-  live.current = { chips, selection, mode };
+  const live = useRef<GalleryState>({ state: own(view), mode });
+  live.current = { state: own(view), mode };
   const cardKey = card?.key ?? null;
   useEffect(() => {
     if (cardKey && card) {
@@ -251,25 +273,41 @@ export function TypesTab({
       const back = saved.current;
       saved.current = null;
       openedHere.current = false;
-      onChips(back.chips);
-      onSelect(back.selection);
+      onDispatch({ type: "set", state: back.state });
       onMode(back.mode);
     }
     // Only a change of page moves the filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardKey]);
 
-  // Per forekomst isolates the current instance (the type chip AND its
-  // element chip: one element drawn, framed); Alle forekomster draws the
-  // type. The current instance, or all of them, is the selection.
+  // Per forekomst isolates the current instance (the filter is that one
+  // element: drawn alone, framed); Alle forekomster, the type's instances.
+  // The current instance, or all of them, is the selection.
   const openPos = open?.pos ?? 0;
   const openAll = open?.all ?? false;
   useEffect(() => {
     if (!card) return;
     const guid = card.guids[openPos];
     const rowOf = profile?.rows.find((r) => r.guid === guid);
-    onChips(openAll || !guid ? [typeChip(card, lang)] : [typeChip(card, lang), elementChip(guid, rowOf?.name ?? null)]);
-    onSelect(openAll ? card.guids : [guid]);
+    const name = card.typeName ?? t("type.untyped", lang);
+    const one = !openAll && guid;
+    const guids = one ? [guid] : card.guids;
+    onDispatch({
+      type: "set",
+      state: {
+        origin: "typepage",
+        key: one ? `element:${guid}` : TYPE_KEY + card.key,
+        filter: {
+          origin: "typepage",
+          key: one ? `element:${guid}` : TYPE_KEY + card.key,
+          kind: one ? "element" : "type",
+          label: one ? (rowOf?.name ?? guid) : name,
+          guids,
+        },
+        scope: null,
+        selection: guids,
+      },
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardKey, openPos, openAll]);
 
@@ -299,29 +337,29 @@ export function TypesTab({
     [open],
   );
 
-  const typeAt = open ? rows.findIndex((r) => r.key === open.key) : -1;
+  const typeAt = open ? allRows.findIndex((r) => r.key === open.key) : -1;
   const stepType = useCallback(
     (delta: number) => {
       if (!open) return;
-      const at = rows.findIndex((r) => r.key === open.key);
-      const next = rows[at + delta];
+      const at = allRows.findIndex((r) => r.key === open.key);
+      const next = allRows[at + delta];
       if (next) onPage(next.key, true);
     },
-    [open, rows, onPage],
+    [open, allRows, onPage],
   );
 
-  /** A requirement line leaves the page for its Scope with the type still
-   *  the filter: the page's saved gallery state is dropped, not restored. */
+  /** A requirement line leaves the page for its Scope: the filter is that
+   *  requirement's findings among this type's instances (one filter, not a
+   *  type AND a requirement). The page's saved gallery state is dropped. */
   const scope = useCallback(
     (focus: Focus, tab: "checks" | "project") => {
       if (card) {
         saved.current = null;
         openedHere.current = false;
-        onChips([typeChip(card, lang)]);
       }
-      onScope(focus, tab);
+      onScope(focus, tab, card?.guids ?? []);
     },
-    [card, lang, onChips, onScope],
+    [card, onScope],
   );
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -351,25 +389,27 @@ export function TypesTab({
     [card, profile, pageInput, codes],
   );
 
-  // Under the viewer: the filtered type's material and layer set cards.
+  // Under the viewer: the chosen type's material and layer set cards. A
+  // click makes that material the filter (origin `type-materials`).
   const types = byKey;
-  const [pickedMat, setPickedMat] = useState<string | null>(null);
-  useEffect(() => {
-    if (selection.length === 0) setPickedMat(null);
-  }, [selection.length]);
-  const pickMat = (key: string, guids: string[]) => {
-    setPickedMat(key);
-    onSelect(guids);
-  };
+  const pickedMat = view.filter?.origin === "type-materials" ? view.filter.key : null;
+  const pickMat = (key: string, label: string, guids: string[]) =>
+    onDispatch({
+      type: "choose",
+      origin: "type-materials",
+      key,
+      filter: { kind: "material", label, guids },
+      scope: { kind: "element", guids },
+    });
   const under = useMemo(() => {
-    if (!filtered || !catalogue) return null;
-    const matNames = new Set((catalogue.typeMaterials.get(filtered) ?? []).map((l) => l.key));
-    const setKeys = new Set((catalogue.typeSets.get(filtered) ?? []).map((l) => l.key));
+    if (!underType || !catalogue) return null;
+    const matNames = new Set((catalogue.typeMaterials.get(underType) ?? []).map((l) => l.key));
+    const setKeys = new Set((catalogue.typeSets.get(underType) ?? []).map((l) => l.key));
     const mats = catalogue.materials.filter((m) => matNames.has(m.name));
     const sets = (catalogue.sets ?? []).filter((s) => setKeys.has(s.key));
     if (mats.length === 0 && sets.length === 0) return null;
     return { mats, sets };
-  }, [filtered, catalogue]);
+  }, [underType, catalogue]);
 
   return (
     <section
@@ -379,7 +419,7 @@ export function TypesTab({
       className="relative flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
     >
       <div className={"flex shrink-0 items-center gap-3 px-4 pt-1 font-mono text-[10px] text-muted tabular-nums" + (open ? " invisible" : "")}>
-        <span>{`${formatCount(rows.length, lang)} · ${t("col.instances", lang)} ${formatCount(
+        <span data-type-total={rows.reduce((sum, r) => sum + r.count, 0)}>{`${formatCount(rows.length, lang)} · ${t("col.instances", lang)} ${formatCount(
           rows.reduce((sum, r) => sum + r.count, 0),
           lang,
         )}`}</span>
@@ -397,6 +437,7 @@ export function TypesTab({
           active={open === null}
           under={
             under ? (
+              <div className="contents" data-xf={view.origin === "type-materials" ? "origin" : undefined}>
               <Gallery unit={[2, 2]} label="type-materials">
                 {under.mats.map((line) => (
                   <MaterialCardView
@@ -406,7 +447,7 @@ export function TypesTab({
                     links={catalogue?.materialTypes.get(line.name) ?? []}
                     types={types}
                     active={pickedMat === `material:${line.name}`}
-                    onClick={() => pickMat(`material:${line.name}`, line.guids)}
+                    onClick={() => pickMat(`material:${line.name}`, line.name, line.guids)}
                     onOpenType={onOpenType}
                   />
                 ))}
@@ -418,14 +459,16 @@ export function TypesTab({
                     links={catalogue?.setTypes.get(set.key) ?? []}
                     types={types}
                     active={pickedMat === `set:${set.key}`}
-                    onClick={() => pickMat(`set:${set.key}`, set.guids)}
+                    onClick={() => pickMat(`set:${set.key}`, set.name ?? set.key, set.guids)}
                     onOpenType={onOpenType}
                   />
                 ))}
               </Gallery>
+              </div>
             ) : null
           }
         >
+          <div className="contents" data-xf={view.origin === "types" ? "origin" : undefined}>
           <Gallery unit={[2, 2]} label="types">
             {rows.map((row) => {
               const name = row.typeName ?? t("type.untyped", lang);
@@ -448,6 +491,7 @@ export function TypesTab({
               );
             })}
           </Gallery>
+          </div>
         </WithViewer>
         </div>
       )}
@@ -457,7 +501,7 @@ export function TypesTab({
           page={data}
           open={open}
           typeAt={typeAt}
-          typeCount={rows.length}
+          typeCount={allRows.length}
           meshBatches={meshBatches}
           materials={catalogue?.typeMaterials.get(card.key) ?? []}
           selection={selection}

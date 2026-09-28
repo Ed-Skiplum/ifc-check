@@ -12,8 +12,11 @@
  *                 Scope, Detail, the treemaps read through a project mapping
  *                 and the MMI bars
  *
- * A click is the Overview's: `onFocus` fills Scope, makes the chip, and the
- * chip isolates in the lent viewer. With no ruleset every card reads
+ * A click is the Overview's: `onFocus` replaces the one filter and fills
+ * Scope (2026-09-28, one origin). The tile clicked keeps its items and dims
+ * all but the chosen one; the lent viewer, the treemaps and the MMI bars
+ * isolate to the filter; the KPI cards and the IDS table keep the whole
+ * model's figures, marked «Hele modellen». With no ruleset every card reads
  * `not_configured`, the MMI tile «Statuskode ikke konfigurert», and no mapped
  * treemap exists to draw; with no `.ids`, the table is the open button.
  */
@@ -25,6 +28,8 @@ import type { Lang } from "../i18n";
 import type { Measure } from "../../engine/quantities";
 import type { CodeTree } from "../../engine/code-tree";
 import { t } from "../i18n";
+import type { Origin } from "../cross-filter";
+import { isoOf, xfMark, type Xf } from "../origins";
 import { formatCount } from "../format";
 import { LentViewer } from "../BoardViewer";
 import { IdsHead, IdsResults, isIdsFile, type IdsSession } from "../IdsResults";
@@ -38,7 +43,10 @@ export interface ProjectBoardProps {
   lang: Lang;
   model: ModelEntry;
   selected: string | null;
-  onFocus: (focus: Focus) => void;
+  /** A click on a board number, and the view it came from. */
+  onFocus: (focus: Focus, origin: Origin) => void;
+  /** The one filter: its origin and the elements it resolves to. */
+  xf: Xf;
   /** The chip-free selection, for bringing Detail forward. */
   selection: string[];
   /** The rows behind the last click (the derivation list), or null. */
@@ -56,7 +64,7 @@ export interface ProjectBoardProps {
 const treeId = (tree: CodeTree) => `ptree-${tree.axis}`;
 
 export function ProjectBoard(props: ProjectBoardProps) {
-  const { model, lang, selected, onFocus } = props;
+  const { model, lang, selected, onFocus, xf } = props;
   const { ref, grid } = useModuleGrid();
   const reqs = useMemo(() => standardRequirements(model), [model]);
   const mmi = useMemo(() => mmiRequirement(model), [model]);
@@ -90,7 +98,8 @@ export function ProjectBoard(props: ProjectBoardProps) {
     props.onIdsFile(file);
   };
 
-  const door = { lang, model, selected, onFocus };
+  const door = (origin: Origin) => ({ lang, model, selected, onFocus: (focus: Focus) => onFocus(focus, origin) });
+  const whole = (self: Origin) => ({ xf: xfMark(xf, self, true), wholeText: t("filter.wholeModel", lang) });
   const board = model.board;
 
   const bodies: Bodies = (id) => {
@@ -103,6 +112,7 @@ export function ProjectBoard(props: ProjectBoardProps) {
     }
     if (id === "ids") {
       return {
+        ...whole("ids"),
         label: t("ids.heading", lang),
         head: <IdsHead lang={lang} session={props.ids} input={input} onFile={props.onIdsFile} onClear={props.onClearIds} />,
         body: (
@@ -112,7 +122,7 @@ export function ProjectBoard(props: ProjectBoardProps) {
             session={props.ids}
             error={props.idsError}
             selected={selected}
-            onFocus={onFocus}
+            onFocus={door("ids").onFocus}
             input={input}
           />
         ),
@@ -134,13 +144,14 @@ export function ProjectBoard(props: ProjectBoardProps) {
       };
     if (id === "mmi") {
       return mmi
-        ? { label: t("req.mmi", lang), body: <MmiChart req={mmi} {...door} /> }
+        ? { xf: xfMark(xf, "mmi"), label: t("req.mmi", lang), body: <MmiChart req={mmi} iso={isoOf(xf, "mmi")} {...door("mmi")} /> }
         : null;
     }
     const tree = trees.find((tr) => treeId(tr) === id);
     if (tree) {
       const axis = tree.axis;
       return {
+        xf: xfMark(xf, id),
         label: t(treeTitle(tree), lang),
         head: (
           <MeasureSwitch
@@ -152,16 +163,26 @@ export function ProjectBoard(props: ProjectBoardProps) {
             lang={lang}
           />
         ),
-        body: <CodeTreemap tree={tree} measure={measure[axis]} measures={board?.measures} {...door} />,
+        body: (
+          <CodeTreemap
+            tree={tree}
+            measure={measure[axis]}
+            measures={board?.measures}
+            iso={isoOf(xf, id)}
+            lit={xfMark(xf, id) === "origin" ? xf.matched : null}
+            quantities={model.elementQuantities?.byGuid}
+            {...door(id)}
+          />
+        ),
       };
     }
     const kpi = /^std(\d+)$/.exec(id);
     if (kpi) {
       const req = reqs[Number(kpi[1])];
-      return req ? { bare: true, label: t(req.label, lang), body: <ReqCard req={req} {...door} /> } : null;
+      return req ? { ...whole("reqs"), bare: true, label: t(req.label, lang), body: <ReqCard req={req} {...door("reqs")} /> } : null;
     }
     // The narrow fallback: the Standardkrav requirements as one list.
-    if (id === "reqs") return { label: t("req.group.std", lang), body: <StandardkravList reqs={reqs} {...door} /> } satisfies TileBody;
+    if (id === "reqs") return { ...whole("reqs"), label: t("req.group.std", lang), body: <StandardkravList reqs={reqs} {...door("reqs")} /> } satisfies TileBody;
     return null;
   };
 
