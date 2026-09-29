@@ -35,11 +35,21 @@
  *
  * View state is not here either: language, selection and drill target live in
  * the URL hash (`ui/useHashView.ts`), where they belong.
+ *
+ * ## How long
+ *
+ * For the tab session, not for days. A model survives a reload and back or
+ * forward in the same tab; closing the tab ends it (`session.ts`). Every row
+ * carries the session that wrote or last used it, and the board, its restore
+ * and the recent list only offer the current session's rows. At startup, rows
+ * of other sessions unused for `CACHE_SESSION_GRACE_MS` are purged, so a
+ * second open tab keeps its models and a closed tab's go.
  */
 
 import type { IfcGraph, IfcSummary } from "../engine/types";
 import type { MeshBatch, MeshBudget } from "../viewer/mesh-stream";
 import { ask, BOARD, DROPKEYS, META, MODELS, transact } from "./idb.ts";
+import { offered, purgeable, sessionId } from "./session.ts";
 
 /**
  * The shape of a stored record. Bump this when the STORED shape changes, and
@@ -88,19 +98,22 @@ export const CACHE_FORMAT = 6;
  * below the origin quota a browser grants (typically a large share of free
  * disk), so the cache is not what runs a machine out of room.
  *
- * Three bounds, all enforced before a write: total bytes, entry count, and age.
- * Eviction is least-recently-USED, not least-recently-written, so the model you
- * keep coming back to is the one that stays.
+ * Two bounds, both enforced before a write: total bytes and entry count. Age
+ * is the session rule's (`session.ts`), not a bound here. Eviction is
+ * least-recently-USED, not least-recently-written, so the model you keep
+ * coming back to is the one that stays.
  */
 export const CACHE_MAX_BYTES = 256 * 1024 * 1024;
 export const CACHE_MAX_ENTRIES = 12;
-export const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Above this, the pre-parse key hashes the head and tail rather than the file. */
 const FULL_HASH_LIMIT = 64 * 1024 * 1024;
 const HASH_WINDOW = 4 * 1024 * 1024;
 
-const BOARD_KEY = "board";
+/** One board per tab session. */
+function boardKey(session: string): string {
+  return `board:${session}`;
+}
 
 export interface CachedMesh {
   batches: MeshBatch[];
@@ -130,6 +143,9 @@ interface MetaRow {
   format: number;
   usedAt: number;
   bytes: number;
+  /** The tab session that wrote or last used the entry. Absent on rows from
+   *  before sessions, which count as another session's. */
+  session?: string;
   /** What the landing lists, copied off the record so listing the cache never
    *  loads a graph. Optional: rows written before these existed are backfilled
    *  from their record once, by `listCached`. */
@@ -156,6 +172,8 @@ export interface BoardEntry {
 interface BoardRow {
   key: string;
   format: number;
+  /** Absent on the single board row from before sessions. */
+  session?: string;
   entries: BoardEntry[];
   savedAt: number;
 }
@@ -302,20 +320,64 @@ async function forget(cacheKeys: string[]): Promise<void> {
   });
 }
 
-/** Mark an entry as used. Written to `meta` only — touching the model record
- *  would rewrite a hundred megabytes to move a timestamp. */
+/** Mark an entry as used, by this tab's session. Written to `meta` only:
+ *  touching the model record would rewrite a hundred megabytes to move a
+ *  timestamp. */
 async function touch(cacheKey: string): Promise<void> {
+  const session = sessionId();
   await transact([META], "readwrite", async (tx) => {
     const store = tx.objectStore(META);
     const row = await ask<MetaRow | undefined>(store.get(cacheKey));
-    if (row) store.put({ ...row, usedAt: now() });
+    if (row) store.put({ ...row, usedAt: now(), ...(session !== null ? { session } : {}) });
     return true;
   });
 }
 
+let purged: Promise<void> | null = null;
+
 /**
- * Make room for `incoming` bytes: stale formats and expired entries first, then
- * least-recently-used until both the byte and the count bound hold.
+ * Once per page load: drop the boards and models of other sessions unused for
+ * the grace period (`purgeable`). What this tab's own board points at is kept,
+ * even when another tab used it last.
+ */
+function purgeOtherSessions(): Promise<void> {
+  purged ??= (async () => {
+    const session = sessionId();
+    if (session === null) return;
+    const boards =
+      (await transact([BOARD], "readonly", (tx) => ask<BoardRow[]>(tx.objectStore(BOARD).getAll()))) ?? [];
+    const metas =
+      (await transact([META], "readonly", (tx) => ask<MetaRow[]>(tx.objectStore(META).getAll()))) ?? [];
+    const at = now();
+    const own = boards.find((row) => row.key === boardKey(session));
+    const keep = new Set((own?.entries ?? []).map((entry) => entry.cacheKey));
+
+    const staleBoards = purgeable(
+      boards.map((row) => ({ key: row.key, session: row.session, usedAt: row.savedAt ?? 0 })),
+      session,
+      at,
+    );
+    if (staleBoards.length > 0) {
+      await transact([BOARD], "readwrite", async (tx) => {
+        for (const key of staleBoards) tx.objectStore(BOARD).delete(key);
+        return true;
+      });
+    }
+    await forget(
+      purgeable(
+        metas.map((row) => ({ key: row.cacheKey, session: row.session, usedAt: row.usedAt })),
+        session,
+        at,
+        keep,
+      ),
+    );
+  })().catch(() => {});
+  return purged;
+}
+
+/**
+ * Make room for `incoming` bytes: stale formats first, then least-recently-used
+ * until both the byte and the count bound hold.
  */
 async function evict(incoming: number, keep: string): Promise<void> {
   const rows = await transact([META], "readonly", (tx) =>
@@ -323,12 +385,11 @@ async function evict(incoming: number, keep: string): Promise<void> {
   );
   if (rows === null) return;
 
-  const at = now();
   const victims: string[] = [];
   const fresh: MetaRow[] = [];
   for (const row of rows) {
     if (row.cacheKey === keep) continue;
-    if (row.format !== CACHE_FORMAT || at - row.usedAt > CACHE_MAX_AGE_MS) {
+    if (row.format !== CACHE_FORMAT) {
       victims.push(row.cacheKey);
       continue;
     }
@@ -362,8 +423,11 @@ export interface StoreInput {
   meshError: string | null;
 }
 
-/** True only when the record is actually in the store. */
+/** True only when the record is actually in the store. Nothing is stored
+ *  without a session: there is no tab to restore it into. */
 export async function storeModel(input: StoreInput): Promise<boolean> {
+  const session = sessionId();
+  if (session === null) return false;
   const bytes = estimateBytes(input.graph, input.mesh);
   // One entry that cannot coexist with the ceiling is not stored at all,
   // rather than stored by emptying the cache of everything else first.
@@ -389,6 +453,7 @@ export async function storeModel(input: StoreInput): Promise<boolean> {
     format: CACHE_FORMAT,
     usedAt: at,
     bytes,
+    session,
     ...listedFields(record),
   };
 
@@ -454,10 +519,17 @@ export async function readByFile(file: File): Promise<FileLookup> {
   return { dropKey, model };
 }
 
+/** This tab session's board. Reading it counts as a use, so its time moves. */
 export async function readBoard(): Promise<BoardEntry[]> {
-  const raw = await transact([BOARD], "readonly", (tx) =>
-    ask<BoardRow | undefined>(tx.objectStore(BOARD).get(BOARD_KEY)),
-  );
+  const session = sessionId();
+  if (session === null) return [];
+  await purgeOtherSessions();
+  const raw = await transact([BOARD], "readwrite", async (tx) => {
+    const store = tx.objectStore(BOARD);
+    const row = await ask<BoardRow | undefined>(store.get(boardKey(session)));
+    if (row) store.put({ ...row, savedAt: now() });
+    return row;
+  });
   if (!raw || raw.format !== CACHE_FORMAT || !Array.isArray(raw.entries)) return [];
   return raw.entries.filter(
     (entry) =>
@@ -469,7 +541,9 @@ export async function readBoard(): Promise<BoardEntry[]> {
 }
 
 export async function writeBoard(entries: BoardEntry[]): Promise<void> {
-  const row: BoardRow = { key: BOARD_KEY, format: CACHE_FORMAT, entries, savedAt: now() };
+  const session = sessionId();
+  if (session === null) return;
+  const row: BoardRow = { key: boardKey(session), format: CACHE_FORMAT, session, entries, savedAt: now() };
   await transact([BOARD], "readwrite", async (tx) => {
     tx.objectStore(BOARD).put(row);
     return true;
@@ -517,21 +591,25 @@ export interface CachedListing {
 /**
  * The models the cache can put back on the board, most recently used first.
  *
- * Only entries this build can actually restore are listed: a stale format or
- * an expired row is left out rather than offered and then refused. A row from
+ * Only this tab session's entries are listed, and only those this build can
+ * actually restore: a stale format is left out rather than offered and then
+ * refused. A row from
  * before the listing fields existed is filled in from its record once (without
  * touching its LRU time), and one whose record no longer validates is dropped.
  */
 export async function listCached(): Promise<CachedListing[]> {
+  const session = sessionId();
+  if (session === null) return [];
+  await purgeOtherSessions();
   const rows = await transact([META], "readonly", (tx) =>
     ask<MetaRow[]>(tx.objectStore(META).getAll()),
   );
   if (rows === null) return [];
 
-  const at = now();
   const out: CachedListing[] = [];
   for (const row of rows) {
-    if (row.format !== CACHE_FORMAT || at - row.usedAt > CACHE_MAX_AGE_MS) continue;
+    if (row.format !== CACHE_FORMAT) continue;
+    if (!offered({ key: row.cacheKey, session: row.session, usedAt: row.usedAt }, session)) continue;
     let listed = row;
     if (typeof row.fileName !== "string" || typeof row.products !== "number") {
       const raw = await transact([MODELS], "readonly", (tx) =>

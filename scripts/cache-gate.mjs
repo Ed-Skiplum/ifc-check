@@ -35,6 +35,15 @@
  */
 
 import "fake-indexeddb/auto";
+// The cache is scoped to a tab session (`src/storage/session.ts`); node has no
+// sessionStorage, so this run is one session in an in-memory one.
+{
+  const items = new Map();
+  globalThis.sessionStorage ??= {
+    getItem: (key) => (items.has(key) ? items.get(key) : null),
+    setItem: (key, value) => void items.set(key, String(value)),
+  };
+}
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { initSync, IfcModel } from "../vendor/ifcfast-wasm/ifcfast_wasm.js";

@@ -115,6 +115,7 @@ import {
   unmeshedGuids,
 } from "../src/engine/body-mesh.ts";
 import { shapeOf } from "../src/ui/room-plan.ts";
+import { CACHE_SESSION_GRACE_MS, offered, purgeable } from "../src/storage/session.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -2313,6 +2314,41 @@ async function cmdSelftest(): Promise<number> {
       "#7 null",
       `#${matchingIssue(sig, [{ title: "IfcWall IfcFacetedBrep", html_url: "u1", number: 3 }, { title: `Body declared, no mesh: ${sig}`, html_url: "u2", number: 7 }])?.number} ${matchingIssue(sig, [{ title: "IfcWall / IfcFacetedBrep", html_url: "u", number: 1 }])}`,
     );
+  }
+
+  {
+    // The model cache is tab-session scoped: only the current session's rows
+    // are offered; other sessions' rows go after the grace period, unless this
+    // tab's board still points at them; rows from before sessions count as
+    // another session's; no session purges nothing and offers nothing.
+    const at = 10 * CACHE_SESSION_GRACE_MS;
+    const old = at - CACHE_SESSION_GRACE_MS - 1;
+    const recent = at - CACHE_SESSION_GRACE_MS + 1;
+    const rows = [
+      { key: "mine-old", session: "A", usedAt: old },
+      { key: "mine-new", session: "A", usedAt: recent },
+      { key: "other-old", session: "B", usedAt: old },
+      { key: "other-new", session: "B", usedAt: recent },
+      { key: "other-old-on-board", session: "B", usedAt: old },
+      { key: "legacy-old", usedAt: old },
+      { key: "legacy-new", usedAt: recent },
+    ];
+    record(
+      "model cache: startup purges other sessions' rows unused past the grace period, keeps own rows and own board's",
+      "other-old,legacy-old",
+      purgeable(rows, "A", at, new Set(["other-old-on-board"])).join(","),
+    );
+    record(
+      "model cache: only the current session's rows are offered for restore",
+      "mine-old,mine-new",
+      rows.filter((row) => offered(row, "A")).map((row) => row.key).join(","),
+    );
+    record(
+      "model cache: without sessionStorage nothing is purged and nothing offered",
+      "0 0",
+      `${purgeable(rows, null, at).length} ${rows.filter((row) => offered(row, null)).length}`,
+    );
+    record("model cache: the grace period is 2 hours", "7200000", String(CACHE_SESSION_GRACE_MS));
   }
 
   xlsxSelftest(record);
