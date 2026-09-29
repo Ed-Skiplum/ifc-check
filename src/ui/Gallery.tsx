@@ -16,6 +16,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { MG_GAP, MG_MODULE } from "./alt/module-grid";
+import { useSelectionMarks } from "./selection-context";
 
 export function Gallery({
   unit,
@@ -87,6 +88,7 @@ export function GalleryCard({
   title,
   cardRef,
   data,
+  holds,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -95,7 +97,11 @@ export function GalleryCard({
   title?: string;
   cardRef?: Ref<HTMLDivElement>;
   data?: Record<`data-${string}`, string | number | undefined>;
+  /** The elements the card stands for: it carries the selection mark when
+   *  one of them is selected. */
+  holds?: readonly string[];
 }) {
+  const sel = useSelectionMarks().any(holds) ? "" : undefined;
   const className =
     "gallery-card flex min-h-0 min-w-0 flex-col overflow-hidden text-left select-none" +
     (onClick ? " gallery-door cursor-pointer" : "");
@@ -119,6 +125,7 @@ export function GalleryCard({
       }
       className={className}
       {...data}
+      data-sel={sel}
     >
       {children}
     </div>

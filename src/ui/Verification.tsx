@@ -28,6 +28,7 @@ import type { Focus } from "./trace";
 import type { Lang, StringKey } from "./i18n";
 import { verdictOf } from "../engine/fundamentals";
 import { t } from "./i18n";
+import { useSelectionMarks } from "./selection-context";
 import { displayText } from "./display";
 import { formatCount, formatShare } from "./format";
 import {
@@ -133,6 +134,7 @@ export function Verification({
   compact = false,
   flow = false,
 }: VerificationProps) {
+  const marks = useSelectionMarks();
   const withShare = shareColumn && !compact;
   return (
     <div className={"flex min-h-0 flex-1 bg-input " + (flow ? "overflow-clip" : "overflow-hidden")}>
@@ -171,6 +173,7 @@ export function Verification({
             <button
               key={check.id}
               type="button"
+              data-sel={marks.focus(focus) ? "" : undefined}
               onClick={() => onFocus(focus)}
               title={rule ? rule.ruleName : check.detail}
               className={
@@ -231,6 +234,7 @@ function RuleRows({
   onFocus: (focus: Focus) => void;
   share?: boolean;
 }) {
+  const marks = useSelectionMarks();
   const results = rules.evaluation?.results;
   return (
     <>
@@ -263,6 +267,7 @@ function RuleRows({
             <button
               key={result.ruleId}
               type="button"
+              data-sel={marks.focus({ kind: "rule", ruleId: result.ruleId }) ? "" : undefined}
               onClick={() => onFocus({ kind: "rule", ruleId: result.ruleId })}
               title={result.ruleName}
               className={

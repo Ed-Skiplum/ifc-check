@@ -91,6 +91,7 @@ import { catalogue as typeCatalogue, typeCodes, typeObjectClass } from "../src/u
 import { elementFacets, elementItems, facetCounts, narrow, NONE, typeItems, type FacetSelection } from "../src/ui/facets.ts";
 import { typePage } from "../src/ui/type-page.ts";
 import { EMPTY_FILTER, reduceFilter } from "../src/ui/filter-state.ts";
+import { selectionMarks } from "../src/ui/selection-marks.ts";
 import type { BoardData } from "../src/ui/report-rows.ts";
 import type { ElementQuantity } from "../src/engine/quantities.ts";
 import type { ModelProfile } from "../src/ui/profile.ts";
@@ -2291,6 +2292,60 @@ async function cmdSelftest(): Promise<number> {
     record("select: Scope's list stays", "same", sel({ ...a, scope: { kind: "element", guids: ["g1"] } }, "g2").scope?.kind === "element" ? "same" : "lost");
     record("select: with no filter it selects and filters nothing", "none @null sel g4", g(sel(EMPTY_FILTER, "g4")));
     record("select: Tøm clears the filter and keeps the selection", "none @null sel g2", g(reduceFilter(c1, { type: "clear" })));
+  }
+  {
+    // Which containers hold the selection (src/ui/selection-marks.ts): the
+    // one mark every view carries, over the row facts and a resolver.
+    const rows = [
+      { guid: "w1", entity: "IfcWall", name: null, storeyGuid: "s1", typed: true, typeName: "Vegg A" },
+      { guid: "w2", entity: "IfcWall", name: null, storeyGuid: "s2", typed: true, typeName: "Vegg B" },
+      { guid: "d1", entity: "IfcDoor", name: null, storeyGuid: "gone", typed: false, typeName: null },
+      { guid: "o1", entity: "IfcOpeningElement", name: null, storeyGuid: "s1", typed: true, typeName: "Hull", isOpening: true },
+    ];
+    const profile = { rows, storeys: [{ guid: "s1" }, { guid: "s2" }] } as unknown as ModelProfile;
+    const asked: string[] = [];
+    const resolve = (focus: { kind: string }) => {
+      asked.push(focus.kind);
+      return focus.kind === "check" ? new Set(["w2", "x"]) : null;
+    };
+    const m = (sel: string[]) => selectionMarks(sel, profile, resolve);
+    const one = m(["w1"]);
+    const yes = (b: boolean) => (b ? "y" : "n");
+    record(
+      "selmark: class, cell, storey, type of the selected wall",
+      "y n | y n | y n | y n",
+      [
+        `${yes(one.focus({ kind: "class", entity: "IfcWall" }))} ${yes(one.focus({ kind: "class", entity: "IfcDoor" }))}`,
+        `${yes(one.focus({ kind: "cell", storeyGuid: "s1", entity: "IfcWall" }))} ${yes(one.focus({ kind: "cell", storeyGuid: "s2", entity: "IfcWall" }))}`,
+        `${yes(one.focus({ kind: "storey", storeyGuids: ["s1"] }))} ${yes(one.focus({ kind: "storey", storeyGuids: ["s2"] }))}`,
+        `${yes(one.focus({ kind: "type", typeName: "Vegg A" }))} ${yes(one.focus({ kind: "type", typeName: "Vegg B" }))}`,
+      ].join(" | "),
+    );
+    const door = m(["d1"]);
+    record(
+      "selmark: an element on an unknown storey is in the no-storey cell, untyped in the untyped row",
+      "y y n y",
+      [
+        door.focus({ kind: "cell", storeyGuid: null, entity: "IfcDoor" }),
+        door.focus({ kind: "storey", storeyGuids: [null] }),
+        door.focus({ kind: "storey", storeyGuids: ["gone"] }),
+        door.focus({ kind: "type", typeName: null }),
+      ].map(yes).join(" "),
+    );
+    record("selmark: an opening is in no type", "n n", [m(["o1"]).focus({ kind: "type", typeName: "Hull" }), m(["o1"]).focus({ kind: "type", typeName: null })].map(yes).join(" "));
+    const multi = m(["w1", "w2"]);
+    record(
+      "selmark: multi-select marks every container",
+      "y y y",
+      [multi.focus({ kind: "storey", storeyGuids: ["s1"] }), multi.focus({ kind: "storey", storeyGuids: ["s2"] }), multi.focus({ kind: "type", typeName: "Vegg B" })].map(yes).join(" "),
+    );
+    asked.length = 0;
+    const via = [multi.focus({ kind: "check", checkId: "c" }), multi.focus({ kind: "check", checkId: "c" }), one.focus({ kind: "check", checkId: "c" })];
+    record("selmark: other foci through the resolver, once per selection", "y y n | check,check", `${via.map(yes).join(" ")} | ${asked.join(",")}`);
+    record("selmark: a set with no elements, and a kpi, hold nothing", "n n", [multi.focus({ kind: "rule", ruleId: "r" }), multi.focus({ kind: "kpi", kpi: "products" })].map(yes).join(" "));
+    record("selmark: a card's guids, and an element focus", "y n y", [multi.any(["x", "w2"]), multi.any(["x"]), multi.focus({ kind: "element", guids: ["w1"] })].map(yes).join(" "));
+    const none = m([]);
+    record("selmark: nothing selected marks nothing", "0 n n", `${none.size} ${yes(none.focus({ kind: "class", entity: "IfcWall" }))} ${yes(none.any(["w1"]))}`);
   }
   // The layer section (src/ui/layer-section.ts): an honest 1:20, the file's
   // order, the total, and a layer with no thickness never drawn as 0.

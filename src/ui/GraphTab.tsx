@@ -100,6 +100,8 @@ declare global {
       count: number | null;
       x: number | null;
       y: number | null;
+      /** The ring drawn: `sel` the selection's teal, `origin` the filter's. */
+      mark: "sel" | "origin" | null;
     }[])[];
   }
 }
@@ -342,6 +344,9 @@ export function GraphTab({
   const selHops = useRef<Int16Array>(new Int16Array(0));
   const hoverHops = useRef<Int16Array>(new Int16Array(0));
   const selected = useRef(new Set<number>());
+  /** Of `selected`, the nodes that are selected ELEMENTS (teal, the
+   *  selection accent); the rest is the filter's origin node (amber). */
+  const picks = useRef(new Set<number>());
   const raf = useRef(0);
   const shownRef = useRef(false);
   const textWidth = useRef(new Map<string, number>());
@@ -379,6 +384,7 @@ export function GraphTab({
     // The graph as the origin: the chosen storey or bucket is ringed, and
     // with no element in focus it is what the rest sinks back from.
     const origin = chosenId ? nodes.findIndex((node) => node.id === chosenId) : -1;
+    picks.current = new Set(chosen);
     if (origin >= 0) chosen.add(origin);
     selected.current = chosen;
     const centre = nodes.findIndex((node) => node.guid !== undefined && node.guid === centreGuid);
@@ -404,6 +410,9 @@ export function GraphTab({
       const sel = selHops.current;
       const hov = hoverHops.current;
       const hasSel = sel.some((v) => v >= 0);
+      // What fires runs out of the selection when there is one, in its teal;
+      // else out of the origin node, in the origin's amber.
+      const fire = picks.current.size > 0 ? palette.select : palette.accent;
       const hasHover = hovered.current >= 0;
       const motion = reducedMotion ? 0 : 1;
       /** An edge the selection fires along: out of the selected node, and on
@@ -490,7 +499,7 @@ export function GraphTab({
       }
       if (lit.length > 0) {
         ctx.lineWidth = 1.2;
-        ctx.strokeStyle = rgba(palette.accent, 0.55);
+        ctx.strokeStyle = rgba(fire, 0.55);
         ctx.beginPath();
         for (const e of lit) {
           ctx.moveTo(look.sx[look.edgeA[e]], look.sy[look.edgeA[e]]);
@@ -538,14 +547,15 @@ export function GraphTab({
           ctx.stroke();
         }
         if (selected.current.has(i)) {
+          const ring = picks.current.has(i) ? palette.select : palette.accent;
           ctx.globalAlpha = 1;
           ctx.globalCompositeOperation = "lighter";
           const pulse = 1 + 0.18 * Math.sin(now * 0.004) * motion;
           const halo = (r + 10) * pulse;
-          ctx.drawImage(glowSprite(palette.accent), x - halo * 1.8, y - halo * 1.8, halo * 3.6, halo * 3.6);
+          ctx.drawImage(glowSprite(ring), x - halo * 1.8, y - halo * 1.8, halo * 3.6, halo * 3.6);
           ctx.globalCompositeOperation = "source-over";
-          ctx.strokeStyle = rgba(palette.accent, 1);
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = rgba(ring, 1);
+          ctx.lineWidth = picks.current.has(i) ? 2.4 : 2;
           ctx.beginPath();
           ctx.arc(x, y, r + 3.5, 0, Math.PI * 2);
           ctx.stroke();
@@ -556,7 +566,7 @@ export function GraphTab({
       // Synapses: pulses running outward from the selection, hop by hop.
       if (motion && hasSel) {
         ctx.globalCompositeOperation = "lighter";
-        const spark = glowSprite(palette.accent);
+        const spark = glowSprite(fire);
         let drawn = 0;
         for (let e = 0; e < look.edgeA.length && drawn < 360; e += 1) {
           const a = look.edgeA[e];
@@ -942,6 +952,7 @@ export function GraphTab({
         count: node.count ?? null,
         x: look ? look.sx[i] : null,
         y: look ? look.sy[i] : null,
+        mark: picks.current.has(i) ? ("sel" as const) : selected.current.has(i) ? ("origin" as const) : null,
       }));
     };
     const registry = (window.__ifcCheckGraphs ??= []);

@@ -51,6 +51,7 @@ import { copyOnDoubleClick } from "./copy";
 import { formatElevation } from "./format";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 import { shortModelLabels } from "./model-labels";
+import { useSelectionMarks } from "./selection-context";
 
 export interface FloorPeer {
   id: string;
@@ -217,6 +218,7 @@ export function FloorSetupMatrix({
    *  model (the first column) holds a matching element. */
   keep?: Set<string> | null;
 }) {
+  const marks = useSelectionMarks();
   const open = (guids: string[]) => onFocus({ kind: "storey", storeyGuids: guids });
   const isOpen = (guids: string[]) => selected === serialiseFocus({ kind: "storey", storeyGuids: guids });
   const perModel = peers.map((peer) =>
@@ -244,7 +246,13 @@ export function FloorSetupMatrix({
         <tbody>
           {config.map((floor, row) => (
             keep && !(perModel[0] ?? []).some((m) => m.config === row && keep.has(m.storey.guid)) ? null :
-            <tr key={`cfg-${row}`}>
+            <tr
+              key={`cfg-${row}`}
+              data-sel={marks.focus({
+                kind: "storey",
+                storeyGuids: (perModel[0] ?? []).filter((m) => m.config === row).map((m) => m.storey.guid),
+              }) ? "" : undefined}
+            >
               <td data-essential title={floor.name} className={`${NAME_TD} w-full`}>
                 {floor.name}
               </td>
@@ -268,7 +276,10 @@ export function FloorSetupMatrix({
             </tr>
           ))}
           {extras.filter(({ col, match }) => !keep || (col === 0 && keep.has(match.storey.guid))).map(({ col, match }, index) => (
-            <tr key={`extra-${peers[col].id}-${match.storey.guid}`}>
+            <tr
+              key={`extra-${peers[col].id}-${match.storey.guid}`}
+              data-sel={col === 0 && marks.focus({ kind: "storey", storeyGuids: [match.storey.guid] }) ? "" : undefined}
+            >
               <td
                 title={match.storey.name ?? match.storey.guid}
                 data-essential
@@ -315,6 +326,7 @@ export function StoreyList({
   selected: string | null;
   onFocus: (focus: Focus) => void;
 }) {
+  const marks = useSelectionMarks();
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-input">
       <table className="w-full border-separate border-spacing-0 text-left">
@@ -340,6 +352,7 @@ export function StoreyList({
             return (
               <tr
                 key={storey.guid}
+                data-sel={marks.focus({ kind: "storey", storeyGuids: [storey.guid] }) ? "" : undefined}
                 onClick={
                   live ? () => onFocus({ kind: "storey", storeyGuids: [storey.guid] }) : undefined
                 }

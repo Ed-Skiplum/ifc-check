@@ -367,12 +367,14 @@ function Schedule({
               const isOpen = open.has(group.key);
               const chosen = chosenKey === `room:${grouping}:${group.key}`;
               const holds = view.origin === "rooms" && group.guids.some((guid) => selected.has(guid));
+              const holdsSel = group.guids.some((guid) => selected.has(guid));
               return [
                 <tr
                   key={group.key}
                   data-room-group={group.key}
                   data-chosen={chosen ? "" : undefined}
                   data-xf-in={holds ? "" : undefined}
+                  data-sel={holdsSel ? "" : undefined}
                   onClick={() => onGroup(group)}
                   className={"cursor-pointer border-b border-line/60 hover:bg-ink/5 " + (chosen ? "bg-ink/10" : "")}
                 >
@@ -424,9 +426,10 @@ function Schedule({
                           data-room={guid}
                           data-chosen={on ? "" : undefined}
                           data-xf-in={chosen ? "" : undefined}
+                          data-sel={on ? "" : undefined}
                           aria-current={on ? "true" : undefined}
                           onClick={(event) => onRoom(guid, event)}
-                          className={"cursor-pointer border-b border-line/30 text-[11.5px] hover:bg-ink/5 " + (on ? "bg-ink/10" : "")}
+                          className="cursor-pointer border-b border-line/30 text-[11.5px] hover:bg-ink/5"
                         >
                           <td className="truncate py-0.5 pr-2 pl-9 text-ink" title={guid}>
                             {grouping === "name" ? (number ?? own ?? "—") : (own ?? "—")}
@@ -642,6 +645,7 @@ function Plan({
               key={s.guid}
               data-room={s.guid}
               data-chosen={on ? "" : undefined}
+              data-sel={on ? "ring" : undefined}
               className="cursor-pointer"
               opacity={ghost ? 0.22 : undefined}
               onClick={(event) => {
@@ -653,8 +657,8 @@ function Plan({
               <path
                 d={lineOf(s)}
                 fill="none"
-                stroke="var(--color-ink)"
-                strokeWidth={on ? 2.2 : 0.8}
+                stroke={on ? "var(--sel)" : "var(--color-ink)"}
+                strokeWidth={on ? 2.6 : 0.8}
                 vectorEffect="non-scaling-stroke"
               />
             </g>

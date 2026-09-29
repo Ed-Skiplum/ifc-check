@@ -26,6 +26,7 @@ import type { ModelEntry } from "./useModels";
 import { formatCount } from "./format";
 import { copyOnDoubleClick } from "./copy";
 import { RESULT_FILL, RESULT_GLYPH } from "./state-visuals";
+import { useSelectionMarks } from "./selection-context";
 
 /** The loaded `.ids`, shared by every model panel. */
 export interface IdsSession {
@@ -117,6 +118,7 @@ export function IdsResults({
 }) {
   const result = model.ids;
   const failed = error ?? model.idsError ?? null;
+  const marks = useSelectionMarks();
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-ids-tab>
@@ -166,6 +168,7 @@ export function IdsResults({
                       onFocus(focus);
                     }}
                     data-ids-spec={spec.index}
+                    data-sel={marks.focus(focus) ? "" : undefined}
                     data-state={spec.state}
                     className={"cursor-pointer border-b border-line/60 hover:bg-ink/5 " + (open ? "bg-ink/10" : "")}
                   >

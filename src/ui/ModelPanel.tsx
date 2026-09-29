@@ -41,7 +41,9 @@ import type { Focus } from "./trace";
 import type { Lang, StringKey } from "./i18n";
 import type { Design } from "./useHashView";
 import type { FilterAction, Mode, ModelView, Origin } from "./cross-filter";
-import { chooseFocus, filterOf, resolveActive } from "./cross-filter";
+import { chooseFocus, filterOf, guidsOfFocus, resolveActive } from "./cross-filter";
+import { SelectionMarksContext } from "./selection-context";
+import { selectionMarks } from "./selection-marks";
 import { serialiseFocus } from "./trace";
 import type { Xf } from "./origins";
 import type { PickHandler } from "../viewer/ViewerTile";
@@ -154,6 +156,12 @@ export function ModelPanel({
     [profile, filter.matched],
   );
   const isolating = (self: Origin) => scopedProfile !== null && view.origin !== self;
+  // What holds the selection, for every view's mark (`selection-marks.ts`).
+  // A mark only: the filter above decides what each view shows.
+  const marks = useMemo(
+    () => selectionMarks(view.selection, profile ?? null, (f) => guidsOfFocus(f, model)),
+    [view.selection, profile, model],
+  );
 
   // One pass over the products per (profile, geometry) change, not per render.
   // Triangles come from the STREAMED mesh, the only place a per-element count
@@ -348,6 +356,7 @@ export function ModelPanel({
     // The design alternatives lay out on the window's own module grid, which
     // adds columns on a wider window rather than capping it (the layout
     // canon, rule 1).
+    <SelectionMarksContext.Provider value={marks}>
     <section className="mx-auto flex h-full min-h-0 w-full shrink-0 flex-col gap-2" style={{ maxWidth: design ? undefined : BENTO_MAX_WIDTH }}>
       {oneLine ? null : nameLine}
 
@@ -548,5 +557,6 @@ export function ModelPanel({
         </>
       ) : null}
     </section>
+    </SelectionMarksContext.Provider>
   );
 }

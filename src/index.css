@@ -130,7 +130,8 @@ body {
     .outline-ink,
     [aria-current="true"],
     [data-chosen],
-    [data-xf-in]
+    [data-xf-in],
+    [data-sel]
   ) {
   opacity: 0.38;
 }
@@ -138,4 +139,64 @@ body {
 .gallery-card[data-revealed] {
   outline: 2px dashed var(--d-accent, var(--color-green));
   outline-offset: -2px;
+}
+
+/* ── The SELECTION mark (2026-09-29) ────────────────────────────────────────
+ * edkjo: *"selected objects need to be highlighted, be that graph, chart,
+ * table or model object."* One accent for the selection in every view, the
+ * teal ifcfast-site calls its callout: the 3D fills and edges the object in
+ * it (`scene.ts`), the Graf tab rings the node in it (`graph-paint.ts`), a
+ * chart cell holding a selected element gets its ring, a row, card, chip or
+ * bar its soft ground. `data-sel` is set by `selection-marks.ts`.
+ *
+ * Distinct from the filter's ORIGIN highlight, which is the burnt accent
+ * (`.alt-chosen`: an amber outline and wash) and dims the rest: the
+ * selection is teal, dims nothing, never narrows, and an item can carry
+ * both. Nothing here takes space: backgrounds, inset shadows and an overlay,
+ * never a border, margin or size. */
+:root {
+  --sel: #1d8a8a;
+  /* Opaque, so a sticky header cell that carries it still covers what
+     scrolls under it. */
+  --sel-soft: color-mix(in srgb, var(--sel) 22%, var(--color-panel));
+  --sel-halo: var(--color-cream);
+}
+/* Rows, cards, chips, bars: the soft ground. A status fill (a chip in
+   its verdict's colour) keeps its colour and takes the ring instead. */
+[data-sel]:not([data-sel="ring"]):not([data-verdict]),
+tr[data-sel] > td {
+  background-color: var(--sel-soft);
+}
+tr[data-sel] {
+  background-color: transparent;
+}
+/* A cell that is its own colour keeps it, and takes the ring. */
+[data-sel="ring"]:not(.alt-cell),
+.alt-value[data-sel] {
+  box-shadow:
+    inset 0 0 0 2px var(--sel),
+    inset 0 0 0 3.5px var(--sel-halo);
+}
+/* A treemap cell is positioned, so the ring is an overlay and its own
+   status ring stays under it. */
+.alt-cell[data-sel]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 2.5px var(--sel),
+    inset 0 0 0 4px var(--sel-halo);
+  pointer-events: none;
+}
+/* A gallery card: the ground and the ring, over its own shade. */
+.gallery-card[data-sel] {
+  box-shadow:
+    inset 0 0 0 2px var(--sel),
+    var(
+      --d-card-shadow,
+      0 0 0 1px rgba(35, 41, 30, 0.06),
+      0 1px 2px rgba(35, 41, 30, 0.07),
+      0 8px 20px -8px rgba(35, 41, 30, 0.2)
+    );
 }

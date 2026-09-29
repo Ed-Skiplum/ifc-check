@@ -33,6 +33,7 @@ import { measureReady, type BoardMeasures } from "../measure-state";
 import { squarify, type Rect } from "./treemap";
 import { StateBadge } from "./Requirements";
 import { barLook, mmiBars, mmiBarsWithin, valueFocus } from "./req-view";
+import { useSelectionMarks } from "../selection-context";
 
 /** The box of whichever element the chart renders; a callback ref, so a
  *  chart that swaps its element (MMI columns and rows) keeps measuring the
@@ -222,6 +223,7 @@ export function CodeTreemap({
   quantities?: Record<string, ElementQuantity>;
 }) {
   const { lang, selected, onFocus } = door;
+  const marks = useSelectionMarks();
   const { ref, box } = useBox();
   const ready = measure !== "count" && measureReady(tree, measures, measure);
   // Over `iso` a measure is summed per element, so it needs the elements'
@@ -298,6 +300,7 @@ export function CodeTreemap({
             data-verdict={verdict}
             data-depth={depth}
             data-xf-in={lit && node.guids.some((g) => lit.has(g)) ? "" : undefined}
+            data-sel={marks.size > 0 && marks.any(node.guids) ? "ring" : undefined}
             title={title}
             onClick={(event) => {
               event.stopPropagation();
@@ -352,6 +355,7 @@ export function CodeTreemap({
 
 export function MmiChart({ req, iso = null, ...door }: DoorProps & { req: Requirement; iso?: Set<string> | null }) {
   const { lang, selected, onFocus, model } = door;
+  const marks = useSelectionMarks();
   const { ref, box } = useBox();
   const row = req.row;
   if (!row || req.state === "not_configured") {
@@ -411,6 +415,7 @@ export function MmiChart({ req, iso = null, ...door }: DoorProps & { req: Requir
               key={String(bar.value)}
               type="button"
               data-mmi-bar={bar.value ?? "-"}
+              data-sel={marks.focus(focus) ? "" : undefined}
               title={`${text} ×${bar.n}`}
               onClick={() => onFocus(focus)}
               className={`${cls} alt-hover text-left`}
@@ -456,6 +461,7 @@ export function MmiChart({ req, iso = null, ...door }: DoorProps & { req: Requir
             key={String(bar.value)}
             type="button"
             data-mmi-bar={bar.value ?? "-"}
+            data-sel={marks.focus(focus) ? "" : undefined}
             title={`${text} ×${bar.n}`}
             onClick={() => onFocus(focus)}
             className={`${cls} alt-hover`}

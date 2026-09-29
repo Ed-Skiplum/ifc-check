@@ -308,6 +308,7 @@ export function MaterialCardView({
       onClick={onClick}
       cardRef={cardRef}
       data={{ "data-material-card": line.name, "data-revealed": revealed ? "" : undefined }}
+      holds={line.guids}
     >
       <div className="gallery-swatch m-2.5 mb-0 h-10 shrink-0 rounded-[8px]" />
       <div className="flex min-h-0 flex-1 flex-col gap-1 px-2.5 pt-1.5 pb-2">
@@ -346,7 +347,7 @@ export function SetCardView({
   onOpenType: (key: string) => void;
 }) {
   return (
-    <GalleryCard title={set.name ?? undefined} active={active} onClick={onClick} data={{ "data-set-card": set.key }}>
+    <GalleryCard title={set.name ?? undefined} active={active} onClick={onClick} data={{ "data-set-card": set.key }} holds={set.guids}>
       <div data-layer-set className="flex min-h-0 flex-1 flex-col gap-1.5 px-2.5 pt-2 pb-2">
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink">

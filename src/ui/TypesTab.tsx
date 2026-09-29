@@ -531,6 +531,7 @@ export function TypesTab({
                   onDoubleClick={() => openPage(row)}
                   cardRef={(lastOpen ?? filtered) === row.key ? pickedRef : undefined}
                   data={{ "data-type-card": row.key, "data-type-count": row.count }}
+                  holds={row.guids}
                 >
                   <Thumb batches={meshBatches} row={row} />
                   <CardFoot lang={lang} row={row} name={name} codes={codes?.get(row.key) ?? null} />

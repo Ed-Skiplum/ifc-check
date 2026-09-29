@@ -42,6 +42,7 @@ import { typeObjectClass, type CodeLine, type Link } from "./type-links";
 import type { Absent, InstanceRow, PropLine, QtoLine, TypePage as Page, ValueCount } from "./type-page";
 import type { Focus } from "./trace";
 import type { ReportState } from "../engine/report";
+import { useSelectionMarks } from "./selection-context";
 
 export interface Open {
   key: string;
@@ -810,6 +811,7 @@ function InstanceTable({
     { key: "a", label: "m²", right: true },
     { key: "l", label: "m", right: true },
   ];
+  const marks = useSelectionMarks();
   const q = (v: number | null | undefined, src: number | undefined) =>
     v === null || v === undefined ? (src === 3 ? "…" : "—") : v.toLocaleString(lang === "nb" ? "nb-NO" : "en-GB", { maximumFractionDigits: v < 10 ? 2 : 1 });
   return (
@@ -832,6 +834,7 @@ function InstanceTable({
             className={"cursor-pointer " + (current === r.guid ? "bg-ink/10" : "hover:bg-ink/5")}
             data-instance-row={r.guid}
             data-current={current === r.guid ? "" : undefined}
+            data-sel={marks.has(r.guid) ? "" : undefined}
           >
             <td className="pr-2 text-right text-muted">{i + 1}</td>
             <td className="pr-2 whitespace-nowrap text-ink">{r.guid}</td>
