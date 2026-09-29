@@ -69,6 +69,7 @@ import {
   MG_GAP,
   MG_HEAD,
   MG_MARGIN,
+  detailRows,
   layoutOverview,
   mgGrid,
   sideModules,
@@ -179,11 +180,38 @@ export function AltBoard(props: AltBoardProps) {
     return () => observer.disconnect();
   }, []);
   const side = grid && needPx > 0 && rest.length > 0 ? sideModules(needPx, grid.u) : 0;
+  // Detail's content at its natural height, read off the dock wherever it is
+  // drawn (a tile, or a tab that is showing): filled, Detail takes the rows it
+  // needs where the board has them (`layoutOverview`), else one scroller.
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [detailPx, setDetailPx] = useState(0);
+  const watched = useRef<{ el: Element | null; observer: ResizeObserver | null }>({ el: null, observer: null });
+  useLayoutEffect(() => {
+    const panel = props.detail ? (boardRef.current?.querySelector('[data-dock="detail"] [data-object-panel]') ?? null) : null;
+    if (panel === watched.current.el) return;
+    watched.current.observer?.disconnect();
+    watched.current = { el: panel, observer: null };
+    if (!props.detail) {
+      setDetailPx(0);
+      return;
+    }
+    const head = panel?.firstElementChild;
+    const body = panel?.querySelector("[data-object-body]");
+    if (!(head instanceof HTMLElement) || !(body instanceof HTMLElement)) return;
+    const measure = () => setDetailPx(Math.ceil(head.offsetHeight + body.offsetHeight));
+    const observer = new ResizeObserver(measure);
+    observer.observe(head);
+    observer.observe(body);
+    watched.current.observer = observer;
+    measure();
+  });
+  useEffect(() => () => watched.current.observer?.disconnect(), []);
+  const detail = grid && props.detail ? detailRows(detailPx, grid.u) : 0;
   const layout = useMemo<MgLayout | null>(
-    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees, side }) : null),
+    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees, side, detail }) : null),
     // `trees` is keyed by its ids; the layout is a pure function of them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grid, reqs.length, counts.length, treeKey, side],
+    [grid, reqs.length, counts.length, treeKey, side, detail],
   );
   const noFocus = useMemo(() => new Map(), []);
 
@@ -214,6 +242,7 @@ export function AltBoard(props: AltBoardProps) {
       </div>
       {grid && layout && bodies ? (
         <div
+          ref={boardRef}
           data-mg-grid
           data-mg-design="overview"
           data-mg-band={layout.band}

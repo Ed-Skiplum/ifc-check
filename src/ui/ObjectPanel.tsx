@@ -798,13 +798,17 @@ export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
         ) : null}
       </div>
 
+      {/* The one scroller. `data-object-body` is the content at its natural
+          height, which the Overview reads to give Detail the rows it needs. */}
       <div className="min-h-0 flex-1 overflow-auto bg-input">
-        <LeadCards lang={lang} rows={rows} profile={profile} />
-        {sections.map((section) => (
-          <SectionBlock key={section.title} lang={lang} section={section} />
-        ))}
-        <DataGroup lang={lang} tabs={data.tabs} absence={data.absence} />
-        <SectionBlock lang={lang} section={derivedSectionValue} derived />
+        <div data-object-body="">
+          <LeadCards lang={lang} rows={rows} profile={profile} />
+          {sections.map((section) => (
+            <SectionBlock key={section.title} lang={lang} section={section} />
+          ))}
+          <DataGroup lang={lang} tabs={data.tabs} absence={data.absence} />
+          <SectionBlock lang={lang} section={derivedSectionValue} derived />
+        </div>
       </div>
     </section>
   );
@@ -961,10 +965,12 @@ function GroupHeader({
 
 /** One tab per property set and per quantity set.
  *
- * edkjo: *"I prefer each pset as a tab rather than a sorting group."* The strip
- * scrolls sideways rather than wrapping — a model can carry a dozen sets on one
- * element — and no label is ever cut: a tab is sized to its own name and the
- * strip moves under it.
+ * edkjo: *"I prefer each pset as a tab rather than a sorting group."* A model
+ * can carry a dozen sets on one element, and no label is ever cut: a tab is
+ * sized to its own name. The strip wraps onto more lines rather than scrolling
+ * sideways (2026-09-29): a scroller inside the panel's own scroller is the
+ * nested scroll the owner ruled out ("Scrolling inside of the dash when there
+ * is space to go is awkward").
  *
  * The selected tab is remembered by NAME across selections, so stepping down a
  * list of walls keeps `Pset_WallCommon` open instead of resetting to the first
@@ -1003,7 +1009,7 @@ function DataGroup({
       ) : null}
       <div
         data-pset-tabs=""
-        className="flex shrink-0 gap-px overflow-x-auto border-b border-line bg-line"
+        className="flex shrink-0 flex-wrap gap-px border-b border-line bg-line"
       >
         {tabs.map((candidate, index) => (
           <button

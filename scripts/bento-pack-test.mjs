@@ -101,6 +101,11 @@ const contents = {
   // `sideModules` picks from.
   side4: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4 },
   side5: { ifc: 5, counts: 4, trees: [], side: 5 },
+  // Detail filled (2026-09-29): its content needs more rows than any board
+  // has (a real element, about 1 200 px), or about a body's height.
+  detailTall: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4, detail: 12 },
+  detailBody: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4, detail: 5 },
+  detailNoSide: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], detail: 12 },
 };
 const windows = [];
 for (let w = 1100; w <= 3440; w += 130) for (let h = 700; h <= 1600; h += 150) windows.push([w, h]);
@@ -174,7 +179,8 @@ for (const [design, content] of Object.entries(contents)) {
     } else if (!ids.has("reqs")) {
       const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
       check(cards.length === content.ifc && cards.every((t) => t.y === out.top && t.size === "S"), `${at}: the KPI cards are not one S row on top`);
-      const f = out.tiles.find((t) => t.id === "floors");
+      // Or Detail, filled, in its place with the floors a tab of it.
+      const f = out.tiles.find((t) => t.id === "floors") ?? out.tiles.find((t) => t.id === "detail" && t.tabs.includes("floors"));
       check(
         !!f && f.y === out.top + 2 && f.h === out.usedRows - 2 && f.x + f.w === out.offset + out.used,
         `${at}: the floor sidebar is not the full height on the right (${f ? `${f.x},${f.y} ${f.w}×${f.h}` : "none"})`,
@@ -195,6 +201,12 @@ for (const [design, content] of Object.entries(contents)) {
         check(grid.cols < 12 || grid.rows < 6, `${at}: no sidebar at ${grid.cols}×${grid.rows}`);
         check(!!c || tabbed("checks"), `${at}: no sidebar, and the checks are neither a tile nor a tab`);
       }
+    }
+    // Detail as a column: about 1 : 2 at most, and never taller than filled.
+    const d = out.tiles.find((t) => t.id === "detail");
+    if (d && d.size === "tall") {
+      check(d.h <= 2 * d.w, `rule 3: ${at} Detail ${d.w}×${d.h} is narrower than 1 : 2`);
+      check(!!content.detail && content.detail >= d.h - 1, `rule 5: ${at} Detail ${d.w}×${d.h} is taller than its ${content.detail ?? 0} rows`);
     }
     if (REFERENCE.some(([a, b]) => a === w && b === h))
       console.log(`  ${design} ${w}×${h} ${grid.cols}×${grid.rows}: ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${ms.toFixed(0)} ms · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);

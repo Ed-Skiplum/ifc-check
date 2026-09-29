@@ -122,6 +122,7 @@ export const MG_STRIPS: Record<string, string> = {
 export const MG_TALL: Record<string, string> = {
   floors: "a building floor chart: the storeys stacked, read down",
   checks: "the verification sidebar: one check per line, read down, the board's full height",
+  detail: "the selected object's fields: one per line, read down, the body's full height when filled",
 };
 
 export interface MgTileSpec {
@@ -440,6 +441,14 @@ export interface MgContent {
   /** The verification sidebar's width in modules (`sideModules`), or 0/absent
    *  for the checks as a tile of the board. */
   side?: number;
+  /** The rows Detail's content needs (measured, `detailRows`), or 0/absent
+   *  while it is empty. */
+  detail?: number;
+}
+
+/** The rows a tile needs to seat `px` of content under a tile head. */
+export function detailRows(px: number, u: number): number {
+  return px > 0 ? Math.ceil((px + MG_HEAD + MG_GAP) / (u + MG_GAP)) : 0;
 }
 
 /** The verification sidebar's width: the fewest modules, 4 to 5, whose span
@@ -633,19 +642,39 @@ function besideSide(grid: MgGrid, side: number, inner: MgLayout, band: string, a
   };
 }
 
+/** Detail as a column the body's full height, `w` wide: only where its
+ *  content fills it (a row short at most) and the column is about 1 : 2 or
+ *  wider (h ≤ 2w). */
+const DETAIL_WIDTHS = [3, 4] as const;
+
 /** The KPI row, the body and the floor sidebar on `grid` (see
- *  `layoutOverview`), or null where no such board exists. */
+ *  `layoutOverview`), or null where no such board exists.
+ *
+ *  DETAIL, FILLED (2026-09-29, the owner: "Scrolling inside of the dash when
+ *  there is space to go is awkward"). Detail's content is far taller than the
+ *  M it docks at while empty, so where it fills, it may take a column the
+ *  body's full height instead: beside the floor sidebar, or in its place with
+ *  the floors a tab of it (the floors are below Detail and Scope in priority,
+ *  `packedBoards`). Of one board's covers the one that gives Detail the most
+ *  of the rows it needs wins, then the one that keeps Scope largest, then the
+ *  first (the floor sidebar as before). The board itself (its width and
+ *  height) is chosen as before: Detail never shrinks the board. */
 function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[]): MgLayout | null {
   const { cols, rows } = grid;
   const kpiIds = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
   const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.ifc, 2]] };
   const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => content.trees.includes(t.id))];
   const sets = fillerSets(pool);
+  const need = content.detail ?? 0;
   let best: MgLayout | null = null;
-  let bestCells = 0;
+  // Cells first (the board), then Detail's rows, then Scope's area.
+  type Score = [number, number, number];
+  let bestScore: Score = [0, 0, 0];
+  const better = (a: Score, b: Score) => (a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2]);
+  type Column = { id: string; w: number };
   if (content.ifc > 0 && rows - 2 >= MIN_BODY) {
     for (let used = cols; used >= 2 * content.ifc; used -= 1) {
-      if (used * rows <= bestCells) break;
+      if (used * rows < bestScore[0]) break;
       let tried = 0;
       for (const fill of sets) {
         if (tried >= 4) break;
@@ -655,20 +684,43 @@ function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[]): M
         if (!band) continue;
         tried += 1;
         const rest = body.filter((t) => !fill.includes(t));
+        const restNoDetail = rest.filter((t) => t.id !== "detail");
         for (let r = rows - 2; r >= MIN_BODY; r -= 1) {
-          if (used * (r + 2) <= bestCells) break;
-          let lower: MgLayout | null = null;
-          let sw = 0;
-          for (const w of FLOOR_WIDTHS) {
-            // A canon L (3 × 4) or the named tall column; 4 × 4 is neither.
-            if (used - w < 6 || !canonSize(w, r, false, true)) continue;
-            lower = mgPackExact({ cols: used - w, rows: r, u: grid.u }, rest);
-            if (lower) {
-              sw = w;
-              break;
-            }
+          if (used * (r + 2) < bestScore[0]) break;
+          // The right-hand columns, left to right: the floor sidebar as
+          // before (its first width that covers); Detail beside it; Detail in
+          // its place, the floors a tab of it.
+          const options: { cols: Column[]; inner: MgTileSpec[] }[] = FLOOR_WIDTHS.map((w) => ({
+            cols: [{ id: "floors", w }],
+            inner: rest,
+          }));
+          if (need >= r - 1 && rest.some((t) => t.id === "detail")) {
+            for (const dw of DETAIL_WIDTHS)
+              for (const w of FLOOR_WIDTHS) options.push({ cols: [{ id: "detail", w: dw }, { id: "floors", w }], inner: restNoDetail });
+            for (const dw of DETAIL_WIDTHS) options.push({ cols: [{ id: "detail", w: dw }], inner: restNoDetail });
           }
-          if (!lower) continue;
+          let chosen: { lower: MgLayout; cols: Column[]; score: Score } | null = null;
+          let floorsDone = false;
+          for (const option of options) {
+            const floorsOnly = option.cols.length === 1 && option.cols[0].id === "floors";
+            if (floorsOnly && floorsDone) continue;
+            const side = option.cols.reduce((a, c) => a + c.w, 0);
+            if (used - side < 6) continue;
+            // A canon L (3 × 4) or the named tall column; 4 × 4 is neither.
+            // Detail's column is about 1 : 2 at most.
+            if (option.cols.some((c) => !canonSize(c.w, r, false, true) || (c.id === "detail" && r > 2 * c.w))) continue;
+            const lower = mgPackExact({ cols: used - side, rows: r, u: grid.u }, option.inner);
+            if (!lower) continue;
+            if (floorsOnly) floorsDone = true;
+            const d = option.cols.some((c) => c.id === "detail") ? r : (lower.tiles.find((t) => t.id === "detail")?.h ?? 0);
+            const s = lower.tiles.find((t) => t.id === "scope");
+            const score: Score = [used * (r + 2), Math.min(d, need), need > 0 && s ? s.w * s.h : 0];
+            if (!chosen || better(score, chosen.score)) chosen = { lower, cols: option.cols, score };
+            if (need === 0) break;
+          }
+          if (!chosen) continue;
+          if (best && !better(chosen.score, bestScore)) break;
+          const { lower, cols: side } = chosen;
           const offset = Math.floor((cols - used) / 2);
           const top = Math.floor((rows - 2 - r) / 2);
           const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, x: offset + t.x, y: top + t.y, priority: i, tabs: [] }));
@@ -678,28 +730,34 @@ function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[]): M
             y: top + 2 + t.y,
             priority: bandTiles.length + t.priority,
           }));
-          const floors: MgPlace = {
-            id: "floors",
-            kind: "list",
-            x: offset + used - sw,
-            y: top + 2,
-            w: sw,
-            h: r,
-            size: canonSize(sw, r, false, true)!,
-            priority: bandTiles.length + lowerTiles.length,
-            tabs: [],
-          };
+          const floorsGone = !side.some((c) => c.id === "floors");
+          let x = offset + used - side.reduce((a, c) => a + c.w, 0);
+          const columns: MgPlace[] = side.map((c, i) => {
+            const place: MgPlace = {
+              id: c.id,
+              kind: "list",
+              x,
+              y: top + 2,
+              w: c.w,
+              h: r,
+              size: canonSize(c.w, r, false, true)!,
+              priority: bandTiles.length + lowerTiles.length + i,
+              tabs: c.id === "detail" && floorsGone ? ["floors"] : [],
+            };
+            x += c.w;
+            return place;
+          });
           best = {
             ...grid,
             used,
             usedRows: r + 2,
             offset,
             top,
-            tiles: [...bandTiles, ...lowerTiles, floors].sort((p, q) => p.y - q.y || p.x - q.x),
-            moved: lower.moved,
+            tiles: [...bandTiles, ...lowerTiles, ...columns].sort((p, q) => p.y - q.y || p.x - q.x),
+            moved: floorsGone ? [...lower.moved, "floors"] : lower.moved,
             band: "kpis",
           };
-          bestCells = used * (r + 2);
+          bestScore = chosen.score;
           break;
         }
       }

@@ -164,9 +164,11 @@ export function TraceBand({
   const fitted = useMemo(() => columnsFor(rows, reasons), [rows, reasons]);
   // Alone, the list has the panel to itself and may be narrow: the GUID keeps
   // its width, the other three share the rest and ellipsize (full text in
-  // `title`, as before).
+  // `title`, as before). No floor under them: a 3-module Scope tile is
+  // narrower than 25ch plus three 8ch minimums, and the floor made the list
+  // scroll sideways (2026-09-29).
   const { columns, width } = alone
-    ? { columns: "25ch minmax(8ch,1fr) minmax(8ch,1fr) minmax(10ch,1.4fr)", width: "100%" }
+    ? { columns: "25ch minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr)", width: "100%" }
     : fitted;
   // A row that carries a reason IS a finding of the open check or rule, so its
   // reason is drawn in the focal's verdict cell: the same fill and glyph the
@@ -324,10 +326,10 @@ export function TraceBand({
         className="grid shrink-0 items-center gap-x-2 border-y border-line bg-panel px-3 py-1 text-[12px] font-semibold tracking-[0.12em] text-gold uppercase"
         style={{ gridTemplateColumns: columns }}
       >
-        <span className="text-[10px]">{t("col.guid", lang)}</span>
-        <span className="text-[10px]">{t("col.class", lang)}</span>
-        <span className="text-[10px]">{t("col.name", lang)}</span>
-        <span className="text-[10px]">{t("col.reason", lang)}</span>
+        <span className="truncate text-[10px]">{t("col.guid", lang)}</span>
+        <span className="truncate text-[10px]">{t("col.class", lang)}</span>
+        <span className="truncate text-[10px]">{t("col.name", lang)}</span>
+        <span className="truncate text-[10px]">{t("col.reason", lang)}</span>
       </div>
 
       <div ref={scroller} onScroll={onScroll} data-xf={origin ? "origin" : undefined} className="min-h-0 flex-1 overflow-auto bg-input">
