@@ -11,7 +11,7 @@
  *    per kind, no full-width tile, every canvas 9:16 to 16:9 on Kontroll and
  *    the Graf tab in both swap states), rule 5 (no essential value cut),
  *    rule 8 (a resize round trip gives the same layout), rule 9 (no hole, no
- *    overlap, the board centred); the Graf tab's surfaces on the grid
+ *    overlap, the board centred)
  *  - the docked panels (2026-09-25): Scope and Detail are tiles of the grid,
  *    empty until used; a requirement click fills Scope, a Scope row fills
  *    Detail, and the tiles do not move while that happens (nothing overlays)
@@ -423,34 +423,6 @@ const MEASURE = `(() => {
   return { fails, tiles, summary, cols: Number(grid.dataset.mgCols), u: Number(grid.dataset.mgU), width: Math.round(grid.getBoundingClientRect().width) };
 })()`;
 
-/** The Graf tab's two surfaces as XL tiles on the same grid (rules 4, 6, 7):
- *  every field's tiles land on the grid and are canon sizes. */
-const GRAF = `(() => {
-  const SIZES = ${JSON.stringify(SIZES)};
-  const G = ${MG_GAP};
-  const fails = [];
-  for (const wrap of document.querySelectorAll('[role=tabpanel]:not([hidden]) [data-mg-graf]')) {
-    const [cols, rows, u] = wrap.dataset.mgGraf.split(',').map(Number);
-    const g = wrap.getBoundingClientRect();
-    const pitch = u + G;
-    const field = wrap.querySelector('[data-graph-field]');
-    const boxes = [...field.children].filter((c) => c.getClientRects().length > 0 && c.getBoundingClientRect().width > 2);
-    const f = field.getBoundingClientRect();
-    if (Math.abs((f.left - g.left) / pitch - Math.round((f.left - g.left) / pitch)) * pitch > 1) fails.push('graf: the field is off the grid');
-    for (const box of boxes) {
-      const r = box.getBoundingClientRect();
-      const x = r.left - g.left, y = r.top - g.top;
-      const i = Math.round(x / pitch), w = Math.round((r.width + G) / pitch), h = Math.round((r.height + G) / pitch);
-      if (Math.abs(x - i * pitch) > 1 || Math.abs(r.width - (w * pitch - G)) > 1 || Math.abs(r.height - (h * pitch - G)) > 1)
-        fails.push('graf: a surface ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' is off the grid');
-      const size = Object.entries(SIZES).find(([, list]) => list.some(([a, b]) => a === w && b === h))?.[0];
-      if (!size) fails.push('graf: a surface ' + w + 'x' + h + ' is not a canon size');
-      if (i + w > cols || Math.round(y / pitch) + h > rows) fails.push('graf: a surface is past the grid');
-    }
-  }
-  return fails;
-})()`;
-
 const DOCKS = `(() => {
   const grid = document.querySelector('[data-mg-grid]');
   // A dock may be a tab of another tile (rule 8, the narrow board): the
@@ -503,7 +475,6 @@ async function graf(name, v) {
     })()`);
     await sleep(1200);
     const m = await evaluate(CANVASES);
-    m.fails.push(...(await evaluate(GRAF)));
     const n = m.canvases.length;
     const want = await evaluate(`document.querySelectorAll('[role=tabpanel]:not([hidden]) [data-graph-field]').length`);
     if (m.canvases.filter((c) => c.kind === "graph").length < want) m.fails.push(`graph canvas missing (${n} canvases, ${want} fields)`);

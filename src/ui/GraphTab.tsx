@@ -37,13 +37,15 @@
  * edkjo: *"lets add the viewer here as well … toggle between model and graph
  * as main and the other windowed"*. The board's own scene is lent to the tab
  * (`viewer/dock.ts`) rather than a second one mounted: one GPU copy of the
- * model, one selection. `Modell | Graf` says which surface is main; the other
- * sits in a window in the corner, still live.
+ * model, one selection.
  *
- * 2026-09-26, the canvas aspect rule (`canvas-aspect.ts`): both surfaces stay
- * inside 9:16 to 16:9. The tab's field is wider than 16:9 on every desktop
- * screen, so there the main takes the widest 16:9 box and the other sits
- * beside it in the column left over, not over its corner.
+ * 2026-09-29, the showpiece (edkjo: *"strictly not needed, so it just needs
+ * to be cool and inspiring"*): one large stage, the main surface as big as
+ * the aspect rule allows (`graphStage` in `canvas-aspect.ts`), the other a
+ * small live window. `Modell | Graf` in the top-right control, or a click on
+ * the window, swaps them. No tiles and no derivation band: a light HUD over
+ * the stage (the ifcfast workbench's compact graph, its glass control and
+ * its inset vignette, ported).
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -58,9 +60,7 @@ import { parseFocus, type Focus } from "./trace";
 import type { CheckResult } from "../engine/types";
 import type { MeshBatch } from "../viewer/mesh-stream";
 import { findDock, lend, onDocksChanged } from "../viewer/dock";
-import { graphFieldLayout, type FieldRect } from "./canvas-aspect";
-import { MG_GAP, MG_MARGIN, graphTiles, mgGrid, mgSpanPx, type MgGrid } from "./alt/module-grid";
-import { fitRegion, roomBelow } from "./useFillHeight";
+import { graphStage, type FieldRect } from "./canvas-aspect";
 import { GraphSim, fitView, seedOf, seededOffset, toSim, zoomAt, type GraphView } from "./graph-sim";
 import {
   buildDrill,
@@ -216,31 +216,6 @@ export function GraphTab({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-
-  // The design alternatives: the two surfaces are XL tiles on the window's
-  // module grid (the layout canon, 2026-09-26), measured as the Kontroll
-  // board measures it: the room left in this tab panel, band included.
-  const gridWrap = useRef<HTMLDivElement>(null);
-  const [mg, setMg] = useState<MgGrid | null>(null);
-  useLayoutEffect(() => {
-    const el = gridWrap.current;
-    if (!design || !el || typeof ResizeObserver === "undefined") return;
-    const main = el.closest("main");
-    const region = fitRegion(el);
-    const measure = () => {
-      if (!main || el.getBoundingClientRect().width === 0) return;
-      const next = mgGrid(main.clientWidth, roomBelow(el) + 2 * MG_MARGIN);
-      setMg((prev) =>
-        prev && prev.cols === next.cols && prev.rows === next.rows && Math.abs(prev.u - next.u) < 0.01 ? prev : next,
-      );
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    if (main) observer.observe(main);
-    if (region && region !== main) observer.observe(region);
-    return () => observer.disconnect();
-  }, [design]);
 
   // A selection made elsewhere (the 3D, a table) drills to where it lives, so
   // its node exists and its relationships can bloom.
@@ -1059,52 +1034,86 @@ export function GraphTab({
 
   /* ── Layout ───────────────────────────────────────────────────────────── */
 
-  // The canvas aspect rule (`canvas-aspect.ts`): the main surface is never
-  // wider than 16:9. On a field wider than that the second surface sits
-  // beside the main instead of over its corner.
-  const tiles = design && mg ? graphTiles(mg) : null;
-  const px = (n: number) => (mg ? mgSpanPx(n, mg.u) : 0);
-  const geo = tiles
-    ? {
-        main: { left: 0, top: 0, width: px(tiles.main.w), height: px(tiles.main.h) },
-        second: hasViewer
-          ? { left: px(tiles.main.w) + MG_GAP, top: 0, width: px(tiles.second.w), height: px(tiles.second.h) }
-          : null,
-        beside: true,
-      }
-    : fieldSize
-      ? graphFieldLayout(fieldSize.w, fieldSize.h, hasViewer)
-      : null;
-  const fieldBox =
-    tiles && mg
-      ? {
-          marginLeft: tiles.offset * (mg.u + MG_GAP),
-          width: hasViewer ? px(tiles.used) : px(tiles.main.w),
-          height: px(Math.max(tiles.main.h, hasViewer ? tiles.second.h : 0)),
-        }
-      : null;
+  const geo = fieldSize ? graphStage(fieldSize.w, fieldSize.h, hasViewer) : null;
   const rect = (r: FieldRect | null | undefined) =>
     r ? { left: r.left, top: r.top, width: r.width, height: r.height } : undefined;
   const mainStyle = rect(geo?.main);
-  const secondStyle = rect(geo?.second);
-  const windowed =
-    "absolute z-10 overflow-hidden rounded-[10px] ring-1 ring-white/15 " +
-    (geo?.beside ? "" : "shadow-[0_10px_30px_rgba(0,0,0,0.45)] ") +
-    (secondStyle ? "" : "top-3 right-3 aspect-[4/3] w-[min(34%,26rem)] min-w-[13rem]");
-  const full = mainStyle ? "absolute" : "absolute inset-0";
+  const windowStyle = rect(geo?.window);
+  const surface = "absolute overflow-hidden rounded-[var(--d-radius-lg,14px)]";
+  const windowed = surface + " z-20 ring-1 ring-white/20 shadow-[0_18px_40px_-12px_rgba(0,0,0,0.7)]";
+  const swap = () => setMain((m) => (m === "graph" ? "model" : "graph"));
+
+  // The HUD's facts: the element whose relationships are drawn.
+  const centre = centreGuid && index ? (index.byId.get(centreGuid) ?? null) : null;
+  const storeyName = centre?.storeyGuid
+    ? (profile?.storeys.find((s) => s.guid === centre.storeyGuid)?.name ?? null)
+    : null;
+  const facts: [string, string][] = centre
+    ? [
+        [t("col.class", lang), centre.entity],
+        [t("col.name", lang), centre.name ?? "—"],
+        ...(centre.typeName ? [[t("col.type", lang), centre.typeName] as [string, string]] : []),
+        ...(storeyName ? [[t("col.storey", lang), storeyName] as [string, string]] : []),
+      ]
+    : [];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
-      <section
-        className={
-          design
-            ? "alt-graf flex min-w-0 shrink-0 flex-col gap-2"
-            : "flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border border-line bg-panel"
-        }
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        ref={field}
+        data-graph-field
+        className="alt-graf-field relative min-h-0 min-w-0 flex-1 overflow-hidden"
+        style={{ background: FIELD_BACKGROUND }}
       >
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-2 pt-1.5 pb-1">
-          <MicroLabel>{t("object.relations", lang)}</MicroLabel>
-          {centreGuid ? (
+        <div
+          ref={graphBox}
+          className={graphIsMain ? surface : windowed}
+          style={graphIsMain ? mainStyle : { ...windowStyle, background: FIELD_BACKGROUND }}
+        >
+          <canvas
+            ref={canvasRef}
+            data-graph
+            className="block h-full w-full touch-none select-none"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endGesture}
+            onPointerCancel={endGesture}
+            onPointerLeave={onPointerLeave}
+          />
+          {drill.nodes.length === 0 && shown ? (
+            <span className="absolute top-1/2 left-3 font-mono text-[11px] text-muted">
+              {profile ? t("type.none", lang) : t("type.notSupplied", lang)}
+            </span>
+          ) : null}
+        </div>
+        {hasViewer ? (
+          <div
+            ref={viewerSlot}
+            data-graph-viewer
+            className={graphIsMain ? windowed : surface}
+            style={{ ...(graphIsMain ? windowStyle : mainStyle), background: "var(--color-ground)" }}
+          />
+        ) : null}
+
+        {/* The inset vignette (ifcfast's viewer): the stage's edges fall off
+            into the dark, over the main and under the window and the HUD. */}
+        <div aria-hidden="true" className="alt-graf-vignette pointer-events-none absolute inset-0 z-10" />
+
+        {/* The window is a live preview; a click on it swaps. */}
+        {hasViewer && windowStyle ? (
+          <button
+            type="button"
+            data-graph-swap
+            aria-label={t(graphIsMain ? "tile.viewer" : "tab.graph", lang)}
+            onClick={swap}
+            className="absolute z-30 cursor-pointer rounded-[var(--d-radius-lg,14px)] shadow-[inset_0_0_36px_rgba(0,0,0,0.35)] hover:ring-2 hover:ring-white/40 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
+            style={windowStyle}
+          />
+        ) : null}
+
+        {/* The glass control, top right: what the graph draws, and the swap. */}
+        <div className="alt-card absolute top-3 right-3 z-40 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-x-3 gap-y-1 px-2.5 py-1.5">
+          {centreGuid && graphIsMain ? (
             <>
               <Switch on={psets} label={t("type.psets", lang)} onChange={() => setPsets((on) => !on)} />
               <Switch
@@ -1114,14 +1123,11 @@ export function GraphTab({
               />
             </>
           ) : null}
-          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted">
-            {`${formatCount(drill.nodes.length, lang)} · ${formatCount(drill.edges.length, lang)}`}
-          </span>
-          {expanded.size > 0 ? (
+          {expanded.size > 0 && graphIsMain ? (
             <button
               type="button"
               onClick={() => setExpanded(new Set())}
-              className="shrink-0 font-mono text-[10px] text-muted hover:text-ink"
+              className="shrink-0 font-mono text-[11px] text-muted hover:text-ink"
             >
               {t("action.clearAll", lang)}
             </button>
@@ -1145,58 +1151,33 @@ export function GraphTab({
             </div>
           ) : null}
         </div>
-        <div
-          ref={gridWrap}
-          data-mg-graf={mg ? `${mg.cols},${mg.rows},${mg.u.toFixed(4)}` : undefined}
-          data-mg-graf-at={
-            tiles
-              ? [tiles.main, tiles.second].map((t) => `${t.x},${t.y},${t.w},${t.h}`).join(";")
-              : undefined
-          }
-          className={design ? "w-full min-w-0 shrink-0" : "flex min-h-0 min-w-0 flex-1 flex-col"}
-        >
-        <div
-          ref={field}
-          data-graph-field
-          className={
-            design
-              ? "alt-graf-field relative min-w-0 overflow-hidden"
-              : "relative min-h-0 min-w-0 flex-1 overflow-hidden"
-          }
-          style={{ background: FIELD_BACKGROUND, ...(design ? (fieldBox ?? { height: 0 }) : {}) }}
-        >
+
+        {/* The HUD, bottom left: the element in focus, and the graph's size. */}
+        {mainStyle && (facts.length > 0 || graphIsMain) ? (
           <div
-            ref={graphBox}
-            className={graphIsMain ? full : windowed}
-            style={graphIsMain ? mainStyle : { ...secondStyle, background: FIELD_BACKGROUND }}
+            className="alt-card pointer-events-none absolute bottom-3 z-40 flex max-w-[min(26rem,calc(100%-1.5rem))] flex-col gap-1 px-3 py-2"
+            style={{ left: mainStyle.left + 12 }}
           >
-            <canvas
-              ref={canvasRef}
-              data-graph
-              className="block h-full w-full touch-none select-none"
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={endGesture}
-              onPointerCancel={endGesture}
-              onPointerLeave={onPointerLeave}
-            />
-            {drill.nodes.length === 0 && shown ? (
-              <span className="absolute top-1/2 left-3 font-mono text-[11px] text-muted">
-                {profile ? t("type.none", lang) : t("type.notSupplied", lang)}
+            {facts.length > 0 ? (
+              <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-0.5">
+                {facts.map(([label, value]) => (
+                  <div key={label} className="contents">
+                    <dt>
+                      <MicroLabel>{label}</MicroLabel>
+                    </dt>
+                    <dd className="m-0 truncate font-mono text-[11px] text-ink">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {graphIsMain ? (
+              <span className="font-mono text-[10px] tabular-nums text-muted">
+                {`${formatCount(drill.nodes.length, lang)} · ${formatCount(drill.edges.length, lang)}`}
               </span>
             ) : null}
           </div>
-          {hasViewer ? (
-            <div
-              ref={viewerSlot}
-              data-graph-viewer
-              className={graphIsMain ? windowed : full}
-              style={{ ...(graphIsMain ? secondStyle : mainStyle), background: "var(--color-ground)" }}
-            />
-          ) : null}
-        </div>
-        </div>
-      </section>
+        ) : null}
+      </div>
     </div>
   );
 }

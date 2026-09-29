@@ -531,8 +531,9 @@ export function ModelPanel({
                 own panel (`roomBelow`), so the tab shrinks into what is left
                 and neither pushes the band out of view nor sits under it. */}
             {/* Not on Rom: its two tiles fit the window (the layout canon,
-                rule 1), and a foot band would cover them. */}
-            {trace && !docked && tab !== "rooms" ? (
+                rule 1), and a foot band would cover them. Not on Graf, the
+                showpiece stage (2026-09-29). */}
+            {trace && !docked && tab !== "rooms" && tab !== "graph" ? (
               <div className="flex h-[38.2dvh] min-h-[16rem] shrink-0 flex-col">
                 {trace}
               </div>

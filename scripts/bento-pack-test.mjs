@@ -15,11 +15,11 @@ import {
   MG_TALL,
   SIZES,
   canonSize,
-  graphTiles,
   layoutOverview,
   mgGrid,
   mgSpanPx,
 } from "../src/ui/alt/module-grid.ts";
+import { CANVAS_ASPECT, graphStage } from "../src/ui/canvas-aspect.ts";
 
 let failures = 0;
 let passes = 0;
@@ -217,24 +217,30 @@ for (const [design, content] of Object.entries(contents)) {
   }
 }
 
-/* ── the Graf tab ───────────────────────────────────────────────────────── */
+/* ── the Graf tab: one main surface, the other a small window ───────── */
 
-// The derivation band open under the tab takes 38.2 % of the window (at
-// least 256 px); the pair then steps down into the rows left, never past them.
-for (const [w, h] of windows) for (const band of [0, Math.max(256, 0.382 * h) + 8]) {
-  const grid = mgGrid(w, h - 104 - band);
-  const g = graphTiles(grid);
-  for (const t of [g.main, g.second]) {
-    const size = canonSize(t.w, t.h);
-    check(
-      size === "XL" || (grid.cols < 12 && size === "L" && t === g.second) || (grid.rows < 4 && size !== null && t.w >= t.h),
-      `graf ${w}×${h} band ${band}: ${t.id} ${t.w}×${t.h} is ${size}`,
-    );
-    check(t.x + t.w <= grid.cols, `graf ${w}×${h}: ${t.id} outside the grid`);
-    if (grid.rows >= 2) check(t.y + t.h <= grid.rows, `graf ${w}×${h} band ${band}: ${t.id} ${t.w}×${t.h} below ${grid.rows} rows`);
-    const a = mgSpanPx(t.w, grid.u) / mgSpanPx(t.h, grid.u);
-    check(a >= MG_ASPECT.graph.min && a <= MG_ASPECT.graph.max, `graf ${w}×${h}: ${t.id} aspect ${a.toFixed(2)}`);
-  }
+// The tab is the window less its chrome (104 px assumed, as above) and the
+// main's 24 px margins. Both swap states are the same boxes, only which
+// surface is in which, so one layout per window covers both.
+const inBound = (r) => r.width / r.height >= CANVAS_ASPECT.min - 1e-9 && r.width / r.height <= CANVAS_ASPECT.max + 1e-9;
+for (const [w, h] of windows) for (const second of [true, false]) {
+  const sw = w - 48;
+  const sh = h - 104 - 48;
+  const g = graphStage(sw, sh, second);
+  const at = `graf ${w}×${h}${second ? "" : " alone"}`;
+  check(inBound(g.main), `${at}: main aspect ${(g.main.width / g.main.height).toFixed(2)}`);
+  // At least 70 % of the tab, except where the tab is so wide that a 16:9
+  // box cannot be (an ultrawide): there it is that box at full height.
+  const share = (g.main.width * g.main.height) / (sw * sh);
+  const widest = sw / sh > CANVAS_ASPECT.max / 0.7;
+  check(widest ? g.main.height === sh && g.main.width === Math.floor(sh * CANVAS_ASPECT.max) : share >= 0.7, `${at}: main ${(100 * share).toFixed(0)} % of the tab`);
+  check(g.main.left >= 0 && g.main.left + g.main.width <= sw && g.main.height <= sh, `${at}: main outside the stage`);
+  if (!second) continue;
+  const win = g.window;
+  check(win !== null && inBound(win), `${at}: window aspect ${win ? (win.width / win.height).toFixed(2) : "none"}`);
+  check(win.left >= 0 && win.top >= 0 && win.left + win.width <= sw && win.top + win.height <= sh, `${at}: window outside the stage`);
+  check(win.width * win.height <= 0.2 * sw * sh, `${at}: window is not small`);
+  if (g.beside) check(win.left >= g.main.left + g.main.width, `${at}: the window beside covers the main`);
 }
 
 console.log(`bento-pack-test: ${passes} assertions hold, ${failures} fail (${count} layouts)`);
