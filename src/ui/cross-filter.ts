@@ -93,7 +93,7 @@ export function chooseFocus(origin: Origin, focus: Focus, model: ModelEntry, lan
 /** The elements a focus stands for, or `null` when its source is gone (a
  *  rule outliving its ruleset). `null` is reported, never folded into
  *  "matches everything". */
-function guidsOfFocus(focus: Focus, model: ModelEntry): Set<string> | null {
+export function guidsOfFocus(focus: Focus, model: ModelEntry): Set<string> | null {
   const profile = model.profile;
   if (focus.kind === "class") {
     return profile ? new Set(profile.rows.filter((r) => r.entity === focus.entity).map((r) => r.guid)) : null;
@@ -196,3 +196,4 @@ export function useCrossFilter(): CrossFilterApi {
     ),
   };
 }
+

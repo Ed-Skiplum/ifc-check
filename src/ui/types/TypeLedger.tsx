@@ -35,6 +35,7 @@ import type { Focus } from "../trace";
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
 import { copyOnDoubleClick } from "../copy";
+import { useSelectionMarks } from "../selection-context";
 import { formatCount, formatShare } from "../format";
 import {
   TYPE_BUCKETS,
@@ -333,6 +334,7 @@ function LedgerRow({
 }) {
   const key = row.typeName === null ? "type:-" : `type:=${row.typeName}`;
   const chosen = selected === key;
+  const sel = useSelectionMarks().focus({ kind: "type", typeName: row.typeName }) ? "" : undefined;
   const cell = "h-6 border-b border-line p-0 align-middle";
   // No geometry at all, on a pass that withheld nothing, is a fact about the
   // type. On a CAPPED pass it is not — the geometry may simply have been
@@ -345,6 +347,7 @@ function LedgerRow({
 
   return (
     <tr
+      data-sel={sel}
       onClick={() =>
         onFocus({ kind: "type", typeName: row.typeName })
       }

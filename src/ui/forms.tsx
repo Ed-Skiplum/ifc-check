@@ -17,6 +17,7 @@ import type { Lang } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
+import { useSelectionMarks } from "./selection-context";
 
 const PAD = "px-[var(--bento-pad)]";
 
@@ -91,12 +92,14 @@ export function ClassDistribution({
   onFocus: (focus: Focus) => void;
 }) {
   const peak = classes.reduce((max, c) => Math.max(max, c.count), 0);
+  const marks = useSelectionMarks();
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-input">
       {classes.map((klass) => (
         <button
           key={klass.entity}
           type="button"
+          data-sel={marks.focus({ kind: "class", entity: klass.entity }) ? "" : undefined}
           onClick={() => onFocus({ kind: "class", entity: klass.entity })}
           className={
             "relative flex h-[var(--bento-line,24px)] w-full items-center justify-between gap-2 border-b border-line px-2 text-left hover:bg-palegreen " +

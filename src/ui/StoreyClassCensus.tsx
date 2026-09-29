@@ -18,6 +18,7 @@ import type { ClassCount, MatrixRow, StoreyFact } from "./profile";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
+import { useSelectionMarks } from "./selection-context";
 
 const LOW = [230, 239, 221] as const; // palegreen #E6EFDD
 const HIGH = [44, 94, 63] as const; // green #2C5E3F
@@ -62,6 +63,7 @@ export function StoreyClassCensus({
   onStorey,
 }: StoreyClassCensusProps) {
   const names = new Map(storeys.map((s) => [s.guid, s.name]));
+  const marks = useSelectionMarks();
 
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-input">
@@ -98,10 +100,12 @@ export function StoreyClassCensus({
             const rowKey = `storey:${row.storeyGuid ?? "-"}`;
             const openRow = live ? () => onStorey(row.storeyGuid) : undefined;
             const lit = selected === rowKey ? " outline-2 -outline-offset-2 outline-ink" : "";
+            const rowSel = marks.focus({ kind: "storey", storeyGuids: [row.storeyGuid] }) ? "" : undefined;
             return (
             <tr key={row.storeyGuid ?? "-"}>
               <th
                 scope="row"
+                data-sel={rowSel}
                 onClick={openRow}
                 // A storey with no name falls back to its GlobalId. That is
                 // never truncated, so it renders mono and full width.
@@ -120,6 +124,7 @@ export function StoreyClassCensus({
                   : (names.get(row.storeyGuid) ?? row.storeyGuid)}
               </th>
               <td
+                data-sel={rowSel}
                 onClick={openRow}
                 className={
                   "sticky left-36 z-10 h-7 border-r-2 border-b border-line bg-panel px-1 text-right font-mono text-[11px] tabular-nums text-ink" +
@@ -144,6 +149,8 @@ export function StoreyClassCensus({
                   <td key={klass.entity} className="h-7 border-r border-b border-line p-0">
                     <button
                       type="button"
+                      data-census-cell={key}
+                      data-sel={marks.focus({ kind: "cell", storeyGuid: row.storeyGuid, entity: klass.entity }) ? "ring" : undefined}
                       onClick={() => onOpen(row.storeyGuid, klass.entity)}
                       style={ramp(count, peak)}
                       className={

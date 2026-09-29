@@ -97,10 +97,19 @@ export type Mode = "filter" | "highlight";
 /** The scene field. See the module header: chosen resolution of a three-way
  *  canon conflict, taking the colour-science ruling. */
 const FIELD = "#b8b3a8";
-/** ATELIER ink. Selection is a crisp dark-ink edge on a light field — additive
- *  glow of a dark colour is invisible here, which is a burned lesson, not a
- *  preference. */
-const INK = "#23291e";
+/** The selection, in the one selection accent every view marks it in
+ *  (`--sel`, index.css; 2026-09-29, "selected objects need to be highlighted,
+ *  be that graph, chart, table or model object"): a crisp teal edge and a
+ *  teal fill over the object. Blended normally, never additive: an additive
+ *  glow of a dark colour is invisible on this light field, which is a burned
+ *  lesson, not a preference. Read once from the page, this value if the page
+ *  has none. */
+const SELECT = "#1d8a8a";
+function selectColour(): string {
+  if (typeof document === "undefined") return SELECT;
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--sel").trim();
+  return /^#[0-9a-f]{6}$/i.test(v) ? v : SELECT;
+}
 /** ATELIER gold, the deep value that survives on a light field. Hover only. */
 const GOLD = "#a8821e";
 
@@ -324,8 +333,9 @@ export class ModelScene {
     // Depth-tested, with a small negative polygon offset so the edge wins
     // against its OWN surface and still loses to nearer geometry. An
     // always-on-top selection that shows through walls is explicitly rejected.
+    const select = selectColour();
     this.selectEdge = new LineMaterial({
-      color: INK,
+      color: select,
       linewidth: SELECT_EDGE_WIDTH,
       worldUnits: false,
       resolution: new Vector2(1, 1),
@@ -345,9 +355,9 @@ export class ModelScene {
       polygonOffsetUnits: -1,
     });
     this.selectFill = new MeshBasicMaterial({
-      color: new Color(INK),
+      color: new Color(select),
       transparent: true,
-      opacity: 0.14,
+      opacity: 0.42,
       depthTest: true,
       depthWrite: false,
       polygonOffset: true,

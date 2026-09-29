@@ -21,6 +21,7 @@ import type { Requirement } from "../requirements";
 import { t } from "../i18n";
 import { serialiseFocus } from "../trace";
 import { formatCount } from "../format";
+import { useSelectionMarks } from "../selection-context";
 import { barLook, figures, mmiBars, orderedValues, secondFigure, stateLook, uniqueCount, valueFocus } from "./req-view";
 
 export interface DoorProps {
@@ -96,6 +97,7 @@ export function Values({
 
 function ValueChip({ row, value, lang, model, selected, onFocus }: DoorProps & { row: ReportRow; value: ReportValue }) {
   const focus = valueFocus(row, value.verdi, model);
+  const sel = useSelectionMarks().focus(focus) ? "" : undefined;
   const verdict = value.flagg === "åpen" ? undefined : FLAG_VERDICT[value.flagg];
   const chosen = focus !== null && selected === serialiseFocus(focus);
   const inner = (
@@ -113,6 +115,7 @@ function ValueChip({ row, value, lang, model, selected, onFocus }: DoorProps & {
       type="button"
       data-verdict={verdict}
       data-value-door=""
+      data-sel={sel}
       title={`${valueText(value, lang)} ×${value.n}`}
       className={cls + "alt-hover"}
       onClick={() => onFocus(focus)}
@@ -166,6 +169,7 @@ function HeadButton({
   onFocus: (focus: Focus) => void;
 }) {
   const chosen = req.focus !== null && selected === serialiseFocus(req.focus);
+  const marks = useSelectionMarks();
   if (!req.focus) {
     return (
       <div data-req={req.key} className={className}>
@@ -178,6 +182,7 @@ function HeadButton({
     <button
       type="button"
       data-req={req.key}
+      data-sel={marks.focus(focus) ? "" : undefined}
       onClick={() => onFocus(focus)}
       className={`${className} alt-hover ${chosen ? "alt-chosen" : ""}`}
     >

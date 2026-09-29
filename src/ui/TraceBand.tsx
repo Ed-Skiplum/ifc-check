@@ -341,18 +341,19 @@ export function TraceBand({
                 key={`${row.guid}-${at}`}
                 data-guid={row.guid}
                 data-chosen={picked ? "" : undefined}
+                data-sel={picked ? "" : undefined}
                 onClick={(event) =>
                   onPick(row.guid, row.name, event.shiftKey || event.ctrlKey || event.metaKey)
                 }
                 onMouseEnter={() => onHover(row.guid)}
                 onMouseLeave={() => onHover(null)}
-                // Whole-surface colour, never an edge stripe: ink for the
-                // selection (the same ink the scene draws its edges in), gold
-                // for the hover (the same gold the scene hovers in), so the
+                // Whole-surface colour, never an edge stripe: the selection
+                // mark (`data-sel`, the teal the scene selects in), gold for
+                // the hover (the same gold the scene hovers in), so the
                 // pairing is legible rather than merely true.
                 className={
                   "absolute inset-x-0 grid cursor-pointer items-center gap-x-2 border-b border-line px-3 text-[12px] " +
-                  (picked ? "bg-ink text-cream" : lit ? "bg-gold/40" : "hover:bg-palegreen")
+                  (picked ? "" : lit ? "bg-gold/40" : "hover:bg-palegreen")
                 }
                 style={{
                   top: at * ROW_HEIGHT,
@@ -371,7 +372,7 @@ export function TraceBand({
                 <span
                   onDoubleClick={copyOnDoubleClick(row.entity)}
                   title={row.entity}
-                  className={"cursor-copy truncate font-mono text-[12px] " + (picked ? "" : "text-green")}
+                  className="cursor-copy truncate font-mono text-[12px] text-green"
                 >
                   {row.entity}
                 </span>
@@ -394,7 +395,7 @@ export function TraceBand({
                 ) : (
                   <span
                     onDoubleClick={copyOnDoubleClick(reason)}
-                    className={"cursor-copy truncate " + (picked ? "" : "text-muted")}
+                    className="cursor-copy truncate text-muted"
                     title={reason}
                   >
                     {reason}

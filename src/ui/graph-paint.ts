@@ -40,6 +40,8 @@ export interface Palette {
   fail: Rgb;
   warn: Rgb;
   accent: Rgb;
+  /** The selection accent (`--sel`), distinct from the origin's `accent`. */
+  select: Rgb;
   edge: Rgb;
   label: Rgb;
   outline: string;
@@ -102,6 +104,7 @@ export function readPalette(element: Element, design: boolean, entities: string[
     fail: lift(bad, 0.18),
     warn: lift(gold, 0.22),
     accent: lift(accent, 0.25),
+    select: lift(token("--sel", [29, 138, 138]), 0.3),
     edge: [150, 178, 192],
     label: lift(panel, 0.2),
     outline: "rgba(12, 10, 8, 0.9)",
