@@ -20,6 +20,7 @@ import type { MeshBatch } from "../viewer/mesh-stream";
 import { findDock, lend, onDocksChanged } from "../viewer/dock";
 import { MG_GAP, MG_MODULE, mgSpanPx, type Wh } from "./alt/module-grid";
 import { NoGeometryMark } from "./Gallery";
+import { EmptyMark } from "../viewer/ViewerTile";
 
 export interface TabGrid {
   cols: number;
@@ -111,7 +112,9 @@ export function LentViewer({
       style={style}
       {...data}
     >
-      {dock ? null : (
+      {dock ? (
+        active && shown ? <EmptyMark text={dock.empty} /> : null
+      ) : (
         <div className="flex h-full items-center justify-center">
           <NoGeometryMark />
         </div>

@@ -114,8 +114,8 @@ const EDGE_THRESHOLD = 24;
 const DRAG_SLOP = 3;
 /** A second click this soon and this close is the rest of a double-click
  *  (the Windows default double-click time; a few px of hand jitter). */
-const DOUBLE_MS = 500;
-const DOUBLE_SLOP = 6;
+export const DOUBLE_MS = 500;
+export const DOUBLE_SLOP = 6;
 
 /** Entities a click or hover never lands on. */
 const UNPICKABLE = new Set(["IfcSpace", "IfcOpeningElement"]);
@@ -266,6 +266,9 @@ export class ModelScene {
   private pendingHover: { x: number; y: number } | null = null;
   /** The last click, to tell a double-click's second half from a new pick. */
   private lastClick: { at: number; x: number; y: number } | null = null;
+  /** See `setDoubleClick`. */
+  private doubleClick: (() => void) | null = null;
+  private pendingPick = 0;
   private lastHover: string | null = null;
   private hoverPickable = true;
   /** The zoom anchor is resolved by raycast on the FIRST wheel of a burst and
@@ -366,8 +369,20 @@ export class ModelScene {
 
   /* ------------------------------------------------------------- lifecycle */
 
+  /** While set, a double-click calls `handler` instead of framing, and a
+   *  single click waits out the double-click time before it picks, so the
+   *  first half of a double-click never changes the selection. The Graf tab's
+   *  small window, where a double-click swaps (edkjo 2026-09-29). */
+  setDoubleClick(handler: (() => void) | null): void {
+    this.doubleClick = handler;
+    clearTimeout(this.pendingPick);
+    this.pendingPick = 0;
+    this.lastClick = null;
+  }
+
   dispose(): void {
     this.disposed = true;
+    clearTimeout(this.pendingPick);
     cancelAnimationFrame(this.frame);
     this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.canvas.removeEventListener("pointermove", this.onPointerMove);
@@ -1157,15 +1172,25 @@ export class ModelScene {
     const last = this.lastClick;
     if (last && now - last.at < DOUBLE_MS && Math.abs(event.clientX - last.x) + Math.abs(event.clientY - last.y) <= DOUBLE_SLOP) {
       this.lastClick = null;
-      if (this.selection.length > 0) this.frameChoice();
+      if (this.doubleClick) {
+        clearTimeout(this.pendingPick);
+        this.pendingPick = 0;
+        this.doubleClick();
+      } else if (this.selection.length > 0) this.frameChoice();
       return;
     }
     this.lastClick = { at: now, x: event.clientX, y: event.clientY };
     const hit = this.pick(this.ndc(event));
-    this.callbacks.onPick({
-      guid: hit?.guid ?? null,
-      additive: event.shiftKey || event.ctrlKey || event.metaKey,
-    });
+    const pick = { guid: hit?.guid ?? null, additive: event.shiftKey || event.ctrlKey || event.metaKey };
+    if (this.doubleClick) {
+      clearTimeout(this.pendingPick);
+      this.pendingPick = window.setTimeout(() => {
+        this.pendingPick = 0;
+        if (!this.disposed) this.callbacks.onPick(pick);
+      }, DOUBLE_MS);
+      return;
+    }
+    this.callbacks.onPick(pick);
   };
 
   private onPointerLeave = () => {

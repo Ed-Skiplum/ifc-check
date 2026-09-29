@@ -23,6 +23,10 @@ interface Dock {
   home: HTMLElement;
   /** Put the canvas back and size the scene to its home. */
   restore: () => void;
+  /** The mark every host draws centred over the canvas while the filter
+   *  matches no objects («Ingen objekter»), else null. Set by the home tile,
+   *  which knows the filter and the language (`setDockEmpty`). */
+  empty?: string | null;
 }
 
 const docks = new Map<MeshBatch[], Dock>();
@@ -39,6 +43,14 @@ export function registerDock(key: MeshBatch[], dock: Dock): () => void {
     if (docks.get(key) === dock) docks.delete(key);
     changed();
   };
+}
+
+/** The home tile's word for an empty canvas, or null; every host re-renders. */
+export function setDockEmpty(key: MeshBatch[], empty: string | null): void {
+  const dock = docks.get(key);
+  if (!dock || (dock.empty ?? null) === empty) return;
+  dock.empty = empty;
+  changed();
 }
 
 export function findDock(key: MeshBatch[] | undefined): Dock | null {

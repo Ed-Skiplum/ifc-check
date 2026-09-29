@@ -106,6 +106,7 @@ const STRINGS = {
 
   /* --------------------------------------------------------------- viewer */
   "viewer.loading": { nb: "Leser geometri", en: "Reading geometry" },
+  "viewer.noObjects": { nb: "Ingen objekter", en: "No objects" },
   "viewer.fit": { nb: "Tilpass", en: "Fit" },
   "viewer.zoomSelection": { nb: "Zoom til valg", en: "Zoom to selection" },
   // A cap is allowed, a silent cap is not: these two labels carry the numbers.

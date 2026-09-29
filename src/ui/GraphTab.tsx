@@ -43,8 +43,8 @@
  * 2026-09-29, the showpiece (edkjo: *"strictly not needed, so it just needs
  * to be cool and inspiring"*): one large stage, the main surface as big as
  * the aspect rule allows (`graphStage` in `canvas-aspect.ts`), the other a
- * small live window. `Modell | Graf` in the top-right control, or a click on
- * the window, swaps them. No tiles and no derivation band: a light HUD over
+ * small live window. `Modell | Graf` in the top-right control, or a
+ * double-click on the window, swaps them. No tiles and no derivation band: a light HUD over
  * the stage (the ifcfast workbench's compact graph, its glass control and
  * its inset vignette, ported).
  */
@@ -61,6 +61,8 @@ import { parseFocus, type Focus } from "./trace";
 import type { CheckResult } from "../engine/types";
 import type { MeshBatch } from "../viewer/mesh-stream";
 import { findDock, lend, onDocksChanged } from "../viewer/dock";
+import { DOUBLE_MS, DOUBLE_SLOP } from "../viewer/scene";
+import { EmptyMark } from "../viewer/ViewerTile";
 import { graphStage, type FieldRect } from "./canvas-aspect";
 import { GraphSim, fitView, seedOf, seededOffset, toSim, zoomAt, type GraphView } from "./graph-sim";
 import {
@@ -251,6 +253,54 @@ export function GraphTab({
     if (!dock || !slot || !shown) return;
     return lend(dock, slot);
   }, [dock, shown]);
+
+  /* ── The swap ──────────────────────────────────────────────────────────
+   * The small window is as live as the main (orbit, pan, zoom, pick; edkjo
+   * 2026-09-29: "we need to double click to change the canvas vs model").
+   * A DOUBLE-click on it swaps; a single click there waits out the
+   * double-click time before it acts, so a swap never leaves a stray pick.
+   * On the main surface a double-click keeps its own meaning. */
+  const swap = useCallback(() => setMain((m) => (m === "graph" ? "model" : "graph")), []);
+  useEffect(() => {
+    if (!dock || !shown || graphIsMain === false) return;
+    dock.scene.setDoubleClick(swap);
+    return () => dock.scene.setDoubleClick(null);
+  }, [dock, shown, graphIsMain, swap]);
+  const graphWindowed = useRef(false);
+  const graphClick = useRef<{ at: number; x: number; y: number } | null>(null);
+  const graphPending = useRef(0);
+  useEffect(() => () => clearTimeout(graphPending.current), []);
+  useEffect(() => {
+    graphWindowed.current = !graphIsMain;
+    clearTimeout(graphPending.current);
+    graphPending.current = 0;
+    graphClick.current = null;
+  }, [graphIsMain]);
+  /** A click on the graph: straight through on the main; in the small window
+   *  held back for the double-click time, and a double-click swaps. */
+  const clickGraph = useCallback(
+    (event: { clientX: number; clientY: number }, act: () => void) => {
+      if (!graphWindowed.current) {
+        act();
+        return;
+      }
+      const now = performance.now();
+      const last = graphClick.current;
+      clearTimeout(graphPending.current);
+      graphPending.current = 0;
+      if (last && now - last.at < DOUBLE_MS && Math.abs(event.clientX - last.x) + Math.abs(event.clientY - last.y) <= DOUBLE_SLOP) {
+        graphClick.current = null;
+        swap();
+        return;
+      }
+      graphClick.current = { at: now, x: event.clientX, y: event.clientY };
+      graphPending.current = window.setTimeout(() => {
+        graphPending.current = 0;
+        act();
+      }, DOUBLE_MS);
+    },
+    [swap],
+  );
 
   /* ── The live part ─────────────────────────────────────────────────────
    * React owns what exists; the frame loop owns where it is and how it
@@ -1003,7 +1053,12 @@ export function GraphTab({
       panning.current = null;
       if (pan) {
         // A press on the empty field that did not move: the demo's clear.
-        if (!pan.moved && event.type === "pointerup" && selection.length > 0) onPick(null, false);
+        if (!pan.moved && event.type === "pointerup") {
+          const clear = selection.length > 0;
+          clickGraph(event, () => {
+            if (clear) onPick(null, false);
+          });
+        }
         return;
       }
       const held = dragging.current;
@@ -1019,10 +1074,13 @@ export function GraphTab({
       }
       if (event.type !== "pointerup") return;
       sim.unpin(held.index);
-      clickNode(held.index, additive);
+      clickGraph(event, () => {
+        clickNode(held.index, additive);
+        wake();
+      });
       wake();
     },
-    [clickNode, onPick, selection.length, wake],
+    [clickGraph, clickNode, onPick, selection.length, wake],
   );
 
   const onPointerLeave = useCallback(() => {
@@ -1042,7 +1100,6 @@ export function GraphTab({
   const windowStyle = rect(geo?.window);
   const surface = "absolute overflow-hidden rounded-[var(--d-radius-lg,14px)]";
   const windowed = surface + " z-20 ring-1 ring-white/20 shadow-[0_18px_40px_-12px_rgba(0,0,0,0.7)]";
-  const swap = () => setMain((m) => (m === "graph" ? "model" : "graph"));
 
   // The HUD's facts: the element whose relationships are drawn.
   const centre = centreGuid && index ? (index.byId.get(centreGuid) ?? null) : null;
@@ -1093,24 +1150,14 @@ export function GraphTab({
             data-graph-viewer
             className={graphIsMain ? windowed : surface}
             style={{ ...(graphIsMain ? windowStyle : mainStyle), background: "var(--color-ground)" }}
-          />
+          >
+            <EmptyMark text={dock?.empty} />
+          </div>
         ) : null}
 
         {/* The inset vignette (ifcfast's viewer): the stage's edges fall off
             into the dark, over the main and under the window and the HUD. */}
         <div aria-hidden="true" className="alt-graf-vignette pointer-events-none absolute inset-0 z-10" />
-
-        {/* The window is a live preview; a click on it swaps. */}
-        {hasViewer && windowStyle ? (
-          <button
-            type="button"
-            data-graph-swap
-            aria-label={t(graphIsMain ? "tile.viewer" : "tab.graph", lang)}
-            onClick={swap}
-            className="absolute z-30 cursor-pointer rounded-[var(--d-radius-lg,14px)] shadow-[inset_0_0_36px_rgba(0,0,0,0.35)] hover:ring-2 hover:ring-white/40 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
-            style={windowStyle}
-          />
-        ) : null}
 
         {/* The glass control, top right: what the graph draws, and the swap. */}
         <div className="alt-card absolute top-3 right-3 z-40 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-x-3 gap-y-1 px-2.5 py-1.5">

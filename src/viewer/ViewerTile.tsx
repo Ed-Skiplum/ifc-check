@@ -33,7 +33,7 @@ import {
   type MeshSet,
 } from "./mesh-stream";
 import { ModelScene, type Mode } from "./scene";
-import { registerDock } from "./dock";
+import { registerDock, setDockEmpty } from "./dock";
 
 declare global {
   interface Window {
@@ -58,6 +58,18 @@ function Chip({ tone, title, children }: { tone: string; title: string; children
       {children}
     </span>
   );
+}
+
+/** Centred over a canvas whose filter matched no objects: the word, nothing
+ *  else (edkjo 2026-09-29). Drawn by every surface the canvas is shown in. */
+export function EmptyMark({ text }: { text: string | null | undefined }) {
+  return text ? (
+    <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center">
+      <span data-viewer-empty className="font-mono text-[12px] text-muted">
+        {text}
+      </span>
+    </div>
+  ) : null;
 }
 
 /** What the 3D reports: a pick selects; `escape` is Esc on the canvas. */
@@ -215,6 +227,13 @@ export function ViewerTile({
     scene.current?.setFilter(matched, mode);
   }, [matched, mode]);
 
+  // A filter that matched nothing leaves a blank canvas: it says so, here and
+  // wherever the canvas is lent. After the dock is registered (above).
+  const empty = matched !== null && matched.size === 0 ? t("viewer.noObjects", lang) : null;
+  useEffect(() => {
+    if (batches) setDockEmpty(batches, empty);
+  }, [batches, empty]);
+
   useEffect(() => {
     scene.current?.setSelection(selection);
   }, [selection]);
@@ -272,6 +291,7 @@ export function ViewerTile({
         tabIndex={0}
         className="block h-full w-full cursor-crosshair outline-none"
       />
+      <EmptyMark text={empty} />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-1.5 overflow-hidden px-1.5 py-1">
         {failure || meshError ? (
