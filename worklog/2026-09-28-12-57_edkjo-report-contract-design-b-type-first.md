@@ -78,6 +78,16 @@ kotes; EPSG:5950). KNM-only requirements without a datanokkel (IsReference, IsEx
 LoadBearing, FireRating, TFM, KomponentID, Manufacturer, System, Sone) are not measured yet. Use
 it for the IDS tab test and the report work (#3).
 
+**Copy objects stay visible (edkjo 2026-09-29, via KNM):** *"We want to see the copyobjects even
+if true, but tell them we can set up a tab for out of scope objects: Types, instances, materials
+etc."* Today the copy-object mapping removes reference/copy objects from every rule, fundamentals
+included (`src/ids/types.ts` MappingRole doc), so ifc-check and KNM.ids count different
+populations (KNM.ids checks all elements and requires `IsReference` on every one). Next: keep them
+in the checks, and design an out-of-scope tab (their types, instances, materials). Also from KNM:
+component-classification allows one rule per role, but KNM carries NS 3457-8 both as a property
+and in the type name, so the second is a plain code-lookup for now. The KNM BEP §6.12 examples YV
+and JWB are not NS 3457-8 codes (a BEP issue).
+
 1. **Excel config template** (not built; the design is in the empty commit `b4dbb38` on branch
    `wip/excel-config`: library choice, sheet layout, round-trip guard. Lint does not yet refuse
    `<FROM PROJECT>`, so add that check first. `examples/knm-floors.test.ruleset.json` also carries
