@@ -57,7 +57,7 @@ import { t } from "../i18n";
 import { formatCount } from "../format";
 import { Verification } from "../Verification";
 import { fitRegion, roomBelow } from "../useFillHeight";
-import { ViewerTile } from "../../viewer/ViewerTile";
+import { ViewerTile, type PickHandler } from "../../viewer/ViewerTile";
 import { VERDICT_GLYPH } from "../state-visuals";
 import { boardCards } from "../board-data";
 import { FloorSetupMatrix, StoreyList, type FloorPeer } from "../FloorSetup";
@@ -91,7 +91,7 @@ export interface AltBoardProps {
   view: ModelView;
   /** The one filter: its origin and the elements it resolves to. */
   xf: Xf;
-  onPick: (guid: string | null, additive: boolean) => void;
+  onPick: PickHandler;
   onHover: (guid: string | null) => void;
   /** The project rules. Not drawn on the Overview (they are the project
    *  tab's); kept so the caller's wiring does not change. */
@@ -393,8 +393,8 @@ function tileBodies(
         shift={model.meshShift}
         budget={model.meshBudget}
         meshError={model.meshError}
-        // The 3D is the origin of a canvas pick: it keeps the whole model and
-        // highlights the pick. From any other view it isolates.
+        // A filter from any other view isolates the 3D; a canvas pick only
+        // selects (`filter-state.ts`).
         matched={isoOf(xf, "viewer")}
         mode={view.mode}
         selection={view.selection}

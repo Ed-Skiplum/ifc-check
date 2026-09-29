@@ -348,7 +348,12 @@ export default function App() {
                 onClearIds={clearIds}
                 trace={(() => {
                   const v = cross.view(model.id);
-                  const trace = v.scope ? buildTrace(model, v.scope) : null;
+                  // With no filter at all, a selection still opens the band
+                  // on itself, so its info shows on the tabs that dock no
+                  // Detail. (The type page sets a filter and has its own.)
+                  const alone = v.origin === null && v.selection.length > 0;
+                  const on = v.scope ?? (alone ? { kind: "element" as const, guids: v.selection } : null);
+                  const trace = on ? buildTrace(model, on) : null;
                   return trace ? (
                     <TraceBand
                       // A different target is a different list: remount so it
@@ -359,15 +364,16 @@ export default function App() {
                       model={model}
                       selection={v.selection}
                       hover={v.hover}
-                      // A Scope row is a pick IN Scope: Scope is the origin,
-                      // keeps its list and highlights the row; every other
-                      // view isolates to the element.
-                      onPick={(guid, name, additive) =>
-                        cross.dispatch(model.id, { type: "element", origin: "scope", guid, label: name, additive })
-                      }
+                      // A Scope row selects its element; the filter and the
+                      // list stay (`filter-state.ts`, 2026-09-29).
+                      onPick={(guid, _name, additive) => cross.dispatch(model.id, { type: "select", guid, additive })}
                       onHover={(guid) => cross.setHover(model.id, guid)}
-                      // Scope is the filter's derivation: closing it clears.
-                      onClose={() => cross.dispatch(model.id, { type: "clear" })}
+                      // Scope is the filter's derivation: closing it clears
+                      // the filter and the selection it was showing.
+                      onClose={() => {
+                        cross.dispatch(model.id, { type: "clear" });
+                        cross.dispatch(model.id, { type: "select", guid: null, additive: false });
+                      }}
                     />
                   ) : null;
                 })()}

@@ -2270,6 +2270,27 @@ async function cmdSelftest(): Promise<number> {
     record("xfilter: a Scope pick keeps Scope's list and isolates the element", "scope:element:g2=g2", f(s1));
     record("xfilter: the same Scope row again steps back to the list's filter", "tree-system:A=g1,g2,g3", f(pick(s1, "scope", "g2")));
     record("xfilter: Tøm clears", "none", f(reduceFilter(b, { type: "clear" })));
+
+    // The selection is its own state (2026-09-29): a click on an object
+    // selects and never touches the filter.
+    const sel = (s: typeof a, guid: string | null, additive = false) => reduceFilter(s, { type: "select", guid, additive });
+    const esc = (s: typeof a) => reduceFilter(s, { type: "escape" });
+    const g = (s: typeof a) => `${f(s)} @${s.origin} sel ${s.selection.join(",")}`;
+    const c1 = sel(a, "g2");
+    record("select: a click under a filter keeps it and selects", "tree-system:A=g1,g2,g3 @tree-system sel g2", g(c1));
+    record("select: outside the set (highlight mode) the filter stays", "tree-system:A=g1,g2,g3 @tree-system sel g9", g(sel(a, "g9")));
+    record("select: a double-click (the same object twice) keeps it", "tree-system:A=g1,g2,g3 @tree-system sel g2", g(sel(c1, "g2")));
+    record("select: the second click is a new request (a new array)", "new", sel(c1, "g2").selection !== c1.selection ? "new" : "same");
+    record("select: empty space clears the selection only", "tree-system:A=g1,g2,g3 @tree-system sel ", g(sel(c1, null)));
+    record("select: Esc once clears the selection, the filter stays", "tree-system:A=g1,g2,g3 @tree-system sel ", g(esc(c1)));
+    record("select: Esc twice clears the filter", "none @null sel ", g(esc(esc(c1))));
+    const c2 = sel(c1, "g3", true);
+    record("select: Shift adds to the selection, not the filter", "tree-system:A=g1,g2,g3 @tree-system sel g2,g3", g(c2));
+    record("select: Shift on a selected one takes it out", "tree-system:A=g1,g2,g3 @tree-system sel g3", g(sel(c2, "g2", true)));
+    record("select: a plain click replaces a multi-selection", "tree-system:A=g1,g2,g3 @tree-system sel g1", g(sel(c2, "g1")));
+    record("select: Scope's list stays", "same", sel({ ...a, scope: { kind: "element", guids: ["g1"] } }, "g2").scope?.kind === "element" ? "same" : "lost");
+    record("select: with no filter it selects and filters nothing", "none @null sel g4", g(sel(EMPTY_FILTER, "g4")));
+    record("select: Tøm clears the filter and keeps the selection", "none @null sel g2", g(reduceFilter(c1, { type: "clear" })));
   }
   // The layer section (src/ui/layer-section.ts): an honest 1:20, the file's
   // order, the total, and a layer with no thickness never drawn as 0.

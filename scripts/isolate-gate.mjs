@@ -27,8 +27,9 @@
  *                       framed about its own centre
  *   3  the same row     chips gone, the bar and the HUD back to the model, and
  *                       the camera did not move (clearing moves nothing)
- *   4  a band row       an Element chip beside the class chip · the bar reads
- *                       1 · the HUD shows at most 1 · Zoom til valg is live
+ *   4  a band row       SELECTS (2026-09-29): no element chip, the class
+ *                       filter, its count and the HUD untouched · Zoom til
+ *                       valg is live
  *   4b the camera       it MOVED, the element's box projects inside the
  *                       viewport, and it fills the frame — not merely on
  *                       screen from a mile away
@@ -39,15 +40,13 @@
  *                       section has a value row and the pset section reads
  *                       `ingen` — never `ikke levert`, which would be a claim
  *                       about the plumbing rather than about the file
- *   5  the same band row  the element chip alone goes; the class filter, its
- *                       chip and its count are exactly as in 2; the camera
- *                       stays
+ *   5  the same band row  keeps it selected (a double-click never clears);
+ *                       the class filter, its chip and its count as in 2
  *   6  a canvas click   selects (Zoom til valg goes live), makes NO chip, the
  *                       filter and HUD are untouched, and the pick is FRAMED
  *   6b a SELECTION      closing the band and picking in the canvas OPENS it
  *                       again on that element, with the object panel filled,
- *                       the hash carrying `focus=element:`, still no chip, and
- *                       the pick framed
+ *                       still no chip, and the pick framed
  *   6c the tab strip    the property group IS a strip of tabs, and switching
  *                       tab keeps the selection — a tab is a view of the same
  *                       element, never a re-selection
@@ -60,8 +59,8 @@
  *                      empty at rest and no band anywhere · a requirement
  *                      makes a chip, narrows the 3D and fills Scope without
  *                      moving a tile · a Scope row is one element, framed,
- *                      and fills Detail · the same row steps back out and
- *                      empties Detail · the requirement again removes its
+ *                      and fills Detail, the filter kept · the same row
+ *                      again keeps it · the requirement again removes its
  *                      chip and empties Scope · a canvas pick fills Detail,
  *                      makes no chip, opens nothing in Scope and is
  *                      framed · a value of a fordeling is a door of
@@ -562,8 +561,10 @@ check(
   `3 clearing the filter did not move the camera`,
 );
 
-/* 4 — the second step: a row of the derivation is ONE element, the camera
-   FRAMES it, and the object panel says what the engine has for it. */
+/* 4 — the second step: a row of the derivation SELECTS one element, the
+   camera FRAMES it, the object panel says what the engine has for it, and the
+   class filter stays exactly as it was (2026-09-29: a selection never changes
+   the filter). */
 await clickAt(...Object.values(await centre(`document.querySelector('[data-gate-pick]')`)));
 const rowGuid = await evaluate(
   `document.querySelectorAll('[data-guid]')[0].getAttribute('data-guid')`,
@@ -575,9 +576,9 @@ const one = await evaluate(STATE());
 const poseFramed = await evaluate(POSE(0, [rowGuid]));
 const shotOne = await canvasShot("4-one-element");
 await bandShot("4-band-and-object-panel");
-check(one.chips.length === 2, `4 the element chip joins the class chip (${JSON.stringify(one.chips)})`);
-check(one.matched === 1, `4 the bar reads one element (${one.matched})`);
-check(one.hudShown !== null && one.hudShown <= 1, `4 the HUD shows at most one element (${one.hud})`);
+check(one.chips.length === 1, `4 the class chip alone, no element chip (${JSON.stringify(one.chips)})`);
+check(one.matched === klass.count, `4 the class filter is untouched (${one.matched} = ${klass.count})`);
+check(one.hudShown === afterClass.hudShown, `4 the HUD still shows the class (${one.hud})`);
 check(one.zoomDisabled === false, `4 Zoom til valg is live on the picked element`);
 check(shotOne !== shotClass, `4 the canvas changed again`);
 
@@ -653,19 +654,17 @@ check(
     `supplied (${JSON.stringify(one.panel?.state)})`,
 );
 
-/* 5 — the same row steps back out to the set it was drilled from. That clears
-   the selection, and clearing moves nothing. */
-const poseBeforeBack = await evaluate(POSE(0, []));
+/* 5 — the same row again KEEPS it: a double-click is two clicks and must
+   not clear. The class filter is still intact. */
 await clickAt(rowAt.x, rowAt.y);
 const back = await evaluate(STATE());
-const poseBack = await evaluate(POSE(0, []));
 check(
-  poseBeforeBack !== null && poseBack !== null && moved(poseBeforeBack, poseBack) < 1e-9,
-  `5 stepping back out (the selection cleared) did not move the camera`,
+  back.panel !== null && back.panel.fields.GlobalId === rowGuid,
+  `5 the same row again keeps it selected (${back.panel?.fields.GlobalId})`,
 );
-check(back.chips.length === 1, `5 the element chip alone is dropped (${JSON.stringify(back.chips)})`);
+check(back.chips.length === 1, `5 still the class chip alone (${JSON.stringify(back.chips)})`);
 check(back.matched === klass.count, `5 the class filter is intact (${back.matched} = ${klass.count})`);
-check(back.hudShown === afterClass.hudShown, `5 the HUD is the class again (${back.hud})`);
+check(back.hudShown === afterClass.hudShown, `5 the HUD is the class (${back.hud})`);
 
 /* 6 — a click in the 3D selects and NEVER filters. */
 await evaluate(
@@ -756,10 +755,8 @@ check(
   `6b and it still makes NO chip — a pick highlights, it does not isolate ` +
     `(${JSON.stringify(reopened?.chips)})`,
 );
-check(
-  await evaluate(`/focus=element%3A|focus=element:/.test(location.hash)`),
-  `6b the selection rides the URL hash like every other derivation`,
-);
+// Not asserted since 2026-09-29: a selection is not a filter, and the hash
+// carries the filter's focus only (D5: a pick leaves the hash alone).
 check(
   poseClosed !== null && framedPose(poseReopened),
   `6b the pick that opened the band is framed (${JSON.stringify(poseReopened?.box)})`,
@@ -994,7 +991,7 @@ for (const design of designs) {
   const one = await evaluate(STATE());
   const framed = await evaluate(POSE(0, [rowGuid]));
   const k3 = await evaluate(DOCK);
-  check(one.chips.length === 2 && one.matched === 1, `D3 ${design}: a Scope row is one element (${JSON.stringify(one.chips)}, ${one.matched})`);
+  check(one.chips.length === 1 && one.matched === req.now.matched, `D3 ${design}: a Scope row selects; the requirement's filter stays (${JSON.stringify(one.chips)}, ${one.matched})`);
   check(one.panel !== null && one.panel.fields.GlobalId === rowGuid, `D3 ${design}: Detail names it (${one.panel?.fields.GlobalId})`);
   check(k3.tiles === k0.tiles, `D3 ${design}: no tile moved`);
   if (before && framed && before.box !== null) {
@@ -1004,7 +1001,7 @@ for (const design of designs) {
 
   await clickAt(rowAt.x, rowAt.y);
   const back = await evaluate(STATE());
-  check(back.chips.length === 1 && back.panel === null, `D4 ${design}: the same row steps back out and Detail is empty (${JSON.stringify(back.chips)})`);
+  check(back.chips.length === 1 && back.panel?.fields.GlobalId === rowGuid, `D4 ${design}: the same row again keeps it in Detail (${JSON.stringify(back.chips)})`);
 
   // D6 before D5: with the requirement's chip on, Vis kun can leave the
   // scene empty (a requirement whose findings carry no geometry), and a

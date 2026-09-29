@@ -60,6 +60,9 @@ function Chip({ tone, title, children }: { tone: string; title: string; children
   );
 }
 
+/** What the 3D reports: a pick selects; `escape` is Esc on the canvas. */
+export type PickHandler = (guid: string | null, additive: boolean, escape?: boolean) => void;
+
 interface ViewerTileProps {
   lang: Lang;
   batches: MeshBatch[] | undefined;
@@ -71,7 +74,8 @@ interface ViewerTileProps {
   mode: Mode;
   selection: string[];
   hover: string | null;
-  onPick: (guid: string | null, additive: boolean) => void;
+  /** A click on an object (`guid` null: empty space), or Esc. */
+  onPick: PickHandler;
   onHover: (guid: string | null) => void;
 }
 
@@ -121,7 +125,7 @@ export function ViewerTile({
     let instance: ModelScene;
     try {
       instance = new ModelScene(element, {
-        onPick: (event) => pickRef.current(event.guid, event.additive),
+        onPick: (event) => pickRef.current(event.guid, event.additive, event.escape === true),
         onHover: (guid) => hoverRef.current(guid),
       });
     } catch (error) {

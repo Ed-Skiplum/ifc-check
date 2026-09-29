@@ -386,14 +386,14 @@ console.log(
 /*   P  the pivot IS the selection's centre (and `orbitsSelection` holds)  */
 /*   O  a real left-drag orbit leaves the selection's centre where it was  */
 /*      on screen (< 1e-3 NDC) while the eye moves                        */
-/* plus: clearing (the lone row again, Escape, the last chip) does not     */
+/* plus: clearing (Escape, the last chip) does not                        */
 /* move the eye, and a set with nothing selected frames the set.           */
 /*                                                                        */
 /*   B1 canvas pick           B2 wheel away from the selection            */
 /*   B3 pan                   B4 treemap cell   B5 requirement            */
 /*   B6 Scope row             B7 undo on a second click: Shift again      */
 /*                               drops only that one, the lone row again  */
-/*                               clears                                   */
+/*                               keeps it                                 */
 /*   B8 chip removed (its x)  B9 Kontroll -> Graf, viewer windowed        */
 /*   B10 graph pick, viewer windowed   B11 Graf with the viewer main      */
 /*   B12 graph pick, viewer main       B13 Graf -> Kontroll               */
@@ -813,19 +813,12 @@ async function browserPhase() {
       await clickAt(at.x, at.y, 8);
       await framedOn("B7 Shift on it again undoes it; what remains is framed", [rowA]);
       await orbitHolds("B7 Shift on it again undoes it; the orbit returns to the one left", [rowA]);
-      at = await row(rowA);
-      const beforeClear = await pose([]);
-      await clickAt(at.x, at.y);
-      const cleared = await pose([]);
-      check(
-        cleared.selection.length === 0 && !cleared.orbitsSelection,
-        `B7 the lone row again clears the selection, and the pivot lets go of it`,
-      );
-      await stillAfter("B7 clearing the selection", beforeClear);
+      // The lone row again KEEPS it (2026-09-29: a selection is not the
+      // filter, and a double-click is two clicks that must not clear).
       at = await row(rowA);
       await clickAt(at.x, at.y);
-      await framedOn("B7 the row once more", [rowA]);
-      await orbitHolds("B7 the row once more", [rowA]);
+      await framedOn("B7 the lone row again keeps it selected", [rowA]);
+      await orbitHolds("B7 the lone row again keeps it selected", [rowA]);
     }
   }
 

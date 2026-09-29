@@ -20,14 +20,11 @@
  *
  * ── And the second step of the drill ─────────────────────────────────────
  * edkjo: *"so you click to see rejected instances, then select an instance and
- * see that."* So a row click is not only a selection: it also narrows the
- * cross-filter to that one element, with Scope as the filter's origin
- * (2026-09-28, one origin): Scope keeps every row, the picked one marked and
- * the rest dimmed, while every other view isolates to the element. Clicking
- * the same row again steps back to the filter the list came from.
- *
- * A pick in the 3D tile is the 3D's own origin: it keeps the whole model and
- * highlights, and the other views (this list included) isolate to it.
+ * see that."* A row click SELECTS that instance: highlighted and framed in
+ * the 3D, its info in the object panel. The filter the list came from stays
+ * as it was (2026-09-29, `filter-state.ts`: a selection never changes the
+ * filter), and so does the list. The same row again keeps it; Esc on the
+ * canvas clears it. A pick in the 3D is the same selection.
  *
  * A row click frames what it picked, like every selection: "always frame the
  * selected object. pivot on it and frame it." (edkjo, 2026-09-28). The viewer

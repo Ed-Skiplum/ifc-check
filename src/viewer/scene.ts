@@ -146,6 +146,8 @@ export interface PickEvent {
   guid: string | null;
   /** Shift or Ctrl was held: add/toggle rather than replace. */
   additive: boolean;
+  /** Esc, not a click: the host clears the selection, then the filter. */
+  escape?: boolean;
 }
 
 export interface SceneCallbacks {
@@ -1202,7 +1204,7 @@ export class ModelScene {
 
   private onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape") return;
-    this.callbacks.onPick({ guid: null, additive: false });
+    this.callbacks.onPick({ guid: null, additive: false, escape: true });
   };
 
   /* ----------------------------------------------------------------- loop */

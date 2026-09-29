@@ -6,6 +6,9 @@
  * `filter-state.ts`; this file turns a board click into a filter, resolves a
  * filter to its elements, and holds the per-model state for React.
  *
+ * A click on one OBJECT (the 3D, a Scope row, a room) is not a filter: it
+ * selects, and the filter stays (2026-09-29, `filter-state.ts`).
+ *
  * It replaced facet chips that OR-ed within a facet and AND-ed across facets
  * (2026-09-23 to 2026-09-28). A second click then refined the first, a
  * treemap cell AND a graph storey AND a type card, and the owner read the
@@ -182,7 +185,7 @@ export function useCrossFilter(): CrossFilterApi {
       (modelId, action) =>
         patch(modelId, (v) => {
           const next = reduceFilter(v, action);
-          return { ...v, ...next, selectSeq: action.type === "element" ? v.selectSeq + 1 : v.selectSeq };
+          return { ...v, ...next, selectSeq: action.type === "element" || action.type === "select" ? v.selectSeq + 1 : v.selectSeq };
         }),
       [patch],
     ),

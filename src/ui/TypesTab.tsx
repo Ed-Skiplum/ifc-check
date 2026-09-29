@@ -26,7 +26,9 @@
  * the gallery keeps every card and dims all but the chosen one, the viewer
  * and every other view isolate to the instances; the same card again clears
  * it. A filter from any other view isolates the gallery instead: only the
- * types with matching instances, their counts recomputed. Under the viewer,
+ * types with matching instances, their counts recomputed. A click on an
+ * object in the viewer only selects it: the card's filter stays
+ * (`filter-state.ts`, 2026-09-29). Under the viewer,
  * the chosen type's material cards and layer set cards (owner: *"there is an
  * unused space below the viewer. Would be cool to show the material cards
  * tied to the selected type"*); a click there makes that material the filter
