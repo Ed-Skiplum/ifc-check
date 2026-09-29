@@ -579,8 +579,11 @@ for (const scenario of SCENARIOS) {
           const req = tiles.filter((t) => /^ifc\\d+$/.test(t.dataset.mgTile));
           const floors = tiles.find((t) => t.dataset.mgTile === 'floors');
           // The verification sidebar (2026-09-29): the checks on the left, the
-          // board's full height, where the window seats one.
-          const side = grid.dataset.mgBand === 'kpis+side' ? tiles.find((t) => t.dataset.mgTile === 'checks') : null;
+          // board's full height, from 12 columns and 6 rows. Beside it on a
+          // laptop (\`side-pack\`) the KPI cards wrap and the floors may be a tab.
+          const packed = grid.dataset.mgBand === 'side-pack';
+          const side = /^(kpis\\+side|side-pack)$/.test(grid.dataset.mgBand) ? tiles.find((t) => t.dataset.mgTile === 'checks') : null;
+          const wantSide = +grid.dataset.mgCols >= 12 && +grid.dataset.mgRows >= 6;
           const top = Math.min(...tiles.map((t) => at(t)[1]));
           const bottom = Math.max(...tiles.map((t) => at(t)[1] + at(t)[3]));
           const left = Math.min(...tiles.map((t) => at(t)[0]));
@@ -599,8 +602,10 @@ for (const scenario of SCENARIOS) {
             std: tiles.filter((t) => /^std\\d+$|^mmi$/.test(t.dataset.mgTile)).map((t) => t.dataset.mgTile),
             floors: floors ? floors.dataset.mgAt : null,
             side: side ? side.dataset.mgAt : null,
-            // Top left, as tall as its rows need, at most the board's height.
-            sideOk: !side || (at(side)[0] === left && at(side)[1] === top && at(side)[1] + at(side)[3] <= bottom),
+            packed,
+            wantSide,
+            // On the left, the board's full height.
+            sideOk: !side || (at(side)[0] === left && at(side)[1] === top && at(side)[1] + at(side)[3] === bottom),
             // One scroller, and it scrolls only when the rows are taller than
             // the sidebar: every scroller inside it, with its overflow.
             sideScroll: side
@@ -614,9 +619,10 @@ for (const scenario of SCENARIOS) {
         })()`);
         if (ov.list) m.fails.push("overview: the requirements are a list tile, not the KPI row");
         else {
-          if (ov.n !== 5 || !ov.onTop) m.fails.push(`overview: the requirement cards are not on the top row (${ov.n})`);
-          if (!ov.floors) m.fails.push("overview: no floor sidebar");
-          if (!ov.sideOk) m.fails.push(`overview: the verification sidebar is not top left within the board (${ov.side})`);
+          if (ov.n !== 5 || (!ov.packed && !ov.onTop)) m.fails.push(`overview: the requirement cards are not on the top row (${ov.n})`);
+          if (!ov.floors && !ov.packed) m.fails.push("overview: no floor sidebar");
+          if (ov.wantSide && !ov.side) m.fails.push("overview: no verification sidebar");
+          if (!ov.sideOk) m.fails.push(`overview: the verification sidebar is not the full height on the left (${ov.side})`);
           if (ov.sideScroll.length > 1) m.fails.push(`overview: ${ov.sideScroll.length} nested scrollers in the verification sidebar`);
           if (ov.cut.length) m.fails.push(`overview: ${ov.cut.length} cut or scrolling in the KPI row and sidebar: ${ov.cut.join(" | ")}`);
         }

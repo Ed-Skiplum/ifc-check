@@ -15,7 +15,6 @@ import {
   MG_TALL,
   SIZES,
   canonSize,
-  fitSide,
   graphTiles,
   layoutOverview,
   mgGrid,
@@ -157,13 +156,22 @@ for (const [design, content] of Object.entries(contents)) {
     // The docks and the model are always tiles; the requirements too (a list
     // or c's panels).
     const ids = new Set(out.tiles.map((t) => t.id));
-    check(ids.has("viewer") && ids.has("scope"), `${at}: the model or Scope is not a tile`);
+    const tabbed = (id) => out.tiles.some((t) => t.tabs.includes(id));
+    // Beside the sidebar on a laptop (`side-pack`) Scope may be a tab of the
+    // sidebar; it comes forward there when it fills.
+    check(ids.has("viewer") && (ids.has("scope") || (out.band === "side-pack" && tabbed("scope"))), `${at}: the model or Scope is not a tile`);
     check(ids.has("detail") || out.tiles.some((t) => t.tabs.includes("detail")), `${at}: Detail is neither a tile nor a tab`);
     check(ids.has("reqs") || ids.has("ifc0"), `${at}: the requirements have no tile`);
     check(!ids.has("mmi") && ![...ids].some((id) => /^std\d+$/.test(id)), `${at}: a Standardkrav tile on the Overview`);
     // The KPI row: every IFC-struktur requirement an S card on the TOP row,
     // never a list; the floor sidebar the full height under it, on the right.
-    if (!ids.has("reqs")) {
+    if (out.band === "side-pack") {
+      const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
+      check(cards.length === content.ifc && cards.every((t) => t.size === "S"), `${at}: the KPI cards are not S cards`);
+      const order = [...cards].sort((a, b) => a.y - b.y || a.x - b.x).map((t) => t.id).join();
+      check(order === cards.map((_, i) => `ifc${i}`).join(), `${at}: the KPI cards do not read in order (${order})`);
+      check(ids.has("floors") || tabbed("floors"), `${at}: the floors are neither a tile nor a tab`);
+    } else if (!ids.has("reqs")) {
       const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
       check(cards.length === content.ifc && cards.every((t) => t.y === out.top && t.size === "S"), `${at}: the KPI cards are not one S row on top`);
       const f = out.tiles.find((t) => t.id === "floors");
@@ -176,12 +184,17 @@ for (const [design, content] of Object.entries(contents)) {
     // width; or, where the columns left seat no board, back in the board.
     if (content.side) {
       const c = out.tiles.find((t) => t.id === "checks");
-      if (out.band === "kpis+side")
+      if (out.band === "kpis+side" || out.band === "side-pack")
         check(
-          !!c && c.x === out.offset && c.y === out.top && c.h === out.usedRows && c.w === content.side && c.size === "tall",
+          !!c && c.x === out.offset && c.y === out.top && c.h === out.usedRows && c.w <= content.side && c.w >= 4 && c.size === "tall",
           `${at}: the verification sidebar is not the full height on the left (${c ? `${c.x},${c.y} ${c.w}×${c.h}` : "none"})`,
         );
-      else check(!!c || out.tiles.some((t) => t.tabs.includes("checks")), `${at}: no sidebar, and the checks are neither a tile nor a tab`);
+      else {
+        // The break: the sidebar goes only where the board beside it cannot
+        // seat five S cards and the XL model (under 12 columns or 6 rows).
+        check(grid.cols < 12 || grid.rows < 6, `${at}: no sidebar at ${grid.cols}×${grid.rows}`);
+        check(!!c || tabbed("checks"), `${at}: no sidebar, and the checks are neither a tile nor a tab`);
+      }
     }
     if (REFERENCE.some(([a, b]) => a === w && b === h))
       console.log(`  ${design} ${w}×${h} ${grid.cols}×${grid.rows}: ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${ms.toFixed(0)} ms · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
@@ -189,25 +202,6 @@ for (const [design, content] of Object.entries(contents)) {
     // its kind that stayed is not asserted (a composition may keep a lower
     // one that fits); every moved tile has a host.
     for (const id of out.moved) check(out.tiles.some((t) => t.tabs.includes(id)), `rule 8: ${at} moved ${id} has no host`);
-  }
-}
-
-/* ── the verification sidebar's height (`fitSide`) ─────────────────────── */
-
-{
-  const grid = mgGrid(1920, 1080 - 104);
-  const out = layoutOverview(grid, { ifc: 5, counts: 4, trees: [], side: 4 });
-  const col = out.tiles.find((t) => t.id === "checks");
-  const rowsPx = (n) => mgSpanPx(n, grid.u);
-  for (const need of [100, rowsPx(3), rowsPx(3) + 1, rowsPx(4), rowsPx(col.h) - 1, rowsPx(col.h) + 400]) {
-    const fit = fitSide(out, need);
-    const c = fit.tiles.find((t) => t.id === "checks");
-    const size = canonSize(c.w, c.h, false, true);
-    check(size !== null && size === c.size, `fitSide ${need.toFixed(0)} px: ${c.w}×${c.h} is no canon size`);
-    check(c.h <= col.h && c.x === col.x && c.y === col.y, `fitSide ${need.toFixed(0)} px: left its column`);
-    check(rowsPx(c.h) >= need || c.h === col.h, `fitSide ${need.toFixed(0)} px: ${c.h} rows do not seat it`);
-    check(c.h === col.h || c.h === 3 || !canonSize(c.w, c.h - 1, false, true) || rowsPx(c.h - 1) < need, `fitSide ${need.toFixed(0)} px: ${c.h} rows, fewer would do`);
-    check(JSON.stringify(fit.tiles.filter((t) => t.id !== "checks")) === JSON.stringify(out.tiles.filter((t) => t.id !== "checks")), `fitSide: moved another tile`);
   }
 }
 

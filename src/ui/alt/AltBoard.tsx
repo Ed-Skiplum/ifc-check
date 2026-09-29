@@ -71,7 +71,6 @@ import {
   MG_MARGIN,
   layoutOverview,
   mgGrid,
-  fitSide,
   sideModules,
   type MgGrid,
   type MgLayout,
@@ -202,21 +201,8 @@ export function AltBoard(props: AltBoardProps) {
   // Antall / Volum / Areal per treemap. A measure still waiting on the
   // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
   const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
-  // The sidebar takes the rows its content needs, up to the board's height
-  // (`fitSide`); past that it scrolls, one scroller.
-  const [checksEl, setChecksEl] = useState<HTMLDivElement | null>(null);
-  const [checksH, setChecksH] = useState(0);
-  useLayoutEffect(() => {
-    if (!checksEl) return;
-    const measure = () => setChecksH(Math.ceil(checksEl.getBoundingClientRect().height));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(checksEl);
-    return () => observer.disconnect();
-  }, [checksEl]);
-  const placed = layout && checksH > 0 ? fitSide(layout, MG_HEAD + checksH) : layout;
   const bodies = layout
-    ? tileBodies(props, reqs, counts, layout, measure, (axis, m) => setMeasure((prev) => ({ ...prev, [axis]: m })), setChecksEl)
+    ? tileBodies(props, reqs, counts, layout, measure, (axis, m) => setMeasure((prev) => ({ ...prev, [axis]: m })))
     : null;
 
   return (
@@ -243,7 +229,7 @@ export function AltBoard(props: AltBoardProps) {
             gap: MG_GAP,
           }}
         >
-          {placed!.tiles.map((place) => (
+          {layout.tiles.map((place) => (
             <Tile key={place.id} place={place} bodies={bodies} prefer={prefer} />
           ))}
         </div>
@@ -358,7 +344,6 @@ function tileBodies(
   layout: MgLayout,
   measure: { system: Measure; function: Measure },
   onMeasure: (axis: "system" | "function", m: Measure) => void,
-  onChecks: (el: HTMLDivElement | null) => void,
 ): Bodies {
   const { lang, model, selected, onFocus, view, xf, onPick, onHover } = props;
   const door = (origin: Origin) => ({ lang, model, selected, onFocus: (focus: Focus) => onFocus(focus, origin) });
@@ -428,7 +413,7 @@ function tileBodies(
     label: t("tile.verify", lang),
     body: (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <Checks {...props} counts={countsInList} compact={checksPx < 400} content={onChecks} />
+        <Checks {...props} counts={countsInList} compact={checksPx < 400} />
       </div>
     ),
   };
@@ -541,12 +526,12 @@ function overviewChecks(model: ModelEntry) {
  *  shows: the fundamentals, with their own verdicts. No project rule speaks
  *  for them here and none is listed (that is the project tab). Then the
  *  neutral counts that are not tiles of their own. */
-function Checks(props: AltBoardProps & { counts: KpiCard[]; compact: boolean; content?: (el: HTMLDivElement | null) => void }) {
-  const { lang, model, selected, onFocus, counts, compact, content } = props;
+function Checks(props: AltBoardProps & { counts: KpiCard[]; compact: boolean }) {
+  const { lang, model, selected, onFocus, counts, compact } = props;
   const rest = useMemo(() => overviewChecks(model), [model]);
   const none = useMemo(() => new Map(), []);
   return (
-    <div ref={content} className="flex shrink-0 flex-col">
+    <div className="flex shrink-0 flex-col">
       <div className="flex shrink-0 flex-col">
         <Verification
           lang={lang}

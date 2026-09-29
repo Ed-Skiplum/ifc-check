@@ -452,22 +452,6 @@ export function sideModules(needPx: number, u: number): number {
   return SIDE_MODULES.find((w) => mgSpanPx(w, u) >= needPx) ?? SIDE_MODULES[SIDE_MODULES.length - 1];
 }
 
-/** The verification sidebar at the height its content needs (`needPx`, its
- *  head included): the fewest whole rows that seat it in a canon shape (L
- *  4 × 3, or a column taller than wide), top-aligned in its column; the
- *  column's full height, scrolling, when the content is taller. Only the
- *  sidebar's own height changes, nothing else moves. */
-export function fitSide(layout: MgLayout, needPx: number): MgLayout {
-  const i = layout.tiles.findIndex((t) => t.id === "checks" && layout.band === "kpis+side");
-  if (i < 0) return layout;
-  const side = layout.tiles[i];
-  let h = Math.max(1, Math.ceil((needPx + MG_GAP) / (layout.u + MG_GAP)));
-  while (h < side.h && !canonSize(side.w, h, false, true)) h += 1;
-  if (h >= side.h) return layout;
-  const size = canonSize(side.w, h, false, true)!;
-  return { ...layout, tiles: layout.tiles.map((t, j) => (j === i ? { ...t, h, size } : t)) };
-}
-
 function countTiles(content: MgContent): MgTileSpec[] {
   return Array.from({ length: content.counts }, (_, i) => ({
     id: `count${i}`,
@@ -541,44 +525,112 @@ const MIN_BODY = 4;
  *  there is space to go is awkward"). With `content.side` the checks leave
  *  the board and take `side` columns on the left, the board's full height
  *  (KPI row included); the board above packs in the columns left, without
- *  them, and the two centre as one. Its height is then the rows its content
- *  needs, up to the column's (`fitSide`, measured). The break: where the columns left cannot
- *  seat the KPI row and a body beside the floors (about 14 columns with a
- *  4-module sidebar), the checks go back into the board as a tile or a tab,
- *  as without a sidebar. */
+ *  them, and the two centre as one; the sidebar runs the board's full
+ *  height, its rows top-aligned, and scrolls only past it. Where the KPI row
+ *  and the floor sidebar do not fit in the columns left (12 to 15 columns),
+ *  the board packs by priority instead (`packedBoards`), and what it cannot
+ *  seat is a tab of the sidebar. The break: under 12 columns or 6 rows the
+ *  columns left cannot hold five S cards and the XL model at all, and the
+ *  checks go back into the board as a tile or a tab, as without a sidebar
+ *  (the narrow fallback). */
 export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
-  const side = content.side ?? 0;
-  if (side > 0 && grid.cols - side > 0) {
-    const inner = searchOverview({ ...grid, cols: grid.cols - side }, content, overviewBody(content, false));
-    const size = inner ? canonSize(side, inner.usedRows, false, true) : null;
-    if (inner && size) {
-      const used = side + inner.used;
-      const offset = Math.floor((grid.cols - used) / 2);
-      const shift = offset + side - inner.offset;
-      const sidebar: MgPlace = {
-        id: "checks",
-        kind: "list",
-        x: offset,
-        y: inner.top,
-        w: side,
-        h: inner.usedRows,
-        size,
-        priority: inner.tiles.length,
-        tabs: [],
-      };
-      return {
-        ...grid,
-        used,
-        usedRows: inner.usedRows,
-        offset,
-        top: inner.top,
-        tiles: [sidebar, ...inner.tiles.map((t) => ({ ...t, x: t.x + shift }))].sort((p, q) => p.y - q.y || p.x - q.x),
-        moved: inner.moved,
-        band: "kpis+side",
-      };
+  // A sidebar wider than the fewest modules gives a column back before it
+  // gives up: a check name ellipsizes rather than the sidebar going.
+  const want = content.side ?? 0;
+  for (let side = want; side > 0 && side >= Math.min(want, SIDE_MODULES[0]) && grid.cols - side > 0; side -= 1) {
+    const region = { ...grid, cols: grid.cols - side };
+    const inner = searchOverview(region, content, overviewBody(content, false));
+    const withInner = inner ? besideSide(grid, side, inner, "kpis+side", false) : null;
+    if (withInner) return withInner;
+    for (const packed of packedBoards(region, content)) {
+      const withPacked = besideSide(grid, side, packed, "side-pack", true);
+      if (withPacked) return withPacked;
     }
   }
   return searchOverview(grid, content, overviewBody(content)) ?? layoutNarrow(grid, content);
+}
+
+/** Where the KPI row and the floor sidebar do not fit beside the checks (a
+ *  laptop, 12 to 15 columns): the board packs by priority on the columns
+ *  left, the KPI cards first (S, never a list; they wrap under and beside the
+ *  model as the columns allow), then the model, Scope, Detail, the floors and
+ *  the treemaps; what does not fit is a tab of the sidebar, and a dock comes
+ *  forward there when it fills. The counts close the cover: after the docks
+ *  where that covers the board, else right after the KPI cards. The full
+ *  board first, then the largest that is covered (`mgPack`), centred. */
+function* packedBoards(region: MgGrid, content: MgContent): Generator<MgLayout> {
+  // The KPI row's two and the model's four: fewer rows is the break.
+  if (region.rows < 2 + MIN_BODY) return;
+  const kpis = Array.from({ length: content.ifc }, (_, i) => ({ id: `ifc${i}`, kind: "panel" as MgKind, sizes: S, required: true }));
+  const rest: MgTileSpec[] = [
+    { id: "viewer", kind: "viewer", sizes: XL, required: true },
+    { id: "scope", kind: "list", sizes: LM },
+    { id: "detail", kind: "list", sizes: LM },
+    { id: "floors", kind: "list", sizes: LM },
+    ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: LM })),
+  ];
+  const orders = [
+    [...kpis, ...rest, ...countTiles(content)],
+    [...kpis, ...countTiles(content), ...rest],
+  ];
+  for (const specs of orders) {
+    const exact = mgPackExact(region, specs);
+    if (exact) yield readingOrder(exact);
+  }
+  for (const specs of orders) {
+    try {
+      yield readingOrder(mgPack(region, specs));
+    } catch {
+      /* no cover at any size */
+    }
+  }
+}
+
+/** The S cards (the KPI cards, then the counts) are interchangeable slots:
+ *  they take the board's S places in reading order, row-major, so the cards
+ *  read in the report's order wherever the cover put them. */
+function readingOrder(layout: MgLayout): MgLayout {
+  const slot = (t: MgPlace) => /^(ifc|count)\d+$/.test(t.id) && t.w === 2 && t.h === 2;
+  const places = layout.tiles.filter(slot).sort((a, b) => a.y - b.y || a.x - b.x);
+  const cards = places.map((t) => ({ id: t.id, priority: t.priority })).sort((a, b) => a.priority - b.priority);
+  const at = new Map(places.map((t, i) => [t, cards[i]]));
+  return { ...layout, tiles: layout.tiles.map((t) => (at.has(t) ? { ...t, ...at.get(t)! } : t)) };
+}
+
+/** The checks as a column `side` modules wide on the left of `inner` (laid
+ *  out on the columns left), the board's full height, the two centred as
+ *  one. `adopt`: the tiles `inner` moved are tabs of the sidebar. Null where
+ *  the column is no canon shape. */
+function besideSide(grid: MgGrid, side: number, inner: MgLayout, band: string, adopt: boolean): MgLayout | null {
+  const size = canonSize(side, inner.usedRows, false, true);
+  if (!size) return null;
+  const used = side + inner.used;
+  const offset = Math.floor((grid.cols - used) / 2);
+  const shift = offset + side - inner.offset;
+  const sidebar: MgPlace = {
+    id: "checks",
+    kind: "list",
+    x: offset,
+    y: inner.top,
+    w: side,
+    h: inner.usedRows,
+    size,
+    priority: inner.tiles.length,
+    // The counts among them are rows of the checks list, never tabs (`Tile`).
+    tabs: adopt ? [...inner.moved] : [],
+  };
+  return {
+    ...grid,
+    used,
+    usedRows: inner.usedRows,
+    offset,
+    top: inner.top,
+    tiles: [sidebar, ...inner.tiles.map((t) => ({ ...t, x: t.x + shift, tabs: adopt ? [] : t.tabs }))].sort(
+      (p, q) => p.y - q.y || p.x - q.x,
+    ),
+    moved: inner.moved,
+    band,
+  };
 }
 
 /** The KPI row, the body and the floor sidebar on `grid` (see
