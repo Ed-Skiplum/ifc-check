@@ -20,108 +20,64 @@ confirms). This guide is the ifc-check side of that loop and does not override i
 | **Typer** / **Materialer** | type and material extraction |
 | **Prosjekt** | project requirements (Standardkrav cards, mapped treemaps, MMI bars) plus the IDS table |
 
-- **Oppsett** (`#page=setup`) edits the floor config and the four mappings, then downloads the ruleset
-  as JSON or .xlsx. **Last ned mal** downloads the .xlsx template.
+- **Oppsett** (`#page=setup`) edits the floor levels and plane and the four mappings, then downloads
+  the ruleset as JSON, .xlsx or the standalone .ids. **Last ned mal** downloads the .xlsx template.
 - Without a ruleset the tool still answers everything in Oversikt/Innhold/Graf/Typer/Materialer.
   The ruleset adds the project's own requirements.
 
-## 2. The config file (the ruleset JSON)
+## 2. The config file
 
-One JSON file per project. Schema: `src/ids/ruleset.schema.json`
-(`node scripts/ids-cli.ts schema`). Required keys: `formatVersion`, `name`, `ifcVersions`, `rules`.
+One config per project: the ruleset JSON, or the same document as the
+workbook `examples/eks-config-template.xlsx`. formatVersion 2. Model, a
+rationale per concept and the sheet design: `docs/config-template.md`.
+Schema: `src/ids/ruleset.schema.json` (`node scripts/ids-cli.ts schema`).
 
-| Part | What it does | Report row |
+**Fill the workbook.** Its first sheet, Lesmeg, is written for the agent
+filling it: the decision rule (IDS 1.0 can test it on one object at a time:
+IDS sheets; otherwise the rule sheets), a table of requirement kinds and the
+sheet each goes to, the conventions, and every column.
+
+| Part | Sheet | Report row |
 |---|---|---|
-| `storeys` | floor config (Etasjeoppsett): name + elevation in **metres**. Every file storey must match one entry on name (case-sensitive) and elevation | `storey-config` |
-| rule `mapping: "system-classification"` | where the NS 3451 code lives, looked up in bundled `ns3451` | Systemkode |
-| rule `mapping: "component-classification"` | where the NS 3457-8 code lives, looked up in bundled `ns3457-8` | Komponentklasse |
-| rule `mapping: "progress-code"` | where MMI lives, and the project's accepted codes (`values`) | Prosesstatuskode (MMI) |
-| rule `mapping: "copy-object"` | a **scope filter**: matching objects are excluded from every other rule. Never a finding | Duplikat objekt |
-| `projectLayer` | the project's additions to `ifc-schema`, `phase`, `material-product`: extra sources appended after the IFC standard's, and an accepted list that replaces the standard's | report only |
-| other `rules` | `kind: "ids"` (exports to .ids) or `kind: "extended"` (checks IDS cannot express) | one row each |
-
-Details: AGENTS.md "Rulesets", "Project mappings", "The standard layer".
-
-### Template
-
-JSONC for reading. It is **not valid until every comment is removed and every
-`<FROM PROJECT>` is replaced**; lint refuses it otherwise, on purpose. Delete any
-part the project has no evidence for: an absent part reports `not_configured`,
-which is the honest answer.
-
-```jsonc
-{
-  "formatVersion": 1,
-  "name": "<FROM PROJECT: project short name>",
-  "description": "<FROM PROJECT: BEP version and section the config was taken from>",
-  "ifcVersions": ["IFC2X3", "IFC4"],          // metadata for emitted .ids; gates nothing
-
-  "storeys": [                                // BEP storey table; omit if the BEP marks levels TBD
-    { "name": "<FROM PROJECT: storey name, exact>", "elevation": "<FROM PROJECT: metres, number>" }
-  ],
-
-  "projectLayer": {
-    "ifc-schema": { "accepted": ["<FROM PROJECT: IFC2X3 | IFC4 | IFC4X3>"] },  // replaces [IFC2X3, IFC4]
-    "phase": { "sources": [ { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } } ] },
-    "material-product": {
-      "mengdetype": [ { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } } ],
-      "product":    [ { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } } ],
-      "material":   [ { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } } ]
-    }
-  },
-
-  "rules": [
-    { "id": "system-classification", "kind": "extended", "mapping": "system-classification",
-      "name": "<FROM PROJECT>", "description": "<FROM PROJECT: BEP §>",
-      "check": { "type": "code-lookup", "list": "ns3451",
-        "source": { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } },
-        // or { "classification": { "system": "<FROM PROJECT>" } } or { "attribute": "Name" }
-        "extract": "<FROM PROJECT: JS regex, exactly one capture group = the code>" } },
-
-    { "id": "component-classification", "kind": "extended", "mapping": "component-classification",
-      "name": "<FROM PROJECT>", "description": "<FROM PROJECT: BEP §>",
-      "check": { "type": "code-lookup", "list": "ns3457-8",
-        "target": "occurrence",               // "type" reads type Names; attribute source only
-        "source": { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } },
-        "extract": "<FROM PROJECT>" } },
-
-    { "id": "progress-code", "kind": "extended", "mapping": "progress-code",
-      "name": "<FROM PROJECT>", "description": "<FROM PROJECT: BEP § with the MMI table>",
-      "check": { "type": "code-lookup",
-        "values": ["<FROM PROJECT: every accepted MMI code, as text>"],
-        "source": { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } },
-        "extract": "<FROM PROJECT>" } },
-
-    { "id": "copy-object", "kind": "extended", "mapping": "copy-object",
-      "name": "<FROM PROJECT>", "description": "<FROM PROJECT: BEP §>",
-      "check": { "type": "code-lookup",
-        "values": ["true", "false"],          // boolean flag; or codes mode: ["<FROM PROJECT: fagkoder>"]
-        "source": { "property": { "propertySet": "<FROM PROJECT>", "name": "<FROM PROJECT>" } },
-        "extract": "<FROM PROJECT>" } }
-  ]
-}
-```
+| `rules[]` kind `ids` | IDS, IDS-fasetter | one per specification; exports to the standalone .ids |
+| `storeys` | Etasjeoppsett, Etasjer | `storey-config` |
+| mapping `system-classification`, `component-classification` | Klassifikasjon | Systemkode, Komponentklasse |
+| mapping `progress-code` and its `codes` (code, name, phase) | MMI, MMI-koder | Prosesstatuskode (MMI) |
+| the `copy-object` check (copy, own) | Kopiobjekt | Duplikat objekt: a scope filter, never a finding |
+| `disciplines`, `models` | Fag, Modeller | `model.label`, `discipline`, `group`, `report`; exemptions |
+| `projectLayer` | Standardkrav, Kilder | `ifc-schema`, `phase`, `material-product` |
+| other extended rules | Andre regler (JSON) | one row each |
 
 Rules of the format a user will trip on:
-- At most one rule per mapping role (`mapping-duplicate`). The role is `mapping`, not `id`.
-- `extract` is a JavaScript regex, not anchored implicitly, exactly one capture group.
-- Never name an abstract IFC class in an entity facet; use `"group"` (`physicalElement`, `builtElement`, ...).
-- A minimal example: `examples/eks.ruleset.json`. A full one (test fixture, not a project):
-  `examples/eks-project-layer.test.ruleset.json`.
-
-### The same config as .xlsx
-
-`examples/eks-config-template.xlsx` is this template as a workbook, one sheet per part: Etasjer,
-Lesmeg, Klassifikasjon, MMI, Kopiobjekt, Kilder, Prosjekt, Andre regler. Row 2 of each sheet is the
-field path; **Lesmeg** lists every column with its path, type, allowed values and an example.
-Placeholders are `<FROM PROJECT>`, refused by lint like the JSON's.
+- `<FROM PROJECT>` is refused by lint (`from-project`) until filled or its
+  row deleted. A row with no evidence: delete it. An absent part reports
+  `not_configured`, which is the honest answer.
+- A row with only key cells (Krav, Rolle, ID, Aktiv, Rapport) is dropped; a
+  half-filled row is refused at its blank required cell. Aktiv and Rapport
+  take TRUE or FALSE.
+- Referanse is the citation (BEP §); Beskrivelse what the rule checks;
+  Kildetype the source kind.
+- Kote in metres to Referanseplan (OKFG or OKBD). Tolerances in mm, blank =
+  no limit, 0 = exact.
+- Modell is the IFC file name without extension. Gjelder ikke takes report
+  row ids.
+- `extract` is a JavaScript regex, not anchored implicitly, exactly one
+  capture group.
+- Never name an abstract IFC class in IFC-klasse; use Klassegruppe.
+- EKS examples: `examples/eks.ruleset.json` (minimal) and
+  `examples/eks-project-layer.test.ruleset.json` (every part; a test
+  fixture, not a project).
 
 ```bash
-node scripts/ids-cli.ts xlsx2json config.xlsx > project.ruleset.json   # lint issues on stderr as Sheet!Cell
+node scripts/ids-cli.ts lint config.xlsx                        # issues at their path; xlsx2json places them at Sheet!Cell
+node scripts/ids-cli.ts xlsx2json config.xlsx > project.ruleset.json
 node scripts/ids-cli.ts json2xlsx project.ruleset.json --out config.xlsx
+node scripts/ids-cli.ts emit config.xlsx --ids project.ids       # the standalone .ids, XSD-validated
+node scripts/ids-cli.ts ids2xlsx spec.ids --into config.xlsx --out config.xlsx
 ```
 
-Details: AGENTS.md "The .xlsx workbook".
+Details: AGENTS.md "Rulesets", "Project mappings", "The .xlsx workbook",
+"The standard layer".
 
 ## 3. Fill it from evidence, never guessing
 
@@ -157,7 +113,7 @@ A real case with the project name and identifiers obscured.
   Name/ObjectType. That is a question for the user, not a choice for the agent. Each answer is a
   different `source`.
 - **MMI.** The BEP's tables list 100/200/300/350/400/500/600, a later section uses 250, a model
-  writes `MMI 200/250`. Ask whether 250 is accepted before writing `values`.
+  writes `MMI 200/250`. Ask whether 250 is accepted before writing it into MMI-koder.
 - **Storeys.** The BEP marks elevations TBD, so the config carries no `storeys` until the user
   supplies them. Never copy elevations from a model into the config as if they were the requirement.
 - **Component class.** The BEP says type names follow `[ComponentCode]-[nn]`, hence

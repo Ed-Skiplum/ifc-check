@@ -326,22 +326,35 @@ counts. The selftest asserts it.
 
 ## `storey-config` — the floor config (Etasjeoppsett)
 
-The ruleset may carry `storeys: [{name, elevation}]` (elevation in METRES,
-author's order). Schema and lint cover it (`storey-name-empty`,
-`storey-name-duplicate`, `storey-elevation-invalid` are errors;
-`storey-name-whitespace`, `storey-elevation-duplicate` warnings). The setup
-page edits it as one more section; an empty list is removed, i.e. no config.
+The ruleset may carry `storeys` (`StoreySetup`, docs/config-template.md):
+`levels: [{name, elevation}]` (METRES, author's order) measured to `plane`
+(`OKFG` or `OKBD`), `tolerance: {aboveMm, belowMm}` (file minus level, null
+= no limit), `nameWindowMm` (null = any distance), `nearMm`, and
+`disciplines: [{discipline, plane, tolerance, requireAllNames}]`. Lint:
+`storey-plane`, `storey-tolerance-invalid`, `storey-window-invalid`,
+`storey-levels-empty`, `discipline-unknown`, plus the name and elevation
+codes (`storey-name-empty`, `storey-name-duplicate`,
+`storey-elevation-invalid` errors; `storey-name-whitespace`,
+`storey-elevation-duplicate` warnings). The setup page edits the levels and
+the plane; a new config there matches exactly (0/0, null, 0).
 
-DEVIATION, per model: every file storey must match one config floor exactly on
-name (case-sensitive, untrimmed) AND elevation (mm, after `unit_scale`,
-ifcfast#180). Findings: `storey-not-in-config`, `storey-name-mismatch` (right
-elevation, wrong name), `storey-elevation-mismatch` (right name, wrong
-elevation), `storey-name-whitespace` (matches only after trimming),
-`storey-duplicate-match`, and `storey-count-exceeds` (more storeys than the
-config; fewer is fine). A config floor a file lacks is absent, never a
-finding. No config loaded: `not_applicable`, never a pass. The parse runs it
-with no config; a ruleset re-runs it with the config; clearing the ruleset
-puts the parse-time checks back (`ModelEntry.baseChecks`).
+DEVIATION, per model, per file storey in this order: same name (exact) and
+elevation within the tolerance = match; same after trimming = whitespace;
+same name within `nameWindowMm` = `storey-elevation-mismatch`; another name
+within `nearMm` of a level (nearest) = `storey-name-mismatch`; else
+`storey-not-in-config`. Plus `storey-duplicate-match` and
+`storey-count-exceeds` (more storeys than levels; fewer is fine). Elevations
+in mm after `unit_scale` (ifcfast#180). A model whose discipline
+(`models[].discipline`) has a rule in `storeys.disciplines` gets that plane
+and tolerance; with `requireAllNames` only when every level has a same-named
+storey within the name window and every storey has a same-named level. The
+report row carries `referanseplan` and `toleranse_mm` as applied. A level a
+file lacks is absent, never a finding. No config: `not_applicable`, never a
+pass. The parse runs it with no config; a ruleset re-runs it with the
+config; clearing the ruleset puts the parse-time checks back
+(`ModelEntry.baseChecks`). The Kontroll floor tile below still calls
+`matchStoreys` with exact matching: it does not show the tolerance or a
+discipline override yet.
 
 On the Kontroll tab the `floors` tile ("Etasjer") renders `FloorSetupMatrix`
 when a config is loaded: rows = config floors (name · kote), then under a
@@ -2362,11 +2375,22 @@ JSON Schema: `src/ids/ruleset.schema.json` (draft 2020-12). Validate your
 authored ruleset against it before running. The selftest asserts the shipped
 copy has not drifted from `src/ids/schema.ts`.
 
-Besides `rules` and `storeys`, a ruleset may carry `projectLayer`: the
+`formatVersion` is 2 (docs/config-template.md: the model, a rationale per
+concept, and the workbook). Lint refuses 1. Besides `rules` and `storeys`, a
+ruleset may carry `projectLayer`: the
 project's additions to the standard-layer requirements (`ifc-schema`,
 `phase`, `material-product`), read by the report only. See "The standard
 layer" under "Report contract". The builder UI neither shows nor edits it; the setup page keeps
 it when it rewrites the ruleset.
+
+`disciplines: [{code, report?: false}]` and `models: [{label, discipline,
+group?, ownerNames?, exempt?}]` are the per-model facts (`src/ids/models.ts`).
+`label` is the IFC file name without extension, exact. `exempt` names report
+row ids (`REQUIREMENT_IDS`, a mapping role, a non-mapping rule id): those
+come back `not_applicable` with `grunn` "does not apply to model X" in
+`run`, the checks (`src/engine/exempt.ts`) and `report`. Every rule and
+project-layer part may carry `reference` (the citation); `description` says
+what it checks. `enabled` is present only as `false`.
 
 ### Two kinds of rule
 
@@ -2384,6 +2408,7 @@ because of a specific verified limit, not a preference:
 | `type-usage-count` | no cross-instance counting — applicability `minOccurs` counts the whole selection, not per type |
 | `model-metadata` | header, `IfcUnitAssignment` and parse stats are unreachable by any facet |
 | `code-lookup` | a restriction tests the whole value; extracting part of it and looking it up in a code list has no facet |
+| `copy-object` | no scope filter: a facet cannot take an object out of every other specification, nor compare a value with the file it is in |
 
 Only checks that can actually be evaluated are offered. **Geometry and
 georeferencing rule kinds do not exist**, because the data source does not — an
@@ -2397,9 +2422,11 @@ built to avoid.
   "source": { "attribute": "Name" }, "extract": "^([A-Z]{2,3})-\\d{2}$" }
 ```
 
-- Exactly one of `list` and `values`. `values` is the project's own list of
-  allowed codes (lint rejects an empty list; the finding reads `is not in the
-  allowed values (...)`). Same evaluator path as a bundled list.
+- Exactly one of `list` and `codes`. `codes: [{code, name, phase?}]` is the
+  project's own list with each code's name (lint: `code-values-empty`,
+  `code-value-empty`, `code-value-duplicate`, `code-name-empty`; `phase`
+  only on the progress-code rule, `code-phase-role`). The finding reads `is
+  not in the project's codes (...)`. Same evaluator path as a bundled list.
 - `list` names a bundled list in `src/codelists/`. Two ship:
   `ns3457-8` (NS 3457-8:2021, 910 codes, all three levels) and `ns3451`
   (NS 3451:2022 tables 2–7, the bygningsdelstabell: 813 codes of 1 to 4
@@ -2421,7 +2448,9 @@ built to avoid.
 - `extract` is a JavaScript regex (not XSD, not implicitly anchored) with
   exactly one capture group, the code. Lint rejects zero or several groups.
 - `source` is one of `{attribute}`, `{property: {propertySet, name}}`,
-  `{classification: {system?}}`. **All three are evaluable.** A property is
+  `{classification: {system?}}`, `{material: {}}` (material names through
+  IfcRelAssociatesMaterial: the object's own rows, else its type's; needs
+  `materialsJson()`). **All four are evaluable.** A property is
   read by SET plus NAME; a classification by `identification` — the
   schema-normalised code — narrowed to `system` when one is given. An object
   carrying several values for the source (realistically only a classification
@@ -2464,11 +2493,12 @@ Example project config: `examples/eks.ruleset.json`.
 
 ### Project mappings
 
-Where a project stores the concepts every project has. A mapping is a role
-on a `code-lookup` extended rule, `"mapping": "<role>"`, not a construct of
-its own: it lives in the ruleset, round-trips through the JSON as-is, and is
-evaluated by the same `codeLookup` path — except `copy-object`, which is a
-scope filter (below). At most one rule per role (lint `mapping-duplicate`).
+Where a project stores the concepts every project has. Three roles sit on a
+`code-lookup` extended rule as `"mapping": "<role>"` and run the `codeLookup`
+path; `copy-object` is its own check type (`{type: "copy-object", source,
+copy, own}`), a scope filter (below), with no `mapping` field. `ruleRole`
+(`src/ids/models.ts`) reads either. At most one rule per role (lint
+`mapping-duplicate`).
 A mapping is matched by its `mapping` field, never by `id`, so the id on the
 rule is cosmetic: it is set to the role name on creation (`progress-code`,
 `copy-object`, never a suffixed variant like `progress-code-code`) but an
@@ -2479,41 +2509,29 @@ correctly.
 |---|---|---|---|
 | `system-classification` | Systemkode | `list` | `mapping-list` |
 | `component-classification` | Komponentklasse | `list` | `mapping-list` |
-| `progress-code` | Prosesstatuskode (MMI) | `values` (the project's codes) | `mapping-values` |
-| `copy-object` | Duplikat objekt | `values`, two modes (below) | `mapping-values` |
+| `progress-code` | Prosesstatuskode (MMI) | `codes` (the project's codes, names, phases) | `mapping-codes` |
+| `copy-object` | Duplikat objekt | the `copy-object` check (below) | `copy-own-overlap`, `material-source-slot` |
 
 Headers are from POFIN 2.1 EIR bygg, "Veiledning til krav til alfanumerisk
 informasjon" (`resources/standards/pofin/02-1-eir-bygg.md`). POFIN has no
 header for component classification; it names NS 3457-8 "komponentklasser"
 under Objekttypenavn and Forekomst, so the header is Komponentklasse.
 
-**`copy-object` is a SCOPE FILTER, not a data-quality check.** An object whose
-mapped value matches is a reference/copy object and is **excluded from the
-selection of every other rule, fundamentals included** — no finding is ever
-reported on it. A missing or empty value is an ordinary, in-scope object, and
-so is a value `extract` does not match: this mapping never fails an element,
-it only decides what the rest of the ruleset gets to see. The mapping's own
-result is a count, never a finding — `"N of M objects excluded as reference
-objects"` — so the filter is never silent about what it did.
+**`copy-object` is a SCOPE FILTER, not a data-quality check.** A copy is
+**excluded from the selection of every other rule, fundamentals included** —
+no finding is ever reported on it. The rule's own result is a count, never a
+finding — `"N of M objects excluded as copies"` — so the filter is never
+silent about what it did.
 
-Two value modes, both stored as plain `values` (no new rule field, so this
-round-trips through the ruleset JSON as-is; the setup page derives which mode
-is active from the values themselves, `isBooleanValues`):
-
-- **boolean** — the G55-style `Referanseobjekt` Ja/Nei flag, `values` the pair
-  `true`, `false` (`true`/`false` is how this tool renders an IFC BOOLEAN, the
-  flattened IsExternal/LoadBearing do the same, and the xs:boolean lexical
-  form IDS uses). Only `true` marks a reference; `false` is an ordinary
-  object saying so explicitly, never a second reference value.
-- **codes** — POFIN's actual `Duplikat objekt` value, the fagkode of the
-  discipline that owns the object (`NONS_Process.DuplicateOwnedBy: RIV`), as a
-  user-entered comma-separated list. Any of the listed codes marks a
-  reference; there is no "opposite" value in this mode.
-
-`code-values-empty` still rejects an empty list in either mode; nothing else
-constrains the shape, so `mapping-values` is the only lint code the mapping
-needs (the old `mapping-boolean` code that required exactly `true`, `false`
-is gone).
+Ownership (#7): per object, the value read, compared ignoring case and
+whitespace (`copyVerdict`): blank, a value in `own`, or one of this model's
+`models[].ownerNames` = the file's own object; a value in `copy`, or any
+other value (it names another owner) = a copy. A G55 Ja/Nei flag is
+`copy: ["true"], own: ["false"]`; POFIN's `DuplicateOwnedBy: RIV` is owner
+names per model. The same owner name may sit on several models (it is read
+one file at a time). When `models` is declared and the file is not in it,
+the rule is `not_evaluable` and nothing is excluded. A value the project
+names nowhere is tallied `deviating` in `values`, still a copy.
 
 A property source is the shape POFIN actually specifies —
 `NONS_Process.DuplicateOwnedBy` — and it runs for real since 0.5.3. If a source
@@ -2558,27 +2576,35 @@ no-filter path, not the exclusion itself.
 
 ### The .xlsx workbook (2026-09-28)
 
-`src/ids/xlsx.ts` writes and reads the ruleset as a workbook. The JSON stays
-the interface; the workbook is the same document in another spelling.
+`src/ids/xlsx.ts` writes and reads the ruleset as a workbook, one view of
+the v2 model (design: docs/config-template.md). IDS rules and the rest are
+in separate sheets.
 
 | Sheet | Holds |
 |---|---|
-| Etasjer | `storeys`, one row per floor |
-| Lesmeg | reference table: sheet, column, field path, type, allowed values, example. Never read |
-| Klassifikasjon | the `system-classification` and `component-classification` mappings |
-| MMI | the `progress-code` mapping |
-| Kopiobjekt | the `copy-object` mapping |
-| Kilder | `projectLayer` sources, one row per source (`phase.sources`, `material-product.*`) |
-| Prosjekt | one row: formatVersion, name, description, ifcVersions, `ifc-schema.accepted`, info (JSON), any other top-level key as JSON |
-| Andre regler | every other rule, one JSON per row |
+| Lesmeg | first: English instructions for the agent filling it (decision rule, requirement → sheet, conventions, every column). Never read |
+| Prosjekt | one row: formatVersion, name, description, ifcVersions, `info.*`, `$schema` |
+| IDS, IDS-fasetter | the `ids` rules: a row per specification, a row per facet (`spec`, `part`, `facet`, then the facet's fields; every IDS restriction facet on the value, literal names) |
+| Klassifikasjon, MMI, Kopiobjekt | the four roles; MMI-koder holds the progress-code rule's `codes` |
+| Etasjeoppsett, Etasjer | `storeys`: the row with Fagkode blank, one row per discipline override; the levels, Kote header naming the plane |
+| Fag, Modeller | `disciplines`, `models` |
+| Standardkrav, Kilder | `projectLayer`: a row per part (reference, accepted, recommended), a row per source |
+| Andre regler | extended rules with no role, and a role rule its sheet cannot spell, one JSON per row |
 
-- Row 1 is the Norwegian header, row 2 the field path. The reader keys
+- Row 1 is the Norwegian label, row 2 the field path. The reader keys
   columns by row 2 only; a column with a blank row 2 is a notes column.
   An unknown sheet or field path is refused.
-- A mapping rule that its sheet cannot spell exactly (a value with a comma,
-  an extra key) is written to Andre regler; `storeys` or `projectLayer` that
-  do not fit go to Prosjekt as JSON. Values lists are comma-separated.
-- Rule order out of a workbook: Klassifikasjon, MMI, Kopiobjekt, Andre
+- A row whose value cells are all blank is dropped (key cells: Krav, Rolle,
+  ID, Aktiv, Rapport). A declared row with a blank required cell is refused
+  at that cell. Aktiv, Rapport and Alle navn må stemme take TRUE or FALSE;
+  blank is refused. Aktiv TRUE is `enabled` absent.
+- Kildetype is the source kind; Referanse the citation; Beskrivelse the
+  description. Tolerance and window cells: blank = null (no limit).
+- An `ids` rule the IDS sheets cannot take (a restriction on a name, an
+  entity `name`) is refused by the writer, naming the rule; nothing goes to
+  Andre regler as a fallback for it. An unknown top-level key or an empty
+  `projectLayer` part is refused too.
+- Rule order out of a workbook: IDS, Klassifikasjon, MMI, Kopiobjekt, Andre
   regler (`canonicalRuleset`).
 - Every write reads itself back and deep-compares with the input in that
   order; a difference throws, in the app and in `json2xlsx`.
@@ -2592,18 +2618,22 @@ The template, `examples/eks-config-template.xlsx` and its copy in `public/`
 `node scripts/gen-config-template.ts`. Every project value is `<FROM PROJECT>`,
 and lint code `from-project` refuses any string that still carries it.
 
-Verified: `selftest` asserts both template files are current, round-trips
-(json, xlsx, json, deep equal) the template, `SAMPLE_RULESET`, every
-`examples/*.json` and every `tests/fixtures/private/*.json`, the misfit
-fallbacks, and the reader's refusals at their cells. openpyxl reads the
-template and a workbook openpyxl saved (shared strings, a notes column, a
-boolean cell) reads back located. One headless run of the setup page (vite
-dev, Chrome): template served, the template refused at `Etasjer!B3`, a filled
-workbook loaded, the .xlsx and JSON downloads equal to it. Not opened in
-Excel itself.
+`withIdsRules` puts an imported .ids's specifications into the IDS sheets
+(an entity named by class literals becomes `classes`, which emits the same
+XML). `ids2xlsx` is its CLI.
+
+Verified (selftest, measured locally, 2026-09-29): both template files
+current; round trips of the template, `SAMPLE_RULESET`, every
+`examples/*.json`, every `tests/fixtures/private/*.json` and every private
+`*.xlsx`; a workbook's IDS rules emit the JSON's .ids; the .ids export
+re-imports to the same model; ids2xlsx; XSD validation of each export; the
+blank, half-filled and blank-Aktiv rules at their cells. openpyxl reads the
+template. Not opened in Excel; the setup page not run in a browser.
 
 Real-named fixtures a gate needs live in `tests/fixtures/private/`
-(`knm-floors`, `hi90-project-layer`); `examples/` carries obscured ones (EKS).
+(`hi90.test.ruleset.json`, `hi90-config.xlsx`); `examples/` carries
+obscured ones (EKS). The v1 fixtures in the main checkout (`knm-floors`,
+`hi90-project-layer`) are formatVersion 1 and need migrating.
 
 ### Things the format prevents
 
@@ -2633,15 +2663,21 @@ an extended rule into the standard file.
 node scripts/ids-cli.ts schema                        # the ruleset JSON Schema
 node scripts/ids-cli.ts sample                        # a worked ruleset to start from
 node scripts/ids-cli.ts lint   my.ruleset.json
-node scripts/ids-cli.ts emit   my.ruleset.json [--out DIR]
+node scripts/ids-cli.ts emit   my.ruleset.json|config.xlsx [--out DIR] [--ids FILE.ids]
 node scripts/ids-cli.ts run    my.ruleset.json a.ifc [b.ifc ...]
 node scripts/ids-cli.ts ids    my.ids a.ifc [...] [--max-findings N]   # see "The IDS view"
 node scripts/ids-cli.ts report [--ruleset my.ruleset.json] a.ifc [...]   # see "Report contract"
 node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] a.ifc [...]   # see "Pset inventory"
 node scripts/ids-cli.ts xlsx2json config.xlsx > my.ruleset.json   # see "The .xlsx workbook"
 node scripts/ids-cli.ts json2xlsx my.ruleset.json [--out config.xlsx]
+node scripts/ids-cli.ts ids2xlsx spec.ids [--into config.xlsx|my.ruleset.json] [--out config.xlsx]
 node scripts/ids-cli.ts selftest
 ```
+
+Every command that takes a ruleset takes the workbook too; a workbook
+problem is printed at its Sheet!Cell. `emit --ids` writes only the
+standalone .ids (enabled `ids` rules, XSD-validated). Oppsett's
+**Last ned** `<name>.ids` does the same in the app.
 
 One JSON document to stdout per invocation; progress and errors to stderr.
 
@@ -2809,8 +2845,17 @@ copy-object exclusions reach the fundamentals as in the browser worker.
             "grunn": "storey-mismatch-red", "verdi": "-0.3"}] }
 ```
 
+- `model`: `file`, `schema`, `sha256`, and from the ruleset `label` (file
+  name without extension), `discipline` (null when not in `models`),
+  `group` (its label when none), `report` (false for a discipline with
+  `report: false`).
 - `mapping`: present on a project-mapping row only, the role
   (`progress-code`, `copy-object`, ...), since a rule's `id` is cosmetic.
+- `anbefalte` on `ifc-schema` when the project names recommended families;
+  `koder` (`{kode, navn, fase?}`) on the progress-code row;
+  `referanseplan` and `toleranse_mm` (`{over, under}`) on `storey-config`.
+- An exempt requirement (`models[].exempt`) is `not_applicable`, `grunn`
+  "does not apply to model X (models[].exempt)", coverage null.
 - `state`: a fundamental maps through `verdictOf` (`na` → `not_applicable`).
   A rule keeps its own state. `not_configured` = no home in the IFC standard
   and no project config: `storey-config` with no floor list, and a row per
@@ -2831,9 +2876,10 @@ copy-object exclusions reach the fundamentals as in the browser worker.
   `gren` (`mengdetype` / `telleobjekt` / `mengdeobjekt`) is set on
   `material-product` only, and `foretrukket` is then per branch.
 - `godtatte`: the accepted values the row judged against, on `ifc-schema` and
-  `phase` (the standard's, or the project layer's replacement) and, since
-  2026-09-25, on a code-lookup rule with its own `values` (the MMI mapping),
-  which the board's MMI bars need for the levels at 0.
+  `phase` (the standard's, or the project layer's replacement, plus the MMI
+  table's phases when phase reads through MMI) and on a code-lookup rule with
+  its own `codes` (the MMI mapping), which the board's MMI bars need for the
+  levels at 0.
 - `fordeling`: every distinct value, uncollapsed, most frequent first.
   `verdi: null` = no value; `flagg` is `""`, `avvik` or `mangler` (or `åpen`,
   on `material-product` only, below). Per check:
@@ -2887,7 +2933,17 @@ screen.
 ```
 
 `sources` entries are the `CodeSource` shape code-lookup uses (attribute,
-property by set plus name, classification by system). Lint refuses an id the
+property by set plus name, classification by system). A `material` source is
+refused in every cascade (`material-source-slot`: under
+`material-product.material` because IfcRelAssociatesMaterial is already the
+standard's first source). `phase.sources` also takes `{progressCode: {}}`:
+the phase of the object's MMI code (`codes[].phase` on the progress-code
+rule; lint `progress-code-no-phase` without one); a code with a phase is
+that phase, accepted; a value with none is avvik as written. Each part may
+carry `reference`. `ifc-schema.recommended` is a subset of `accepted`
+(`schema-recommended-not-accepted`): a recommended family passes, an
+accepted one only is `warn` with the value unflagged («Kan brukes»), and the
+row carries `anbefalte`. Lint refuses an id the
 standard layer does not define (`project-layer-unknown`, as konfig.py
 does), a schema that is not a family (`schema-accepted-form`), an empty
 list, and a malformed source; a schema outside [IFC2X3, IFC4] is a warning

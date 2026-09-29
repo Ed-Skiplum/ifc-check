@@ -5,7 +5,7 @@ One config per project. The model (`src/ids/types.ts`, JSON Schema
 read it. The workbook (`src/ids/xlsx.ts`) and the `.ids` file are views of
 it. Nothing in the model knows about Excel, XML or React.
 
-Source: Ed-Skiplum/ifc-check#7 (filling the template for HI90).
+Source: Ed-Skiplum/ifc-check#7.
 
 ## 1. Model, formatVersion 2
 
@@ -133,12 +133,15 @@ IDS rules (`IdsRule`, the six facets, `IdsValue`) are unchanged.
 - `copy-object`: a model not in `models` (when `models` is declared) makes
   the filter `not_evaluable`, nothing excluded. Values outside `copy`, `own`
   and every model's `ownerNames` are tallied `deviating`, never a finding.
+  One owner name may sit on several models: it is read one file at a time.
 - `ifc-schema`: with `recommended`, a recommended family passes; accepted only
   is `warn` with the value unflagged; the row carries `anbefalte`.
 - `phase`: a `progressCode` source gives the code's phase (accepted) or, for a
   code without one, the raw value (avvik). `godtatte` adds the table's phases.
 - `progress-code` row carries `koder` (code, name, phase).
 - `ReportModel` carries `label`, `discipline`, `group`, `report`.
+- An exempt requirement is `not_applicable` in `run`, the checks
+  (`src/engine/exempt.ts`) and `report`.
 
 ## 2. Workbook
 
@@ -161,15 +164,15 @@ row 2. Lesmeg is first, in English, for the agent filling it, and never read.
 | Modeller | one per model | `models[]` |
 | Standardkrav | one per part | `projectLayer.<part>` reference, `ifc-schema` accepted and recommended |
 | Kilder | one per source | `projectLayer` source lists |
-| Andre regler | one per rule, JSON | extended rules without a mapping |
+| Andre regler | one per rule, JSON | extended rules without a role, and a role rule its sheet cannot spell |
 
 IDS-fasetter columns: Spesifikasjon, Del, Fasett, IFC-klasse, Klassegruppe,
-PredefinedType, Attributt, Egenskapssett, Egenskap, Datatype, System,
-Relasjon, Verdi, Verdiliste, Mønster, Grunntype, Min, Maks, URI,
-Kardinalitet, Instruksjon. A value is a literal (Verdi) or one restriction
-(Verdiliste, Mønster, Min/Maks, Grunntype). Names are literals. A rule
-needing more (an exclusive bound, a length, a restriction on a name, an
-entity `name`) is refused by the writer, naming the rule and the construct.
+PredefinedType, Attributt, Egenskapssett, Egenskapsnavn, Datatype, System,
+Relasjon, Verdi, Verdiliste, Mønster, Grunntype, Min, Maks, Over, Under,
+Lengde, Min lengde, Maks lengde, URI, Kardinalitet, Instruksjon. A value is
+a literal (Verdi) or a restriction (every IDS 1.0 restriction facet). Names
+are literals. A rule needing more (a restriction on a name, an entity
+`name`) is refused by the writer, naming the rule and the construct.
 
 Reader rules:
 - A row whose value cells are all blank is not declared: dropped. Key cells
@@ -182,6 +185,8 @@ Reader rules:
 
 ## 3. .ids
 
-`emit` (CLI) and **Last ned IDS** (Oppsett) write the enabled `ids` rules as
-one IDS 1.0 file, validated against the bundled XSD. `ids2xlsx` puts an
-`.ids` into the IDS sheets of a config.
+`emit --ids` (CLI) and **Last ned** `<name>.ids` (Oppsett) write the enabled
+`ids` rules as one IDS 1.0 file; `emit` validates it against the bundled XSD
+(`vendor/ids-schema`, offline). `ids2xlsx` puts an `.ids` into the IDS
+sheets of a config, replacing its `ids` rules. `reference` is not carried
+into the .ids: IDS has no field for it.
