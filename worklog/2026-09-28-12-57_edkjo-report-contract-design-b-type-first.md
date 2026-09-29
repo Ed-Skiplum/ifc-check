@@ -83,7 +83,12 @@ if true, but tell them we can set up a tab for out of scope objects: Types, inst
 etc."* Today the copy-object mapping removes reference/copy objects from every rule, fundamentals
 included (`src/ids/types.ts` MappingRole doc), so ifc-check and KNM.ids count different
 populations (KNM.ids checks all elements and requires `IsReference` on every one). Next: keep them
-in the checks, and design an out-of-scope tab (their types, instances, materials). Also from KNM:
+in the checks, and design an out-of-scope tab (their types, instances, materials). Follow-up,
+verbatim: *"and we add a toggle to every type, instance row and material and allow it to be
+manually set to out of scope, not just copy, but out of scope."* So out of scope is broader than
+copy-object: copy is one reason, a manual toggle on any type, instance row or material is another.
+Toggled items move to the out-of-scope tab. The manual choices must persist with the project
+config (ruleset/.xlsx), not only in the browser. Also from KNM:
 component-classification allows one rule per role, but KNM carries NS 3457-8 both as a property
 and in the type name, so the second is a plain code-lookup for now. The KNM BEP §6.12 examples YV
 and JWB are not NS 3457-8 codes (a BEP issue).
