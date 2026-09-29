@@ -121,6 +121,7 @@ export const MG_STRIPS: Record<string, string> = {
  *  height under the KPI row. */
 export const MG_TALL: Record<string, string> = {
   floors: "a building floor chart: the storeys stacked, read down",
+  checks: "the verification sidebar: one check per line, read down, the board's full height",
 };
 
 export interface MgTileSpec {
@@ -436,6 +437,35 @@ export interface MgContent {
    *  fallbacks, `tree-system` / `tree-function`). A treemap read through a
    *  project mapping is not on the Overview. */
   trees: readonly string[];
+  /** The verification sidebar's width in modules (`sideModules`), or 0/absent
+   *  for the checks as a tile of the board. */
+  side?: number;
+}
+
+/** The verification sidebar's width: the fewest modules, 4 to 5, whose span
+ *  seats `needPx` (the rows' own width, measured: the longest check name,
+ *  the verdict cell, the % column). Under 4 the rows lose their verdict word
+ *  and % column (`compact`); past 5 a name ellipsizes rather than the board
+ *  giving up a sixth column. */
+export const SIDE_MODULES = [4, 5] as const;
+export function sideModules(needPx: number, u: number): number {
+  return SIDE_MODULES.find((w) => mgSpanPx(w, u) >= needPx) ?? SIDE_MODULES[SIDE_MODULES.length - 1];
+}
+
+/** The verification sidebar at the height its content needs (`needPx`, its
+ *  head included): the fewest whole rows that seat it in a canon shape (L
+ *  4 × 3, or a column taller than wide), top-aligned in its column; the
+ *  column's full height, scrolling, when the content is taller. Only the
+ *  sidebar's own height changes, nothing else moves. */
+export function fitSide(layout: MgLayout, needPx: number): MgLayout {
+  const i = layout.tiles.findIndex((t) => t.id === "checks" && layout.band === "kpis+side");
+  if (i < 0) return layout;
+  const side = layout.tiles[i];
+  let h = Math.max(1, Math.ceil((needPx + MG_GAP) / (layout.u + MG_GAP)));
+  while (h < side.h && !canonSize(side.w, h, false, true)) h += 1;
+  if (h >= side.h) return layout;
+  const size = canonSize(side.w, h, false, true)!;
+  return { ...layout, tiles: layout.tiles.map((t, j) => (j === i ? { ...t, h, size } : t)) };
 }
 
 function countTiles(content: MgContent): MgTileSpec[] {
@@ -452,7 +482,7 @@ function treeTiles(content: MgContent): MgTileSpec[] {
 }
 
 /** The tiles under the KPI row, beside the floor sidebar, in priority order. */
-function overviewBody(content: MgContent): MgTileSpec[] {
+function overviewBody(content: MgContent, checks = true): MgTileSpec[] {
   return [
     { id: "viewer", kind: "viewer", sizes: XL, required: true },
     { id: "scope", kind: "list", sizes: LM, required: true },
@@ -460,7 +490,7 @@ function overviewBody(content: MgContent): MgTileSpec[] {
     // over it. The checks as a tab of Scope show while Scope is empty.
     { id: "detail", kind: "list", sizes: LM, hosts: ["scope"] },
     // L landscape first: its % column; 3 across it draws compact.
-    { id: "checks", kind: "list", sizes: [...L_WIDE, [3, 4], [3, 2]], hosts: ["scope"] },
+    ...(checks ? [{ id: "checks", kind: "list" as MgKind, sizes: [...L_WIDE, [3, 4], [3, 2]] as Wh[], hosts: ["scope"] }] : []),
     ...treeTiles(content),
     ...countTiles(content),
   ];
@@ -504,12 +534,59 @@ const MIN_BODY = 4;
  *  Of every board width (whole columns, centred) and body height, the one
  *  whose cover takes the most of the window wins (rule 9: a board, not a
  *  strip), ties to the wider. Where no such board exists (under about 12
- *  columns) the narrow fallback applies. Pure and deterministic. */
+ *  columns) the narrow fallback applies. Pure and deterministic.
+ *
+ *  THE VERIFICATION SIDEBAR (owner, 2026-09-29: "the verification panel
+ *  should come out and be a left sidebar. Scrolling inside of the dash when
+ *  there is space to go is awkward"). With `content.side` the checks leave
+ *  the board and take `side` columns on the left, the board's full height
+ *  (KPI row included); the board above packs in the columns left, without
+ *  them, and the two centre as one. Its height is then the rows its content
+ *  needs, up to the column's (`fitSide`, measured). The break: where the columns left cannot
+ *  seat the KPI row and a body beside the floors (about 14 columns with a
+ *  4-module sidebar), the checks go back into the board as a tile or a tab,
+ *  as without a sidebar. */
 export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
+  const side = content.side ?? 0;
+  if (side > 0 && grid.cols - side > 0) {
+    const inner = searchOverview({ ...grid, cols: grid.cols - side }, content, overviewBody(content, false));
+    const size = inner ? canonSize(side, inner.usedRows, false, true) : null;
+    if (inner && size) {
+      const used = side + inner.used;
+      const offset = Math.floor((grid.cols - used) / 2);
+      const shift = offset + side - inner.offset;
+      const sidebar: MgPlace = {
+        id: "checks",
+        kind: "list",
+        x: offset,
+        y: inner.top,
+        w: side,
+        h: inner.usedRows,
+        size,
+        priority: inner.tiles.length,
+        tabs: [],
+      };
+      return {
+        ...grid,
+        used,
+        usedRows: inner.usedRows,
+        offset,
+        top: inner.top,
+        tiles: [sidebar, ...inner.tiles.map((t) => ({ ...t, x: t.x + shift }))].sort((p, q) => p.y - q.y || p.x - q.x),
+        moved: inner.moved,
+        band: "kpis+side",
+      };
+    }
+  }
+  return searchOverview(grid, content, overviewBody(content)) ?? layoutNarrow(grid, content);
+}
+
+/** The KPI row, the body and the floor sidebar on `grid` (see
+ *  `layoutOverview`), or null where no such board exists. */
+function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[]): MgLayout | null {
   const { cols, rows } = grid;
   const kpiIds = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
   const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.ifc, 2]] };
-  const body = overviewBody(content);
   const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => content.trees.includes(t.id))];
   const sets = fillerSets(pool);
   let best: MgLayout | null = null;
@@ -576,7 +653,7 @@ export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
       }
     }
   }
-  return best ?? layoutNarrow(grid, content);
+  return best;
 }
 
 /** The narrow fallback: the model first and at 6 × 4, the IFC-struktur

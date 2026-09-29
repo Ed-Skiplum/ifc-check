@@ -89,6 +89,9 @@ interface VerificationProps {
    *  and the verdict word is read out to assistive tech only; the glyph and
    *  the colour carry it on screen, the value keeps its full width. */
   compact?: boolean;
+  /** The rows at their own height, no scroller of their own: the host
+   *  scrolls them (the Overview's verification sidebar, one scroller). */
+  flow?: boolean;
 }
 
 // Row and type ride the grid's list line (`--bento-line`, a fixed fraction of
@@ -128,13 +131,15 @@ export function Verification({
   fill = false,
   share: shareColumn = true,
   compact = false,
+  flow = false,
 }: VerificationProps) {
   const withShare = shareColumn && !compact;
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-input">
+    <div className={"flex min-h-0 flex-1 bg-input " + (flow ? "overflow-clip" : "overflow-hidden")}>
       <div
         className={
-          "grid min-h-0 content-start gap-x-2 overflow-x-hidden overflow-y-auto text-[length:var(--bento-fs)] [scrollbar-gutter:stable] " +
+          "grid min-h-0 content-start gap-x-2 text-[length:var(--bento-fs)] " +
+          (flow ? "overflow-x-clip " : "overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] ") +
           (readouts ? "flex-none" : "flex-1")
         }
         style={{

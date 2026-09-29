@@ -13,6 +13,9 @@
  *                 Typeobjekt, GUID, Etasjedefinisjon, Objekter i etasje), in
  *                 the report's order, then the neutral counts
  *   the sidebar   the floor config (Etasjer), full height on the right
+ *   the checks    a left sidebar the board's full height where the window
+ *                 seats one (2026-09-29, the owner: *"the verification panel
+ *                 should come out and be a left sidebar"*), else in the middle
  *   the middle    the model (hero), Scope, Detail, the checks that are not a
  *                 requirement, and the treemaps where they are general (the
  *                 IFC-class and PredefinedType fallbacks)
@@ -62,7 +65,18 @@ import { ReqBlock, ReqCard } from "./Requirements";
 import { CodeTreemap, MeasureSwitch } from "./Charts";
 import type { Measure } from "../../engine/quantities";
 import { generalTrees, overviewRequirements, treeTitle } from "./req-view";
-import { MG_GAP, MG_HEAD, MG_MARGIN, layoutOverview, mgGrid, type MgGrid, type MgLayout, type MgPlace } from "./module-grid";
+import {
+  MG_GAP,
+  MG_HEAD,
+  MG_MARGIN,
+  layoutOverview,
+  mgGrid,
+  fitSide,
+  sideModules,
+  type MgGrid,
+  type MgLayout,
+  type MgPlace,
+} from "./module-grid";
 
 export interface AltBoardProps {
   /** Kept for the callers; there is one composition. */
@@ -151,12 +165,28 @@ export function AltBoard(props: AltBoardProps) {
   const counts = useMemo(() => boardCards(model, lang).countCards, [model, lang]);
   const trees = useMemo(() => generalTrees(model), [model]);
   const treeKey = trees.join(",");
+  // The verification sidebar's width is its rows' own (`sideModules`): the
+  // checks laid out once more, off screen at their natural width, measured.
+  const rest = useMemo(() => overviewChecks(model), [model]);
+  const probe = useRef<HTMLDivElement>(null);
+  const [needPx, setNeedPx] = useState(0);
+  useLayoutEffect(() => {
+    const el = probe.current;
+    if (!el) return;
+    const measure = () => setNeedPx(Math.ceil(el.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const side = grid && needPx > 0 && rest.length > 0 ? sideModules(needPx, grid.u) : 0;
   const layout = useMemo<MgLayout | null>(
-    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees }) : null),
+    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees, side }) : null),
     // `trees` is keyed by its ids; the layout is a pure function of them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grid, reqs.length, counts.length, treeKey],
+    [grid, reqs.length, counts.length, treeKey, side],
   );
+  const noFocus = useMemo(() => new Map(), []);
 
   // A dock that is a tab comes forward when it fills: a requirement click
   // fills Scope, a selection fills Detail.
@@ -172,12 +202,30 @@ export function AltBoard(props: AltBoardProps) {
   // Antall / Volum / Areal per treemap. A measure still waiting on the
   // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
   const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
+  // The sidebar takes the rows its content needs, up to the board's height
+  // (`fitSide`); past that it scrolls, one scroller.
+  const [checksEl, setChecksEl] = useState<HTMLDivElement | null>(null);
+  const [checksH, setChecksH] = useState(0);
+  useLayoutEffect(() => {
+    if (!checksEl) return;
+    const measure = () => setChecksH(Math.ceil(checksEl.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(checksEl);
+    return () => observer.disconnect();
+  }, [checksEl]);
+  const placed = layout && checksH > 0 ? fitSide(layout, MG_HEAD + checksH) : layout;
   const bodies = layout
-    ? tileBodies(props, reqs, counts, layout, measure, (axis, m) => setMeasure((prev) => ({ ...prev, [axis]: m })))
+    ? tileBodies(props, reqs, counts, layout, measure, (axis, m) => setMeasure((prev) => ({ ...prev, [axis]: m })), setChecksEl)
     : null;
 
   return (
-    <div ref={ref} className="w-full min-w-0" style={VARS}>
+    <div ref={ref} className="relative w-full min-w-0" style={VARS}>
+      <div aria-hidden inert className="pointer-events-none invisible absolute top-0 left-0 h-0 overflow-hidden">
+        <div ref={probe} className="flex w-max">
+          <Verification lang={lang} checks={rest} claimed={noFocus} selected={null} onFocus={() => {}} flow />
+        </div>
+      </div>
       {grid && layout && bodies ? (
         <div
           data-mg-grid
@@ -195,7 +243,7 @@ export function AltBoard(props: AltBoardProps) {
             gap: MG_GAP,
           }}
         >
-          {layout.tiles.map((place) => (
+          {placed!.tiles.map((place) => (
             <Tile key={place.id} place={place} bodies={bodies} prefer={prefer} />
           ))}
         </div>
@@ -310,6 +358,7 @@ function tileBodies(
   layout: MgLayout,
   measure: { system: Measure; function: Measure },
   onMeasure: (axis: "system" | "function", m: Measure) => void,
+  onChecks: (el: HTMLDivElement | null) => void,
 ): Bodies {
   const { lang, model, selected, onFocus, view, xf, onPick, onHover } = props;
   const door = (origin: Origin) => ({ lang, model, selected, onFocus: (focus: Focus) => onFocus(focus, origin) });
@@ -379,7 +428,7 @@ function tileBodies(
     label: t("tile.verify", lang),
     body: (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <Checks {...props} counts={countsInList} compact={checksPx < 400} />
+        <Checks {...props} counts={countsInList} compact={checksPx < 400} content={onChecks} />
       </div>
     ),
   };
@@ -481,20 +530,23 @@ function CountTile({ card }: { card: KpiCard }) {
   );
 }
 
+/** Every requirement's rows, Standardkrav's too: those are the project tab's,
+ *  so they are not repeated on the Overview as checks. */
+function overviewChecks(model: ModelEntry) {
+  const shown = requirementRowIds(requirements(model.board?.rows));
+  return model.report!.checks.filter((c) => !shown.has(c.id));
+}
+
 /** The checks the engine runs on every model that no requirement already
  *  shows: the fundamentals, with their own verdicts. No project rule speaks
  *  for them here and none is listed (that is the project tab). Then the
  *  neutral counts that are not tiles of their own. */
-function Checks(props: AltBoardProps & { counts: KpiCard[]; compact: boolean }) {
-  const { lang, model, selected, onFocus, counts, compact } = props;
-  const report = model.report!;
-  // Every requirement's rows, Standardkrav's too: those are the project
-  // tab's, so they are not repeated here as checks.
-  const shown = requirementRowIds(requirements(model.board?.rows));
-  const rest = report.checks.filter((c) => !shown.has(c.id));
+function Checks(props: AltBoardProps & { counts: KpiCard[]; compact: boolean; content?: (el: HTMLDivElement | null) => void }) {
+  const { lang, model, selected, onFocus, counts, compact, content } = props;
+  const rest = useMemo(() => overviewChecks(model), [model]);
   const none = useMemo(() => new Map(), []);
   return (
-    <div className="flex shrink-0 flex-col">
+    <div ref={content} className="flex shrink-0 flex-col">
       <div className="flex shrink-0 flex-col">
         <Verification
           lang={lang}
@@ -504,6 +556,7 @@ function Checks(props: AltBoardProps & { counts: KpiCard[]; compact: boolean }) 
           onFocus={(focus) => onFocus(focus, "checks")}
           fill
           compact={compact}
+          flow
         />
       </div>
       {counts.length > 0 ? <div className="alt-group-rule shrink-0" /> : null}

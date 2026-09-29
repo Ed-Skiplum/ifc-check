@@ -15,6 +15,7 @@ import {
   MG_TALL,
   SIZES,
   canonSize,
+  fitSide,
   graphTiles,
   layoutOverview,
   mgGrid,
@@ -97,6 +98,10 @@ for (const u of [88, 93, 100, 108, 112]) {
 const contents = {
   mapped: { ifc: 5, counts: 4, trees: [] },
   general: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"] },
+  // The verification as a left sidebar (2026-09-29), at the two widths
+  // `sideModules` picks from.
+  side4: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4 },
+  side5: { ifc: 5, counts: 4, trees: [], side: 5 },
 };
 const windows = [];
 for (let w = 1100; w <= 3440; w += 130) for (let h = 700; h <= 1600; h += 150) windows.push([w, h]);
@@ -167,12 +172,42 @@ for (const [design, content] of Object.entries(contents)) {
         `${at}: the floor sidebar is not the full height on the right (${f ? `${f.x},${f.y} ${f.w}×${f.h}` : "none"})`,
       );
     } else check(ids.has("floors") || out.tiles.some((t) => t.tabs.includes("floors")), `${at}: the floors are neither a tile nor a tab`);
+    // The verification sidebar: on the left, the board's full height, its
+    // width; or, where the columns left seat no board, back in the board.
+    if (content.side) {
+      const c = out.tiles.find((t) => t.id === "checks");
+      if (out.band === "kpis+side")
+        check(
+          !!c && c.x === out.offset && c.y === out.top && c.h === out.usedRows && c.w === content.side && c.size === "tall",
+          `${at}: the verification sidebar is not the full height on the left (${c ? `${c.x},${c.y} ${c.w}×${c.h}` : "none"})`,
+        );
+      else check(!!c || out.tiles.some((t) => t.tabs.includes("checks")), `${at}: no sidebar, and the checks are neither a tile nor a tab`);
+    }
     if (REFERENCE.some(([a, b]) => a === w && b === h))
       console.log(`  ${design} ${w}×${h} ${grid.cols}×${grid.rows}: ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${ms.toFixed(0)} ms · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
     // Rule 8: a tile moved into a tab has lower priority than every tile of
     // its kind that stayed is not asserted (a composition may keep a lower
     // one that fits); every moved tile has a host.
     for (const id of out.moved) check(out.tiles.some((t) => t.tabs.includes(id)), `rule 8: ${at} moved ${id} has no host`);
+  }
+}
+
+/* ── the verification sidebar's height (`fitSide`) ─────────────────────── */
+
+{
+  const grid = mgGrid(1920, 1080 - 104);
+  const out = layoutOverview(grid, { ifc: 5, counts: 4, trees: [], side: 4 });
+  const col = out.tiles.find((t) => t.id === "checks");
+  const rowsPx = (n) => mgSpanPx(n, grid.u);
+  for (const need of [100, rowsPx(3), rowsPx(3) + 1, rowsPx(4), rowsPx(col.h) - 1, rowsPx(col.h) + 400]) {
+    const fit = fitSide(out, need);
+    const c = fit.tiles.find((t) => t.id === "checks");
+    const size = canonSize(c.w, c.h, false, true);
+    check(size !== null && size === c.size, `fitSide ${need.toFixed(0)} px: ${c.w}×${c.h} is no canon size`);
+    check(c.h <= col.h && c.x === col.x && c.y === col.y, `fitSide ${need.toFixed(0)} px: left its column`);
+    check(rowsPx(c.h) >= need || c.h === col.h, `fitSide ${need.toFixed(0)} px: ${c.h} rows do not seat it`);
+    check(c.h === col.h || c.h === 3 || !canonSize(c.w, c.h - 1, false, true) || rowsPx(c.h - 1) < need, `fitSide ${need.toFixed(0)} px: ${c.h} rows, fewer would do`);
+    check(JSON.stringify(fit.tiles.filter((t) => t.id !== "checks")) === JSON.stringify(out.tiles.filter((t) => t.id !== "checks")), `fitSide: moved another tile`);
   }
 }
 
