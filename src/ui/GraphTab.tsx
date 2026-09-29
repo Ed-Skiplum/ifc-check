@@ -16,8 +16,9 @@
  *     THE filter (an Etasje filter, replacing whatever was on)
  *   · click a bucket: it opens into its products, and storey × class becomes
  *     the filter (a Celle filter)
- *   · click a product: it becomes the filter and the selection; its
- *     relationships bloom out of it. Shift or Ctrl adds to that element set.
+ *   · click a product: it becomes the selection, the filter stays
+ *     (2026-09-29); its relationships bloom out of it. Shift or Ctrl adds to
+ *     the selection.
  *
  * The cross-filter, one origin (2026-09-28): clicked here, the graph is the
  * origin and keeps every node, the chosen storey or bucket ringed and the

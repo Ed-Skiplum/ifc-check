@@ -243,13 +243,10 @@ export function ModelPanel({
     (guid, additive, escape) => onDispatch(escape ? { type: "escape" } : { type: "select", guid, additive }),
     [onDispatch],
   );
-  /** A graph product: one element as the filter (`GraphTab.tsx`). */
-  const pickIn = useCallback(
-    (origin: Origin) => (guid: string | null, additive: boolean) => {
-      const row = guid ? profile?.rows.find((r) => r.guid === guid) : undefined;
-      onDispatch({ type: "element", origin, guid, label: row?.name ?? null, additive });
-    },
-    [onDispatch, profile],
+  /** A graph product: the selection only, like a pick in the 3D. */
+  const pickGraph = useCallback(
+    (guid: string | null, additive: boolean) => onDispatch({ type: "select", guid, additive }),
+    [onDispatch],
   );
 
   // The file's own facts, on the header line beside name · state · size. They
@@ -455,7 +452,7 @@ export function ModelPanel({
                 checks={model.report?.checks}
                 meshBatches={model.meshBatches}
                 selection={view.selection}
-                onPick={pickIn("graph")}
+                onPick={pickGraph}
                 onFocus={(next) => focus(next, "graph")}
               />
             </div>
