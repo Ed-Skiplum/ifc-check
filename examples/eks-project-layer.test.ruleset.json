@@ -1,18 +1,111 @@
 {
-  "formatVersion": 1,
-  "name": "TEST FIXTURE: EKS project layer and mappings",
-  "description": "Test fixture, not a project config.",
+  "formatVersion": 2,
+  "name": "TEST FIXTURE: EKS project config",
+  "description": "Test fixture, not a project config. One of every part of the model.",
   "ifcVersions": [
     "IFC4"
   ],
+  "storeys": {
+    "reference": "BEP §3.2",
+    "plane": "OKFG",
+    "tolerance": {
+      "aboveMm": 5,
+      "belowMm": 5
+    },
+    "nameWindowMm": 1000,
+    "nearMm": 200,
+    "levels": [
+      {
+        "name": "Plan 01",
+        "elevation": 0
+      },
+      {
+        "name": "Plan 02",
+        "elevation": 3.6
+      },
+      {
+        "name": "Plan 03",
+        "elevation": 7.2
+      }
+    ],
+    "disciplines": [
+      {
+        "discipline": "RIB",
+        "plane": "OKBD",
+        "tolerance": {
+          "aboveMm": 5,
+          "belowMm": null
+        },
+        "requireAllNames": true
+      }
+    ]
+  },
+  "disciplines": [
+    {
+      "code": "ARK"
+    },
+    {
+      "code": "RIB"
+    },
+    {
+      "code": "BIMK",
+      "report": false
+    }
+  ],
+  "models": [
+    {
+      "label": "EKS_ARK",
+      "discipline": "ARK",
+      "group": "ARK",
+      "ownerNames": [
+        "EKS_ARK",
+        "ARK"
+      ]
+    },
+    {
+      "label": "EKS_ARK_Utsparinger",
+      "discipline": "ARK",
+      "group": "ARK",
+      "ownerNames": [
+        "EKS_ARK_Utsparinger"
+      ],
+      "exempt": [
+        "system-classification",
+        "material-product",
+        "progress-code",
+        "phase"
+      ]
+    },
+    {
+      "label": "EKS_RIB",
+      "discipline": "RIB",
+      "ownerNames": [
+        "EKS_RIB",
+        "RIB"
+      ]
+    },
+    {
+      "label": "EKS_BIMK",
+      "discipline": "BIMK"
+    }
+  ],
   "projectLayer": {
     "ifc-schema": {
+      "reference": "BEP §3",
       "accepted": [
+        "IFC2X3",
+        "IFC4"
+      ],
+      "recommended": [
         "IFC4"
       ]
     },
     "phase": {
+      "reference": "Manual §4.5",
       "sources": [
+        {
+          "progressCode": {}
+        },
         {
           "property": {
             "propertySet": "EKS_TFM",
@@ -22,6 +115,7 @@
       ]
     },
     "material-product": {
+      "reference": "Manual §4.2",
       "mengdetype": [
         {
           "property": {
@@ -56,11 +150,63 @@
   },
   "rules": [
     {
+      "id": "eks-material",
+      "kind": "ids",
+      "name": "EKS_Material",
+      "reference": "Manual §4.2",
+      "applicability": {
+        "entity": {
+          "group": "physicalElement"
+        }
+      },
+      "requirements": {
+        "property": [
+          {
+            "propertySet": "EKS_Prosjektinfo",
+            "baseName": "EKS_Material",
+            "value": {
+              "restriction": {
+                "minLength": 1
+              }
+            },
+            "cardinality": "required"
+          }
+        ]
+      }
+    },
+    {
+      "id": "eks-in-storey",
+      "kind": "ids",
+      "name": "In a storey",
+      "enabled": false,
+      "applicability": {
+        "entity": {
+          "classes": [
+            "IFCWALL",
+            "IFCSLAB"
+          ]
+        }
+      },
+      "requirements": {
+        "partOf": [
+          {
+            "entity": {
+              "classes": [
+                "IFCBUILDINGSTOREY"
+              ]
+            },
+            "relation": "IFCRELCONTAINEDINSPATIALSTRUCTURE",
+            "cardinality": "required"
+          }
+        ]
+      }
+    },
+    {
       "id": "eks-ns3451",
       "kind": "extended",
       "mapping": "system-classification",
       "name": "EKS_NS3451",
-      "description": "Manual §4.2",
+      "reference": "Manual §4.2",
       "check": {
         "type": "code-lookup",
         "list": "ns3451",
@@ -78,7 +224,7 @@
       "kind": "extended",
       "mapping": "component-classification",
       "name": "EKS_NS3457-8",
-      "description": "Manual §4.2",
+      "reference": "Manual §4.2",
       "check": {
         "type": "code-lookup",
         "list": "ns3457-8",
@@ -96,28 +242,88 @@
       "kind": "extended",
       "mapping": "progress-code",
       "name": "EKS_MMI",
-      "description": "Manual §4.5 MMI-koder",
+      "reference": "Manual §4.5 MMI-koder",
       "check": {
         "type": "code-lookup",
-        "values": [
-          "100",
-          "200",
-          "300",
-          "350",
-          "700",
-          "710",
-          "720",
-          "740",
-          "760",
-          "780",
-          "800",
-          "825",
-          "850",
-          "875",
-          "900",
-          "920",
-          "950",
-          "980"
+        "codes": [
+          {
+            "code": "100",
+            "name": "MMI 100",
+            "phase": "NY"
+          },
+          {
+            "code": "200",
+            "name": "MMI 200",
+            "phase": "NY"
+          },
+          {
+            "code": "300",
+            "name": "MMI 300",
+            "phase": "NY"
+          },
+          {
+            "code": "350",
+            "name": "MMI 350",
+            "phase": "NY"
+          },
+          {
+            "code": "700",
+            "name": "MMI 700",
+            "phase": "Bevares"
+          },
+          {
+            "code": "710",
+            "name": "MMI 710",
+            "phase": "Bevares"
+          },
+          {
+            "code": "720",
+            "name": "MMI 720"
+          },
+          {
+            "code": "740",
+            "name": "MMI 740"
+          },
+          {
+            "code": "760",
+            "name": "MMI 760"
+          },
+          {
+            "code": "780",
+            "name": "MMI 780"
+          },
+          {
+            "code": "800",
+            "name": "MMI 800"
+          },
+          {
+            "code": "825",
+            "name": "MMI 825"
+          },
+          {
+            "code": "850",
+            "name": "MMI 850"
+          },
+          {
+            "code": "875",
+            "name": "MMI 875"
+          },
+          {
+            "code": "900",
+            "name": "MMI 900"
+          },
+          {
+            "code": "920",
+            "name": "MMI 920"
+          },
+          {
+            "code": "950",
+            "name": "MMI 950"
+          },
+          {
+            "code": "980",
+            "name": "MMI 980"
+          }
         ],
         "source": {
           "property": {
@@ -126,6 +332,43 @@
           }
         },
         "extract": "^(\\d{3})$"
+      }
+    },
+    {
+      "id": "copy-object",
+      "kind": "extended",
+      "name": "Kopiobjekt",
+      "reference": "Manual §4.2",
+      "check": {
+        "type": "copy-object",
+        "source": {
+          "property": {
+            "propertySet": "EKS_Prosjektinfo",
+            "name": "EKS_Kopi objekt"
+          }
+        },
+        "copy": [
+          "true",
+          "ja",
+          "kopi"
+        ],
+        "own": [
+          "false",
+          "nei"
+        ]
+      }
+    },
+    {
+      "id": "elements-typed",
+      "kind": "extended",
+      "name": "Every element is typed",
+      "select": {
+        "entity": {
+          "group": "physicalElement"
+        }
+      },
+      "check": {
+        "type": "element-typed"
       }
     }
   ]
