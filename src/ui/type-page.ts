@@ -45,6 +45,7 @@ import type { StringKey } from "./i18n";
 import { focusOfRow, requirements } from "./requirements.ts";
 import { nameMatches } from "../engine/pset-inventory.ts";
 import { CODE_LISTS } from "../codelists/index.ts";
+import { ruleRole } from "../ids/models.ts";
 
 export type AbsentReason = "table-absent" | "untyped" | "type-rows-on-occurrences" | "quantities-not-received";
 
@@ -247,7 +248,7 @@ const show = (v: IdsValue) =>
 function roleSources(ruleset: Ruleset | null | undefined, role: string): { set: string; name: string }[] {
   const out: { set: string; name: string }[] = [];
   for (const rule of ruleset?.rules ?? []) {
-    if (rule.enabled === false || rule.kind !== "extended" || rule.mapping !== role) continue;
+    if (rule.enabled === false || rule.kind !== "extended" || ruleRole(rule) !== role) continue;
     const check = rule.check as { source?: unknown };
     const src = check.source as { property?: { propertySet: string; name: string } } | undefined;
     if (src?.property) out.push({ set: src.property.propertySet, name: src.property.name });
