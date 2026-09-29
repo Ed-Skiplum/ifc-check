@@ -798,8 +798,7 @@ export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
         ) : null}
       </div>
 
-      {/* The one scroller. `data-object-body` is the content at its natural
-          height, which the Overview reads to give Detail the rows it needs. */}
+      {/* The one scroller. */}
       <div className="min-h-0 flex-1 overflow-auto bg-input">
         <div data-object-body="">
           <LeadCards lang={lang} rows={rows} profile={profile} />

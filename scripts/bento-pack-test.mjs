@@ -104,11 +104,18 @@ const contents = {
   // `sideModules` picks from.
   side4: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4 },
   side5: { ifc: 5, counts: 4, trees: [], side: 5 },
-  // Detail filled (2026-09-29): its content needs more rows than any board
-  // has (a real element, about 1 200 px), or about a body's height.
-  detailTall: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4, detail: 12 },
-  detailBody: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4, detail: 5 },
-  detailNoSide: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], detail: 12 },
+};
+// STABLE LAYOUT (2026-09-29, the owner: "I dont like this components
+// changing places based on what is selected"): the layout is the window's
+// and the loaded content's only. What a click changes (Detail filled, a
+// Scope row, a filter, a selection) is passed along here and must change
+// nothing: Detail's natural height (the input 3892ddf read), a selection, a
+// filter's origin and elements.
+const STATES = {
+  detailFilled: { detail: 12, detailPx: 1250 },
+  detailBody: { detail: 5 },
+  filtered: { filter: { origin: "tree-system", matched: ["a", "b"] }, selected: "req:ifc0", scope: true },
+  selected: { selection: ["3kZ$example0000000000"], hover: "3kZ$example0000000000" },
 };
 const windows = [];
 for (let w = 1100; w <= 3440; w += 130) for (let h = 700; h <= 1600; h += 150) windows.push([w, h]);
@@ -138,6 +145,9 @@ for (const [design, content] of Object.entries(contents)) {
     count += 1;
     // Rule 8: deterministic, the same input gives the same layout.
     check(JSON.stringify(layout({ ...grid }, { ...content })) === JSON.stringify(out), `rule 8: ${at} is not deterministic`);
+    // Stable: Detail empty vs filled, no filter vs a filter, the same board.
+    for (const [state, extra] of Object.entries(STATES))
+      check(JSON.stringify(layout({ ...grid }, { ...content, ...extra })) === JSON.stringify(out), `stable: ${at} moves with ${state}`);
     const occ = new Map();
     let xl = 0;
     for (const t of out.tiles) {
@@ -178,10 +188,17 @@ for (const [design, content] of Object.entries(contents)) {
     // or c's panels).
     const ids = new Set(out.tiles.map((t) => t.id));
     const tabbed = (id) => out.tiles.some((t) => t.tabs.includes(id));
-    // Beside the sidebar on a laptop (`side-pack`) Scope may be a tab of the
-    // sidebar; it comes forward there when it fills.
-    check(ids.has("viewer") && (ids.has("scope") || (out.band === "side-pack" && tabbed("scope"))), `${at}: the model or Scope is not a tile`);
-    check(ids.has("detail") || out.tiles.some((t) => t.tabs.includes("detail")), `${at}: Detail is neither a tile nor a tab`);
+    // The docks have a slot of their own: Scope always a tile, Detail a tile
+    // wherever the window seats it (12 × 5 and up), under that a fixed tab of
+    // Scope. Neither hosts any other tab.
+    check(ids.has("viewer") && ids.has("scope"), `${at}: the model or Scope is not a tile`);
+    check(
+      ids.has("detail") || ((grid.cols < 12 || grid.rows < 5) && out.tiles.find((t) => t.id === "scope")?.tabs.includes("detail")),
+      `${at}: Detail is not a tile`,
+    );
+    for (const t of out.tiles)
+      if (t.id === "scope" || t.id === "detail" || t.kind === "viewer")
+        check(t.tabs.every((id) => id === "detail" || id.startsWith("count")), `${at}: ${t.id} hosts ${t.tabs.join(",")}`);
     check(ids.has("reqs") || ids.has("ifc0"), `${at}: the requirements have no tile`);
     check(!ids.has("mmi") && ![...ids].some((id) => /^std\d+$/.test(id)), `${at}: a Standardkrav tile on the Overview`);
     // The KPI row: every IFC-struktur requirement an S card on the TOP row,
@@ -195,8 +212,7 @@ for (const [design, content] of Object.entries(contents)) {
     } else if (!ids.has("reqs")) {
       const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
       check(cards.length === content.ifc && cards.every((t) => t.y === out.top && t.size === "S"), `${at}: the KPI cards are not one S row on top`);
-      // Or Detail, filled, in its place with the floors a tab of it.
-      const f = out.tiles.find((t) => t.id === "floors") ?? out.tiles.find((t) => t.id === "detail" && t.tabs.includes("floors"));
+      const f = out.tiles.find((t) => t.id === "floors");
       check(
         !!f && f.y === out.top + 2 && f.h === out.usedRows - 2 && f.x + f.w === out.offset + out.used,
         `${at}: the floor sidebar is not the full height on the right (${f ? `${f.x},${f.y} ${f.w}×${f.h}` : "none"})`,
@@ -213,16 +229,11 @@ for (const [design, content] of Object.entries(contents)) {
         );
       else {
         // The break: the sidebar goes only where the board beside it cannot
-        // seat five S cards and the XL model (under 12 columns or 6 rows).
-        check(grid.cols < 12 || grid.rows < 6, `${at}: no sidebar at ${grid.cols}×${grid.rows}`);
+        // seat five S cards, the XL model and the two docks as tiles (under
+        // 14 columns or 6 rows).
+        check(grid.cols < 14 || grid.rows < 6, `${at}: no sidebar at ${grid.cols}×${grid.rows}`);
         check(!!c || tabbed("checks"), `${at}: no sidebar, and the checks are neither a tile nor a tab`);
       }
-    }
-    // Detail as a column: about 1 : 2 at most, and never taller than filled.
-    const d = out.tiles.find((t) => t.id === "detail");
-    if (d && d.size === "tall") {
-      check(d.h <= 2 * d.w, `rule 3: ${at} Detail ${d.w}×${d.h} is narrower than 1 : 2`);
-      check(!!content.detail && content.detail >= d.h - 1, `rule 5: ${at} Detail ${d.w}×${d.h} is taller than its ${content.detail ?? 0} rows`);
     }
     if (REFERENCE.some(([a, b]) => a === w && b === h))
       console.log(`  ${design} ${w}×${h} ${grid.cols}×${grid.rows}: ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${ms.toFixed(0)} ms · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
@@ -253,6 +264,10 @@ for (const [design, content] of Object.entries(projectContents)) {
     }
     count += 1;
     if (out.rowPx) taller += 1;
+    for (const [state, extra] of Object.entries(STATES))
+      check(JSON.stringify(layoutProject({ ...grid }, { ...content, ...extra })) === JSON.stringify(out), `stable: ${at} moves with ${state}`);
+    // The docks: tiles from 12 columns up, never hosts; under that fixed tabs.
+    if (grid.cols >= 12 && grid.rows >= 6) check(["scope", "detail"].every((id) => out.tiles.some((t) => t.id === id)), `${at}: Scope or Detail is not a tile`);
     const occ = new Set();
     for (const t of out.tiles) {
       const [bw, bh] = t.base ?? [t.w, t.h];

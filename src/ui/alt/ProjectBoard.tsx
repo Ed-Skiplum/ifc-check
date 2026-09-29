@@ -21,7 +21,7 @@
  * treemap exists to draw; with no `.ids`, the table is the open button.
  */
 
-import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { ModelEntry } from "../useModels";
 import type { Focus } from "../trace";
 import type { Lang } from "../i18n";
@@ -76,15 +76,6 @@ export function ProjectBoard(props: ProjectBoardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [grid, reqs.length, treeKey],
   );
-
-  const [prefer, setPrefer] = useState<string | null>(null);
-  const selectionKey = props.selection.join(",");
-  useEffect(() => {
-    if (selected) setPrefer("scope");
-  }, [selected]);
-  useEffect(() => {
-    if (selectionKey) setPrefer("detail");
-  }, [selectionKey]);
 
   const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
   const input = useRef<HTMLInputElement>(null);
@@ -206,7 +197,7 @@ export function ProjectBoard(props: ProjectBoardProps) {
           }}
         >
           {layout.tiles.map((place) => (
-            <Tile key={place.id} place={place} bodies={bodies} prefer={prefer} />
+            <Tile key={place.id} place={place} bodies={bodies} />
           ))}
         </div>
       ) : null}

@@ -39,7 +39,7 @@
  * requirement's base is not known per element.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { ModelResult } from "../../ids/evaluate.ts";
 import type { KpiClaims } from "../claims";
@@ -70,7 +70,6 @@ import {
   MG_GAP,
   MG_HEAD,
   MG_MARGIN,
-  detailRows,
   layoutOverview,
   mgGrid,
   sideModules,
@@ -182,51 +181,18 @@ export function AltBoard(props: AltBoardProps) {
     return () => observer.disconnect();
   }, []);
   const side = grid && needPx > 0 && rest.length > 0 ? sideModules(needPx, grid.u) : 0;
-  // Detail's content at its natural height, read off the dock wherever it is
-  // drawn (a tile, or a tab that is showing): filled, Detail takes the rows it
-  // needs where the board has them (`layoutOverview`), else one scroller.
-  const boardRef = useRef<HTMLDivElement>(null);
-  const [detailPx, setDetailPx] = useState(0);
-  const watched = useRef<{ el: Element | null; observer: ResizeObserver | null }>({ el: null, observer: null });
-  useLayoutEffect(() => {
-    const panel = props.detail ? (boardRef.current?.querySelector('[data-dock="detail"] [data-object-panel]') ?? null) : null;
-    if (panel === watched.current.el) return;
-    watched.current.observer?.disconnect();
-    watched.current = { el: panel, observer: null };
-    if (!props.detail) {
-      setDetailPx(0);
-      return;
-    }
-    const head = panel?.firstElementChild;
-    const body = panel?.querySelector("[data-object-body]");
-    if (!(head instanceof HTMLElement) || !(body instanceof HTMLElement)) return;
-    const measure = () => setDetailPx(Math.ceil(head.offsetHeight + body.offsetHeight));
-    const observer = new ResizeObserver(measure);
-    observer.observe(head);
-    observer.observe(body);
-    watched.current.observer = observer;
-    measure();
-  });
-  useEffect(() => () => watched.current.observer?.disconnect(), []);
-  const detail = grid && props.detail ? detailRows(detailPx, grid.u) : 0;
+  // The layout is a pure function of the window (`grid`) and the loaded
+  // content (the model's requirements, counts, treemaps, checks), never of
+  // selection, filter or what Scope and Detail hold (2026-09-29, the owner:
+  // "I dont like this components changing places based on what is
+  // selected. I prefer a clean UI with predictable movements").
   const layout = useMemo<MgLayout | null>(
-    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees, side, detail }) : null),
+    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees, side }) : null),
     // `trees` is keyed by its ids; the layout is a pure function of them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grid, reqs.length, counts.length, treeKey, side, detail],
+    [grid, reqs.length, counts.length, treeKey, side],
   );
   const noFocus = useMemo(() => new Map(), []);
-
-  // A dock that is a tab comes forward when it fills: a requirement click
-  // fills Scope, a selection fills Detail.
-  const [prefer, setPrefer] = useState<string | null>(null);
-  const selectionKey = props.view.selection.join(",");
-  useEffect(() => {
-    if (props.selected) setPrefer("scope");
-  }, [props.selected]);
-  useEffect(() => {
-    if (selectionKey) setPrefer("detail");
-  }, [selectionKey]);
 
   // Antall / Volum / Areal per treemap. A measure still waiting on the
   // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
@@ -244,7 +210,6 @@ export function AltBoard(props: AltBoardProps) {
       </div>
       {grid && layout && bodies ? (
         <div
-          ref={boardRef}
           data-mg-grid
           data-mg-design="overview"
           data-mg-band={layout.band}
@@ -261,7 +226,7 @@ export function AltBoard(props: AltBoardProps) {
           }}
         >
           {layout.tiles.map((place) => (
-            <Tile key={place.id} place={place} bodies={bodies} prefer={prefer} />
+            <Tile key={place.id} place={place} bodies={bodies} />
           ))}
         </div>
       ) : null}
@@ -280,8 +245,8 @@ export interface TileBody {
   body: ReactNode;
   /** Bare: no head, the body is the whole tile. */
   bare?: boolean;
-  /** A dock with nothing in it yet (Scope, Detail): a tile whose own body is
-   *  empty shows its first tab that is not, until a click brings it back. */
+  /** A dock with nothing in it yet (Scope, Detail). Drawn empty in its slot;
+   *  it never changes which tab a tile shows. */
   empty?: boolean;
   /** The cross-filter: `origin` dims all but the chosen item; `whole` marks
    *  whole-model figures under a filter from another view, with `whole`'s
@@ -293,22 +258,15 @@ export interface TileBody {
 export type Bodies = (id: string) => TileBody | null;
 
 /** One tile. Tiles moved into it (rule 8) are tabs in its head, after its
- *  own; the counts never are (they stay in the checks list). */
-export function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies; prefer: string | null }) {
+ *  own; the counts never are (they stay in the checks list). The tile's own
+ *  tab shows until the reader clicks another: a tab changes only on a click
+ *  on it, never because a panel filled or emptied (2026-09-29, STABLE
+ *  LAYOUT). */
+export function Tile({ place, bodies }: { place: MgPlace; bodies: Bodies }) {
   const own = bodies(place.id);
   const tabs = [place.id, ...place.tabs.filter((id) => !id.startsWith("count") && bodies(id))];
-  // A tab the reader clicked stays; one a fill brought forward (`prefer`)
-  // gives way again once it is empty.
-  const [active, setActive] = useState<{ id: string; picked: boolean } | null>(null);
-  useEffect(() => {
-    if (prefer && tabs.includes(prefer)) setActive({ id: prefer, picked: false });
-    // `tabs` is derived from the place; `prefer` is the signal.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefer]);
-  // Unchosen, the first tab with something in it.
-  const auto = tabs.find((id) => !bodies(id)?.empty) ?? place.id;
-  const shown =
-    active && tabs.includes(active.id) && (active.picked || !bodies(active.id)?.empty) ? active.id : auto;
+  const [active, setActive] = useState<string | null>(null);
+  const shown = active && tabs.includes(active) ? active : place.id;
   const body = shown === place.id ? own : bodies(shown);
   if (!own || !body) return null;
   const tabbed = tabs.length > 1;
@@ -332,7 +290,7 @@ export function Tile({ place, bodies, prefer }: { place: MgPlace; bodies: Bodies
                 type="button"
                 data-mg-tab={id}
                 aria-pressed={shown === id}
-                onClick={() => setActive({ id, picked: true })}
+                onClick={() => setActive(id)}
                 className="alt-tab shrink-0 px-2 py-0.5 whitespace-nowrap"
               >
                 {b?.label ?? id}
