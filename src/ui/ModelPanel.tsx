@@ -26,11 +26,12 @@
  * ONE filter per model, one origin (`filter-state.ts`, edkjo 2026-09-28:
  * *"Original: Highlight, everything else: Isolate"*). Every click here names
  * the view it came from; the reducer replaces the filter and Scope's list in
- * one step. Every view below is handed the same resolved set (`xf`): the
- * origin keeps all its items and dims the rest, every other view is given
- * the filtered profile, catalogue or census and shows only what matches. The
- * bar sits on the tab line and is always rendered, so "what am I filtered
- * to?" is answerable at a glance.
+ * one step. A click on one object only selects it; the filter stays. Every
+ * view below is handed the same resolved set (`xf`): the origin keeps all
+ * its items and dims the rest, every other view is given the filtered
+ * profile, catalogue or census and shows only what matches. The bar sits
+ * on the tab line and is always rendered, so "what am I filtered to?" is
+ * answerable at a glance.
  */
 
 import { cloneElement, isValidElement, useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
@@ -43,6 +44,7 @@ import type { FilterAction, Mode, ModelView, Origin } from "./cross-filter";
 import { chooseFocus, filterOf, resolveActive } from "./cross-filter";
 import { serialiseFocus } from "./trace";
 import type { Xf } from "./origins";
+import type { PickHandler } from "../viewer/ViewerTile";
 import { t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatBytes, formatCount, formatMs } from "./format";
@@ -234,7 +236,14 @@ export function ModelPanel({
     (next: Focus, origin: Origin) => onDispatch(chooseFocus(origin, next, model, lang)),
     [lang, model, onDispatch],
   );
-  /** A click on one element in a view (the canvas, a graph product). */
+  /** A click on one object in the 3D: the selection only, never the filter
+   *  (`filter-state.ts`, 2026-09-29). Esc clears the selection, then the
+   *  filter. */
+  const pickViewer = useCallback<PickHandler>(
+    (guid, additive, escape) => onDispatch(escape ? { type: "escape" } : { type: "select", guid, additive }),
+    [onDispatch],
+  );
+  /** A graph product: one element as the filter (`GraphTab.tsx`). */
   const pickIn = useCallback(
     (origin: Origin) => (guid: string | null, additive: boolean) => {
       const row = guid ? profile?.rows.find((r) => r.guid === guid) : undefined;
@@ -285,7 +294,7 @@ export function ModelPanel({
   // The project tab docks them too, on its own module grid (2026-09-28).
   const docked = (design !== null && tab === "checks") || tab === "project";
   const scope =
-    docked && isValidElement(trace)
+    docked && view.scope && isValidElement(trace)
       ? cloneElement(trace as ReactElement<{ alone?: boolean; origin?: boolean }>, { alone: true, origin: view.origin === "scope" })
       : null;
   const detail =
@@ -413,7 +422,7 @@ export function ModelPanel({
                 onFocus={focus}
                 view={view}
                 xf={xf}
-                onPick={pickIn("viewer")}
+                onPick={pickViewer}
                 onHover={onHover}
                 floors={floors}
                 peers={ownFirst}

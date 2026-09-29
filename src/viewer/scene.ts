@@ -112,6 +112,10 @@ const HOVER_EDGE_WIDTH = 1.4;
 const EDGE_THRESHOLD = 24;
 
 const DRAG_SLOP = 3;
+/** A second click this soon and this close is the rest of a double-click
+ *  (the Windows default double-click time; a few px of hand jitter). */
+const DOUBLE_MS = 500;
+const DOUBLE_SLOP = 6;
 
 /** Entities a click or hover never lands on. */
 const UNPICKABLE = new Set(["IfcSpace", "IfcOpeningElement"]);
@@ -146,6 +150,8 @@ export interface PickEvent {
   guid: string | null;
   /** Shift or Ctrl was held: add/toggle rather than replace. */
   additive: boolean;
+  /** Esc, not a click: the host clears the selection, then the filter. */
+  escape?: boolean;
 }
 
 export interface SceneCallbacks {
@@ -258,6 +264,8 @@ export class ModelScene {
   private drag: { pointerId: number; mode: "orbit" | "pan"; x: number; y: number; moved: number } | null =
     null;
   private pendingHover: { x: number; y: number } | null = null;
+  /** The last click, to tell a double-click's second half from a new pick. */
+  private lastClick: { at: number; x: number; y: number } | null = null;
   private lastHover: string | null = null;
   private hoverPickable = true;
   /** The zoom anchor is resolved by raycast on the FIRST wheel of a burst and
@@ -1141,6 +1149,18 @@ export class ModelScene {
       this.canvas.releasePointerCapture(event.pointerId);
     }
     if (drag.moved > DRAG_SLOP || drag.mode !== "orbit") return;
+    // The second click of a double-click frames the selection and is never a
+    // new pick: the first click already framed it, so what lies under the
+    // cursor now is something else, often empty space, and picking it would
+    // clear what was just selected.
+    const now = performance.now();
+    const last = this.lastClick;
+    if (last && now - last.at < DOUBLE_MS && Math.abs(event.clientX - last.x) + Math.abs(event.clientY - last.y) <= DOUBLE_SLOP) {
+      this.lastClick = null;
+      if (this.selection.length > 0) this.frameChoice();
+      return;
+    }
+    this.lastClick = { at: now, x: event.clientX, y: event.clientY };
     const hit = this.pick(this.ndc(event));
     this.callbacks.onPick({
       guid: hit?.guid ?? null,
@@ -1202,7 +1222,7 @@ export class ModelScene {
 
   private onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape") return;
-    this.callbacks.onPick({ guid: null, additive: false });
+    this.callbacks.onPick({ guid: null, additive: false, escape: true });
   };
 
   /* ----------------------------------------------------------------- loop */

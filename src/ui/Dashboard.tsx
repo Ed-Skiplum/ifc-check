@@ -48,7 +48,7 @@ import { useBentoCols } from "./useBentoCols";
 import { Verification } from "./Verification";
 import type { ModelView, Origin } from "./cross-filter";
 import { isoOf, type Xf } from "./origins";
-import { ViewerTile } from "../viewer/ViewerTile";
+import { ViewerTile, type PickHandler } from "../viewer/ViewerTile";
 import { ClassDistribution, KpiRow, SpatialGauge } from "./forms";
 import { formatCount } from "./format";
 import { matchStoreys, type FloorConfig } from "../engine/storey-config";
@@ -73,7 +73,7 @@ interface DashboardProps {
   view: ModelView;
   /** The one filter: its origin and the elements it resolves to. */
   xf: Xf;
-  onPick: (guid: string | null, additive: boolean) => void;
+  onPick: PickHandler;
   onHover: (guid: string | null) => void;
   floors: FloorConfig[] | null;
   /** Every loaded model's storeys, this model first. */
@@ -191,7 +191,7 @@ interface BuildArgs {
   onFocus: (focus: Focus) => void;
   view: ModelView;
   matched: Set<string> | null;
-  onPick: (guid: string | null, additive: boolean) => void;
+  onPick: PickHandler;
   onHover: (guid: string | null) => void;
   floors: FloorConfig[] | null;
   peers: FloorPeer[];

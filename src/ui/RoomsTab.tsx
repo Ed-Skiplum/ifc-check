@@ -14,10 +14,10 @@
  *              one storey as a plan (`room-plan.ts`), coloured the same.
  *
  * The one filter, one origin: a group row is origin `rooms` with the group's
- * rooms as the filter; a room row or a room in the plan is an element pick
- * (origins `rooms`, `room-plan`); a room in the 3D is the canvas's own pick
- * (`viewer`). The origin keeps its items and dims all but the chosen; the
- * other surfaces isolate (the plan by `Vis kun / Uthev`, as the 3D). Every
+ * rooms as the filter. A room row, a room in the plan or a room in the 3D
+ * only SELECTS it; the filter stays (`filter-state.ts`, 2026-09-29). The
+ * origin keeps its items and dims all but the chosen; the other surfaces
+ * isolate (the plan by `Vis kun / Uthev`, as the 3D). Every
  * choice is framed: the scene by its own rule, the plan by its box, on the
  * storey that holds it.
  */
@@ -108,14 +108,9 @@ export function RoomsTab({
     });
   };
   const labelOf = useMemo(() => new Map(rooms.map((r) => [r.guid, roomLabel(r)])), [rooms]);
-  const pickRoom = (origin: "rooms" | "room-plan") => (guid: string | null, event: MouseEvent) =>
-    onDispatch({
-      type: "element",
-      origin,
-      guid,
-      label: guid ? (labelOf.get(guid) ?? guid) : null,
-      additive: event.shiftKey || event.ctrlKey || event.metaKey,
-    });
+  // A room row or a room in the plan selects it; the filter stays.
+  const pickRoom = (guid: string | null, event: MouseEvent) =>
+    onDispatch({ type: "select", guid, additive: event.shiftKey || event.ctrlKey || event.metaKey });
 
   const tiles = grid ? roomTiles(grid) : null;
   const scheduleBody = (
@@ -131,7 +126,7 @@ export function RoomsTab({
       view={view}
       notRead={rooms.length > 0 && !profile?.longNames}
       onGroup={pickGroup}
-      onRoom={pickRoom("rooms")}
+      onRoom={pickRoom}
     />
   );
 
@@ -179,8 +174,7 @@ export function RoomsTab({
                 labelOf={labelOf}
                 view={view}
                 iso={isoOf(xf, "room-plan")}
-                origin={xf.origin === "room-plan"}
-                onPick={pickRoom("room-plan")}
+                onPick={pickRoom}
               />
             )}
           </Frame>
@@ -428,7 +422,7 @@ function Schedule({
                           key={`${group.key}/${guid}`}
                           ref={ref}
                           data-room={guid}
-                          data-chosen={on && view.origin === "rooms" ? "" : undefined}
+                          data-chosen={on ? "" : undefined}
                           data-xf-in={chosen ? "" : undefined}
                           aria-current={on ? "true" : undefined}
                           onClick={(event) => onRoom(guid, event)}
@@ -507,7 +501,6 @@ function Plan({
   labelOf,
   view,
   iso,
-  origin,
   onPick,
 }: {
   lang: Lang;
@@ -519,7 +512,6 @@ function Plan({
   view: ModelView;
   /** The filter's rooms when another view is the origin, else null. */
   iso: Set<string> | null;
-  origin: boolean;
   onPick: (guid: string | null, event: MouseEvent) => void;
 }) {
   const guids = useMemo(() => new Set(rooms.map((r) => r.guid)), [rooms]);
@@ -649,7 +641,7 @@ function Plan({
             <g
               key={s.guid}
               data-room={s.guid}
-              data-chosen={on && origin ? "" : undefined}
+              data-chosen={on ? "" : undefined}
               className="cursor-pointer"
               opacity={ghost ? 0.22 : undefined}
               onClick={(event) => {

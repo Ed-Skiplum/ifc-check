@@ -13,12 +13,24 @@
  * clears it. Nothing stacks.
  *
  * Two exceptions, both within ONE view:
- *   - Shift or Ctrl on an ELEMENT pick (the canvas, a Scope row, a graph
- *     product) adds that element to, or takes it from, the element filter
- *     of the same origin. A click in another view still replaces it.
- *   - A pick IN Scope keeps the list it was made from (`base`): Scope is the
- *     origin then, so it keeps its rows, and picking the chosen row again
- *     steps back to that list's own filter rather than to nothing.
+ *   - Shift or Ctrl on an ELEMENT filter pick (`element`: a graph product, a
+ *     link restored from the hash) adds that element to, or takes it from,
+ *     the element filter of the same origin. A click in another view still
+ *     replaces it.
+ *   - An `element` pick IN Scope keeps the list it was made from (`base`).
+ *
+ * ── The selection is not the filter (2026-09-29) ─────────────────────────
+ * edkjo: *"We isolate something, but then when trying to highlight and see
+ * info on an object in the filter, it just resets or changes the filter."*
+ * The canon (spatial-workspace.md): scene selection never isolates. So a
+ * click on ONE object, in the 3D, a Scope row or a room, is `select`: it
+ * sets `selection` (highlighted, framed, its info in ObjectPanel) and leaves
+ * the filter, its origin and Scope's list alone. Shift or Ctrl toggles it in
+ * the selection. The same object again keeps it (a double-click is two
+ * clicks and must not clear). Empty space clears the selection only; Esc
+ * clears the selection, and with none left, the filter (`escape`). Clearing
+ * the filter (Tøm, the chosen item again) keeps the selection. Isolating
+ * stays a deliberate click on a set (a card, a row of a board number).
  *
  * Pure and free of React so the selftest can drive it (`ids-cli.ts`).
  */
@@ -71,6 +83,9 @@ export interface FilterState {
   filter: ActiveFilter | null;
   /** What Scope lists. */
   scope: Focus | null;
+  /** The selected objects. Their own state: `select` and `escape` change
+   *  only this, clearing the filter keeps it, a new filter (`choose`)
+   *  replaces it. */
   selection: string[];
 }
 
@@ -87,8 +102,14 @@ export type FilterAction =
       scope: Focus | null;
       selection?: string[];
     }
-  /** A click on ONE element in a view. */
+  /** ONE element as THE filter (a graph product, a link restored from the
+   *  hash). Not what a click on an object does: that is `select`. */
   | { type: "element"; origin: Origin; guid: string | null; label: string | null; additive: boolean }
+  /** A click on one object: the selection only, never the filter. `guid`
+   *  null is empty space. */
+  | { type: "select"; guid: string | null; additive: boolean }
+  /** Esc: the selection first, then the filter. */
+  | { type: "escape" }
   | { type: "clear" }
   /** Set outright, no toggle: the type page's own isolate. */
   | { type: "set"; state: FilterState };
@@ -111,15 +132,26 @@ function elementState(origin: Origin, guids: string[], label: string, prev: Filt
 }
 
 export function reduceFilter(state: FilterState, action: FilterAction): FilterState {
-  if (action.type === "clear") return EMPTY_FILTER;
+  // Clearing the filter keeps the selection: it is its own state.
+  if (action.type === "clear") return { ...EMPTY_FILTER, selection: state.selection };
+  if (action.type === "escape") return state.selection.length > 0 ? { ...state, selection: [] } : EMPTY_FILTER;
+  if (action.type === "select") {
+    const { guid, additive } = action;
+    if (guid === null) return state.selection.length > 0 ? { ...state, selection: [] } : state;
+    // Always a new array: the same object picked again is a new request, so
+    // the viewer frames it again (`ModelScene.followChoice`).
+    if (!additive) return { ...state, selection: [guid] };
+    const on = state.selection.includes(guid);
+    return { ...state, selection: on ? state.selection.filter((g) => g !== guid) : [...state.selection, guid] };
+  }
   if (action.type === "set") {
     const { origin, key, filter, scope, selection } = action.state;
     return { origin, key, filter, scope, selection };
   }
 
   if (action.type === "choose") {
-    // The chosen item again: off.
-    if (state.origin === action.origin && state.key === action.key) return EMPTY_FILTER;
+    // The chosen item again: off. The selection stays, as on `clear`.
+    if (state.origin === action.origin && state.key === action.key) return { ...EMPTY_FILTER, selection: state.selection };
     return {
       origin: action.origin,
       key: action.key,
