@@ -1,9 +1,10 @@
 /** The Innhold tab: what the file carries, in detail.
  *
  * A flow surface, not a bento (sprucelab ModelWorkspace: one bento overview
- * tab, then working tabs). Two bands, each a card with a FIXED,
- * viewport-derived height, so a long class list or ledger costs rows inside
- * its card and never page height (DESIGN.md §1, TableViewport):
+ * tab, then working tabs). Two bands that share the tab panel's height
+ * 40 : 55, the derivation band's room already taken out of it, so a long
+ * class list or ledger costs rows inside its card and never page height
+ * (DESIGN.md §1, TableViewport). Each card is the one scroller of its list:
  *
  *   band 1   Klasser (38.2 %) | Etasje × klasse (61.8 %)
  *   band 2   Typer, full width
@@ -69,12 +70,12 @@ export function Contents({
   onFocus: (focus: Focus) => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto" style={SCALE}>
-      <div className="grid shrink-0 gap-3 [grid-template-columns:minmax(0,38.2fr)_minmax(0,61.8fr)]">
+    <div className="flex min-h-0 flex-1 flex-col gap-3" style={SCALE}>
+      <div className="grid min-h-0 flex-[40_1_0] gap-3 [grid-template-columns:minmax(0,38.2fr)_minmax(0,61.8fr)] [grid-template-rows:minmax(0,1fr)]">
         <Card
           label={t("tile.classes", lang)}
           sub={formatCount(census.classes.length, lang)}
-          className="h-[clamp(15rem,40vh,34rem)]"
+          className="h-full"
         >
           <ClassDistribution
             lang={lang}
@@ -86,7 +87,7 @@ export function Contents({
         <Card
           label={t("tile.census", lang)}
           sub={`${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`}
-          className="h-[clamp(15rem,40vh,34rem)]"
+          className="h-full"
         >
           <StoreyClassCensus
             lang={lang}
@@ -104,7 +105,7 @@ export function Contents({
       <Card
         label={t("tile.types", lang)}
         sub={`${formatCount(ledger.singles, lang)} / ${formatCount(ledger.types, lang)}`}
-        className="h-[clamp(18rem,55vh,48rem)] shrink-0"
+        className="flex-[55_1_0]"
       >
         {ledger.factsPresent ? (
           <TypeLedgerTile lang={lang} ledger={ledger} selected={selected} onFocus={onFocus} />

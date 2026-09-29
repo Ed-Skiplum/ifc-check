@@ -885,18 +885,24 @@ function layoutProjectNarrow(grid: MgGrid, content: MgProjectContent): MgLayout 
 
 /* ── the Graf tab: the graph and the model as two XL tiles ─────────────── */
 
+/** The Graf pair under an XL, largest first; each inside 9 : 16 to 16 : 9. */
+const GRAF_SMALL: readonly Wh[] = [[4, 3], [3, 2], [2, 2]];
+
 /** The two surfaces of the Graf tab on the same grid (rules 4 and 7), side
  *  by side from the top-left corner of the board: both XL, at 8 × 5 where
  *  the board seats two of them, else 6 × 4. Where two XL cannot sit side by
  *  side (under 12 columns) the second is an L, 3 × 4, the largest canon size
- *  left beside a 6 × 4. `main` is first; the swap only changes which surface
- *  is which. Centred in whole columns. */
+ *  left beside a 6 × 4. Where the rows cannot hold an XL (the derivation
+ *  band open under the tab), the pair steps down to the largest that fits:
+ *  L 4 × 3, M 3 × 2, S 2 × 2. `main` is first; the swap only changes which
+ *  surface is which. Centred in whole columns. */
 export function graphTiles(grid: MgGrid): { main: MgPlace; second: MgPlace; used: number; offset: number } {
   const { cols, rows } = grid;
   const pair = ([w, h]: Wh) => 2 * w <= cols && h <= rows;
   const xl = XL.find(pair);
-  const main: Wh = xl ?? [6, 4];
-  const second: Wh = xl ?? [3, 4];
+  const small = xl || (cols >= 9 && rows >= 4) ? undefined : GRAF_SMALL.find(pair);
+  const main: Wh = xl ?? small ?? [6, 4];
+  const second: Wh = xl ?? small ?? [3, 4];
   const used = Math.min(cols, main[0] + second[0]);
   const offset = Math.floor((cols - used) / 2);
   const at = (id: string, x: number, [w, h]: Wh, priority: number): MgPlace => ({

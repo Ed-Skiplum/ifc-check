@@ -219,13 +219,19 @@ for (const [design, content] of Object.entries(contents)) {
 
 /* ── the Graf tab ───────────────────────────────────────────────────────── */
 
-for (const [w, h] of windows) {
-  const grid = mgGrid(w, h - 104);
+// The derivation band open under the tab takes 38.2 % of the window (at
+// least 256 px); the pair then steps down into the rows left, never past them.
+for (const [w, h] of windows) for (const band of [0, Math.max(256, 0.382 * h) + 8]) {
+  const grid = mgGrid(w, h - 104 - band);
   const g = graphTiles(grid);
   for (const t of [g.main, g.second]) {
     const size = canonSize(t.w, t.h);
-    check(size === "XL" || (grid.cols < 12 && size === "L" && t === g.second), `graf ${w}×${h}: ${t.id} ${t.w}×${t.h} is ${size}`);
+    check(
+      size === "XL" || (grid.cols < 12 && size === "L" && t === g.second) || (grid.rows < 4 && size !== null && t.w >= t.h),
+      `graf ${w}×${h} band ${band}: ${t.id} ${t.w}×${t.h} is ${size}`,
+    );
     check(t.x + t.w <= grid.cols, `graf ${w}×${h}: ${t.id} outside the grid`);
+    if (grid.rows >= 2) check(t.y + t.h <= grid.rows, `graf ${w}×${h} band ${band}: ${t.id} ${t.w}×${t.h} below ${grid.rows} rows`);
     const a = mgSpanPx(t.w, grid.u) / mgSpanPx(t.h, grid.u);
     check(a >= MG_ASPECT.graph.min && a <= MG_ASPECT.graph.max, `graf ${w}×${h}: ${t.id} aspect ${a.toFixed(2)}`);
   }

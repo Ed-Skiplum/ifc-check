@@ -342,7 +342,7 @@ export function ModelPanel({
     // The design alternatives lay out on the window's own module grid, which
     // adds columns on a wider window rather than capping it (the layout
     // canon, rule 1).
-    <section className="mx-auto flex w-full shrink-0 flex-col gap-2" style={{ maxWidth: design ? undefined : BENTO_MAX_WIDTH }}>
+    <section className="mx-auto flex h-full min-h-0 w-full shrink-0 flex-col gap-2" style={{ maxWidth: design ? undefined : BENTO_MAX_WIDTH }}>
       {oneLine ? null : nameLine}
 
       {reading ? (
@@ -401,8 +401,8 @@ export function ModelPanel({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <div role="tabpanel" hidden={tab !== "checks"} className="flex flex-col">
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <div role="tabpanel" hidden={tab !== "checks"} className="flex min-h-0 flex-1 flex-col">
               <Dashboard
                 lang={lang}
                 model={model}
@@ -423,7 +423,7 @@ export function ModelPanel({
                 detail={tab === "checks" ? detail : null}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "contents"} className="flex flex-col">
+            <div role="tabpanel" hidden={tab !== "contents"} className="flex min-h-0 flex-1 flex-col">
               <div className="contents" data-xf={view.origin === "census" ? "origin" : undefined}>
               <Contents
                 lang={lang}
@@ -436,7 +436,7 @@ export function ModelPanel({
             </div>
             {/* Same mounted-and-hidden pattern as the other two: the 3D scene
                 on Kontroll must survive a trip here and back. */}
-            <div role="tabpanel" hidden={tab !== "graph"} className="flex flex-col">
+            <div role="tabpanel" hidden={tab !== "graph"} className="flex min-h-0 flex-1 flex-col">
               <GraphTab
                 lang={lang}
                 design={design}
@@ -450,7 +450,7 @@ export function ModelPanel({
                 onFocus={(next) => focus(next, "graph")}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "types"} className="flex flex-col">
+            <div role="tabpanel" hidden={tab !== "types"} className="flex min-h-0 flex-1 flex-col">
               <TypesTab
                 lang={lang}
                 profile={profile ?? null}
@@ -485,7 +485,7 @@ export function ModelPanel({
                 }}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "materials"} className="flex flex-col">
+            <div role="tabpanel" hidden={tab !== "materials"} className="flex min-h-0 flex-1 flex-col">
               <MaterialsTab
                 lang={lang}
                 profile={profile ?? null}
@@ -499,7 +499,7 @@ export function ModelPanel({
                 onOpenType={openType}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "rooms"} className="flex flex-col">
+            <div role="tabpanel" hidden={tab !== "rooms"} className="flex min-h-0 flex-1 flex-col">
               <RoomsTab
                 lang={lang}
                 model={model}
@@ -509,7 +509,7 @@ export function ModelPanel({
                 onDispatch={onDispatch}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "project"} className="flex flex-col">
+            <div role="tabpanel" hidden={tab !== "project"} className="flex min-h-0 flex-1 flex-col">
               <ProjectBoard
                 lang={lang}
                 model={model}
@@ -526,14 +526,14 @@ export function ModelPanel({
                 onClearIds={onClearIds}
               />
             </div>
-            {/* Pinned to the bottom of the scrolling page while this panel
-                spans it, so a number clicked at the top of a tall board opens
-                its derivation in view; it takes 38.2 % of the screen and the
-                board keeps 61.8 %. At the end of the panel it rests in flow. */}
+            {/* The foot of the panel, inside the window: it takes 38.2 % of
+                the screen and the tab above keeps the rest, measured off its
+                own panel (`roomBelow`), so the tab shrinks into what is left
+                and neither pushes the band out of view nor sits under it. */}
             {/* Not on Rom: its two tiles fit the window (the layout canon,
                 rule 1), and a foot band would cover them. */}
             {trace && !docked && tab !== "rooms" ? (
-              <div className="sticky bottom-0 z-20 flex h-[38.2dvh] min-h-[16rem] flex-col">
+              <div className="flex h-[38.2dvh] min-h-[16rem] shrink-0 flex-col">
                 {trace}
               </div>
             ) : null}

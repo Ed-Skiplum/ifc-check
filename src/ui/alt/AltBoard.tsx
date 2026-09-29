@@ -56,6 +56,7 @@ import { matchStoreys } from "../../engine/storey-config";
 import { t } from "../i18n";
 import { formatCount } from "../format";
 import { Verification } from "../Verification";
+import { fitRegion, roomBelow } from "../useFillHeight";
 import { ViewerTile } from "../../viewer/ViewerTile";
 import { VERDICT_GLYPH } from "../state-visuals";
 import { boardCards } from "../board-data";
@@ -122,9 +123,11 @@ export const VARS = {
 } as CSSProperties;
 
 /** The window's grid (rule 6): its width is the page's (`main`'s client
- *  width: the window less a scrollbar), its height what the window leaves
- *  under the grid's top edge INSIDE its own model panel, so a second model
- *  further down the page gets the same board as the first. */
+ *  width: the window less a scrollbar), its height what is left under the
+ *  grid's top edge INSIDE its own tab panel (`roomBelow`): the window less the
+ *  chrome above and any band below, so the tiles shrink into the room rather
+ *  than push the band out, and a second model further down the page gets the
+ *  same board as the first. */
 export function useModuleGrid() {
   const ref = useRef<HTMLDivElement>(null);
   const [grid, setGrid] = useState<MgGrid | null>(null);
@@ -132,15 +135,13 @@ export function useModuleGrid() {
     const el = ref.current;
     if (!el) return;
     const main = el.closest("main");
+    const region = fitRegion(el);
     const measure = () => {
-      if (!main) return;
-      const panel = el.closest("main > section") ?? el;
-      const above = el.getBoundingClientRect().top - panel.getBoundingClientRect().top;
-      const style = getComputedStyle(main);
-      const padTop = parseFloat(style.paddingTop) || 0;
-      // H − chrome, with the canon's 24 px top margin counted inside it.
-      const avail = main.clientHeight - padTop - above + MG_MARGIN;
-      const next = mgGrid(main.clientWidth, avail);
+      if (!main || el.getClientRects().length === 0) return;
+      // H − chrome, with the canon's two 24 px margins counted inside it: the
+      // top one is the chrome's, the foot one is `main`'s padding, already
+      // outside the room.
+      const next = mgGrid(main.clientWidth, roomBelow(el) + 2 * MG_MARGIN);
       setGrid((prev) =>
         prev && prev.cols === next.cols && prev.rows === next.rows && Math.abs(prev.u - next.u) < 0.01 ? prev : next,
       );
@@ -149,6 +150,7 @@ export function useModuleGrid() {
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     if (main) observer.observe(main);
+    if (region && region !== main) observer.observe(region);
     window.addEventListener("resize", measure);
     return () => {
       observer.disconnect();

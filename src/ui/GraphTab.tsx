@@ -60,6 +60,7 @@ import type { MeshBatch } from "../viewer/mesh-stream";
 import { findDock, lend, onDocksChanged } from "../viewer/dock";
 import { graphFieldLayout, type FieldRect } from "./canvas-aspect";
 import { MG_GAP, MG_MARGIN, graphTiles, mgGrid, mgSpanPx, type MgGrid } from "./alt/module-grid";
+import { fitRegion, roomBelow } from "./useFillHeight";
 import { GraphSim, fitView, seedOf, seededOffset, toSim, zoomAt, type GraphView } from "./graph-sim";
 import {
   buildDrill,
@@ -218,19 +219,17 @@ export function GraphTab({
 
   // The design alternatives: the two surfaces are XL tiles on the window's
   // module grid (the layout canon, 2026-09-26), measured as the Kontroll
-  // board measures it.
+  // board measures it: the room left in this tab panel, band included.
   const gridWrap = useRef<HTMLDivElement>(null);
   const [mg, setMg] = useState<MgGrid | null>(null);
   useLayoutEffect(() => {
     const el = gridWrap.current;
     if (!design || !el || typeof ResizeObserver === "undefined") return;
     const main = el.closest("main");
+    const region = fitRegion(el);
     const measure = () => {
       if (!main || el.getBoundingClientRect().width === 0) return;
-      const panel = el.closest("main > section") ?? el;
-      const above = el.getBoundingClientRect().top - panel.getBoundingClientRect().top;
-      const padTop = parseFloat(getComputedStyle(main).paddingTop) || 0;
-      const next = mgGrid(main.clientWidth, main.clientHeight - padTop - above + MG_MARGIN);
+      const next = mgGrid(main.clientWidth, roomBelow(el) + 2 * MG_MARGIN);
       setMg((prev) =>
         prev && prev.cols === next.cols && prev.rows === next.rows && Math.abs(prev.u - next.u) < 0.01 ? prev : next,
       );
@@ -239,6 +238,7 @@ export function GraphTab({
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     if (main) observer.observe(main);
+    if (region && region !== main) observer.observe(region);
     return () => observer.disconnect();
   }, [design]);
 
