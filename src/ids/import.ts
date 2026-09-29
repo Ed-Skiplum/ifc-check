@@ -421,7 +421,7 @@ export function importIds(xml: string, fileName: string): ImportedIds {
     fileName,
     title: info.title ?? fileName,
     ruleset: {
-      formatVersion: 1,
+      formatVersion: 2,
       name: info.title ?? fileName,
       ifcVersions: declared.size > 0 ? [...declared] : ["IFC4"],
       info,

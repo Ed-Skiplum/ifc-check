@@ -56,6 +56,9 @@ const EXTENDED_REASONS: Record<ExtendedCheckType, string> = {
   "code-lookup":
     "IDS 1.0 cannot extract part of a value and look it up in a code list; a " +
     "restriction tests the whole value",
+  "copy-object":
+    "IDS 1.0 has no scope filter: a facet cannot take an object out of every " +
+    "other specification, and cannot compare a value with the file it is in",
 };
 
 function slug(name: string): string {

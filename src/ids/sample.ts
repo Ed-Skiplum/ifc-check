@@ -9,7 +9,7 @@
 import type { Ruleset } from "./types.ts";
 
 export const SAMPLE_RULESET: Ruleset = {
-  formatVersion: 1,
+  formatVersion: 2,
   name: "Mottakskontroll",
   description: "Baseline reception control for an incoming discipline model.",
   ifcVersions: ["IFC4"],
