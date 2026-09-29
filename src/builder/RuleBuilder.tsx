@@ -22,7 +22,7 @@ import { t, type Lang } from "./strings.ts";
 import "./builder.css";
 
 const EMPTY: Ruleset = {
-  formatVersion: 1,
+  formatVersion: 2,
   name: "Regelsett",
   ifcVersions: ["IFC4"],
   rules: [],

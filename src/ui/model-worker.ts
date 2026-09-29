@@ -21,6 +21,7 @@ import {
   type ElementBox,
 } from "../engine/placement";
 import { checkStoreyConfig } from "../engine/storey-config";
+import { exemptChecks } from "../engine/exempt.ts";
 import { bodyDeclarations, checkBodyWithoutMesh, unmeshedGuids } from "../engine/body-mesh";
 import { boardData, type BoardData } from "./report-rows";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
@@ -260,7 +261,7 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
       summary,
       checks: [
         ...runFundamentals(graph, summary),
-        checkStoreyConfig(graph, summary, undefined),
+        checkStoreyConfig(graph, summary, undefined, fileName),
         checkMeshPlacement(graph, summary, boxes),
         checkBodyWithoutMesh(graph, boxes),
       ],
@@ -288,12 +289,16 @@ function evaluate(ruleset: Ruleset) {
     const summary: ModelSummary = heldSummary;
     const result = evaluateRuleset(ruleset, graph, summary, heldName);
     const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
-    const checks = [
-      ...runFundamentals(heldGraph, heldSummary, excluded),
-      checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
-      checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
-      checkBodyWithoutMesh(heldGraph, heldBoxes, excluded),
-    ];
+    const checks = exemptChecks(
+      [
+        ...runFundamentals(heldGraph, heldSummary, excluded),
+        checkStoreyConfig(heldGraph, heldSummary, ruleset, heldName),
+        checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
+        checkBodyWithoutMesh(heldGraph, heldBoxes, excluded),
+      ],
+      ruleset,
+      heldName,
+    );
     const built = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
     const board = measures ? measures.currentBoard(built) : built;
     send({ kind: "evaluated", result, checks, board });

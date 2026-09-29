@@ -23,7 +23,7 @@
 
 import { entityNameValue } from "./emit.ts";
 import { isEnabled } from "./export.ts";
-import { isBooleanValues } from "./lint.ts";
+import { copyVerdict, everyOwnerName, modelFact, modelLabel, ruleRole } from "./models.ts";
 import { CODE_LISTS, CODE_LIST_IDS, type CodeList } from "../codelists/index.ts";
 import type {
   ModelClassification,
@@ -39,6 +39,7 @@ import type {
   CodeLookupCheck,
   ClassificationFacet,
   CodeSource,
+  CopyObjectCheck,
   ExtendedRule,
   IdsValue,
   MaterialFacet,
@@ -117,6 +118,15 @@ export interface ModelResult {
    *  does, whether or not the mapping itself was evaluable — fundamentals
    *  should exclude the same set. */
   excludedGuids?: string[];
+  /** Report row ids this model is exempt from (`ModelFact.exempt`). Their
+   *  rules came back not_applicable; the report does the same to its rows. */
+  exempt?: string[];
+}
+
+/** The reason an exempt requirement carries, the same in a rule result and a
+ *  report row. */
+export function exemptReason(label: string): string {
+  return `does not apply to model ${label} (models[].exempt)`;
 }
 
 export interface EvaluateOptions {
@@ -977,7 +987,23 @@ function codeValue(
     return { value: readAttribute(product, source.attribute), extra: 0 };
   }
   const values: string[] = [];
-  if ("property" in source) {
+  if ("material" in source) {
+    // IfcRelAssociatesMaterial: the object's own association, else its
+    // type's; material names only (not the category), in file order.
+    if (index.materials === null) {
+      throw new Unsupported(
+        "no material table was supplied with this graph; the caller must attach " +
+          "materialsJson() to it before a material source can be read",
+      );
+    }
+    if (product.source === "type") throw new Unsupported(TYPE_TABLES);
+    const rows = index.materials.get(product.guid) ?? [];
+    const own = rows.filter((r) => r.source !== "type");
+    for (const row of own.length > 0 ? own : rows) {
+      const name = row.material_name?.trim();
+      if (name && !values.includes(name)) values.push(name);
+    }
+  } else if ("property" in source) {
     const rows = propertyRows(index, product, {
       propertySet: source.property.propertySet,
       baseName: source.property.name,
@@ -1040,6 +1066,7 @@ export function cascadeReader(graph: ModelGraph): {
 function sourceLabel(source: CodeSource): string {
   if ("attribute" in source) return source.attribute;
   if ("property" in source) return `${source.property.propertySet}.${source.property.name}`;
+  if ("material" in source) return "IfcRelAssociatesMaterial";
   const system = source.classification.system;
   return system === undefined ? "classification" : `classification ${literal(system)}`;
 }
@@ -1051,9 +1078,13 @@ function resolveLookup(check: CodeLookupCheck): {
   has: (code: string) => boolean;
   reserved: (code: string) => boolean;
 } {
-  if (check.values !== undefined) {
-    const allowed = new Set(check.values);
-    return { label: `the allowed values (${check.values.join(", ")})`, has: (c) => allowed.has(c), reserved: () => false };
+  if (check.codes !== undefined) {
+    const allowed = new Set(check.codes.map((c) => c.code));
+    return {
+      label: `the project's codes (${check.codes.map((c) => c.code).join(", ")})`,
+      has: (c) => allowed.has(c),
+      reserved: () => false,
+    };
   }
   const list =
     check.list === undefined
@@ -1221,72 +1252,52 @@ function sortedValues(tally: Map<string | null, ValueCount>): ValueCount[] {
 
 /* ------------------------------------------------------- reference objects */
 
-/** The copy-object mapping is a SCOPE FILTER, not a data-quality check: an
- *  object whose mapped value matches is a reference/copy object and is
- *  excluded from every other rule's selection, fundamentals included. A
- *  missing or empty value is an ordinary, in-scope object — never a finding.
- *  `extract` not matching the value is the same: the object stays in scope
- *  rather than failing anything, because this rule no longer reports on data
- *  quality.
+/** The copy-object role is a SCOPE FILTER, not a data-quality check: a copy
+ *  is excluded from every other rule's selection, fundamentals included, and
+ *  never a finding. How one value reads is `copyVerdict` (models.ts): blank,
+ *  an own value or one of this model's owner names is the file's own object;
+ *  a copy value or any other value is a copy.
  *
- *  Two value modes, both stored as `values` (see `isBooleanValues`):
- *    boolean  a Ja/Nei flag. "true" is a reference; "false" is an ordinary
- *             object saying so explicitly, not a second reference value.
- *    codes    the project's own discipline codes (POFIN's
- *             `NONS_Process.DuplicateOwnedBy`). Any of them is a reference —
- *             there is no "opposite" value in this mode.
+ *  The owner names are the model's (`ModelFact.ownerNames`, by file label).
+ *  When the ruleset declares `models` and this file is not among them, whose
+ *  object it is cannot be told: `Unsupported`, which the caller turns into
+ *  not_evaluable with nothing excluded, never a silent "no copies". A source
+ *  that cannot be reached (no table supplied) is the same.
  *
- *  All three sources are evaluable, same boundary as `codeLookup` — which is
- *  the point of the mapping: POFIN's own `Duplikat objekt` lives at
- *  `NONS_Process.DuplicateOwnedBy`, a PROPERTY, and until ifcfast 0.5.3 the
- *  filter could only be driven off an attribute. A source that still cannot be
- *  reached (no table supplied) throws `Unsupported`, which the caller turns
- *  into `not_evaluable` plus the note that nothing was excluded — never a
- *  silent "no reference objects". */
+ *  The value tally flags a value the project names nowhere (not a copy or
+ *  own value, no model's owner name) as `deviating`: still a copy, but worth
+ *  seeing. */
 function identifyReferenceObjects(
   rule: ExtendedRule,
+  check: CopyObjectCheck,
   allProducts: ModelProduct[],
   byGuid: Map<string, ModelProduct>,
   index: ModelIndex,
   ruleset: Ruleset,
+  modelName: string,
 ): { excluded: Set<string>; candidates: number; present: number; values: ValueCount[] } {
-  const check = rule.check;
-  if (check.type !== "code-lookup") {
+  const fact = modelFact(ruleset, modelName);
+  if (ruleset.models !== undefined && fact === null) {
     throw new Unsupported(
-      `mapping copy-object needs a code-lookup check, not ${check.type}`,
+      `model ${modelLabel(modelName)} is not in models, so whose objects are copies cannot be told`,
     );
   }
-  if (check.target === "type") {
-    throw new Unsupported(
-      "copy-object applies to occurrences, not types; target must be omitted or occurrence",
-    );
-  }
-  const source = check.source;
-  const regex = compileExtract(check.extract);
-  const values = check.values ?? [];
-  // Boolean mode reads a Ja/Nei flag: "true" is a reference, "false" is an
-  // ordinary object saying so explicitly, not a second reference value. Codes
-  // mode has no such opposite — any of the project's own codes is a match.
-  const boolMode = isBooleanValues(values);
-  const allowed = new Set(values);
-  const isReference = (code: string) => (boolMode ? code === "true" : allowed.has(code));
+  const ownerNames = fact?.ownerNames ?? [];
+  const everyOwner = everyOwnerName(ruleset);
   const select = rule.select ?? {};
   const candidates = allProducts.filter((p) =>
     selects(select, p, byGuid, index, ruleset.ifcVersions),
   );
   const excluded = new Set<string>();
-  // Every value read, flagged nowhere: this mapping never fails an element, so
-  // a missing value is an ordinary object, not a "missing" state.
   const tally = new Map<string | null, ValueCount>();
   let present = 0;
   for (const product of candidates) {
-    const value = codeValue(source, product, index).value;
-    countValue(tally, value === "" ? null : value, "ok");
-    if (value === null || value === "") continue;
-    present += 1;
-    const code = regex.exec(value)?.[1];
-    if (code === undefined || code === "") continue;
-    if (isReference(code)) excluded.add(product.guid);
+    const raw = codeValue(check.source, product, index).value;
+    const value = raw === "" ? null : raw;
+    const { verdict, known } = copyVerdict(check, value, ownerNames, everyOwner);
+    countValue(tally, value, known ? "ok" : "deviating");
+    if (value !== null) present += 1;
+    if (verdict === "copy") excluded.add(product.guid);
   }
   return { excluded, candidates: candidates.length, present, values: sortedValues(tally) };
 }
@@ -1300,20 +1311,39 @@ function copyObjectFilter(
   allProducts: ModelProduct[],
   byGuid: Map<string, ModelProduct>,
   index: ModelIndex,
+  modelName: string,
 ): { rule: ExtendedRule; excluded: Set<string>; result: RuleResult } | null {
   const rule = ruleset.rules.find(
-    (r): r is ExtendedRule => r.kind === "extended" && r.mapping === "copy-object",
+    (r): r is ExtendedRule => r.kind === "extended" && ruleRole(r) === "copy-object",
   );
-  if (!rule || !isEnabled(rule)) return null;
-
+  if (!rule || !isEnabled(rule) || rule.check.type !== "copy-object") return null;
+  const check = rule.check;
   const base = { ruleId: rule.id, ruleName: rule.name, kind: rule.kind } as const;
+  if (modelFact(ruleset, modelName)?.exempt?.includes("copy-object")) {
+    return {
+      rule,
+      excluded: new Set(),
+      result: {
+        ...base,
+        state: "not_applicable",
+        applicable: 0,
+        failed: 0,
+        findings: [],
+        detail: "exempt",
+        reason: exemptReason(modelLabel(modelName)),
+      },
+    };
+  }
+
   try {
     const { excluded, candidates, present, values } = identifyReferenceObjects(
       rule,
+      check,
       allProducts,
       byGuid,
       index,
       ruleset,
+      modelName,
     );
     return {
       rule,
@@ -1324,8 +1354,13 @@ function copyObjectFilter(
         applicable: candidates,
         failed: 0,
         findings: [],
-        detail: `${excluded.size} of ${candidates} objects excluded as reference objects`,
-        coverage: { met: present, deviating: 0, missing: candidates - present, sourceHits: present },
+        detail: `${excluded.size} of ${candidates} objects excluded as copies`,
+        coverage: {
+          met: present - values.filter((v) => v.state === "deviating").reduce((n, v) => n + v.n, 0),
+          deviating: values.filter((v) => v.state === "deviating").reduce((n, v) => n + v.n, 0),
+          missing: candidates - present,
+          sourceHits: present,
+        },
         values,
       },
     };
@@ -1376,25 +1411,31 @@ export function codeLookupSubjects(
   ruleset: Ruleset,
   rule: ExtendedRule,
   graph: ModelGraph,
+  modelName: string,
 ): CodeLookupSubject[] {
-  const check = rule.check;
-  if (check.type !== "code-lookup") throw new Unsupported(`${rule.id} is not a code-lookup rule`);
   const allProducts = selectableProducts(graph);
   const byGuid = new Map(allProducts.map((p) => [p.guid, p]));
   const index = buildIndex(graph);
-  const regex = compileExtract(check.extract);
   const select = rule.select ?? {};
-  if (rule.mapping === "copy-object") {
+  if (rule.check.type === "copy-object") {
+    // Every value read, as its tally has it: judged nowhere, `deviating` only
+    // for a value the project names nowhere. `code` is the verdict.
+    const copyCheck = rule.check;
+    const ownerNames = modelFact(ruleset, modelName)?.ownerNames ?? [];
+    const everyOwner = everyOwnerName(ruleset);
     return allProducts
       .filter((p) => selects(select, p, byGuid, index, ruleset.ifcVersions))
       .map((p) => {
-        const raw = codeValue(check.source, p, index).value;
+        const raw = codeValue(copyCheck.source, p, index).value;
         const value = raw === "" ? null : raw;
-        const code = value === null ? null : (regex.exec(value)?.[1] ?? null);
-        return { guid: p.guid, entity: p.entity, value, code: code || null, state: "ok" as const };
+        const { verdict, known } = copyVerdict(copyCheck, value, ownerNames, everyOwner);
+        return { guid: p.guid, entity: p.entity, value, code: verdict, state: known ? ("ok" as const) : ("deviating" as const) };
       });
   }
-  const filter = copyObjectFilter(ruleset, allProducts, byGuid, index);
+  const check = rule.check;
+  if (check.type !== "code-lookup") throw new Unsupported(`${rule.id} is not a code-lookup rule`);
+  const regex = compileExtract(check.extract);
+  const filter = copyObjectFilter(ruleset, allProducts, byGuid, index, modelName);
   const products =
     filter && filter.excluded.size > 0 ? allProducts.filter((p) => !filter.excluded.has(p.guid)) : allProducts;
   const lookup = resolveLookup(check);
@@ -1729,11 +1770,13 @@ export function evaluateRuleset(
   const byGuid = new Map(allProducts.map((p) => [p.guid, p]));
   const index = buildIndex(graph);
 
-  const filter = copyObjectFilter(ruleset, allProducts, byGuid, index);
+  const filter = copyObjectFilter(ruleset, allProducts, byGuid, index, modelName);
   const products =
     filter && filter.excluded.size > 0
       ? allProducts.filter((p) => !filter.excluded.has(p.guid))
       : allProducts;
+  const exempt = modelFact(ruleset, modelName)?.exempt ?? [];
+  const isExempt = (rule: Rule) => exempt.includes(ruleRole(rule) ?? rule.id);
 
   // IDS rules also select the declared type objects (`typeObjectRows`). The
   // extended rules keep the element universe they always had: a code-lookup
@@ -1743,10 +1786,22 @@ export function evaluateRuleset(
 
   const results = ruleset.rules
     .filter(isEnabled)
-    .map((rule) =>
+    .map((rule): RuleResult =>
       filter && rule === filter.rule
         ? filter.result
-        : evaluateRule(rule, rule.kind === "ids" ? withTypes : products, summary, byGuid, index, ruleset, maxFindings),
+        : isExempt(rule)
+          ? {
+              ruleId: rule.id,
+              ruleName: rule.name,
+              kind: rule.kind,
+              state: "not_applicable",
+              applicable: 0,
+              failed: 0,
+              findings: [],
+              detail: "exempt",
+              reason: exemptReason(modelLabel(modelName)),
+            }
+          : evaluateRule(rule, rule.kind === "ids" ? withTypes : products, summary, byGuid, index, ruleset, maxFindings),
     );
   const counts: Record<ResultState, number> = {
     pass: 0,
@@ -1762,5 +1817,6 @@ export function evaluateRuleset(
     results,
     counts,
     excludedGuids: filter ? [...filter.excluded] : undefined,
+    ...(exempt.length > 0 ? { exempt: [...exempt] } : {}),
   };
 }

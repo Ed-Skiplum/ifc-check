@@ -178,7 +178,7 @@ export const RULESET_JSON_SCHEMA = {
   required: ["formatVersion", "name", "ifcVersions", "rules"],
   properties: {
     $schema: { type: "string" },
-    formatVersion: { const: 1 },
+    formatVersion: { const: 2 },
     name: { type: "string", minLength: 1 },
     description: { type: "string" },
     ifcVersions: {
@@ -191,18 +191,83 @@ export const RULESET_JSON_SCHEMA = {
     },
     info: { $ref: "#/$defs/info" },
     storeys: {
-      type: "array",
+      type: "object",
+      additionalProperties: false,
+      required: ["plane", "tolerance", "nameWindowMm", "nearMm", "levels"],
       description:
-        "The project's floor config (Etasjeoppsett), in the author's order. Every " +
-        "storey in a model must match one entry exactly on name and elevation " +
-        "(mm), and a model may have fewer storeys but never more.",
+        "The project's floor config (Etasjeoppsett): the level table, the plane its " +
+        "elevations are measured to, and how a file storey is matched to a level.",
+      properties: {
+        reference: { $ref: "#/$defs/reference" },
+        plane: { $ref: "#/$defs/storeyPlane" },
+        tolerance: { $ref: "#/$defs/storeyTolerance" },
+        nameWindowMm: {
+          oneOf: [{ type: "number", minimum: 0 }, { type: "null" }],
+          description: "A same-named file storey is read as the level within this distance (mm); null = any distance.",
+        },
+        nearMm: {
+          type: "number",
+          minimum: 0,
+          description: "A differently named file storey is read as the nearest level within this distance (mm).",
+        },
+        levels: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["name", "elevation"],
+            properties: {
+              name: { type: "string", minLength: 1 },
+              elevation: { type: "number", description: "Metres, measured to plane." },
+            },
+          },
+        },
+        disciplines: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["discipline", "plane", "tolerance", "requireAllNames"],
+            properties: {
+              discipline: { type: "string", minLength: 1 },
+              plane: { $ref: "#/$defs/storeyPlane" },
+              tolerance: { $ref: "#/$defs/storeyTolerance" },
+              requireAllNames: { type: "boolean" },
+            },
+          },
+        },
+      },
+    },
+    disciplines: {
+      type: "array",
+      minItems: 1,
+      description: "The project's discipline codes (fagkoder).",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "elevation"],
+        required: ["code"],
         properties: {
-          name: { type: "string", minLength: 1 },
-          elevation: { type: "number", description: "Metres." },
+          code: { type: "string", minLength: 1 },
+          report: { const: false, description: "The discipline's models get no report of their own." },
+        },
+      },
+    },
+    models: {
+      type: "array",
+      minItems: 1,
+      description: "What the project states per model file, keyed by label (file name without extension).",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "discipline"],
+        properties: {
+          label: { type: "string", minLength: 1 },
+          discipline: { type: "string", minLength: 1 },
+          group: { type: "string", minLength: 1 },
+          ownerNames: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+          exempt: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
         },
       },
     },
@@ -218,6 +283,14 @@ export const RULESET_JSON_SCHEMA = {
           type: "object",
           additionalProperties: false,
           properties: {
+            reference: { $ref: "#/$defs/reference" },
+            recommended: {
+              type: "array",
+              minItems: 1,
+              uniqueItems: true,
+              items: { type: "string", pattern: "^IFC\\d+(X\\d+)?$" },
+              description: "Recommended schema families, a subset of the accepted: recommended passes, accepted only is a warn.",
+            },
             accepted: {
               type: "array",
               minItems: 1,
@@ -233,10 +306,22 @@ export const RULESET_JSON_SCHEMA = {
           type: "object",
           additionalProperties: false,
           properties: {
+            reference: { $ref: "#/$defs/reference" },
             sources: {
               type: "array",
               minItems: 1,
-              items: { $ref: "#/$defs/codeSource" },
+              items: {
+                oneOf: [
+                  { $ref: "#/$defs/codeSource" },
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["progressCode"],
+                    properties: { progressCode: { type: "object", additionalProperties: false } },
+                    description: "The phase the object's MMI code implies (progress-code codes[].phase).",
+                  },
+                ],
+              },
               description: "Read after Pset_*Common.Status, in this order.",
             },
           },
@@ -245,6 +330,7 @@ export const RULESET_JSON_SCHEMA = {
           type: "object",
           additionalProperties: false,
           properties: {
+            reference: { $ref: "#/$defs/reference" },
             mengdetype: {
               type: "array",
               minItems: 1,
@@ -278,13 +364,56 @@ export const RULESET_JSON_SCHEMA = {
   $defs: {
     ifcVersion: { enum: ["IFC2X3", "IFC4", "IFC4X3_ADD2"] },
 
+    reference: {
+      type: "string",
+      minLength: 1,
+      description: "Where the requirement comes from: the BEP or manual section.",
+    },
+
+    storeyPlane: {
+      enum: ["OKFG", "OKBD"],
+      description: "OK ferdig gulv or OK bærende dekke.",
+    },
+
+    storeyTolerance: {
+      type: "object",
+      additionalProperties: false,
+      required: ["aboveMm", "belowMm"],
+      description: "Millimetres, file minus level. null = no limit that way; 0 and 0 = exact.",
+      properties: {
+        aboveMm: { oneOf: [{ type: "number", minimum: 0 }, { type: "null" }] },
+        belowMm: { oneOf: [{ type: "number", minimum: 0 }, { type: "null" }] },
+      },
+    },
+
+    codeEntry: {
+      type: "object",
+      additionalProperties: false,
+      required: ["code", "name"],
+      properties: {
+        code: { type: "string", minLength: 1 },
+        name: { type: "string", minLength: 1 },
+        phase: {
+          type: "string",
+          minLength: 1,
+          description: "The phase the code implies. progress-code only.",
+        },
+      },
+    },
+
     codeSource: {
       description:
-        "Exactly one of attribute, property or classification. A property " +
+        "Exactly one of attribute, property, classification or material. A property " +
         "is identified by set plus name; a classification reads the " +
         "schema-normalised identification (IFC4 Identification, IFC2x3 " +
-        "ItemReference).",
+        "ItemReference); material reads the names through IfcRelAssociatesMaterial.",
       oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["material"],
+          properties: { material: { type: "object", additionalProperties: false } },
+        },
         {
           type: "object",
           additionalProperties: false,
@@ -451,8 +580,9 @@ export const RULESET_JSON_SCHEMA = {
         kind: { const: "ids" },
         name: { type: "string", minLength: 1 },
         description: { type: "string" },
+        reference: { $ref: "#/$defs/reference" },
         instructions: { type: "string" },
-        enabled: { type: "boolean", default: true },
+        enabled: { const: false, description: "Present only to switch the rule off." },
         ifcVersions: {
           type: "array",
           minItems: 1,
@@ -473,21 +603,15 @@ export const RULESET_JSON_SCHEMA = {
         kind: { const: "extended" },
         name: { type: "string", minLength: 1 },
         description: { type: "string" },
+        reference: { $ref: "#/$defs/reference" },
         instructions: { type: "string" },
-        enabled: { type: "boolean", default: true },
+        enabled: { const: false, description: "Present only to switch the rule off." },
         mapping: {
-          enum: [
-            "system-classification",
-            "component-classification",
-            "progress-code",
-            "copy-object",
-          ],
+          enum: ["system-classification", "component-classification", "progress-code"],
           description:
-            "Marks this rule as one of the project mappings. code-lookup only, at " +
-            "most one rule per mapping. The two classifications take a list, " +
-            "progress-code takes values. copy-object is a scope filter: values " +
-            "true, false or the project's own discipline codes; a matching " +
-            "element is excluded from every other rule's selection.",
+            "Marks this code-lookup rule as one of the project mappings, at most one " +
+            "rule per mapping. The two classifications take a list, progress-code " +
+            "takes codes. The copy-object role is the copy-object check itself.",
         },
         select: { $ref: "#/$defs/selector" },
         check: { $ref: "#/$defs/extendedCheck" },
@@ -561,21 +685,20 @@ export const RULESET_JSON_SCHEMA = {
           type: "object",
           additionalProperties: false,
           required: ["type", "source", "extract"],
-          oneOf: [{ required: ["list"] }, { required: ["values"] }],
+          oneOf: [{ required: ["list"] }, { required: ["codes"] }],
           description:
             "Extract a code from a value and look it up in a bundled code list, or " +
-            "in the project's own values. " +
+            "in the project's own codes. " +
             "Not IDS: a restriction tests the whole value. target 'type' checks " +
             "the types of the selected elements, one per type Name; a type no " +
             "element uses is not reachable.",
           properties: {
             type: { const: "code-lookup" },
             list: { enum: [...CODE_LIST_IDS] },
-            values: {
+            codes: {
               type: "array",
               minItems: 1,
-              uniqueItems: true,
-              items: { type: "string", minLength: 1 },
+              items: { $ref: "#/$defs/codeEntry" },
             },
             target: { enum: ["occurrence", "type"], default: "occurrence" },
             source: {
@@ -589,6 +712,22 @@ export const RULESET_JSON_SCHEMA = {
                 "JavaScript regular expression with exactly one capture group, the " +
                 "code. Not anchored implicitly.",
             },
+          },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "source", "copy", "own"],
+          description:
+            "The copy-object role, a scope filter: blank, an own value or one of " +
+            "this model's ownerNames is the file's own object; a copy value or any " +
+            "other value is a copy, excluded from every other rule. Compared " +
+            "ignoring case and whitespace.",
+          properties: {
+            type: { const: "copy-object" },
+            source: { $ref: "#/$defs/codeSource" },
+            copy: { type: "array", items: { type: "string", minLength: 1 } },
+            own: { type: "array", items: { type: "string", minLength: 1 } },
           },
         },
       ],

@@ -161,11 +161,17 @@ export interface RuleBase {
   id: string;
   /** Human name. For an ids rule this becomes specification/@name. */
   name: string;
+  /** What the rule checks. */
   description?: string;
+  /** Where the requirement comes from: the BEP or manual section it is
+   *  taken from ("BEP §6.12"). Not carried into the .ids: IDS has no field
+   *  for a citation. */
+  reference?: string;
   /** Guidance for the model author, carried into the .ids. */
   instructions?: string;
-  /** Default true. A disabled rule is excluded from export and from evaluation. */
-  enabled?: boolean;
+  /** Present only to switch the rule off: absent = on. A disabled rule is
+   *  excluded from export and from evaluation. */
+  enabled?: false;
 }
 
 export interface IdsRule extends RuleBase {
@@ -236,7 +242,24 @@ export interface ModelMetadataCheck {
 export type CodeSource =
   | { attribute: string }
   | { property: { propertySet: string; name: string } }
-  | { classification: { system?: string } };
+  | { classification: { system?: string } }
+  | { material: MaterialSource };
+
+/** The object's material names through IfcRelAssociatesMaterial: its own
+ *  association, else the one its type carries; a layer set gives its layers'
+ *  materials in order, the first is the value. No options: the key alone
+ *  names the source. */
+export type MaterialSource = Record<string, never>;
+
+/** One code of a project's own code list. `name` is the code's meaning in the
+ *  project's documents (the MMI table's description). `phase` is set only on
+ *  the `progress-code` rule's codes: the phase the code implies (the MMI
+ *  table's LCA column), read by a `{ progressCode: {} }` phase source. */
+export interface CodeEntry {
+  code: string;
+  name: string;
+  phase?: string;
+}
 
 /** Extract a code from a value and look it up in a bundled code list
  *  (src/codelists). Not IDS: a restriction tests the whole value, so a lookup
@@ -249,11 +272,11 @@ export type CodeSource =
  *  its Name is readable, and the source must be an attribute. */
 export interface CodeLookupCheck {
   type: "code-lookup";
-  /** A bundled code list. Exactly one of `list` and `values`. */
+  /** A bundled code list. Exactly one of `list` and `codes`. */
   list?: CodeListId;
-  /** The project's own allowed codes, when no bundled list applies. Exactly
-   *  one of `list` and `values`. */
-  values?: string[];
+  /** The project's own code list, when no bundled list applies. Exactly one
+   *  of `list` and `codes`. */
+  codes?: CodeEntry[];
   target?: "occurrence" | "type";
   source: CodeSource;
   /** JavaScript regular expression with exactly one capture group; the group
@@ -261,40 +284,59 @@ export interface CodeLookupCheck {
   extract: string;
 }
 
+/** Which objects are this file's own and which are copies of another
+ *  model's: a SCOPE FILTER, never a finding. A copy is excluded from every
+ *  other rule's selection, fundamentals included. The check type is the
+ *  `copy-object` role: at most one per ruleset.
+ *
+ *  Per object, the value read from `source`, compared ignoring case and
+ *  whitespace:
+ *    blank                            the file's own object
+ *    in `own`                         the file's own object
+ *    in this model's `ownerNames`     the file's own object (`models`)
+ *    in `copy`                        a copy
+ *    anything else                    a copy: it names another owner
+ *
+ *  When the ruleset declares `models` and this file is not among them, the
+ *  owner cannot be told: the rule is not_evaluable and nothing is excluded. */
+export interface CopyObjectCheck {
+  type: "copy-object";
+  /** Not a material source. */
+  source: CodeSource;
+  /** Values that mark a copy outright (`true`, `ja`, `kopi`). */
+  copy: string[];
+  /** Values that mark the file's own object outright (`false`, `nei`). */
+  own: string[];
+}
+
 export type ExtendedCheck =
   | ElementTypedCheck
   | UniqueAttributeCheck
   | TypeUsageCountCheck
   | ModelMetadataCheck
-  | CodeLookupCheck;
+  | CodeLookupCheck
+  | CopyObjectCheck;
 
 export type ExtendedCheckType = ExtendedCheck["type"];
 
 /** The project mappings: where in the IFC a project reads the concepts every
- *  project has but each one stores differently. A mapping is not a separate
- *  construct, it is a role on a code-lookup rule, so it runs through the same
- *  evaluator as any other rule. At most one rule per role.
+ *  project has but each one stores differently. At most one rule per role.
  *
- *  - `system-classification`, `component-classification`: a bundled `list`.
- *  - `progress-code`: the project's allowed `values`.
- *  - `copy-object`: a SCOPE FILTER, not a data-quality check. Its `values` are
- *    either the boolean pair `true`, `false` (a G55-style Referanseobjekt
- *    Ja/Nei flag read as text — only `true` marks a reference, `false` is an
- *    ordinary object saying so explicitly) or the project's own discipline
- *    codes (POFIN's `NONS_Process.DuplicateOwnedBy`, e.g. `RIV` — any of them
- *    marks a reference). Either way, a reference/copy object is excluded from
- *    the selection of every other rule, fundamentals included. A missing or
- *    empty value is an ordinary, in-scope object. */
-export type MappingRole =
-  | "system-classification"
-  | "component-classification"
-  | "progress-code"
-  | "copy-object";
+ *  - `system-classification`, `component-classification`: a code-lookup rule
+ *    carrying `mapping`, against a bundled `list`.
+ *  - `progress-code`: a code-lookup rule carrying `mapping`, against the
+ *    project's `codes`.
+ *  - `copy-object`: the rule whose check is a `CopyObjectCheck`. It carries
+ *    no `mapping` field: the check type is the role. */
+export type MappingRole = CodeLookupRole | "copy-object";
+
+/** The roles a code-lookup rule takes through its `mapping` field. */
+export type CodeLookupRole = "system-classification" | "component-classification" | "progress-code";
 
 export interface ExtendedRule extends RuleBase {
   kind: "extended";
-  /** Set when this rule is one of the project mappings. code-lookup only. */
-  mapping?: MappingRole;
+  /** Set when this code-lookup rule is one of the project mappings. */
+  mapping?: CodeLookupRole;
   /** Omitted for model-metadata; optional for code-lookup (omitted selects
    *  everything); required for every other element-scoped check. */
   select?: Selector;
@@ -319,31 +361,128 @@ export interface RulesetInfo {
   milestone?: string;
 }
 
-/** One floor of the project's floor config (Etasjeoppsett). Order is the
- *  author's; `elevation` in METRES. Checked by `storey-config`
- *  (src/engine/storey-config.ts). */
-export interface StoreyConfig {
+/** The plane a storey elevation is measured to: OK ferdig gulv or OK
+ *  bærende dekke. */
+export type StoreyPlane = "OKFG" | "OKBD";
+
+/** How far a file storey may sit from its level, in millimetres, file minus
+ *  level. `aboveMm` bounds a storey higher than its level, `belowMm` one
+ *  lower. null = no limit that way. 0 and 0 = exact. */
+export interface StoreyTolerance {
+  aboveMm: number | null;
+  belowMm: number | null;
+}
+
+/** One level of the project's floor table. Order is the author's.
+ *  `elevation` in METRES, measured to the setup's `plane`. */
+export interface StoreyLevel {
   name: string;
   elevation: number;
 }
 
+/** A discipline that measures its storeys to another plane: its plane and
+ *  tolerance replace the setup's for models of that discipline. With
+ *  `requireAllNames` they hold only when every level is matched by a file
+ *  storey of the same name and no file storey falls outside the table;
+ *  otherwise the setup's tolerance applies. */
+export interface StoreyDisciplineRule {
+  /** A code from `disciplines`. */
+  discipline: string;
+  plane: StoreyPlane;
+  tolerance: StoreyTolerance;
+  requireAllNames: boolean;
+}
+
+/** The project's floor config (Etasjeoppsett): the level table, the plane it
+ *  is measured to, and how a file storey is matched to a level. Checked by
+ *  `storey-config` (src/engine/storey-config.ts). */
+export interface StoreySetup {
+  /** Where the table comes from ("BEP §3.2"). */
+  reference?: string;
+  plane: StoreyPlane;
+  tolerance: StoreyTolerance;
+  /** A file storey with a level's name is read as that level within this
+   *  distance (mm); null = at any distance. */
+  nameWindowMm: number | null;
+  /** A file storey with another name is read as the nearest level within
+   *  this distance (mm), a wrong name; 0 = only at the same millimetre. */
+  nearMm: number;
+  levels: StoreyLevel[];
+  disciplines?: StoreyDisciplineRule[];
+}
+
+/** One discipline of the project (fagkode). `report: false` marks a
+ *  discipline whose models get no report of their own (a coordinator's
+ *  models, controlled where they are built). Absent = reported. */
+export interface Discipline {
+  code: string;
+  report?: false;
+}
+
+/** What the project states about one model file. */
+export interface ModelFact {
+  /** The IFC file name without its extension (`EKS_ARK` for
+   *  `EKS_ARK.ifc`), matched exactly. */
+  label: string;
+  /** A code from `disciplines`. */
+  discipline: string;
+  /** Models reported together share a group. Absent = the model is its own
+   *  group. */
+  group?: string;
+  /** The copy-object values that name THIS model as the owner. */
+  ownerNames?: string[];
+  /** Requirements that do not apply to this model: report row ids
+   *  (`REQUIREMENT_IDS`, a mapping role, or a non-mapping rule's id). */
+  exempt?: string[];
+}
+
 export interface Ruleset {
   /** Bumped only on a breaking change to this format. */
-  formatVersion: 1;
+  formatVersion: 2;
   name: string;
   description?: string;
   /** Default ifcVersion list for every ids rule. Metadata in the .ids; it does
    *  not gate which files a rule runs against. */
   ifcVersions: IfcVersion[];
   info?: RulesetInfo;
-  /** The project's floors. Absent or empty = no floor config: the
-   *  `storey-config` check is then not_applicable. */
-  storeys?: StoreyConfig[];
+  /** The project's floor config. Absent = none: `storey-config` is then
+   *  not_configured. */
+  storeys?: StoreySetup;
+  disciplines?: Discipline[];
+  models?: ModelFact[];
   /** This project's layer on the standard requirements, keyed by the
    *  requirement's report id. Absent = the standard layer alone. */
   projectLayer?: ProjectLayer;
   rules: Rule[];
 }
+
+/** The report row ids the engine produces besides the rules: the
+ *  fundamentals, the geometry and floor checks, and the standard layer.
+ *  With the mapping roles and the non-mapping rule ids they are what
+ *  `ModelFact.exempt` may name. The selftest asserts the engine emits
+ *  exactly these. */
+export const REQUIREMENT_IDS = [
+  "parse-integrity",
+  "spatial-chain",
+  "storey-containment",
+  "storey-in-building",
+  "storey-elevation",
+  "guid-unique",
+  "element-named",
+  "element-typed",
+  "type-name-placeholder",
+  "single-instance-types",
+  "type-unused",
+  "element-material",
+  "storey-config",
+  "mesh-placement",
+  "body-no-mesh",
+  "ifc-schema",
+  "phase",
+  "material-product",
+] as const;
+
+export type RequirementId = (typeof REQUIREMENT_IDS)[number];
 
 /** The project layer on the requirements the tool ships with a standard
  *  layer for (src/engine/standard-layer.ts). Modelled on HI90's
@@ -352,21 +491,28 @@ export interface Ruleset {
  *  one; a list of accepted values REPLACES the standard's. */
 export interface ProjectLayer {
   /** FILE_SCHEMA. `accepted` replaces the standard's [IFC2X3, IFC4]: schema
-   *  families (`IFC4`, not `IFC4 ADD2 TC1`), meant to narrow the default. */
-  "ifc-schema"?: { accepted?: string[] };
+   *  families (`IFC4`, not `IFC4 ADD2 TC1`), meant to narrow the default.
+   *  `recommended` is a subset of the accepted families: a recommended
+   *  family passes, an accepted one only is a warn («Kan brukes»). */
+  "ifc-schema"?: { reference?: string; accepted?: string[]; recommended?: string[] };
   /** Pset_*Common.Status. `sources` are read after it, in order. */
-  phase?: { sources?: CodeSource[] };
+  phase?: { reference?: string; sources?: PhaseSource[] };
   /** Materiale / Produkt, switched by mengdetype. Each list is read after
    *  the standard's sources of its branch: `mengdetype` after the IFC class
    *  table and the NS 3457 code (a value `telleobjekt` / `mengdeobjekt`),
    *  `product` after Pset_ManufacturerTypeInformation, `material` after
-   *  IfcMaterial and the layer set. */
+   *  IfcMaterial and the layer set (so never a `material` source here). */
   "material-product"?: {
+    reference?: string;
     mengdetype?: CodeSource[];
     product?: CodeSource[];
     material?: CodeSource[];
   };
 }
+
+/** A phase source: a `CodeSource`, or the phase the object's MMI code
+ *  implies, through the `progress-code` rule's `codes[].phase`. */
+export type PhaseSource = CodeSource | { progressCode: Record<string, never> };
 
 export type StandardRequirementId = keyof ProjectLayer;
 

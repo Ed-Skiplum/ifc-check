@@ -28,9 +28,11 @@
 
 import { elementMaterialNames, physicalProducts, verdictOf } from "./fundamentals.ts";
 import { standardLayerRows } from "./standard-layer.ts";
+import { resolveStoreyRules } from "./storey-config.ts";
 import type { CheckResult, Finding, IfcGraph, IfcSummary } from "./types";
-import type { ModelResult, RuleResult, ValueCount, Finding as RuleFinding } from "../ids/evaluate.ts";
-import type { CodeSource, MappingRole, Rule, Ruleset, Selector } from "../ids/types.ts";
+import { exemptReason, type ModelResult, type RuleResult, type ValueCount, type Finding as RuleFinding } from "../ids/evaluate.ts";
+import { modelFact, modelLabel, roleRule, ruleRole, storeyPolicy } from "../ids/models.ts";
+import type { CodeSource, MappingRole, Rule, Ruleset, Selector, StoreyPlane } from "../ids/types.ts";
 
 export type ReportState =
   | "pass"
@@ -84,10 +86,23 @@ export interface ReportFinding {
   verdi: string | null;
 }
 
-export interface ReportModel {
+/** What the caller knows of the file. */
+export interface ReportModelInput {
   file: string;
   schema: string;
   sha256: string;
+}
+
+/** The file with what the ruleset states about it (`models`,
+ *  `disciplines`). `label` is the file name without extension; `group` is
+ *  the model's group, or its label when it has none; `report` is false for a
+ *  model whose discipline gets no report. `discipline` is null when the
+ *  ruleset states nothing about this file. */
+export interface ReportModel extends ReportModelInput {
+  label: string;
+  discipline: string | null;
+  group: string;
+  report: boolean;
 }
 
 export interface ReportRow {
@@ -100,9 +115,21 @@ export interface ReportRow {
    *  engine's own (English) words. Absent otherwise. */
   grunn?: string;
   /** The accepted values, on a row that judges against a list: `ifc-schema`
-   *  and `phase` (the standard's, or the project layer's replacement), and a
-   *  code-lookup rule with its own `values` (MMI). Absent otherwise. */
+   *  and `phase` (the standard's, or the project layer's replacement; phase
+   *  adds the MMI table's phases), and a code-lookup rule with its own
+   *  `codes` (MMI). Absent otherwise. */
   godtatte?: string[];
+  /** On `ifc-schema` when the project names recommended families: those. An
+   *  accepted family outside them is the row's `warn` («Kan brukes»). */
+  anbefalte?: string[];
+  /** On a code-lookup row judged against the project's own codes (MMI): the
+   *  code list in order, with names and, for MMI, phases. */
+  koder?: { kode: string; navn: string; fase?: string }[];
+  /** On `storey-config`: the plane the levels were compared at, and the
+   *  tolerance applied (mm, file minus level; null = no limit), after a
+   *  discipline override. */
+  referanseplan?: StoreyPlane;
+  toleranse_mm?: { over: number | null; under: number | null };
   /** On `material-product` only: every open ruling on the mengdetype tables,
    *  with the in-scope objects whose mengdetype one of its classes decided.
    *  `n` is null for a ruling with no class, which cannot be told apart per
@@ -115,7 +142,7 @@ export interface ReportRow {
 }
 
 export interface ReportInput {
-  model: ReportModel;
+  model: ReportModelInput;
   graph: IfcGraph;
   summary: IfcSummary;
   /** Fundamentals, `storey-config` and `mesh-placement`, run with the same
@@ -221,9 +248,10 @@ function stateOf(check: CheckResult): ReportState {
 function fundamentalRow(
   check: CheckResult,
   input: ReportInput,
+  model: ReportModel,
   excluded: ReadonlySet<string> | undefined,
 ): ReportRow {
-  const { graph, summary, model } = input;
+  const { graph, summary } = input;
   const f = check.findings.length;
   const a = check.applicable;
   const base: ReportRow = {
@@ -490,8 +518,19 @@ function fundamentalRow(
       const off = new Set(check.findings.map((x) => x.guid));
       const bad = graph.storeys.filter((s) => off.has(s.guid)).length;
       const flaggedNames = new Set(graph.storeys.filter((s) => off.has(s.guid)).map((s) => s.name ?? s.guid));
+      const policy = storeyPolicy(input.ruleset, model.file);
+      const applied =
+        policy && input.ruleset?.storeys
+          ? resolveStoreyRules(policy, graph.storeys, summary.unit_scale, input.ruleset.storeys.levels)
+          : null;
       return {
         ...base,
+        ...(applied
+          ? {
+              referanseplan: applied.plane,
+              toleranse_mm: { over: applied.rules.tolerance.aboveMm, under: applied.rules.tolerance.belowMm },
+            }
+          : {}),
         dekning: {
           grunnlag: a,
           grunnlag_klasse: "IfcBuildingStorey",
@@ -580,6 +619,7 @@ function selectorClass(select: Selector | undefined): string | null {
  *  declared. A property set named `Pset_*` / `Qto_*` is the standard's. */
 function sourceOf(src: CodeSource): { navn: string; lag: ReportLayer } {
   if ("attribute" in src) return { navn: src.attribute, lag: "standard" };
+  if ("material" in src) return { navn: "IfcRelAssociatesMaterial", lag: "standard" };
   if ("property" in src) {
     const set = src.property.propertySet;
     return {
@@ -605,11 +645,12 @@ function ruleFunn(findings: RuleFinding[]): ReportFinding[] {
   }));
 }
 
-function ruleRow(rule: Rule, result: RuleResult, input: ReportInput, excludedAny: boolean): ReportRow {
+function ruleRow(rule: Rule, result: RuleResult, model: ReportModel, excludedAny: boolean): ReportRow {
+  const role = ruleRole(rule);
   const row: ReportRow = {
-    model: input.model,
+    model,
     id: result.ruleId,
-    ...(rule.kind === "extended" && rule.mapping ? { mapping: rule.mapping } : {}),
+    ...(role ? { mapping: role } : {}),
     state: result.state,
     dekning: { ...NULL_COVERAGE, kilder: [] },
     fordeling: null,
@@ -648,9 +689,15 @@ function ruleRow(rule: Rule, result: RuleResult, input: ReportInput, excludedAny
     if (check.type === "code-lookup") {
       const s = sourceOf(check.source);
       kilder = [{ ...s, n: cov ? cov.sourceHits : null, foretrukket: true }];
-      // The project's own allowed codes (MMI, a copy-object list): the values
-      // the row judged against, as on `ifc-schema` and `phase`.
-      if (check.values !== undefined) row.godtatte = [...check.values];
+      // The project's own codes (MMI): the values the row judged against, as
+      // on `ifc-schema` and `phase`, and the list with its names.
+      if (check.codes !== undefined) {
+        row.godtatte = check.codes.map((c) => c.code);
+        row.koder = check.codes.map((c) => ({ kode: c.code, navn: c.name, ...(c.phase ? { fase: c.phase } : {}) }));
+      }
+    } else if (check.type === "copy-object") {
+      const s = sourceOf(check.source);
+      kilder = [{ ...s, n: cov ? cov.sourceHits : null, foretrukket: true }];
     } else if (check.type === "element-typed") {
       kilder = [source("IfcRelDefinesByType", cov ? cov.sourceHits : null)];
     } else if (check.type === "type-usage-count") {
@@ -692,32 +739,49 @@ function ruleRow(rule: Rule, result: RuleResult, input: ReportInput, excludedAny
 /** Every row for one model: the engine's checks in their own order, then the
  *  standard-layer rows (`ifc-schema`, `phase`), then the ruleset's enabled rules in the ruleset's order, then a `not_configured` row
  *  for each no-IFC-home mapping the ruleset does not configure. */
+/** The file with the ruleset's facts about it. */
+export function reportModel(input: ReportModelInput, ruleset: Ruleset | null | undefined): ReportModel {
+  const label = modelLabel(input.file);
+  const fact = modelFact(ruleset, input.file);
+  const discipline = fact?.discipline ?? null;
+  const reported = ruleset?.disciplines?.find((d) => d.code === discipline)?.report !== false;
+  return { ...input, label, discipline, group: fact?.group ?? label, report: reported };
+}
+
 export function reportRows(input: ReportInput): ReportRow[] {
+  const model = reportModel(input.model, input.ruleset);
   const excludedList = input.evaluation?.excludedGuids;
   const excluded = excludedList && excludedList.length ? new Set(excludedList) : undefined;
-  const rows = input.checks.map((check) => fundamentalRow(check, input, excluded));
-  rows.push(
-    ...standardLayerRows({
-      model: input.model,
-      graph: input.graph,
-      excluded,
-      ruleset: input.ruleset,
-    }),
-  );
+  const rows = input.checks.map((check) => fundamentalRow(check, input, model, excluded));
+  // The standard layer's rows for a requirement this model is exempt from are
+  // not_applicable with the reason, as its checks and rules are.
+  const exempt = new Set(modelFact(input.ruleset, input.model.file)?.exempt ?? []);
+  for (const row of standardLayerRows({ model, graph: input.graph, excluded, ruleset: input.ruleset })) {
+    rows.push(
+      exempt.has(row.id)
+        ? {
+            model,
+            id: row.id,
+            state: "not_applicable",
+            grunn: exemptReason(model.label),
+            dekning: { ...NULL_COVERAGE, kilder: [] },
+            fordeling: null,
+            funn: [],
+          }
+        : row,
+    );
+  }
 
   const rules = input.ruleset?.rules ?? [];
   for (const result of input.evaluation?.results ?? []) {
     const rule = rules.find((r) => r.id === result.ruleId);
-    if (rule) rows.push(ruleRow(rule, result, input, excluded !== undefined));
+    if (rule) rows.push(ruleRow(rule, result, model, excluded !== undefined));
   }
 
   for (const role of NO_IFC_HOME) {
-    const configured = rules.some(
-      (r) => r.kind === "extended" && r.mapping === role && r.enabled !== false,
-    );
-    if (configured) continue;
+    if (roleRule(input.ruleset, role)) continue;
     rows.push({
-      model: input.model,
+      model,
       id: role,
       mapping: role,
       state: "not_configured",

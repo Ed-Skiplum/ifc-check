@@ -33,7 +33,7 @@ import { useHashView } from "./ui/useHashView";
 import { isAcceptedFile, useModels } from "./ui/useModels";
 
 const EMPTY_RULESET: Ruleset = {
-  formatVersion: 1,
+  formatVersion: 2,
   name: "",
   ifcVersions: ["IFC4"],
   rules: [],
@@ -336,7 +336,7 @@ export default function App() {
                 onMode={(mode) => cross.setMode(model.id, mode)}
                 onDispatch={(action) => cross.dispatch(model.id, action)}
                 onHover={(guid) => cross.setHover(model.id, guid)}
-                floors={ruleset?.storeys?.length ? ruleset.storeys : null}
+                floors={ruleset?.storeys?.levels.length ? ruleset.storeys.levels : null}
                 peers={peers}
                 tab={view.tab ?? "checks"}
                 onTab={(tab) => setView({ tab: tab === "checks" ? null : tab, type: null })}

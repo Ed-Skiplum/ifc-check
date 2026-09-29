@@ -4,10 +4,11 @@
  * produce the counts they should against real models. Node 24 strips the types
  * natively, so this needs no build step and no extra dependency.
  *
- *   node scripts/check-cli.ts [--ruleset <file.ruleset.json>] <model.ifc> [...]
+ *   node scripts/check-cli.ts [--ruleset <file.ruleset.json|config.xlsx>] <model.ifc> [...]
  *
- * `--ruleset` supplies the floor config (`storeys`) for `storey-config`;
- * without it that check is not_applicable.
+ * `--ruleset` supplies the floor config (`storeys`) for `storey-config` and
+ * the model facts (`models`: the file's discipline, its exemptions); without
+ * it that check is not_applicable.
  */
 
 import { readFileSync } from "node:fs";
@@ -21,7 +22,10 @@ import {
 } from "../src/engine/placement.ts";
 import { modelKpis } from "../src/engine/kpis.ts";
 import { bodyDeclarations, checkBodyWithoutMesh, unmeshedGuids } from "../src/engine/body-mesh.ts";
-import { checkStoreyConfig, type FloorConfig } from "../src/engine/storey-config.ts";
+import { checkStoreyConfig } from "../src/engine/storey-config.ts";
+import { exemptChecks } from "../src/engine/exempt.ts";
+import { readRulesetXlsx } from "../src/ids/xlsx.ts";
+import type { Ruleset } from "../src/ids/types.ts";
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 
 const wasmDir = new URL("../vendor/ifcfast-wasm/", import.meta.url);
@@ -32,10 +36,13 @@ const VERDICT_WIDTH = 8;
 const STATE_WIDTH = 24;
 
 const args = process.argv.slice(2);
-let floors: FloorConfig[] | undefined;
+let ruleset: Ruleset | undefined;
 const at = args.indexOf("--ruleset");
 if (at >= 0) {
-  floors = JSON.parse(readFileSync(args[at + 1], "utf-8")).storeys;
+  const path = args[at + 1];
+  ruleset = /\.xlsx$/i.test(path)
+    ? readRulesetXlsx(new Uint8Array(readFileSync(path))).ruleset
+    : (JSON.parse(readFileSync(path, "utf-8")) as Ruleset);
   args.splice(at, 2);
 }
 
@@ -71,12 +78,16 @@ for (const path of args) {
   if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) {
     graph.body_declared = bodyDeclarations(new Uint8Array(bytes), unmeshedGuids(graph, boxes));
   }
-  const checks = [
-    ...runFundamentals(graph, summary),
-    checkStoreyConfig(graph, summary, floors),
-    checkMeshPlacement(graph, summary, boxes),
-    checkBodyWithoutMesh(graph, boxes),
-  ];
+  const checks = exemptChecks(
+    [
+      ...runFundamentals(graph, summary),
+      checkStoreyConfig(graph, summary, ruleset, name),
+      checkMeshPlacement(graph, summary, boxes),
+      checkBodyWithoutMesh(graph, boxes),
+    ],
+    ruleset,
+    name,
+  );
   const openings = new Set(graph.voids.map((v) => v.opening_guid));
   const materialNames = elementMaterialNames(graph);
   const kpis = modelKpis({

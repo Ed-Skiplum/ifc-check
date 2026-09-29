@@ -6,14 +6,17 @@
  *   node scripts/ids-cli.ts schema                     > ruleset.schema.json
  *   node scripts/ids-cli.ts sample                     > my.ruleset.json
  *   node scripts/ids-cli.ts lint   my.ruleset.json
- *   node scripts/ids-cli.ts emit   my.ruleset.json --out dist-rules
+ *   node scripts/ids-cli.ts emit   my.ruleset.json|config.xlsx [--out dist-rules] [--ids file.ids]
  *   node scripts/ids-cli.ts run    my.ruleset.json model.ifc [...]
  *   node scripts/ids-cli.ts ids    my.ids model.ifc [...] [--max-findings N]
  *   node scripts/ids-cli.ts report [--ruleset my.ruleset.json] model.ifc [...]
  *   node scripts/ids-cli.ts psets  [--ruleset my.ruleset.json] [--examples N] model.ifc [...]
  *   node scripts/ids-cli.ts xlsx2json config.xlsx          > my.ruleset.json
  *   node scripts/ids-cli.ts json2xlsx my.ruleset.json [--out config.xlsx]
+ *   node scripts/ids-cli.ts ids2xlsx spec.ids [--into config.xlsx|my.ruleset.json] [--out config.xlsx]
  *   node scripts/ids-cli.ts selftest
+ *
+ * Every command that takes a ruleset takes the config workbook (.xlsx) too.
  *
  * Every command writes one JSON document to stdout. Progress and errors go to
  * stderr, so stdout is always machine-readable.
@@ -47,7 +50,7 @@ import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
 import { evaluateIds, type IdsModelResult } from "../src/ids/ids-report.ts";
 import { exportRuleset, partitionRules } from "../src/ids/export.ts";
-import { BOOLEAN_VALUES, hasErrors, lintRuleset } from "../src/ids/lint.ts";
+import { hasErrors, lintRuleset } from "../src/ids/lint.ts";
 import { RULESET_JSON_SCHEMA } from "../src/ids/schema.ts";
 import { SAMPLE_RULESET } from "../src/ids/sample.ts";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
@@ -59,11 +62,13 @@ import {
   locate,
   readRulesetXlsx,
   rulesetDiff,
+  withIdsRules,
   writeRulesetXlsx,
   type XlsxRuleset,
 } from "../src/ids/xlsx.ts";
+import { exemptChecks } from "../src/engine/exempt.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
-import type { IdsRule, Ruleset } from "../src/ids/types.ts";
+import { REQUIREMENT_IDS, type IdsRule, type Ruleset } from "../src/ids/types.ts";
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
 import { runFundamentals } from "../src/engine/fundamentals.ts";
 import {
@@ -73,7 +78,7 @@ import {
   unshiftBoxes,
   type ElementBox,
 } from "../src/engine/placement.ts";
-import { checkStoreyConfig } from "../src/engine/storey-config.ts";
+import { checkStoreyConfig, matchStoreys } from "../src/engine/storey-config.ts";
 import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
 import { schemaFamily } from "../src/engine/standard-layer.ts";
 import { functionTree, systemTree, type TreeNode } from "../src/engine/code-tree.ts";
@@ -170,8 +175,21 @@ function fail(message: string): never {
   process.exit(2);
 }
 
+/** A ruleset JSON, or the config workbook: a workbook problem is named at
+ *  its Sheet!Cell and stops the command. */
 function loadRuleset(path: string | undefined): Ruleset {
   if (!path) fail("no ruleset path given");
+  if (/\.xlsx$/i.test(path)) {
+    try {
+      return readRulesetXlsx(new Uint8Array(readFileSync(path))).ruleset;
+    } catch (error) {
+      if (error instanceof XlsxRulesetError) {
+        for (const problem of error.problems) note(`${path}: ${problem}`);
+        return fail(`cannot read ${path}: ${error.problems.length} problem(s)`);
+      }
+      return fail(`cannot read ${path}: ${(error as Error).message}`);
+    }
+  }
   try {
     return JSON.parse(readFileSync(path, "utf8")) as Ruleset;
   } catch (error) {
@@ -179,7 +197,7 @@ function loadRuleset(path: string | undefined): Ruleset {
   }
 }
 
-const VALUE_FLAGS = ["--out", "--max-findings", "--ruleset"];
+const VALUE_FLAGS = ["--out", "--max-findings", "--ruleset", "--ids", "--into"];
 
 function flagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -242,7 +260,12 @@ async function cmdEmit(args: string[]): Promise<number> {
       : await validateIds(result.ids, result.idsFileName);
 
   const outDir = flagValue(args, "--out");
+  const idsOut = flagValue(args, "--ids");
   const written: string[] = [];
+  if (idsOut && result.ids !== null) {
+    writeFileSync(idsOut, result.ids, "utf8");
+    written.push(idsOut);
+  }
   if (outDir) {
     mkdirSync(outDir, { recursive: true });
     if (result.ids !== null) {
@@ -268,7 +291,7 @@ async function cmdEmit(args: string[]): Promise<number> {
         : { ran: true, valid: validation.valid, errors: validation.errors },
     written,
     lint: issues,
-    ids: outDir ? undefined : result.ids,
+    ids: outDir || idsOut ? undefined : result.ids,
   });
   if (result.ids === null) return 1;
   return validation && validation.valid ? 0 : 1;
@@ -480,14 +503,18 @@ async function cmdReport(args: string[]): Promise<number> {
         ? evaluateRuleset(ruleset, graph as unknown as ModelGraph, summary as unknown as ModelSummary, name)
         : null;
       // The copy-object exclusions reach the fundamentals exactly as the
-      // browser worker applies them.
+      // browser worker applies them, and so do the model's exemptions.
       const excluded = evaluation?.excludedGuids?.length ? new Set(evaluation.excludedGuids) : undefined;
-      const checks = [
-        ...runFundamentals(graph, summary, excluded),
-        checkStoreyConfig(graph, summary, ruleset?.storeys),
-        checkMeshPlacement(graph, summary, boxes, excluded),
-        checkBodyWithoutMesh(graph, boxes, excluded),
-      ];
+      const checks = exemptChecks(
+        [
+          ...runFundamentals(graph, summary, excluded),
+          checkStoreyConfig(graph, summary, ruleset, name),
+          checkMeshPlacement(graph, summary, boxes, excluded),
+          checkBodyWithoutMesh(graph, boxes, excluded),
+        ],
+        ruleset,
+        name,
+      );
       rows.push(
         ...reportRows({
           model: { file: name, schema: summary.schema, sha256 },
@@ -662,55 +689,85 @@ async function cmdSelftest(): Promise<number> {
     mapping,
     check: { type: "code-lookup", source: { attribute: "ObjectType" }, extract: "^(.+)$", ...check },
   });
+  /** A project code list from bare codes; each code names itself. */
+  const codesOf = (...codes: string[]) => codes.map((code) => ({ code, name: code }));
+  /** The copy-object role: its own check type, no mapping field. */
+  const copyRule = (check: Record<string, unknown>, id = "copy-object") => ({
+    id,
+    kind: "extended",
+    name: id,
+    check: { type: "copy-object", source: { attribute: "ObjectType" }, copy: [], own: [], ...check },
+  });
   const withRules = (rules: unknown[]) => ({ ...SAMPLE_RULESET, rules }) as unknown as Ruleset;
   const lintCodes = (ruleset: Ruleset) =>
     lintRuleset(ruleset).filter((i) => i.severity === "error").map((i) => i.code).join(",") || "none";
   const mappingNegatives: [string, Ruleset, string][] = [
     ["one mapping on two rules", withRules([
-      mappingRule("progress-code", { values: ["300"] }, "a"),
-      mappingRule("progress-code", { values: ["300"] }, "b"),
+      mappingRule("progress-code", { codes: codesOf("300") }, "a"),
+      mappingRule("progress-code", { codes: codesOf("300") }, "b"),
     ]), "mapping-duplicate"],
+    ["two copy-object rules", withRules([copyRule({ copy: ["x"] }, "a"), copyRule({ copy: ["x"] }, "b")]), "mapping-duplicate"],
     ["a classification mapping without a list", withRules([
-      mappingRule("system-classification", { values: ["x"] }),
+      mappingRule("system-classification", { codes: codesOf("x") }),
     ]), "mapping-list"],
-    ["a code-lookup with both list and values", withRules([
-      mappingRule("progress-code", { values: ["300"], list: "ns3457-8" }),
+    ["a code-lookup with both list and codes", withRules([
+      mappingRule("progress-code", { codes: codesOf("300"), list: "ns3457-8" }),
     ]), "code-list-shape"],
-    ["an empty values list", withRules([mappingRule("progress-code", { values: [] })]), "code-values-empty"],
-    ["a copy-object mapping with an empty values list", withRules([
-      mappingRule("copy-object", { values: [] }),
-    ]), "code-values-empty"],
+    ["an empty codes list", withRules([mappingRule("progress-code", { codes: [] })]), "code-values-empty"],
+    ["a code with no name", withRules([mappingRule("progress-code", { codes: [{ code: "300", name: "" }] })]), "code-name-empty"],
+    ["a phase on a classification's codes", withRules([
+      mappingRule("system-classification", { list: "ns3451" }),
+      { id: "x", kind: "extended", name: "x", check: { type: "code-lookup", codes: [{ code: "1", name: "a", phase: "NY" }], source: { attribute: "Name" }, extract: "^(.+)$" } },
+    ]), "code-phase-role"],
+    ["mapping copy-object on a code-lookup", withRules([mappingRule("copy-object", { codes: codesOf("RIV") })]), "mapping-unknown"],
+    ["a value both copy and own", withRules([copyRule({ copy: ["Ja"], own: [" ja "] })]), "copy-own-overlap"],
+    ["a material source on copy-object", withRules([copyRule({ source: { material: {} }, copy: ["x"] })]), "material-source-slot"],
+    ["enabled: true", withRules([{ ...mappingRule("system-classification", { list: "ns3451" }), enabled: true }]), "enabled-not-false"],
     ["an unfilled template placeholder", withRules([
-      mappingRule("progress-code", { values: ["300"], source: { property: { propertySet: "<FROM PROJECT>", name: "MMI" } } }),
+      mappingRule("progress-code", { codes: codesOf("300"), source: { property: { propertySet: "<FROM PROJECT>", name: "MMI" } } }),
     ]), "from-project"],
   ];
   record(
     "lint: a placeholder is located at its path and on its rule",
     "rules[0].check.source.property.propertySet progress-code",
     lintRuleset(withRules([
-      mappingRule("progress-code", { values: ["300"], source: { property: { propertySet: "<FROM PROJECT>", name: "MMI" } } }),
+      mappingRule("progress-code", { codes: codesOf("300"), source: { property: { propertySet: "<FROM PROJECT>", name: "MMI" } } }),
     ])).filter((i) => i.code === "from-project").map((i) => `${i.path} ${i.ruleId}`).join(" | "),
   );
   for (const [name, ruleset, code] of mappingNegatives) {
     record(`lint rejects: ${name}`, code, lintCodes(ruleset));
   }
   record(
-    "JSON Schema rejects: code-lookup with neither list nor values",
+    "JSON Schema rejects: code-lookup with neither list nor codes",
     "rejected",
     shapeErrors(withRules([mappingRule("progress-code", {})])).length > 0 ? "rejected" : "accepted",
   );
-  // copy-object is a scope filter with two value modes, both plain `values`:
-  // the boolean pair (unchanged) or the project's own discipline codes. Not a
-  // stricter shape than progress-code's, so both lint clean.
   record(
-    "lint accepts: copy-object in boolean mode",
-    "0 errors",
-    `${lintRuleset(withRules([mappingRule("copy-object", { values: [...BOOLEAN_VALUES] })])).filter((i) => i.severity === "error").length} errors`,
+    "JSON Schema rejects: enabled true",
+    "rejected",
+    shapeErrors(withRules([{ ...mappingRule("system-classification", { list: "ns3451" }), enabled: true }])).length > 0 ? "rejected" : "accepted",
   );
   record(
-    "lint accepts: copy-object with a discipline-code list",
-    "0 errors",
-    `${lintRuleset(withRules([mappingRule("copy-object", { values: ["RIV"] })])).filter((i) => i.severity === "error").length} errors`,
+    "JSON Schema rejects: formatVersion 1",
+    "rejected",
+    shapeErrors({ ...SAMPLE_RULESET, formatVersion: 1 }).length > 0 ? "rejected" : "accepted",
+  );
+  record(
+    "lint rejects: formatVersion 1",
+    "format-version",
+    lintCodes({ ...SAMPLE_RULESET, formatVersion: 1 } as unknown as Ruleset),
+  );
+  // copy-object: the G55 Ja/Nei flag and the POFIN owner code are both
+  // copy and own lists. Both lint clean.
+  record(
+    "lint accepts: copy-object as a Ja/Nei flag",
+    "none",
+    lintCodes(withRules([copyRule({ copy: ["true"], own: ["false"] })])),
+  );
+  record(
+    "lint accepts: copy-object with owner codes only",
+    "none",
+    lintCodes(withRules([copyRule({})])),
   );
 
   // Evaluation of a values lookup on a synthetic model: one value in the list,
@@ -730,18 +787,16 @@ async function cmdSelftest(): Promise<number> {
     authoring_app: null, project_name: null, duplicate_step_ids: 0, products: 3,
   };
   const synthetic = evaluateRuleset(withRules([
-    mappingRule("progress-code", { values: ["300", "400"] }),
-    { ...mappingRule("copy-object", { values: ["true", "false"], extract: "^(.*)$" }),
-      check: { type: "code-lookup", values: ["true", "false"], extract: "^(.*)$",
-        source: { property: { propertySet: "P", name: "B" } } } },
+    mappingRule("progress-code", { codes: codesOf("300", "400") }),
+    copyRule({ copy: ["true"], own: ["false"], source: { property: { propertySet: "P", name: "B" } } }),
   ]), graph, summary, "synthetic");
   const [progress, copy] = synthetic.results;
   record(
-    "values lookup: in list passes, outside list and empty fail",
-    "fail 3/2 [not in values, empty]",
+    "codes lookup: in list passes, outside list and empty fail",
+    "fail 3/2 [not in codes, empty]",
     `${progress.state} ${progress.applicable}/${progress.failed} [` +
       progress.findings
-        .map((f) => (f.reason.endsWith("is empty") ? "empty" : f.reason.includes("is not in the allowed values") ? "not in values" : f.reason))
+        .map((f) => (f.reason.endsWith("is empty") ? "empty" : f.reason.includes("is not in the project's codes") ? "not in codes" : f.reason))
         .join(", ") + "]",
   );
   // NS 3451: known codes, a reserved code, an unknown code, and a table free
@@ -839,42 +894,68 @@ async function cmdSelftest(): Promise<number> {
 
   const boolCase = evaluateRuleset(
     withRules([
-      mappingRule("progress-code", { source: { attribute: "Name" }, values: ["300"] }),
-      mappingRule("copy-object", { values: [...BOOLEAN_VALUES] }),
+      mappingRule("progress-code", { source: { attribute: "Name" }, codes: codesOf("300") }),
+      copyRule({ copy: ["true"], own: ["false"] }),
     ]),
     referenceGraph([
-      ["300", "false"], // explicit non-reference: ordinary, in scope
-      ["999", "true"], // reference: excluded — would otherwise fail progress-code
-      ["300", null], // no flag: ordinary, in scope
+      ["300", "false"], // explicit own: in scope
+      ["999", "true"], // a copy: excluded, would otherwise fail progress-code
+      ["300", null], // no flag: own, in scope
     ]),
     summary,
     "boolean-mode",
   );
   const [boolProgress, boolCopy] = boolCase.results;
   record(
-    "boolean mode: reference object excluded from another rule's findings",
-    "pass 2/0, excluded 1 of 3 objects excluded as reference objects",
+    "copy-object as a flag: the copy is excluded from another rule's findings",
+    "pass 2/0, excluded 1 of 3 objects excluded as copies",
     `${boolProgress.state} ${boolProgress.applicable}/${boolProgress.failed}, excluded ${boolCopy.detail}`,
   );
 
-  const codesCase = evaluateRuleset(
-    withRules([
-      mappingRule("progress-code", { source: { attribute: "Name" }, values: ["300"] }),
-      mappingRule("copy-object", { values: ["RIV"] }),
-    ]),
-    referenceGraph([
-      ["300", null], // no code: ordinary, in scope
-      ["999", "RIV"], // reference: excluded — would otherwise fail progress-code
-      ["300", "ARK"], // not an allowed code: ordinary, in scope
-    ]),
-    summary,
-    "codes-mode",
-  );
-  const [codesProgress, codesCopy] = codesCase.results;
+  // Ownership (#7 point 7): the value names the owner. This file's own name
+  // is its own object; another discipline's name, or a value from the copy
+  // set, is a copy; case and whitespace do not count.
+  const ownership = (file: string) =>
+    evaluateRuleset(
+      {
+        ...withRules([
+          mappingRule("progress-code", { source: { attribute: "Name" }, codes: codesOf("300") }),
+          copyRule({ copy: ["kopi"] }),
+        ]),
+        disciplines: [{ code: "ARK" }, { code: "RIB" }],
+        models: [
+          { label: "P_ARK", discipline: "ARK", ownerNames: ["ARK"] },
+          { label: "P_RIB", discipline: "RIB", ownerNames: ["RIB"] },
+        ],
+      },
+      referenceGraph([
+        ["300", null], // no value: own
+        ["999", "RIB"], // RIB's in the ARK file: a copy
+        ["300", " ark "], // the file's own name, spaced and lower-case: own
+        ["999", "KOPI"], // the copy set: a copy
+        ["999", "LARK"], // named nowhere: a copy, tallied deviating
+      ]),
+      summary,
+      file,
+    );
+  const inArk = ownership("P_ARK.ifc");
   record(
-    "codes mode: reference object excluded from another rule's findings",
-    "pass 2/0, excluded 1 of 3 objects excluded as reference objects",
-    `${codesProgress.state} ${codesProgress.applicable}/${codesProgress.failed}, excluded ${codesCopy.detail}`,
+    "copy-object ownership: another owner, the copy set and an unknown name are copies",
+    "pass 2/0, 3 of 5 objects excluded as copies, deviating LARK",
+    `${inArk.results[0].state} ${inArk.results[0].applicable}/${inArk.results[0].failed}, ${inArk.results[1].detail}, deviating ` +
+      (inArk.results[1].values ?? []).filter((v) => v.state === "deviating").map((v) => v.value).join(","),
+  );
+  const inRib = ownership("P_RIB.ifc");
+  record(
+    "copy-object ownership: the same values read from RIB's file",
+    "3 of 5 objects excluded as copies",
+    inRib.results[1].detail,
+  );
+  const unlisted = ownership("P_RIV.ifc");
+  record(
+    "copy-object ownership: a file not in models is not_evaluable, nothing excluded",
+    "not_evaluable 0",
+    `${unlisted.results[1].state} ${unlisted.excludedGuids?.length}`,
   );
 
   /* ---- property and classification facets, on a graph that carries both ----
@@ -971,11 +1052,11 @@ async function cmdSelftest(): Promise<number> {
   // assertion is about the SOURCE and not about a bundled list.
   const sourced = evaluateRuleset(
     withRules([
-      { ...mappingRule("progress-code", { values: ["300"] }),
-        check: { type: "code-lookup", values: ["300"], extract: "^(.*)$",
+      { ...mappingRule("progress-code", { codes: codesOf("300") }),
+        check: { type: "code-lookup", codes: codesOf("300"), extract: "^(.*)$",
           source: { property: { propertySet: "NONS_Process", name: "Status" } } } },
-      { ...mappingRule("system-classification", { values: ["234"] }), id: "class-lookup",
-        check: { type: "code-lookup", values: ["234"], extract: "^(.*)$",
+      { ...mappingRule("system-classification", { codes: codesOf("234") }), id: "class-lookup",
+        check: { type: "code-lookup", codes: codesOf("234"), extract: "^(.*)$",
           source: { classification: { system: "NS 3451" } } } },
     ]),
     richGraph,
@@ -1005,10 +1086,8 @@ async function cmdSelftest(): Promise<number> {
   // property table was reachable the mapping could not run at all.
   const propertyFilter = evaluateRuleset(
     withRules([
-      mappingRule("progress-code", { source: { attribute: "Name" }, values: ["p1", "p3"] }),
-      { ...mappingRule("copy-object", { values: ["RIV"] }),
-        check: { type: "code-lookup", values: ["RIV"], extract: "^(.*)$",
-          source: { property: { propertySet: "NONS_Process", name: "DuplicateOwnedBy" } } } },
+      mappingRule("progress-code", { source: { attribute: "Name" }, codes: codesOf("p1", "p3") }),
+      copyRule({ source: { property: { propertySet: "NONS_Process", name: "DuplicateOwnedBy" } } }),
     ]),
     {
       ...richGraph,
@@ -1022,8 +1101,8 @@ async function cmdSelftest(): Promise<number> {
   );
   const [filteredProgress, propertyCopy] = propertyFilter.results;
   record(
-    "copy-object off a property source excludes the reference object",
-    "pass 2/0, excluded 1 of 3 objects excluded as reference objects",
+    "copy-object off a property source excludes the copy",
+    "pass 2/0, excluded 1 of 3 objects excluded as copies",
     `${filteredProgress.state} ${filteredProgress.applicable}/${filteredProgress.failed}, ` +
       `excluded ${propertyCopy.detail}`,
   );
@@ -1585,7 +1664,7 @@ async function cmdSelftest(): Promise<number> {
       { id: "r-wall", name: "wall status", kind: "ids", applicability: { entity: { classes: ["IFCWALL"] } },
         requirements: { property: [{ propertySet: { restriction: { pattern: "Pset_Wall.*" } }, baseName: "Status" }] } },
       { id: "r-off", name: "off", kind: "extended", enabled: false,
-        check: { type: "code-lookup", values: ["a"], extract: "^(.*)$", source: { property: { propertySet: "Pset_Fake", name: "X" } } } },
+        check: { type: "code-lookup", codes: [{ code: "a", name: "a" }], extract: "^(.*)$", source: { property: { propertySet: "Pset_Fake", name: "X" } } } },
     ],
     projectLayer: { phase: { sources: [{ property: { propertySet: "HI90_TFM", name: "Fase" } }] } },
   } as unknown as Ruleset;
@@ -1765,9 +1844,9 @@ async function cmdSelftest(): Promise<number> {
       trees,
     } as unknown as BoardData;
     const ruleset = {
-      formatVersion: 1, name: "t", ifcVersions: ["IFC4"],
+      formatVersion: 2, name: "t", ifcVersions: ["IFC4"],
       rules: [
-        { id: "hi90-mmi", kind: "extended", mapping: "progress-code", name: "MMI", check: { type: "code-lookup", values: ["300", "700"], source: { property: { propertySet: "HI90_Prosjektinfo", name: "HI90_MMI" } }, extract: "^(\\d{3})$" } },
+        { id: "hi90-mmi", kind: "extended", mapping: "progress-code", name: "MMI", check: { type: "code-lookup", codes: [{ code: "300", name: "300" }, { code: "700", name: "700" }], source: { property: { propertySet: "HI90_Prosjektinfo", name: "HI90_MMI" } }, extract: "^(\\d{3})$" } },
         { id: "req-ac", kind: "ids", name: "ac", applicability: { entity: { classes: ["IFCWALL"] } }, requirements: { property: [{ propertySet: "Pset_WallCommon", baseName: "AcousticRating" }, { propertySet: "Pset_WallCommon", baseName: "FireRating" }] } },
       ],
     } as unknown as Ruleset;
@@ -2351,7 +2430,8 @@ async function cmdSelftest(): Promise<number> {
     record("model cache: the grace period is 2 hours", "7200000", String(CACHE_SESSION_GRACE_MS));
   }
 
-  xlsxSelftest(record);
+  await xlsxSelftest(record);
+  configSelftest(record);
 
   const ok = assertions.every((a) => a.ok);
   emit({
@@ -2394,6 +2474,36 @@ async function cmdXlsx2json(args: string[]): Promise<number> {
   return hasErrors(issues) ? 1 : 0;
 }
 
+/** An .ids into the IDS sheets of a config: the .ids's specifications replace
+ *  the config's `ids` rules (`withIdsRules`); with no --into, a config holding
+ *  only them. Written to --out (default: the .ids name with .xlsx). Every
+ *  specification must import, and every one must fit the sheets, or nothing
+ *  is written. */
+async function cmdIds2xlsx(args: string[]): Promise<number> {
+  const path = positionals(args)[0];
+  if (!path) fail("no .ids path given");
+  let imported: Ruleset;
+  try {
+    imported = parseIdsXml(readFileSync(path, "utf8"), basename(path));
+  } catch (error) {
+    return fail(`cannot import ${path}: ${(error as Error).message}`);
+  }
+  const into = flagValue(args, "--into");
+  const base: Ruleset = into ? loadRuleset(into) : { ...imported, rules: [] };
+  const out = flagValue(args, "--out") ?? `${path.replace(/\.(ids|xml)$/i, "")}.xlsx`;
+  let bytes: Uint8Array;
+  let merged: Ruleset;
+  try {
+    merged = withIdsRules(base, imported.rules as IdsRule[]);
+    bytes = writeRulesetXlsx(merged);
+  } catch (error) {
+    return fail((error as Error).message);
+  }
+  writeFileSync(out, bytes);
+  emit({ command: "ids2xlsx", ids: basename(path), into: into ?? null, out, specifications: imported.rules.length, rules: merged.rules.length });
+  return 0;
+}
+
 /** A ruleset JSON to .xlsx, written to --out (default: the input's name with
  *  .xlsx). The writer reads its own output back and fails on any difference. */
 async function cmdJson2xlsx(args: string[]): Promise<number> {
@@ -2411,7 +2521,46 @@ async function cmdJson2xlsx(args: string[]): Promise<number> {
   return 0;
 }
 
-function xlsxSelftest(record: (name: string, expected: string, actual: string) => void): void {
+type Record_ = (name: string, expected: string, actual: string) => void;
+
+/** Private fixtures: `tests/fixtures/private/*.json` and `*.xlsx`, never
+ *  committed. Absent is fine: the cases that need one are skipped. */
+function privateFixtures(): { json: [string, Ruleset][]; xlsx: [string, Uint8Array][] } {
+  const dir = new URL("../tests/fixtures/private/", import.meta.url);
+  if (!existsSync(dir)) return { json: [], xlsx: [] };
+  const names = readdirSync(dir).sort();
+  return {
+    json: names.filter((f) => f.endsWith(".json")).map((f) => [f, JSON.parse(readFileSync(new URL(f, dir), "utf8")) as Ruleset]),
+    xlsx: names.filter((f) => f.endsWith(".xlsx")).map((f) => [f, new Uint8Array(readFileSync(new URL(f, dir)))]),
+  };
+}
+
+/** The workbook with some cells emptied: `refs` like `Kilder!B3`. */
+function blankCells(bytes: Uint8Array, refs: string[]): Uint8Array {
+  const files = unzipSync(bytes);
+  for (const ref of refs) {
+    const [sheet, cell] = ref.split("!");
+    const part = `xl/worksheets/sheet${(SHEET_ORDER as readonly string[]).indexOf(sheet) + 1}.xml`;
+    const text = strFromU8(files[part]);
+    const re = new RegExp(`<c r="${cell}"[^>]*>(?:(?!</c>).)*</c>`);
+    if (!re.test(text)) throw new Error(`no cell ${ref}`);
+    files[part] = strToU8(text.replace(re, ""));
+  }
+  return zipSync(files);
+}
+
+function refusedAt(bytes: Uint8Array): string {
+  try {
+    readRulesetXlsx(bytes);
+    return "accepted";
+  } catch (error) {
+    return error instanceof XlsxRulesetError
+      ? error.problems.map((p) => p.split(": ")[0]).join(" ")
+      : (error as Error).message;
+  }
+}
+
+async function xlsxSelftest(record: Record_): Promise<void> {
   // The committed template files are what the generator writes today.
   const template = writeRulesetXlsx(CONFIG_TEMPLATE);
   for (const dir of ["examples", "public"]) {
@@ -2433,6 +2582,14 @@ function xlsxSelftest(record: (name: string, expected: string, actual: string) =
     "same",
     Buffer.compare(Buffer.from(template), Buffer.from(writeRulesetXlsx(CONFIG_TEMPLATE))) === 0 ? "same" : "differ",
   );
+  record(
+    "xlsx: the sheets, Lesmeg first",
+    SHEET_ORDER.join(","),
+    (() => {
+      const wb = strFromU8(unzipSync(template)["xl/workbook.xml"]);
+      return [...wb.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]).join(",");
+    })(),
+  );
 
   // json -> xlsx -> json, deep equal, for every ruleset the repo carries.
   const roundTrip = (ruleset: Ruleset) => {
@@ -2443,50 +2600,74 @@ function xlsxSelftest(record: (name: string, expected: string, actual: string) =
       return (error as Error).message;
     }
   };
+  const fixtures = privateFixtures();
   const inputs: [string, Ruleset][] = [["the template", CONFIG_TEMPLATE], ["SAMPLE_RULESET", SAMPLE_RULESET]];
   for (const name of exampleRulesets()) {
     inputs.push([`examples/${name}`, JSON.parse(readFileSync(new URL(`../examples/${name}`, import.meta.url), "utf8"))]);
   }
-  const privateDir = new URL("../tests/fixtures/private/", import.meta.url);
-  if (existsSync(privateDir)) {
-    for (const name of readdirSync(privateDir).filter((f) => f.endsWith(".json")).sort()) {
-      inputs.push([`tests/fixtures/private/${name}`, JSON.parse(readFileSync(new URL(name, privateDir), "utf8"))]);
-    }
-  }
+  for (const [name, ruleset] of fixtures.json) inputs.push([`tests/fixtures/private/${name}`, ruleset]);
   for (const [name, ruleset] of inputs) record(`xlsx round trip: ${name}`, "equal", roundTrip(ruleset));
+  // xlsx -> json -> xlsx: a filled workbook reads, lints clean and writes back
+  // to what it read.
+  for (const [name, bytes] of fixtures.xlsx) {
+    let result: string;
+    try {
+      const read = readRulesetXlsx(bytes).ruleset;
+      const errors = lintRuleset(read).filter((i) => i.severity === "error");
+      result = errors.length
+        ? `lint: ${errors.map((i) => `${i.path} ${i.code}`).join(" | ")}`
+        : (rulesetDiff(readRulesetXlsx(writeRulesetXlsx(read)).ruleset, canonicalRuleset(read)) ?? "equal");
+    } catch (error) {
+      result = (error as Error).message;
+    }
+    record(`xlsx round trip, lint clean: tests/fixtures/private/${name}`, "equal", result);
+  }
 
-  // Each mapping lands on its sheet; the unfilled template is refused at its cells.
+  // Each rule lands on its sheet; the unfilled template is refused at its cells.
   const read = readRulesetXlsx(template);
   record(
-    "xlsx: the template's mappings sit on their sheets",
-    "Klassifikasjon Klassifikasjon MMI Kopiobjekt",
+    "xlsx: the template's rules sit on their sheets",
+    "IDS Klassifikasjon Klassifikasjon MMI Kopiobjekt",
     read.ruleset.rules.map((_, i) => (locate(`rules[${i}]`, read.locations) ?? "-").split("!")[0]).join(" "),
   );
   const placed = lintRuleset(read.ruleset).filter((i) => i.code === "from-project");
+  const cases: [string, string][] = [
+    ["rules[3].check.codes[0].code", "MMI-koder!A3"],
+    ["storeys.levels[0].elevation", "Etasjer!B3"],
+    ["storeys.plane", "Etasjeoppsett!B3"],
+    ["storeys.disciplines[0].discipline", "Etasjeoppsett!A4"],
+    ["projectLayer.phase.sources[0].property.propertySet", "Kilder!D3"],
+    ["projectLayer.ifc-schema.recommended[0]", "Standardkrav!D3"],
+    ["models[0].label", "Modeller!A3"],
+    ["disciplines[0].code", "Fag!A3"],
+    ["rules[0].requirements.property[0].propertySet", "IDS-fasetter!H4"],
+    ["rules[4].check.copy[0]", "Kopiobjekt!J3"],
+  ];
   record(
     "xlsx: the template lints from-project, located at Sheet!Cell",
-    "MMI!D3 Etasjer!B3 Kilder!D3",
-    ["rules[2].check.values[0]", "storeys[0].elevation", "projectLayer.phase.sources[0].property.propertySet"]
-      .map((path) => (placed.some((i) => i.path === path) ? (locate(path, read.locations) ?? "-") : "not linted"))
-      .join(" "),
+    cases.map(([, cell]) => cell).join(" "),
+    cases.map(([path]) => (placed.some((i) => i.path === path) ? (locate(path, read.locations) ?? "-") : "not linted")).join(" "),
+  );
+  record(
+    "xlsx: the Kote header names the plane",
+    "Kote OKFG (m)",
+    (() => {
+      const bytes = writeRulesetXlsx({ ...SAMPLE_RULESET, storeys: { plane: "OKFG", tolerance: { aboveMm: 0, belowMm: 0 }, nameWindowMm: null, nearMm: 0, levels: [{ name: "P1", elevation: 0 }] } });
+      const part = strFromU8(unzipSync(bytes)[`xl/worksheets/sheet${(SHEET_ORDER as readonly string[]).indexOf("Etasjer") + 1}.xml`]);
+      return /Kote OKFG \(m\)/.test(part) ? "Kote OKFG (m)" : "missing";
+    })(),
   );
 
-  // What does not fit a sheet is written as JSON and still comes back equal.
+  // What no role sheet spells goes to Andre regler as JSON; an IDS rule the
+  // IDS sheets cannot take is refused, naming the rule.
   const odd = {
     ...SAMPLE_RULESET,
-    $schema: "x",
-    storeys: [],
-    projectLayer: {},
     rules: [
-      {
-        id: "mmi", kind: "extended", mapping: "progress-code", name: "MMI",
-        check: { type: "code-lookup", values: ["1,5"], source: { attribute: "Name" }, extract: "^(.+)$" },
-      },
-      {
-        id: "sys", kind: "extended", mapping: "system-classification", name: "S", enabled: false,
+      { id: "mmi", kind: "extended", mapping: "progress-code", name: "MMI", list: undefined,
+        check: { type: "code-lookup", list: "ns3451", source: { attribute: "Name" }, extract: "^(.+)$" } },
+      { id: "sys", kind: "extended", mapping: "system-classification", name: "S", enabled: false,
         select: { entity: { group: "physicalElement" } },
-        check: { type: "code-lookup", list: "ns3451", source: { classification: {} }, extract: "^(.+)$" },
-      },
+        check: { type: "code-lookup", list: "ns3451", source: { classification: {} }, extract: "^(.+)$" } },
     ],
   } as unknown as Ruleset;
   let oddResult: string;
@@ -2494,16 +2675,66 @@ function xlsxSelftest(record: (name: string, expected: string, actual: string) =
     const oddRead = readRulesetXlsx(writeRulesetXlsx(odd));
     oddResult =
       `${rulesetDiff(oddRead.ruleset, canonicalRuleset(odd)) ?? "equal"} ` +
-      ["rules[0]", "rules[1]", "$schema", "storeys", "projectLayer"]
-        .map((p) => (locate(p, oddRead.locations) ?? "-").split("!")[0])
-        .join(" ");
+      ["rules[0]", "rules[1]"].map((p) => (locate(p, oddRead.locations) ?? "-").split("!")[0]).join(" ");
   } catch (error) {
     oddResult = (error as Error).message;
   }
   record(
-    "xlsx: a misfit rule goes to Andre regler, odd top-level keys to Prosjekt, both round-trip",
-    "equal Klassifikasjon Andre regler Prosjekt Prosjekt Prosjekt",
+    "xlsx: a role rule its sheet cannot spell goes to Andre regler; a selection stays on its sheet",
+    "equal Klassifikasjon Andre regler",
     oddResult,
+  );
+  const misfit = (rule: Record<string, unknown>) => {
+    try {
+      writeRulesetXlsx({ ...SAMPLE_RULESET, rules: [rule] } as unknown as Ruleset);
+      return "written";
+    } catch (error) {
+      return (error as Error).message.split("\n")[0];
+    }
+  };
+  record(
+    "xlsx refuses: an IDS rule with a restriction on a name",
+    "rule p: applicability.property[0].propertySet is a restriction; the sheet takes a literal there",
+    misfit({ id: "p", kind: "ids", name: "p", applicability: { property: [{ propertySet: { restriction: { pattern: "Pset_.*" } }, baseName: "X" }] } }),
+  );
+  record(
+    "xlsx refuses: an IDS rule with an entity name",
+    "rule e: applicability.entity.name is set; the sheet takes classes (IFC-klasse) or a group (Klassegruppe)",
+    misfit({ id: "e", kind: "ids", name: "e", applicability: { entity: { name: "IFCWALL" } } }),
+  );
+
+  // Blank and half-filled rows (#7 point 1).
+  const phaseRow = locate("projectLayer.phase.sources[0]", read.locations)!.split("!")[1].replace(/\D/g, "");
+  const onlyKrav = readRulesetXlsx(blankCells(template, ["B", "D", "E"].map((c) => `Kilder!${c}${phaseRow}`))).ruleset;
+  record(
+    "xlsx: a row with only its key cell (Krav) is not declared, and dropped",
+    '{"reference":"<FROM PROJECT>"}',
+    JSON.stringify(onlyKrav.projectLayer?.phase),
+  );
+  record(
+    "xlsx refuses: a half-filled row, at its blank required cell",
+    `Kilder!B${phaseRow} Kilder!D${phaseRow} Kilder!E${phaseRow}`,
+    refusedAt(blankCells(template, [`Kilder!B${phaseRow}`])),
+  );
+  const mmiAktiv = locate("rules[3].enabled", read.locations)!;
+  record("xlsx refuses: a blank Aktiv", mmiAktiv, refusedAt(blankCells(template, [mmiAktiv])));
+  const fullyBlank = (() => {
+    const files = unzipSync(template);
+    const part = `xl/worksheets/sheet${(SHEET_ORDER as readonly string[]).indexOf("IDS-fasetter") + 1}.xml`;
+    files[part] = strToU8(strFromU8(files[part]).replace(/<c r="[A-Z]+4"[^>]*>(?:(?!<\/c>).)*<\/c>/g, ""));
+    return zipSync(files);
+  })();
+  record(
+    "xlsx: a fully blank facet row is dropped",
+    "no requirements",
+    (() => {
+      try {
+        const rule = readRulesetXlsx(fullyBlank).ruleset.rules[0] as IdsRule;
+        return rule.requirements ? "requirements" : "no requirements";
+      } catch (error) {
+        return (error as Error).message;
+      }
+    })(),
   );
 
   // The reader refuses a broken workbook at the cell, all problems at once.
@@ -2514,37 +2745,305 @@ function xlsxSelftest(record: (name: string, expected: string, actual: string) =
     files[part] = strToU8(text.replace(from, to));
     return zipSync(files);
   };
-  const refused = (bytes: Uint8Array) => {
-    try {
-      readRulesetXlsx(bytes);
-      return "accepted";
-    } catch (error) {
-      return error instanceof XlsxRulesetError
-        ? error.problems.map((p) => p.split(": ")[0]).join(" ")
-        : (error as Error).message;
-    }
-  };
   const sheetPart = (name: string) => `xl/worksheets/sheet${(SHEET_ORDER as readonly string[]).indexOf(name) + 1}.xml`;
-  record("xlsx refuses: an unknown sheet", "Kildr", refused(edit(template, "xl/workbook.xml", 'name="Kilder"', 'name="Kildr"')));
+  record("xlsx refuses: an unknown sheet", "Kildr", refusedAt(edit(template, "xl/workbook.xml", 'name="Kilder"', 'name="Kildr"')));
   record(
-    "xlsx refuses: an unknown field path in row 2",
-    "MMI!J2",
-    refused(edit(template, sheetPart("MMI"), ">rules[].check.extract<", ">rules[].check.extrakt<")),
+    "xlsx refuses: an unknown field path in row 2, and the required column it was",
+    "MMI!J2 MMI!N2",
+    refusedAt(edit(template, sheetPart("MMI"), ">rules[].check.extract<", ">rules[].check.extrakt<")),
   );
   record(
     "xlsx refuses: property cells filled under an attribute source",
-    "Kilder!D3 Kilder!E3",
-    refused(edit(template, sheetPart("Kilder"), ">property<", ">attribute<")),
+    `Kilder!D${phaseRow} Kilder!E${phaseRow}`,
+    refusedAt(edit(template, sheetPart("Kilder"), ">property<", ">attribute<")),
   );
-  const withSelect = writeRulesetXlsx({
-    ...CONFIG_TEMPLATE,
-    rules: [{ ...CONFIG_TEMPLATE.rules[0], select: { entity: { group: "product" } } }],
+  const withOther = writeRulesetXlsx({
+    ...SAMPLE_RULESET,
+    rules: [{ id: "t", kind: "extended", name: "t", select: { entity: { group: "physicalElement" } }, check: { type: "element-typed" } }],
   });
   record(
     "xlsx refuses: a JSON cell that is not JSON",
-    "Klassifikasjon!N3",
-    refused(edit(withSelect, sheetPart("Klassifikasjon"), "{&quot;entity&quot;", "{entity")),
+    "Andre regler!A3",
+    refusedAt(edit(withOther, sheetPart("Andre regler"), "{&quot;id&quot;", "{id")),
   );
+
+  // The IDS sheets and the .ids: a workbook's IDS rules emit the same .ids
+  // as the JSON's, the export re-imports to the same IDS model, and an
+  // imported .ids goes into the IDS sheets.
+  const idsOf = (ruleset: Ruleset) => {
+    const included = partitionRules(ruleset).included;
+    return included.length ? emitIdsXml(ruleset, included) : null;
+  };
+  const sampleIds = idsOf(SAMPLE_RULESET)!;
+  const viaXlsx = readRulesetXlsx(writeRulesetXlsx(SAMPLE_RULESET)).ruleset;
+  record("IDS sheets -> .ids: the workbook emits the JSON's .ids", "same", idsOf(viaXlsx) === sampleIds ? "same" : "differ");
+  const once = importIds(sampleIds, "sample.ids").ruleset;
+  const twice = importIds(idsOf(once)!, "sample.ids").ruleset;
+  record(
+    ".ids export re-imports to the same IDS model",
+    "equal same-xml",
+    `${rulesetDiff(twice.rules, once.rules) ?? "equal"} ${idsOf(once) === sampleIds ? "same-xml" : "xml-differs"}`,
+  );
+  let intoSheets: string;
+  try {
+    const merged = withIdsRules(CONFIG_TEMPLATE, once.rules as IdsRule[]);
+    const back = readRulesetXlsx(writeRulesetXlsx(merged)).ruleset;
+    intoSheets = `${back.rules.filter((r) => r.kind === "ids").length} ${idsOf(back) === idsOf({ ...merged, rules: once.rules }) ? "same-xml" : "xml-differs"}`;
+  } catch (error) {
+    intoSheets = (error as Error).message;
+  }
+  record(
+    ".ids into the IDS sheets (ids2xlsx): every specification, the same .ids back",
+    `${once.rules.length} same-xml`,
+    intoSheets,
+  );
+  record(
+    "withIdsRules refuses a rule id the config already has",
+    "rule ids in both the config and the .ids: system-classification",
+    (() => {
+      try {
+        withIdsRules(CONFIG_TEMPLATE, [{ id: "system-classification", kind: "ids", name: "x", applicability: {} }]);
+        return "accepted";
+      } catch (error) {
+        return (error as Error).message;
+      }
+    })(),
+  );
+  // The standalone .ids of every config the repo carries validates against
+  // the bundled IDS XSD (vendor/ids-schema, offline).
+  const toValidate: [string, Ruleset][] = [["SAMPLE_RULESET via xlsx", viaXlsx]];
+  for (const name of exampleRulesets()) {
+    const ruleset = JSON.parse(readFileSync(new URL(`../examples/${name}`, import.meta.url), "utf8")) as Ruleset;
+    if (partitionRules(ruleset).included.length) toValidate.push([`examples/${name}`, ruleset]);
+  }
+  for (const [name, ruleset] of fixtures.json) if (partitionRules(ruleset).included.length) toValidate.push([name, ruleset]);
+  for (const [name, bytes] of fixtures.xlsx) {
+    try {
+      const r = readRulesetXlsx(bytes).ruleset;
+      if (partitionRules(r).included.length) toValidate.push([name, r]);
+    } catch {
+      // reported above
+    }
+  }
+  for (const [name, ruleset] of toValidate) {
+    const xml = idsOf(ruleset)!;
+    const validation = await validateIds(xml, `${name}.ids`);
+    record(`.ids export of ${name} is valid against the IDS XSD`, "valid", validation.valid ? "valid" : JSON.stringify(validation.errors).slice(0, 300));
+  }
+}
+
+/** The rules #7 added to the model, each on a small synthetic graph. */
+function configSelftest(record: Record_): void {
+  const product = (guid: string, entity = "IFCWALL") => ({
+    guid, entity, name: guid, predefined_type: null, object_type: null, tag: null,
+    storey_guid: null, parent_guid: null, type_name: null, type_source: "none", typed: false,
+    type_guid: null, materials: [], layer_set: null, is_external: null, fire_rating: null, load_bearing: null,
+  });
+  const summary = {
+    schema: "IFC4", length_unit: "METRE", unit_scale: 1, unit_resolved: true,
+    authoring_app: null, project_name: null, duplicate_step_ids: 0, products: 4,
+  } as unknown as IfcSummary;
+  const base = (over: Record<string, unknown> = {}) =>
+    ({
+      schema: "IFC4", project_name: null, products: [], storeys: [], sites: [], buildings: [], projects: [], spaces: [],
+      contained_in: [], aggregates: [], storey_building: [], voids: [], psets: [], classifications: [], quantities: [],
+      materials: [], type_objects: [],
+      ...over,
+    }) as unknown as IfcGraph;
+  const ruleset = (over: Record<string, unknown>) => ({ ...SAMPLE_RULESET, rules: [], ...over }) as unknown as Ruleset;
+
+  // The engine's own report row ids are exactly REQUIREMENT_IDS, so an
+  // exemption can name every one of them and nothing else.
+  {
+    const g = base({ products: [product("a")] });
+    const checks = [
+      ...runFundamentals(g, summary),
+      checkStoreyConfig(g, summary, null, "m.ifc"),
+      checkMeshPlacement(g, summary, null),
+      checkBodyWithoutMesh(g, null),
+    ];
+    const ids = reportRows({ model: { file: "m.ifc", schema: "IFC4", sha256: "" }, graph: g, summary, checks }).filter((r) => !r.mapping).map((r) => r.id);
+    record("REQUIREMENT_IDS are the report rows the engine emits", [...REQUIREMENT_IDS].sort().join(","), [...ids].sort().join(","));
+  }
+
+  // Storeys (#7 points 3, 11): tolerance, the two windows, the discipline
+  // override with requireAllNames.
+  {
+    const storey = (guid: string, name: string, elevation: number) => ({ guid, name, elevation, building_guid: null });
+    const setup = {
+      plane: "OKFG", tolerance: { aboveMm: 5, belowMm: 5 }, nameWindowMm: 1000, nearMm: 200,
+      levels: [{ name: "P1", elevation: 10 }, { name: "P2", elevation: 13 }],
+      disciplines: [{ discipline: "RIB", plane: "OKBD", tolerance: { aboveMm: 5, belowMm: null }, requireAllNames: true }],
+    };
+    const rs = ruleset({
+      storeys: setup,
+      disciplines: [{ code: "ARK" }, { code: "RIB" }],
+      models: [{ label: "X_ARK", discipline: "ARK" }, { label: "X_RIB", discipline: "RIB" }],
+    });
+    const run = (file: string, storeys: ReturnType<typeof storey>[]) => {
+      const g = base({ storeys });
+      const check = checkStoreyConfig(g, summary, rs, file);
+      const row = reportRows({ model: { file, schema: "IFC4", sha256: "" }, graph: g, summary, checks: [check], ruleset: rs }).find((r) => r.id === "storey-config")!;
+      return `${check.state} ${check.findings.map((f) => `${f.guid}:${f.code}`).join(",") || "-"} ${row.referanseplan} ${row.toleranse_mm?.over}/${row.toleranse_mm?.under}`;
+    };
+    record(
+      "storeys: within tolerance matches; same name past it is an elevation mismatch; another name near is a name mismatch",
+      "fail b:storey-elevation-mismatch,c:storey-name-mismatch,-:storey-count-exceeds OKFG 5/5",
+      run("X_ARK.ifc", [storey("a", "P1", 10.004), storey("b", "P2", 13.02), storey("c", "Plan 2", 13.15)]),
+    );
+    record(
+      "storeys: a same-named storey outside the name window is not in the config",
+      "fail a:storey-not-in-config OKFG 5/5",
+      run("X_ARK.ifc", [storey("a", "P1", 11.5)]),
+    );
+    record(
+      "storeys: RIB's override (OKBD, lower accepted) holds when every name matches",
+      "pass - OKBD 5/null",
+      run("X_RIB.ifc", [storey("a", "P1", 9.9), storey("b", "P2", 12.85)]),
+    );
+    record(
+      "storeys: RIB's override does not hold with a level missing by name",
+      "fail a:storey-elevation-mismatch OKBD 5/5",
+      run("X_RIB.ifc", [storey("a", "P1", 9.9)]),
+    );
+    record(
+      "storeys: exact matching without the setup's windows (the earlier behaviour)",
+      "match,elevation-mismatch,name-mismatch",
+      matchStoreys([storey("a", "P1", 10), storey("b", "P2", 13.001), storey("c", "X", 10)], 1, setup.levels).map((m) => m.state).join(","),
+    );
+    record(
+      "lint rejects: a storey setup without a plane, a discipline override for an unknown discipline",
+      "storey-plane,discipline-unknown",
+      lintRuleset(ruleset({ storeys: { ...setup, plane: "" }, disciplines: [{ code: "ARK" }] })).filter((i) => i.severity === "error").map((i) => i.code).join(","),
+    );
+  }
+
+  // Recommended against accepted schema (#7 point 5).
+  {
+    const rs = ruleset({ projectLayer: { "ifc-schema": { accepted: ["IFC2X3", "IFC4"], recommended: ["IFC4"] } } });
+    const row = (schema: string) => {
+      const r = reportRows({ model: { file: "s.ifc", schema, sha256: "" }, graph: base(), summary, checks: [], ruleset: rs }).find((x) => x.id === "ifc-schema")!;
+      return `${r.state} ${r.dekning.oppfylt} ${(r.fordeling ?? []).map((v) => v.flagg || "ok").join(",")} [${r.anbefalte?.join(" ")}]`;
+    };
+    record("ifc-schema: recommended passes", "pass 1 ok [IFC4]", row("IFC4"));
+    record("ifc-schema: accepted only is a warn, the value unflagged («Kan brukes»)", "warn 1 ok [IFC4]", row("IFC2X3"));
+    record(
+      "lint rejects: a recommended schema that is not accepted",
+      "schema-recommended-not-accepted",
+      lintCodes(ruleset({ projectLayer: { "ifc-schema": { accepted: ["IFC4"], recommended: ["IFC2X3"] } } })),
+    );
+  }
+
+  // Phase through the MMI code (#7 point 4), and code names (#7 point 6).
+  {
+    const mmi = {
+      id: "progress-code", kind: "extended", mapping: "progress-code", name: "MMI",
+      check: {
+        type: "code-lookup", extract: "^(\\d{3})$", source: { property: { propertySet: "P", name: "MMI" } },
+        codes: [{ code: "300", name: "Detaljert", phase: "NY" }, { code: "700", name: "Eksisterende", phase: "Bevares" }, { code: "800", name: "Kode 800" }],
+      },
+    };
+    const rs = ruleset({ rules: [mmi], projectLayer: { phase: { sources: [{ progressCode: {} }] } } });
+    const prop = (guid: string, value: string) => ({ guid, pset_name: "P", prop_name: "MMI", value, value_type: "IfcLabel", source: "instance" });
+    const g = base({ products: ["a", "b", "c", "d"].map((x) => product(x)), psets: [prop("a", "300"), prop("b", "700"), prop("c", "800")] });
+    const evaluation = evaluateRuleset(rs, g as unknown as ModelGraph, summary as unknown as ModelSummary, "m.ifc");
+    const rows = reportRows({ model: { file: "m.ifc", schema: "IFC4", sha256: "" }, graph: g, summary, checks: [], ruleset: rs, evaluation });
+    const phase = rows.find((r) => r.id === "phase")!;
+    record(
+      "phase through MMI: a code with a phase is oppfylt, a code without one avvik, no MMI mangler",
+      "warn 4=2+1+1 null:mangler,800:avvik,Bevares:ok,NY:ok",
+      `${phase.state} ${phase.dekning.grunnlag}=${phase.dekning.oppfylt}+${phase.dekning.avvik}+${phase.dekning.mangler} ` +
+        (phase.fordeling ?? []).map((v) => `${v.verdi}:${v.flagg || "ok"}`).join(","),
+    );
+    record(
+      "phase through MMI: the table's phases are accepted",
+      "NEW,EXISTING,DEMOLISH,TEMPORARY,NY,Bevares",
+      (phase.godtatte ?? []).join(","),
+    );
+    const row = rows.find((r) => r.mapping === "progress-code")!;
+    record(
+      "progress-code row carries the code list with names and phases",
+      "300 Detaljert NY|700 Eksisterende Bevares|800 Kode 800 -",
+      (row.koder ?? []).map((k) => `${k.kode} ${k.navn} ${k.fase ?? "-"}`).join("|"),
+    );
+    record(
+      "lint rejects: progressCode with no progress-code phases",
+      "progress-code-no-phase",
+      lintCodes(ruleset({ projectLayer: { phase: { sources: [{ progressCode: {} }] } } })),
+    );
+  }
+
+  // Material through IfcRelAssociatesMaterial as a source (#7 point 2).
+  {
+    const mat = (guid: string, name: string, source = "instance") =>
+      ({ guid, role: "direct", layer_index: 0, material_name: name, layer_thickness_mm: null, category: null, fraction: null, source });
+    const rule = {
+      id: "mat", kind: "extended", name: "mat",
+      check: { type: "code-lookup", source: { material: {} }, extract: "^(.+)$", codes: [{ code: "Betong", name: "Betong" }] },
+    };
+    const g = base({
+      products: ["a", "b", "c", "d"].map((x) => product(x)),
+      materials: [mat("a", "Betong"), mat("b", "Stål"), mat("c", "Betong", "type"), mat("c", "Tre")],
+    });
+    const r = evaluateRuleset(ruleset({ rules: [rule] }), g as unknown as ModelGraph, summary as unknown as ModelSummary, "m.ifc").results[0];
+    record(
+      "material source: the own association first, else the type's; none is empty",
+      "fail 4/3 b:not-in-list,c:not-in-list,d:empty",
+      `${r.state} ${r.applicable}/${r.failed} ${r.findings.map((f) => `${f.guid}:${f.code}`).join(",")}`,
+    );
+    record(
+      "lint rejects: a material source under material-product.material",
+      "material-source-slot",
+      lintCodes(ruleset({ projectLayer: { "material-product": { material: [{ material: {} }] } } })),
+    );
+  }
+
+  // Per-model facts (#7 point 8): discipline, group, no report, exemptions.
+  {
+    const rs = ruleset({
+      disciplines: [{ code: "RIE" }, { code: "BIMK", report: false }],
+      models: [
+        { label: "X_RIE", discipline: "RIE", group: "RIE" },
+        { label: "X_RIE_Utsparinger", discipline: "RIE", group: "RIE", exempt: ["progress-code", "phase", "element-material"] },
+        { label: "X_BIMK", discipline: "BIMK" },
+      ],
+      rules: [{ id: "progress-code", kind: "extended", mapping: "progress-code", name: "MMI", check: { type: "code-lookup", source: { attribute: "Name" }, extract: "^(.+)$", codes: [{ code: "a", name: "a" }] } }],
+    });
+    const g = base({ products: [product("a")] });
+    const facts = (file: string) => {
+      const evaluation = evaluateRuleset(rs, g as unknown as ModelGraph, summary as unknown as ModelSummary, file);
+      const checks = exemptChecks(runFundamentals(g, summary), rs, file);
+      const rows = reportRows({ model: { file, schema: "IFC4", sha256: "" }, graph: g, summary, checks, ruleset: rs, evaluation });
+      const m = rows[0].model;
+      const st = (id: string) => rows.find((r) => r.id === id || r.mapping === id)?.state;
+      return `${m.label} ${m.discipline} ${m.group} ${m.report} mmi:${st("progress-code")} phase:${st("phase")} material:${st("element-material")}`;
+    };
+    record(
+      "model facts: label, discipline and group; nothing exempt",
+      "X_RIE RIE RIE true mmi:pass phase:warn material:warn",
+      facts("X_RIE.ifc"),
+    );
+    record(
+      "model facts: an exempt model's requirements are not_applicable",
+      "X_RIE_Utsparinger RIE RIE true mmi:not_applicable phase:not_applicable material:not_applicable",
+      facts("X_RIE_Utsparinger.ifc"),
+    );
+    record("model facts: a discipline without a report", "X_BIMK BIMK X_BIMK false", facts("X_BIMK.ifc").split(" ").slice(0, 4).join(" "));
+    record(
+      "lint rejects: an exemption naming no requirement, a model of an unknown discipline",
+      "exempt-unknown,discipline-unknown",
+      lintCodes(ruleset({ disciplines: [{ code: "RIE" }], models: [{ label: "A", discipline: "RIE", exempt: ["nope"] }, { label: "B", discipline: "XX" }] })),
+    );
+    record(
+      "lint accepts: one owner name on two models (read one file at a time); refuses an empty one",
+      "owner-name-empty",
+      lintCodes(ruleset({ disciplines: [{ code: "A" }], models: [{ label: "A1", discipline: "A", ownerNames: ["CUT"] }, { label: "A2", discipline: "A", ownerNames: [" cut", " "] }] })),
+    );
+  }
+}
+
+function lintCodes(ruleset: Ruleset): string {
+  return lintRuleset(ruleset).filter((i) => i.severity === "error").map((i) => i.code).join(",") || "none";
 }
 
 /* ------------------------------------------------------------------ main */
@@ -2588,9 +3087,12 @@ switch (command) {
   case "json2xlsx":
     code = await cmdJson2xlsx(rest);
     break;
+  case "ids2xlsx":
+    code = await cmdIds2xlsx(rest);
+    break;
   default:
     note(
-      "usage: node scripts/ids-cli.ts <lint|emit|run|ids|report|psets|xlsx2json|json2xlsx|schema|sample|selftest> [args]",
+      "usage: node scripts/ids-cli.ts <lint|emit|run|ids|report|psets|xlsx2json|json2xlsx|ids2xlsx|schema|sample|selftest> [args]",
     );
     code = 2;
 }

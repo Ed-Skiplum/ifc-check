@@ -9,10 +9,14 @@
 
 import { CODE_LIST_IDS } from "../codelists/index.ts";
 import { IFC_CLASSES } from "./ifc-classes.ts";
+import { ownerKey, ruleRole } from "./models.ts";
+import { REQUIREMENT_IDS } from "./types.ts";
 import type {
   Applicability,
   ClassGroup,
   CodeLookupCheck,
+  CodeLookupRole,
+  CopyObjectCheck,
   EntityFacet,
   ExtendedRule,
   IdsValue,
@@ -26,6 +30,7 @@ import type {
   Ruleset,
   Selector,
   StandardRequirementId,
+  StoreyTolerance,
 } from "./types.ts";
 
 const RELATIONS: PartOfRelation[] = [
@@ -413,6 +418,12 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
   if (!rule.name) {
     add(ctx, "error", `${path}.name`, "rule-no-name", "rule has no name");
   }
+  if (rule.enabled !== undefined && (rule.enabled as unknown) !== false) {
+    add(ctx, "error", `${path}.enabled`, "enabled-not-false", "enabled is present only as false; an enabled rule leaves it out");
+  }
+  if (rule.reference !== undefined && rule.reference.trim() === "") {
+    add(ctx, "error", `${path}.reference`, "reference-empty", "reference is empty; leave it out");
+  }
 
   if (rule.kind === "ids") {
     const versions = rule.ifcVersions ?? ruleset.ifcVersions;
@@ -499,8 +510,15 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
     return;
   }
   if (rule.mapping !== undefined) checkMapping(ctx, path, rule);
+  if (check.type === "copy-object") {
+    checkCopyObject(ctx, path, check);
+    if (rule.select) {
+      checkFacets(ctx, `${path}.select`, rule.select, ruleset.ifcVersions, false);
+    }
+    return;
+  }
   if (check.type === "code-lookup") {
-    checkCodeLookup(ctx, path, check);
+    checkCodeLookup(ctx, path, check, rule.mapping);
     if (rule.select) {
       checkFacets(ctx, `${path}.select`, rule.select, ruleset.ifcVersions, false);
     }
@@ -546,19 +564,39 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
   }
 }
 
-/** One `CodeSource`: a code-lookup's, or one entry of a project-layer
- *  cascade. */
-function checkCodeSource(ctx: Ctx, path: string, raw: unknown): void {
+/** Where a source sits decides which kinds it may be. */
+type SourceSlot = "code-lookup" | "copy-object" | "phase" | "mengdetype" | "product" | "material";
+
+/** One source: a code-lookup's or copy-object's, or one entry of a
+ *  project-layer cascade. `material` is a code-lookup source only: the
+ *  standard layer already reads IfcRelAssociatesMaterial first in
+ *  `material-product.material`, and a phase, mengdetype, product or owner is
+ *  no material name. `progressCode` is a phase source only. */
+function checkCodeSource(ctx: Ctx, path: string, raw: unknown, slot: SourceSlot): void {
   const source = (raw ?? {}) as Record<string, unknown>;
   const keys = Object.keys(source);
-  if (keys.length !== 1 || !["attribute", "property", "classification"].includes(keys[0])) {
+  const kinds = ["attribute", "property", "classification", "material", "progressCode"];
+  if (keys.length !== 1 || !kinds.includes(keys[0])) {
     add(
       ctx,
       "error",
       path,
       "code-source-shape",
-      "source needs exactly one of attribute, property or classification",
+      "source needs exactly one of attribute, property, classification" +
+        (slot === "code-lookup" ? " or material" : slot === "phase" ? " or progressCode" : ""),
     );
+  } else if (keys[0] === "material" && slot !== "code-lookup") {
+    add(
+      ctx,
+      "error",
+      path,
+      "material-source-slot",
+      slot === "material"
+        ? "the standard layer reads IfcRelAssociatesMaterial first; a project layer only adds sources after it"
+        : `a material source is not a ${slot} source`,
+    );
+  } else if (keys[0] === "progressCode" && slot !== "phase") {
+    add(ctx, "error", path, "progress-code-source-slot", "progressCode is a phase source only");
   } else if (keys[0] === "attribute" && !source.attribute) {
     add(ctx, "error", `${path}.attribute`, "code-source-empty", "source names no attribute");
   } else if (keys[0] === "property") {
@@ -575,7 +613,7 @@ function checkCodeSource(ctx: Ctx, path: string, raw: unknown): void {
 /** The project layer (`projectLayer`). An id the standard layer does not
  *  know is an error, as in HI90's konfig.py: a requirement is defined once,
  *  in the standard layer, and a project can only add to it. */
-function checkProjectLayer(ctx: Ctx, layer: unknown): void {
+function checkProjectLayer(ctx: Ctx, layer: unknown, ruleset: Ruleset): void {
   if (layer === null || typeof layer !== "object" || Array.isArray(layer)) {
     add(ctx, "error", "projectLayer", "project-layer-shape", "projectLayer must be an object keyed by requirement id");
     return;
@@ -593,6 +631,28 @@ function checkProjectLayer(ctx: Ctx, layer: unknown): void {
       continue;
     }
     const e = (entry ?? {}) as Record<string, unknown>;
+    if (e.reference !== undefined && (typeof e.reference !== "string" || e.reference.trim() === "")) {
+      add(ctx, "error", `${path}.reference`, "reference-empty", "reference is empty; leave it out");
+    }
+    if (id === "ifc-schema" && e.recommended !== undefined) {
+      const accepted = Array.isArray(e.accepted) ? (e.accepted as string[]) : [...DEFAULT_ACCEPTED_SCHEMAS];
+      const recommended = e.recommended;
+      if (!Array.isArray(recommended) || recommended.length === 0) {
+        add(ctx, "error", `${path}.recommended`, "schema-recommended-empty", "recommended lists no schema");
+      } else {
+        recommended.forEach((value, i) => {
+          if (!accepted.includes(value as string)) {
+            add(
+              ctx,
+              "error",
+              `${path}.recommended[${i}]`,
+              "schema-recommended-not-accepted",
+              `${String(value)} is recommended but not accepted (${accepted.join(", ")})`,
+            );
+          }
+        });
+      }
+    }
     if (id === "ifc-schema" && e.accepted !== undefined) {
       const accepted = e.accepted;
       if (!Array.isArray(accepted) || accepted.length === 0) {
@@ -623,33 +683,51 @@ function checkProjectLayer(ctx: Ctx, layer: unknown): void {
       if (!Array.isArray(e.sources) || e.sources.length === 0) {
         add(ctx, "error", `${path}.sources`, "cascade-sources-empty", "sources lists no source");
       } else {
-        e.sources.forEach((source, i) => checkCodeSource(ctx, `${path}.sources[${i}]`, source));
+        e.sources.forEach((source, i) => {
+          checkCodeSource(ctx, `${path}.sources[${i}]`, source, "phase");
+          if (source && typeof source === "object" && "progressCode" in source) {
+            const mmi = ruleset.rules?.find(
+              (r): r is ExtendedRule => r?.kind === "extended" && r.mapping === "progress-code" && r.enabled !== false,
+            );
+            const check = mmi?.check;
+            const phases = check?.type === "code-lookup" ? (check.codes ?? []).filter((c) => c.phase) : [];
+            if (phases.length === 0) {
+              add(
+                ctx,
+                "error",
+                `${path}.sources[${i}]`,
+                "progress-code-no-phase",
+                "progressCode reads the phase of the MMI code; no enabled progress-code rule has codes with a phase",
+              );
+            }
+          }
+        });
       }
     }
     if (id === "material-product") {
-      for (const branch of ["mengdetype", "product", "material"]) {
+      for (const branch of ["mengdetype", "product", "material"] as const) {
         const list = e[branch];
         if (list === undefined) continue;
         if (!Array.isArray(list) || list.length === 0) {
           add(ctx, "error", `${path}.${branch}`, "cascade-sources-empty", `${branch} lists no source`);
         } else {
-          list.forEach((source, i) => checkCodeSource(ctx, `${path}.${branch}[${i}]`, source));
+          list.forEach((source, i) => checkCodeSource(ctx, `${path}.${branch}[${i}]`, source, branch));
         }
       }
     }
   }
 }
 
-function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
+function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck, role: CodeLookupRole | undefined): void {
   const hasList = check.list !== undefined;
-  const hasValues = check.values !== undefined;
-  if (hasList === hasValues) {
+  const hasCodes = check.codes !== undefined;
+  if (hasList === hasCodes) {
     add(
       ctx,
       "error",
       `${path}.check`,
       "code-list-shape",
-      "code-lookup needs exactly one of list or values",
+      "code-lookup needs exactly one of list or codes",
     );
   }
   if (hasList && !(CODE_LIST_IDS as string[]).includes(check.list as string)) {
@@ -661,21 +739,35 @@ function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck): void {
       `code list "${String(check.list)}" is not bundled; bundled lists are ${CODE_LIST_IDS.join(", ")}`,
     );
   }
-  if (hasValues) {
-    const values = check.values;
-    if (!Array.isArray(values) || values.length === 0) {
-      add(ctx, "error", `${path}.check.values`, "code-values-empty", "values lists no code");
+  if (hasCodes) {
+    const codes = check.codes;
+    if (!Array.isArray(codes) || codes.length === 0) {
+      add(ctx, "error", `${path}.check.codes`, "code-values-empty", "codes lists no code");
     } else {
-      values.forEach((value, i) => {
-        if (typeof value !== "string" || value === "") {
-          add(ctx, "error", `${path}.check.values[${i}]`, "code-value-empty", "empty code in values");
-        } else if (values.indexOf(value) !== i) {
-          add(ctx, "warning", `${path}.check.values[${i}]`, "code-value-duplicate", `"${value}" is listed twice`);
+      const seen = new Set<string>();
+      codes.forEach((entry, i) => {
+        const at = `${path}.check.codes[${i}]`;
+        const code = typeof entry?.code === "string" ? entry.code : "";
+        if (code === "") {
+          add(ctx, "error", `${at}.code`, "code-value-empty", "empty code in codes");
+        } else if (seen.has(code)) {
+          add(ctx, "error", `${at}.code`, "code-value-duplicate", `"${code}" is listed twice`);
+        }
+        seen.add(code);
+        if (typeof entry?.name !== "string" || entry.name.trim() === "") {
+          add(ctx, "error", `${at}.name`, "code-name-empty", `code "${code}" has no name`);
+        }
+        if (entry?.phase !== undefined) {
+          if (role !== "progress-code") {
+            add(ctx, "error", `${at}.phase`, "code-phase-role", "a phase belongs on the progress-code rule's codes only");
+          } else if (typeof entry.phase !== "string" || entry.phase.trim() === "") {
+            add(ctx, "error", `${at}.phase`, "code-phase-empty", "phase is empty; leave it out");
+          }
         }
       });
     }
   }
-  checkCodeSource(ctx, `${path}.check.source`, check.source);
+  checkCodeSource(ctx, `${path}.check.source`, check.source, "code-lookup");
   let groups = -1;
   try {
     new RegExp(check.extract);
@@ -707,31 +799,21 @@ export const MAPPING_ROLES: MappingRole[] = [
   "copy-object",
 ];
 
-/** The values a copy-object mapping checks against in its boolean mode: an
- *  IFC BOOLEAN as this tool renders it, the xs:boolean lexical form IDS uses.
- *  Its other mode is a non-empty list of the project's own discipline codes
- *  (POFIN's `NONS_Process.DuplicateOwnedBy`, e.g. `RIV`). The mode is never
- *  stored separately — it is derived from `values` by `isBooleanValues` so it
- *  round-trips through the ruleset JSON as-is. */
-export const BOOLEAN_VALUES = ["true", "false"] as const;
-
-/** Whether a copy-object mapping's `values` are the boolean pair rather than
- *  the project's own codes. Order-independent, so `["false", "true"]` still
- *  reads as boolean mode. */
-export function isBooleanValues(values: string[] | undefined): boolean {
-  return (
-    values !== undefined &&
-    values.length === BOOLEAN_VALUES.length &&
-    BOOLEAN_VALUES.every((v) => values.includes(v))
-  );
-}
+const CODE_LOOKUP_ROLES: CodeLookupRole[] = ["system-classification", "component-classification", "progress-code"];
 
 /** A mapping is a role on a code-lookup rule; each role fixes which half of
- *  the lookup it uses. */
+ *  the lookup it uses. The copy-object role is its own check type. */
 function checkMapping(ctx: Ctx, path: string, rule: ExtendedRule): void {
   const role = rule.mapping as string;
-  if (!(MAPPING_ROLES as string[]).includes(role)) {
-    add(ctx, "error", `${path}.mapping`, "mapping-unknown", `unknown mapping "${role}"; mappings are ${MAPPING_ROLES.join(", ")}`);
+  if (!(CODE_LOOKUP_ROLES as string[]).includes(role)) {
+    add(
+      ctx,
+      "error",
+      `${path}.mapping`,
+      "mapping-unknown",
+      `unknown mapping "${role}"; mappings are ${CODE_LOOKUP_ROLES.join(", ")}` +
+        (role === "copy-object" ? " (copy-object is the check type itself)" : ""),
+    );
     return;
   }
   const check = rule.check;
@@ -743,25 +825,188 @@ function checkMapping(ctx: Ctx, path: string, rule: ExtendedRule): void {
     if (check.list === undefined) {
       add(ctx, "error", `${path}.check.list`, "mapping-list", `mapping ${role} reads a bundled code list; set list`);
     }
-  } else if (check.values === undefined) {
-    // progress-code and copy-object both check the value against `values`;
-    // copy-object accepts either the boolean pair (BOOLEAN_VALUES) or the
-    // project's own discipline codes — `code-values-empty` already rejects an
-    // empty list, so no further shape is imposed here.
-    add(ctx, "error", `${path}.check.values`, "mapping-values", `mapping ${role} checks against values; set values`);
+  } else if (check.codes === undefined) {
+    add(ctx, "error", `${path}.check.codes`, "mapping-codes", `mapping ${role} checks against the project's codes; set codes`);
   }
+}
+
+/** The copy-object role. `copy` and `own` must not share a value, as
+ *  compared (case and whitespace ignored). */
+function checkCopyObject(ctx: Ctx, path: string, check: CopyObjectCheck): void {
+  checkCodeSource(ctx, `${path}.check.source`, check.source, "copy-object");
+  for (const key of ["copy", "own"] as const) {
+    const list = check[key];
+    if (!Array.isArray(list)) {
+      add(ctx, "error", `${path}.check.${key}`, "copy-list-shape", `${key} must be a list (it may be empty)`);
+      continue;
+    }
+    list.forEach((value, i) => {
+      if (typeof value !== "string" || value.trim() === "") {
+        add(ctx, "error", `${path}.check.${key}[${i}]`, "copy-value-empty", `empty value in ${key}`);
+      }
+    });
+  }
+  if (Array.isArray(check.copy) && Array.isArray(check.own)) {
+    const own = new Set(check.own.map(ownerKey));
+    check.copy.forEach((value, i) => {
+      if (own.has(ownerKey(value))) {
+        add(ctx, "error", `${path}.check.copy[${i}]`, "copy-own-overlap", `"${value}" is both a copy value and an own value`);
+      }
+    });
+  }
+}
+
+function checkTolerance(ctx: Ctx, path: string, tolerance: StoreyTolerance | undefined): void {
+  if (tolerance === undefined || tolerance === null || typeof tolerance !== "object") {
+    add(ctx, "error", path, "storey-tolerance-missing", "tolerance needs aboveMm and belowMm (a number, or null for no limit)");
+    return;
+  }
+  for (const key of ["aboveMm", "belowMm"] as const) {
+    const v = tolerance[key];
+    if (v !== null && (typeof v !== "number" || !Number.isFinite(v) || v < 0)) {
+      add(ctx, "error", `${path}.${key}`, "storey-tolerance-invalid", `${key} must be a number >= 0 (mm), or null for no limit`);
+    }
+  }
+}
+
+const PLANES = ["OKFG", "OKBD"];
+
+/** The floor config: its matching rules, then its levels. */
+function checkStoreys(ctx: Ctx, ruleset: Ruleset): void {
+  const setup = ruleset.storeys as unknown;
+  if (setup === null || typeof setup !== "object" || Array.isArray(setup)) {
+    add(ctx, "error", "storeys", "storeys-shape", "storeys is an object: plane, tolerance, nameWindowMm, nearMm, levels");
+    return;
+  }
+  const s = ruleset.storeys!;
+  if (!PLANES.includes(s.plane as string)) {
+    add(ctx, "error", "storeys.plane", "storey-plane", `plane names what the elevations are measured to: ${PLANES.join(" or ")}`);
+  }
+  if (s.reference !== undefined && s.reference.trim() === "") {
+    add(ctx, "error", "storeys.reference", "reference-empty", "reference is empty; leave it out");
+  }
+  checkTolerance(ctx, "storeys.tolerance", s.tolerance);
+  if (s.nameWindowMm !== null && (typeof s.nameWindowMm !== "number" || !(s.nameWindowMm >= 0))) {
+    add(ctx, "error", "storeys.nameWindowMm", "storey-window-invalid", "nameWindowMm must be a number >= 0 (mm), or null for any distance");
+  }
+  if (typeof s.nearMm !== "number" || !(s.nearMm >= 0)) {
+    add(ctx, "error", "storeys.nearMm", "storey-window-invalid", "nearMm must be a number >= 0 (mm)");
+  }
+
+  if (!Array.isArray(s.levels) || s.levels.length === 0) {
+    add(ctx, "error", "storeys.levels", "storey-levels-empty", "levels lists no level; leave storeys out instead");
+  } else {
+    const names = new Set<string>();
+    const levels = new Set<number>();
+    s.levels.forEach((storey, i) => {
+      const path = `storeys.levels[${i}]`;
+      const name = typeof storey?.name === "string" ? storey.name : "";
+      if (name.trim() === "") {
+        add(ctx, "error", `${path}.name`, "storey-name-empty", "storey has no name");
+      } else {
+        if (name !== name.trim()) {
+          add(ctx, "warning", `${path}.name`, "storey-name-whitespace", `storey name "${name}" has leading or trailing whitespace`);
+        }
+        if (names.has(name)) {
+          add(ctx, "error", `${path}.name`, "storey-name-duplicate", `storey name "${name}" appears twice`);
+        }
+        names.add(name);
+      }
+      if (typeof storey?.elevation !== "number" || !Number.isFinite(storey.elevation)) {
+        add(ctx, "error", `${path}.elevation`, "storey-elevation-invalid", "storey elevation must be a number (metres)");
+      } else {
+        const key = Math.round(storey.elevation * 1000);
+        if (levels.has(key)) {
+          add(ctx, "warning", `${path}.elevation`, "storey-elevation-duplicate", `elevation ${storey.elevation} m appears twice`);
+        }
+        levels.add(key);
+      }
+    });
+  }
+
+  const codes = new Set((ruleset.disciplines ?? []).map((d) => d?.code));
+  const seen = new Set<string>();
+  (s.disciplines ?? []).forEach((rule, i) => {
+    const path = `storeys.disciplines[${i}]`;
+    if (!codes.has(rule?.discipline)) {
+      add(ctx, "error", `${path}.discipline`, "discipline-unknown", `"${String(rule?.discipline)}" is not in disciplines`);
+    }
+    if (seen.has(rule?.discipline)) {
+      add(ctx, "error", `${path}.discipline`, "storey-discipline-duplicate", `"${rule.discipline}" has two storey rules`);
+    }
+    seen.add(rule?.discipline);
+    if (!PLANES.includes(rule?.plane as string)) {
+      add(ctx, "error", `${path}.plane`, "storey-plane", `plane names what the elevations are measured to: ${PLANES.join(" or ")}`);
+    }
+    checkTolerance(ctx, `${path}.tolerance`, rule?.tolerance);
+    if (typeof rule?.requireAllNames !== "boolean") {
+      add(ctx, "error", `${path}.requireAllNames`, "storey-require-names", "requireAllNames must be true or false");
+    }
+  });
+}
+
+/** Disciplines and the per-model facts. An exemption names a report row id:
+ *  a fixed requirement, a mapping role, or a non-mapping rule's id. */
+function checkModels(ctx: Ctx, ruleset: Ruleset): void {
+  const codes = new Set<string>();
+  (ruleset.disciplines ?? []).forEach((d, i) => {
+    const code = typeof d?.code === "string" ? d.code : "";
+    if (code.trim() === "") add(ctx, "error", `disciplines[${i}].code`, "discipline-empty", "discipline has no code");
+    else if (codes.has(code)) add(ctx, "error", `disciplines[${i}].code`, "discipline-duplicate", `"${code}" appears twice`);
+    codes.add(code);
+    if (d?.report !== undefined && (d.report as unknown) !== false) {
+      add(ctx, "error", `disciplines[${i}].report`, "report-not-false", "report is present only as false");
+    }
+  });
+
+  const exemptable = new Set<string>([...REQUIREMENT_IDS, ...MAPPING_ROLES]);
+  for (const rule of ruleset.rules ?? []) if (rule && ruleRole(rule) === null && rule.id) exemptable.add(rule.id);
+
+  const labels = new Set<string>();
+  (ruleset.models ?? []).forEach((m, i) => {
+    const path = `models[${i}]`;
+    const label = typeof m?.label === "string" ? m.label : "";
+    if (label.trim() === "") add(ctx, "error", `${path}.label`, "model-label-empty", "model has no label");
+    else if (/\.(ifc|ifczip|ifcxml)$/i.test(label)) {
+      add(ctx, "error", `${path}.label`, "model-label-extension", `label "${label}" is the file name without its extension`);
+    } else if (labels.has(label)) add(ctx, "error", `${path}.label`, "model-label-duplicate", `"${label}" appears twice`);
+    labels.add(label);
+    if (!codes.has(m?.discipline)) {
+      add(ctx, "error", `${path}.discipline`, "discipline-unknown", `"${String(m?.discipline)}" is not in disciplines`);
+    }
+    if (m?.group !== undefined && (typeof m.group !== "string" || m.group.trim() === "")) {
+      add(ctx, "error", `${path}.group`, "model-group-empty", "group is empty; leave it out");
+    }
+    // The same owner name may sit on several models: it is read in one file
+    // at a time, where it names that file (a MMI700 cut of each discipline).
+    (m?.ownerNames ?? []).forEach((name, j) => {
+      if (ownerKey(String(name)) === "") add(ctx, "error", `${path}.ownerNames[${j}]`, "owner-name-empty", "empty owner name");
+    });
+    (m?.exempt ?? []).forEach((id, j) => {
+      if (!exemptable.has(id)) {
+        add(
+          ctx,
+          "error",
+          `${path}.exempt[${j}]`,
+          "exempt-unknown",
+          `"${id}" is not a requirement id: a report row id, a mapping role or a non-mapping rule's id`,
+        );
+      }
+    });
+  });
 }
 
 export function lintRuleset(ruleset: Ruleset): LintIssue[] {
   const ctx: Ctx = { issues: [], ruleId: null };
 
-  if (ruleset.formatVersion !== 1) {
+  if (ruleset.formatVersion !== 2) {
     add(
       ctx,
       "error",
       "formatVersion",
       "format-version",
-      `unsupported formatVersion ${String(ruleset.formatVersion)}; this build reads 1`,
+      `unsupported formatVersion ${String(ruleset.formatVersion)}; this build reads 2` +
+        ((ruleset.formatVersion as unknown) === 1 ? " (docs/config-template.md lists what changed)" : ""),
     );
   }
   if (!ruleset.name) {
@@ -790,40 +1035,9 @@ export function lintRuleset(ruleset: Ruleset): LintIssue[] {
     add(ctx, "error", "info.date", "date-not-iso", "info/date must be YYYY-MM-DD");
   }
 
-  if (ruleset.storeys !== undefined) {
-    if (!Array.isArray(ruleset.storeys)) {
-      add(ctx, "error", "storeys", "storeys-not-array", "storeys must be an array");
-    } else {
-      const names = new Set<string>();
-      const levels = new Set<number>();
-      ruleset.storeys.forEach((storey, i) => {
-        const path = `storeys[${i}]`;
-        const name = typeof storey?.name === "string" ? storey.name : "";
-        if (name.trim() === "") {
-          add(ctx, "error", `${path}.name`, "storey-name-empty", "storey has no name");
-        } else {
-          if (name !== name.trim()) {
-            add(ctx, "warning", `${path}.name`, "storey-name-whitespace", `storey name "${name}" has leading or trailing whitespace`);
-          }
-          if (names.has(name)) {
-            add(ctx, "error", `${path}.name`, "storey-name-duplicate", `storey name "${name}" appears twice`);
-          }
-          names.add(name);
-        }
-        if (typeof storey?.elevation !== "number" || !Number.isFinite(storey.elevation)) {
-          add(ctx, "error", `${path}.elevation`, "storey-elevation-invalid", "storey elevation must be a number (metres)");
-        } else {
-          const key = Math.round(storey.elevation * 1000);
-          if (levels.has(key)) {
-            add(ctx, "warning", `${path}.elevation`, "storey-elevation-duplicate", `elevation ${storey.elevation} m appears twice`);
-          }
-          levels.add(key);
-        }
-      });
-    }
-  }
-
-  if (ruleset.projectLayer !== undefined) checkProjectLayer(ctx, ruleset.projectLayer);
+  if (ruleset.storeys !== undefined) checkStoreys(ctx, ruleset);
+  checkModels(ctx, ruleset);
+  if (ruleset.projectLayer !== undefined) checkProjectLayer(ctx, ruleset.projectLayer, ruleset);
 
   const seen = new Set<string>();
   const roles = new Set<string>();
@@ -837,11 +1051,18 @@ export function lintRuleset(ruleset: Ruleset): LintIssue[] {
       seen.add(rule.id);
     }
     checkRule(ctx, rule, index, ruleset);
-    if (rule?.kind === "extended" && rule.mapping !== undefined) {
-      if (roles.has(rule.mapping)) {
-        add(ctx, "error", `rules[${index}].mapping`, "mapping-duplicate", `mapping ${rule.mapping} is set on more than one rule`);
+    const role = rule ? ruleRole(rule) : null;
+    if (role !== null) {
+      if (roles.has(role)) {
+        add(
+          ctx,
+          "error",
+          role === "copy-object" ? `rules[${index}].check` : `rules[${index}].mapping`,
+          "mapping-duplicate",
+          `mapping ${role} is set on more than one rule`,
+        );
       }
-      roles.add(rule.mapping);
+      roles.add(role);
     }
   });
   ctx.ruleId = null;

@@ -17,6 +17,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Ruleset } from "../ids/types.ts";
 import { SwitchGlyph } from "./Switch";
 import { MAPPING_ROLES } from "../ids/lint.ts";
+import { ruleRole } from "../ids/models.ts";
 import { listCached, type CachedListing } from "../storage/model-cache.ts";
 import { MicroLabel } from "./BentoGrid";
 import { formatBytes, formatCount } from "./format";
@@ -272,7 +273,7 @@ function RulesetTile({
 function mappingSet(ruleset: Ruleset | null, role: string): boolean {
   if (ruleset === null) return false;
   return ruleset.rules.some(
-    (rule) => rule.kind === "extended" && rule.mapping === role && rule.enabled !== false,
+    (rule) => ruleRole(rule) === role && rule.enabled !== false,
   );
 }
 

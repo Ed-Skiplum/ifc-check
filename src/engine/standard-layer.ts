@@ -24,9 +24,10 @@ import type { IfcGraph, MaterialRow, ProductRow } from "./types";
 import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../codelists/mengdetype-ifcklasse.ts";
 import { MENGDETYPE_NS3457 } from "../codelists/mengdetype-ns3457.ts";
 import { DEFAULT_ACCEPTED_SCHEMAS } from "../ids/lint.ts";
-import { cascadeReader, SourceUnreachable, type CascadeSource } from "../ids/evaluate.ts";
+import { cascadeReader, compileExtract, SourceUnreachable, type CascadeSource } from "../ids/evaluate.ts";
+import { roleRule } from "../ids/models.ts";
 import type { ModelGraph, ModelProduct } from "../ids/model.ts";
-import type { CodeSource, Ruleset } from "../ids/types.ts";
+import type { CodeSource, PhaseSource, Ruleset } from "../ids/types.ts";
 import type {
   ReportCoverage,
   ReportFinding,
@@ -49,10 +50,15 @@ export function schemaFamily(written: string): string {
 }
 
 function schemaRow(model: ReportModel, ruleset: Ruleset | null | undefined): ReportRow {
-  const accepted = ruleset?.projectLayer?.["ifc-schema"]?.accepted ?? [...DEFAULT_ACCEPTED_SCHEMAS];
+  const layer = ruleset?.projectLayer?.["ifc-schema"];
+  const accepted = layer?.accepted ?? [...DEFAULT_ACCEPTED_SCHEMAS];
+  const recommended = layer?.recommended;
   const written = (model.schema ?? "").trim();
   const family = schemaFamily(written);
   const ok = family !== "" && accepted.includes(family);
+  // Accepted but not recommended: usable («Kan brukes»), a warn with the
+  // value unflagged. Without a recommended list, accepted passes as before.
+  const usableOnly = ok && recommended !== undefined && !recommended.includes(family);
   const kilder: ReportSource[] = [
     { navn: "FILE_SCHEMA", lag: "standard", n: written ? 1 : 0, foretrukket: true },
   ];
@@ -72,8 +78,9 @@ function schemaRow(model: ReportModel, ruleset: Ruleset | null | undefined): Rep
     // Not on the accepted list is a warn, as in the HI90 reference: the file is
     // readable, it is the wrong exchange for this project. No schema at all is
     // a fail.
-    state: ok ? "pass" : written ? "warn" : "fail",
+    state: ok && !usableOnly ? "pass" : written ? "warn" : "fail",
     godtatte: accepted,
+    ...(recommended !== undefined ? { anbefalte: [...recommended] } : {}),
     dekning,
     fordeling: written ? [{ verdi: written, n: 1, flagg: ok ? "" : "avvik" }] : [{ verdi: null, n: 1, flagg: "mangler" }],
     funn: [],
@@ -90,6 +97,36 @@ interface NamedSource {
   navn: string;
   lag: ReportLayer;
   source: CascadeSource;
+  /** Set on a source that reads through a table rather than as written:
+   *  the phase of the object's MMI code. */
+  read?: (reader: CascadeReader, p: ModelProduct) => Reading;
+}
+
+type CascadeReader = ReturnType<typeof cascadeReader>;
+
+/** The phase through the MMI code: the progress-code rule's source, its
+ *  extract, then the code's `phase`. A code with a phase is that phase,
+ *  accepted. A value with no phase (no match, not in the table, or a code
+ *  the table gives none) is carried but not accepted: the raw value, avvik.
+ *  No value is nothing. */
+function progressCodePhase(ruleset: Ruleset | null | undefined): NamedSource | null {
+  const rule = roleRule(ruleset, "progress-code");
+  const check = rule?.check;
+  if (!check || check.type !== "code-lookup" || !check.codes) return null;
+  const phases = new Map(check.codes.filter((c) => c.phase).map((c) => [c.code, c.phase as string]));
+  const regex = compileExtract(check.extract);
+  return {
+    navn: `${codeSourceName(check.source)} (progress-code)`,
+    lag: "prosjekt",
+    source: check.source,
+    read: (reader, p) => {
+      const raw = reader.read(check.source, p);
+      if (raw === null || raw.trim() === "") return { value: null };
+      const code = regex.exec(raw)?.[1];
+      const phase = code === undefined ? undefined : phases.get(code);
+      return phase === undefined ? { value: raw, accepted: false } : { value: phase, accepted: true };
+    },
+  };
 }
 
 const PHASE_STANDARD: NamedSource = {
@@ -103,8 +140,17 @@ const PHASE_STANDARD: NamedSource = {
 function codeSourceName(src: CodeSource): string {
   if ("attribute" in src) return src.attribute;
   if ("property" in src) return `${src.property.propertySet}.${src.property.name}`;
+  if ("material" in src) return "IfcRelAssociatesMaterial";
   const system = src.classification.system;
   return system === undefined ? "IfcClassificationReference" : `IfcClassificationReference ${system}`;
+}
+
+/** What one source read off one object: the value, and whether it is an
+ *  accepted one. A source whose acceptance is its own (the MMI phase table)
+ *  says so; otherwise the row's accepted list decides. */
+interface Reading {
+  value: string | null;
+  accepted?: boolean;
 }
 
 /** The outcome of walking a cascade for one object. */
@@ -119,17 +165,17 @@ interface Decision {
  *  source carrying an ACCEPTED value decides oppfylt; failing that, the first
  *  source carrying any value decides avvik; no value anywhere is mangler. */
 function decide(
-  values: (string | null)[],
+  readings: Reading[],
   accepted: (v: string) => boolean,
 ): Decision {
   let firstCarried = -1;
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i];
+  for (let i = 0; i < readings.length; i++) {
+    const v = readings[i].value;
     if (v === null || v.trim() === "") continue;
-    if (accepted(v)) return { state: "oppfylt", source: i, value: v };
+    if (readings[i].accepted ?? accepted(v)) return { state: "oppfylt", source: i, value: v };
     if (firstCarried < 0) firstCarried = i;
   }
-  if (firstCarried >= 0) return { state: "avvik", source: firstCarried, value: values[firstCarried] };
+  if (firstCarried >= 0) return { state: "avvik", source: firstCarried, value: readings[firstCarried].value };
   return { state: "mangler", source: -1, value: null };
 }
 
@@ -189,8 +235,9 @@ function cascadeRow(args: {
   const funn: ReportFinding[] = [];
   try {
     for (const p of inScope) {
-      const values = sources.map((s) => reader.read(s.source, p as unknown as ModelProduct));
-      const d = decide(values, isAccepted);
+      const product = p as unknown as ModelProduct;
+      const readings = sources.map((s) => (s.read ? s.read(reader, product) : { value: reader.read(s.source, product) }));
+      const d = decide(readings, isAccepted);
       if (d.source >= 0) (kilder[d.source].n as number)++;
       tally.set(d.value, (tally.get(d.value) ?? 0) + 1);
       if (d.state === "oppfylt") oppfylt++;
@@ -232,17 +279,29 @@ function phaseRow(
   excluded: ReadonlySet<string> | undefined,
   ruleset: Ruleset | null | undefined,
 ): ReportRow {
-  const extra = ruleset?.projectLayer?.phase?.sources ?? [];
+  const extra: PhaseSource[] = ruleset?.projectLayer?.phase?.sources ?? [];
+  const sources: NamedSource[] = [PHASE_STANDARD];
+  for (const source of extra) {
+    if ("progressCode" in source) {
+      // Lint refuses a progressCode source without a progress-code rule
+      // carrying phases; an unlinted ruleset gets no source rather than a
+      // guessed one.
+      const through = progressCodePhase(ruleset);
+      if (through) sources.push(through);
+    } else sources.push({ navn: codeSourceName(source), lag: "prosjekt", source });
+  }
+  const mmi = roleRule(ruleset, "progress-code")?.check;
+  const tablePhases =
+    mmi?.type === "code-lookup" && extra.some((s) => "progressCode" in s)
+      ? [...new Set((mmi.codes ?? []).flatMap((c) => (c.phase ? [c.phase] : [])))]
+      : [];
   return cascadeRow({
     id: "phase",
     model,
     graph,
     excluded,
-    sources: [
-      PHASE_STANDARD,
-      ...extra.map((source): NamedSource => ({ navn: codeSourceName(source), lag: "prosjekt", source })),
-    ],
-    accepted: PHASE_ACCEPTED,
+    sources,
+    accepted: [...PHASE_ACCEPTED, ...tablePhases],
   });
 }
 

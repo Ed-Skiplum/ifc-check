@@ -14,15 +14,20 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
-import { BOOLEAN_VALUES, MAPPING_ROLES, hasErrors, isBooleanValues, lintRuleset } from "../ids/lint.ts";
+import { MAPPING_ROLES, hasErrors, lintRuleset } from "../ids/lint.ts";
+import { anyRoleRule } from "../ids/models.ts";
 import type {
+  CodeEntry,
   CodeLookupCheck,
   CodeSource,
+  CopyObjectCheck,
   ExtendedRule,
   LintIssue,
   MappingRole,
   Ruleset,
-  StoreyConfig,
+  StoreyLevel,
+  StoreyPlane,
+  StoreySetup,
 } from "../ids/types.ts";
 import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
@@ -32,10 +37,7 @@ import { CONFIG_TEMPLATE_FILE } from "../ids/config-template.ts";
 const SOURCE_KINDS = ["attribute", "property", "classification"] as const;
 type SourceKind = (typeof SOURCE_KINDS)[number];
 
-/** copy-object's two value modes — never a rule field, only how the card
- *  reads and writes the mapping's `values`. See `isBooleanValues`. */
-const COPY_MODES = ["boolean", "codes"] as const;
-type CopyMode = (typeof COPY_MODES)[number];
+type MappingCheck = CodeLookupCheck | CopyObjectCheck;
 
 function sourceKind(source: CodeSource): SourceKind {
   if ("property" in source) return "property";
@@ -56,16 +58,16 @@ function blankSource(kind: SourceKind): CodeSource {
   }
 }
 
-function blankCheck(role: MappingRole): CodeLookupCheck {
+function blankCheck(role: MappingRole): MappingCheck {
   const base = { type: "code-lookup", source: { attribute: "Name" } } as const;
   switch (role) {
     case "system-classification":
     case "component-classification":
       return { ...base, list: CODE_LIST_IDS[0], target: "occurrence", extract: "^(.+)$" };
     case "progress-code":
-      return { ...base, values: [], extract: "^(.+)$" };
+      return { ...base, codes: [], extract: "^(.+)$" };
     case "copy-object":
-      return { ...base, values: [...BOOLEAN_VALUES], extract: "^(.*)$" };
+      return { type: "copy-object", source: { attribute: "Name" }, copy: [], own: [] };
   }
 }
 
@@ -79,10 +81,7 @@ function freshId(ruleset: Ruleset, stem: string): string {
 }
 
 function mappingRule(ruleset: Ruleset, role: MappingRole): ExtendedRule | null {
-  for (const rule of ruleset.rules) {
-    if (rule.kind === "extended" && rule.mapping === role) return rule;
-  }
-  return null;
+  return anyRoleRule(ruleset, role);
 }
 
 const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -90,6 +89,20 @@ const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 /** The .xlsx beside the JSON: `EKS.ruleset.json` -> `EKS.xlsx`. */
 function xlsxName(fileName: string): string {
   return `${fileName.replace(/(\.ruleset)?\.json$/i, "")}.xlsx`;
+}
+
+/** The .ids beside the JSON: `EKS.ruleset.json` -> `EKS.ids`. */
+function idsName(fileName: string): string {
+  return `${fileName.replace(/(\.ruleset)?\.json$/i, "")}.ids`;
+}
+
+/** The enabled ids rules as one IDS 1.0 file (export.ts). Null when there
+ *  are none: an .ids with no specification is invalid. */
+async function downloadIds(ruleset: Ruleset, fileName: string): Promise<void> {
+  const { exportRuleset } = await import("../ids/export.ts");
+  const ids = exportRuleset(ruleset).ids;
+  if (ids === null) throw new Error("no enabled IDS specification: no .ids to write");
+  downloadBlob(new Blob([ids], { type: "application/xml" }), fileName);
 }
 
 function downloadRuleset(ruleset: Ruleset, fileName: string): void {
@@ -164,6 +177,82 @@ function Seg<T extends string>({
   );
 }
 
+/** The project's code list: code, name and, on MMI, the phase. */
+function CodesTable({
+  codes,
+  disabled,
+  issues,
+  lang,
+  onChange,
+}: {
+  codes: CodeEntry[];
+  disabled: boolean;
+  issues: LintIssue[];
+  lang: Lang;
+  onChange: (next: CodeEntry[]) => void;
+}) {
+  const invalid = (i: number, field: string) => issues.some((issue) => issue.path.endsWith(`.check.codes[${i}].${field}`));
+  const set = (i: number, patch: Partial<CodeEntry>) =>
+    onChange(
+      codes.map((c, j) => {
+        if (j !== i) return c;
+        const next = { ...c, ...patch };
+        if (next.phase === "") delete next.phase;
+        return next;
+      }),
+    );
+  return (
+    <div className="flex flex-col gap-1">
+      {codes.length > 0 ? (
+        <div className="grid max-h-40 content-start items-center gap-x-2 gap-y-1 overflow-auto [grid-template-columns:5rem_minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <span className={LABEL}>{t("field.code", lang)}</span>
+          <span className={LABEL}>{t("field.name", lang)}</span>
+          <span className={LABEL}>{t("field.phase", lang)}</span>
+          <span />
+          {codes.map((c, i) => (
+            <CodeRow key={i} entry={c} disabled={disabled} lang={lang} invalid={(f) => invalid(i, f)} onChange={(p) => set(i, p)} onRemove={() => onChange(codes.filter((_, j) => j !== i))} />
+          ))}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange([...codes, { code: "", name: "" }])}
+        className="w-fit border border-line bg-input px-2 py-0.5 text-[12px] text-muted hover:border-green hover:text-green disabled:opacity-60"
+      >
+        {t("action.addRow", lang)}
+      </button>
+    </div>
+  );
+}
+
+function CodeRow({
+  entry,
+  disabled,
+  lang,
+  invalid,
+  onChange,
+  onRemove,
+}: {
+  entry: CodeEntry;
+  disabled: boolean;
+  lang: Lang;
+  invalid: (field: string) => boolean;
+  onChange: (patch: Partial<CodeEntry>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <>
+      <input type="text" className={INPUT} disabled={disabled} aria-invalid={invalid("code")} value={entry.code} onChange={(e) => onChange({ code: e.target.value })} />
+      <input type="text" className={INPUT} disabled={disabled} aria-invalid={invalid("name")} value={entry.name} onChange={(e) => onChange({ name: e.target.value })} />
+      <input type="text" className={INPUT} disabled={disabled} aria-invalid={invalid("phase")} value={entry.phase ?? ""} onChange={(e) => onChange({ phase: e.target.value })} />
+      <button type="button" disabled={disabled} onClick={onRemove} className="px-2 py-0.5 text-[12px] text-muted hover:text-bad disabled:opacity-60">
+        {t("action.remove", lang)}
+      </button>
+    </>
+  );
+}
+
 /** Comma-separated codes. The draft keeps what is typed, trailing comma and
  *  all; the rule gets the parsed list on every keystroke. */
 function ValuesInput({
@@ -222,19 +311,18 @@ function MappingCard({
   issues: LintIssue[];
   lang: Lang;
   onToggle: () => void;
-  onCheck: (next: CodeLookupCheck) => void;
+  onCheck: (next: MappingCheck) => void;
   /** Double-click on the card while it is off. */
   onAskEnable: () => void;
 }) {
   const active = rule !== null && rule.enabled !== false;
-  const check =
-    rule && rule.check.type === "code-lookup" ? rule.check : blankCheck(role);
+  const check: MappingCheck =
+    rule && (rule.check.type === "code-lookup" || rule.check.type === "copy-object") ? rule.check : blankCheck(role);
   const source = check.source;
   const kind = sourceKind(source);
   const off = !active;
   const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
   const classification = role === "system-classification" || role === "component-classification";
-  const copyMode: CopyMode = isBooleanValues(check.values) ? "boolean" : "codes";
 
   // Never hijack a double-click meant for a live control.
   const onLive = (event: MouseEvent<HTMLElement>) =>
@@ -263,7 +351,7 @@ function MappingCard({
         <Switch on={active} label={t("field.enabled", lang)} onChange={onToggle} />
       </div>
 
-      {classification ? (
+      {classification && check.type === "code-lookup" ? (
         <div className="flex flex-wrap gap-3">
           <Field label={t("field.list", lang)}>
             <select
@@ -275,7 +363,7 @@ function MappingCard({
                 onCheck({
                   ...check,
                   list: e.target.value as CodeLookupCheck["list"],
-                  values: undefined,
+                  codes: undefined,
                 })
               }
             >
@@ -381,8 +469,8 @@ function MappingCard({
         ) : null}
       </div>
 
-      {role !== "copy-object" ? (
-        <div className="flex flex-wrap gap-3">
+      {check.type === "code-lookup" ? (
+        <div className="flex flex-col gap-3">
           <Field label={t("field.extract", lang)}>
             <input
               type="text"
@@ -394,40 +482,33 @@ function MappingCard({
             />
           </Field>
           {role === "progress-code" ? (
-            <Field label={t("field.values", lang)}>
-              <ValuesInput
-                values={check.values ?? []}
-                disabled={off}
-                invalid={invalid("values")}
-                onChange={(values) => onCheck({ ...check, values })}
-              />
-            </Field>
+            <CodesTable
+              codes={check.codes ?? []}
+              disabled={off}
+              issues={issues}
+              lang={lang}
+              onChange={(codes) => onCheck({ ...check, codes })}
+            />
           ) : null}
         </div>
       ) : (
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <span className={LABEL}>{t("field.copyMode", lang)}</span>
-            <Seg
-              options={COPY_MODES}
-              value={copyMode}
+          <Field label={t("field.copy", lang)}>
+            <ValuesInput
+              values={check.copy}
               disabled={off}
-              label={(o) => t(`field.copyMode.${o}` as StringKey, lang)}
-              onChange={(mode) =>
-                onCheck({ ...check, values: mode === "boolean" ? [...BOOLEAN_VALUES] : [] })
-              }
+              invalid={invalid("copy")}
+              onChange={(copy) => onCheck({ ...check, copy })}
             />
-          </div>
-          {copyMode === "codes" ? (
-            <Field label={t("field.values", lang)}>
-              <ValuesInput
-                values={check.values ?? []}
-                disabled={off}
-                invalid={invalid("values")}
-                onChange={(values) => onCheck({ ...check, values })}
-              />
-            </Field>
-          ) : null}
+          </Field>
+          <Field label={t("field.own", lang)}>
+            <ValuesInput
+              values={check.own}
+              disabled={off}
+              invalid={invalid("own")}
+              onChange={(own) => onCheck({ ...check, own })}
+            />
+          </Field>
         </div>
       )}
 
@@ -440,33 +521,71 @@ function MappingCard({
   );
 }
 
-/** The floor config: ordered floors, name + elevation in metres. Stored as the
- *  ruleset's `storeys`, checked by `storey-config`. No defaults: the list
- *  starts empty, and an empty list is no config. */
+/** The floor config: ordered levels, name + elevation in metres, measured to
+ *  the plane. Stored as the ruleset's `storeys`, checked by `storey-config`.
+ *  The plane has no default; a new config matches exactly (tolerance 0 and 0,
+ *  a same-named storey at any distance, another name at the same mm), and the
+ *  workbook or JSON sets the tolerances. An empty list is no config. */
 function StoreyCard({
-  storeys,
+  setup,
   issues,
   lang,
   onChange,
 }: {
-  storeys: StoreyConfig[];
+  setup: StoreySetup | undefined;
   issues: LintIssue[];
   lang: Lang;
-  onChange: (next: StoreyConfig[]) => void;
+  onChange: (next: StoreySetup | undefined) => void;
 }) {
+  const storeys = setup?.levels ?? [];
   const invalid = (i: number, field: string) =>
-    issues.some((issue) => issue.path === `storeys[${i}].${field}` && issue.severity === "error");
-  const set = (i: number, patch: Partial<StoreyConfig>) =>
-    onChange(storeys.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+    issues.some((issue) => issue.path === `storeys.levels[${i}].${field}` && issue.severity === "error");
+  const planeInvalid = issues.some((issue) => issue.path === "storeys.plane");
+  const setLevels = (levels: StoreyLevel[]) => {
+    if (levels.length === 0) return onChange(undefined);
+    onChange(
+      setup
+        ? { ...setup, levels }
+        : {
+            // No plane is chosen for the user: lint refuses the blank until one is.
+            plane: "" as StoreyPlane,
+            tolerance: { aboveMm: 0, belowMm: 0 },
+            nameWindowMm: null,
+            nearMm: 0,
+            levels,
+          },
+    );
+  };
+  const set = (i: number, patch: Partial<StoreyLevel>) =>
+    setLevels(storeys.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  const plane = setup?.plane;
+  const elevationLabel: StringKey =
+    plane === "OKFG" || plane === "OKBD" ? `field.storeyElevation.${plane}` : "field.storeyElevation";
   // A FIXED, viewport-derived card (DESIGN.md §1): the rows scroll inside
   // it, so adding a floor never moves the cards below.
   return (
     <section className="flex h-[clamp(15rem,40vh,34rem)] flex-col gap-3 border border-line bg-panel p-3">
-      <h2 className="m-0 shrink-0 text-sm font-medium text-ink">{t("setup.storeys", lang)}</h2>
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
+        <h2 className="m-0 text-sm font-medium text-ink">{t("setup.storeys", lang)}</h2>
+        {setup ? (
+          <Field label={t("field.plane", lang)}>
+            <select
+              className={INPUT}
+              aria-invalid={planeInvalid}
+              value={setup.plane}
+              onChange={(e) => onChange({ ...setup, plane: e.target.value as StoreyPlane })}
+            >
+              {setup.plane === ("" as StoreyPlane) ? <option value="" /> : null}
+              <option value="OKFG">OKFG</option>
+              <option value="OKBD">OKBD</option>
+            </select>
+          </Field>
+        ) : null}
+      </div>
       {storeys.length > 0 ? (
         <div className="grid min-h-0 content-start items-center gap-x-2 gap-y-1 overflow-auto [grid-template-columns:minmax(0,1fr)_9rem_auto]">
           <span className={LABEL}>{t("field.storeyName", lang)}</span>
-          <span className={LABEL}>{t("field.storeyElevation", lang)}</span>
+          <span className={LABEL}>{t(elevationLabel, lang)}</span>
           <span />
           {storeys.map((storey, i) => (
             <StoreyRow
@@ -476,14 +595,14 @@ function StoreyCard({
               nameInvalid={invalid(i, "name")}
               elevationInvalid={invalid(i, "elevation")}
               onChange={(patch) => set(i, patch)}
-              onRemove={() => onChange(storeys.filter((_, j) => j !== i))}
+              onRemove={() => setLevels(storeys.filter((_, j) => j !== i))}
             />
           ))}
         </div>
       ) : null}
       <button
         type="button"
-        onClick={() => onChange([...storeys, { name: "", elevation: Number.NaN }])}
+        onClick={() => setLevels([...storeys, { name: "", elevation: Number.NaN }])}
         className="w-fit shrink-0 border border-line bg-input px-2 py-0.5 text-[12px] text-muted hover:border-green hover:text-green"
       >
         {t("action.addRow", lang)}
@@ -563,11 +682,11 @@ function StoreyRow({
   onChange,
   onRemove,
 }: {
-  storey: StoreyConfig;
+  storey: StoreyLevel;
   lang: Lang;
   nameInvalid: boolean;
   elevationInvalid: boolean;
-  onChange: (patch: Partial<StoreyConfig>) => void;
+  onChange: (patch: Partial<StoreyLevel>) => void;
   onRemove: () => void;
 }) {
   const shown = Number.isFinite(storey.elevation) ? String(storey.elevation) : "";
@@ -638,6 +757,7 @@ export function SetupPage({
   const [exportError, setExportError] = useState<string | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
+  const hasIds = ruleset.rules.some((r) => r.kind === "ids" && r.enabled !== false);
   const downloadClass =
     "flex items-center gap-2 px-3 py-1.5 text-[12px] text-cream " +
     (blocked ? "cursor-not-allowed bg-muted" : "bg-green hover:bg-ink");
@@ -648,7 +768,8 @@ export function SetupPage({
       const created: ExtendedRule = {
         id: freshId(ruleset, role),
         kind: "extended",
-        mapping: role,
+        // The copy-object role is its check type; the others are a mapping.
+        ...(role === "copy-object" ? {} : { mapping: role }),
         name: t(`mapping.${role}`, lang),
         select: { entity: { group: "physicalElement" } },
         check: blankCheck(role),
@@ -662,7 +783,7 @@ export function SetupPage({
     onChange({ ...ruleset, rules: ruleset.rules.map((r) => (r === rule ? next : r)) });
   };
 
-  const setCheck = (role: MappingRole, check: CodeLookupCheck) => {
+  const setCheck = (role: MappingRole, check: MappingCheck) => {
     const rule = mappingRule(ruleset, role);
     if (rule === null) return;
     onChange({
@@ -739,6 +860,22 @@ export function SetupPage({
             <span>{t("action.download", lang)}</span>
             <span className="font-mono text-[11px]">{xlsxName(fileName)}</span>
           </button>
+          <button
+            type="button"
+            aria-disabled={blocked || !hasIds}
+            onClick={() => {
+              setAttempted(true);
+              if (blocked || !hasIds) return;
+              setExportError(null);
+              downloadIds(ruleset, idsName(fileName)).catch((error: unknown) =>
+                setExportError(error instanceof Error ? error.message : String(error)),
+              );
+            }}
+            className={downloadClass + (hasIds ? "" : " cursor-not-allowed bg-muted")}
+          >
+            <span>{t("action.download", lang)}</span>
+            <span className="font-mono text-[11px]">{idsName(fileName)}</span>
+          </button>
         </div>
 
         {exportError !== null ? (
@@ -748,12 +885,12 @@ export function SetupPage({
         ) : null}
 
         <StoreyCard
-          storeys={ruleset.storeys ?? []}
+          setup={ruleset.storeys}
           issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
           lang={lang}
           onChange={(storeys) => {
             const next: Ruleset = { ...ruleset, storeys };
-            if (storeys.length === 0) delete next.storeys;
+            if (storeys === undefined) delete next.storeys;
             onChange(next);
           }}
         />

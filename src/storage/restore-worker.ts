@@ -19,6 +19,7 @@
 import { runFundamentals } from "../engine/fundamentals.ts";
 import { checkMeshPlacement, type ElementBox } from "../engine/placement.ts";
 import { checkStoreyConfig } from "../engine/storey-config.ts";
+import { exemptChecks } from "../engine/exempt.ts";
 import { checkBodyWithoutMesh } from "../engine/body-mesh.ts";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import { evaluateRuleset } from "../ids/evaluate.ts";
@@ -84,7 +85,7 @@ function restore(request: Extract<RestoreWorkerRequest, { kind: "restore" }>) {
       summary: request.summary,
       checks: [
         ...runFundamentals(request.graph, request.summary),
-        checkStoreyConfig(request.graph, request.summary, undefined),
+        checkStoreyConfig(request.graph, request.summary, undefined, request.fileName),
         checkMeshPlacement(request.graph, request.summary, heldBoxes, undefined, heldNoGeometry),
         checkBodyWithoutMesh(request.graph, heldBoxes, undefined, heldNoGeometry),
       ],
@@ -117,12 +118,16 @@ function evaluate(ruleset: Ruleset) {
     const summary: ModelSummary = heldSummary;
     const result = evaluateRuleset(ruleset, graph, summary, heldName);
     const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
-    const checks: CheckResult[] = [
-      ...runFundamentals(heldGraph, heldSummary, excluded),
-      checkStoreyConfig(heldGraph, heldSummary, ruleset.storeys),
-      checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded, heldNoGeometry),
-      checkBodyWithoutMesh(heldGraph, heldBoxes, excluded, heldNoGeometry),
-    ];
+    const checks: CheckResult[] = exemptChecks(
+      [
+        ...runFundamentals(heldGraph, heldSummary, excluded),
+        checkStoreyConfig(heldGraph, heldSummary, ruleset, heldName),
+        checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded, heldNoGeometry),
+        checkBodyWithoutMesh(heldGraph, heldBoxes, excluded, heldNoGeometry),
+      ],
+      ruleset,
+      heldName,
+    );
     const built = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
     const board = measures ? measures.currentBoard(built) : built;
     post({ kind: "evaluated", result, checks, board });
