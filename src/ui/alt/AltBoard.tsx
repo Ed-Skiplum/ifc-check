@@ -249,14 +249,14 @@ export function AltBoard(props: AltBoardProps) {
           data-mg-design="overview"
           data-mg-band={layout.band}
           data-mg-cols={grid.cols}
-          data-mg-rows={grid.rows}
+          data-mg-rows={layout.rows}
           data-mg-u={grid.u.toFixed(4)}
           data-mg-used={`${layout.offset},${layout.top},${layout.used},${layout.usedRows}`}
           className="alt-board mx-auto grid"
           style={{
             width: grid.cols * grid.u + (grid.cols - 1) * MG_GAP,
             gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
-            gridTemplateRows: `repeat(${grid.rows}, ${grid.u}px)`,
+            gridTemplateRows: `repeat(${layout.rows}, ${layout.rowPx ?? grid.u}px)`,
             gap: MG_GAP,
           }}
         >

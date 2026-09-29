@@ -144,6 +144,9 @@ export interface MgTileSpec {
    *  members are, each at the canon size `unit`. */
   members?: readonly string[];
   unit?: Wh;
+  /** Per size, the canon size it grew from (`mgGrown`), or null for a canon
+   *  size. */
+  bases?: readonly (Wh | null)[];
 }
 
 /** A block spec for `members` at `unit`: every arrangement that holds them
@@ -169,6 +172,9 @@ export interface MgPlace {
   priority: number;
   /** Tiles moved into this one, as tabs after its own body. */
   tabs: string[];
+  /** Grown past its canon size to fill the board's rows (`mgFillRows`): the
+   *  size it was packed at, `size` its class. */
+  base?: Wh;
 }
 
 export interface MgLayout extends MgGrid {
@@ -179,6 +185,10 @@ export interface MgLayout extends MgGrid {
   /** Rows the board covers (≤ rows) and its first one. */
   usedRows: number;
   top: number;
+  /** A row's height, px, where it is not the module: the rows were too many
+   *  for the content, so fewer, taller rows fill the same height
+   *  (`mgFillRows`). */
+  rowPx?: number;
   tiles: MgPlace[];
   /** Tiles moved into a tab, lowest priority last. */
   moved: string[];
@@ -281,7 +291,10 @@ function coverRun(cols: number, rows: number, specs: readonly MgTileSpec[]): Pla
         });
         return;
       }
-      out.push({ id: s.id, kind: s.kind, x, y, w, h, size: canonSize(w, h, s.id in MG_STRIPS, s.id in MG_TALL)! });
+      const base = s.bases?.[cut.k] ?? null;
+      const [bw, bh] = base ?? [w, h];
+      const size = canonSize(bw, bh, s.id in MG_STRIPS, s.id in MG_TALL)!;
+      out.push(base ? { id: s.id, kind: s.kind, x, y, w, h, size, base } : { id: s.id, kind: s.kind, x, y, w, h, size });
       return;
     }
     const at = cut.at!;
@@ -407,6 +420,136 @@ function packImpl(grid: MgGrid, specs: readonly MgTileSpec[], mirror: boolean, e
     }
   }
   throw new Error(`mgPack: no cover of ${cols} × ${rows} for ${specs.map((s) => s.id).join(", ")}`);
+}
+
+/* ── the full height (rule 9) ──────────────────────────────────────────── */
+
+/** `specs` with each tile's canon sizes grown down, row by row, to `rows`,
+ *  while the rendered aspect stays inside its kind's bound; the grown sizes
+ *  after the canon ones, the least grown first, so a cover takes them only
+ *  where the canon sizes leave rows empty. Never an S card or a block. */
+export function mgGrown(specs: readonly MgTileSpec[], rows: number, u: number): MgTileSpec[] {
+  return specs.map((s) => {
+    if (s.members || s.sizes.every(([w, h]) => canonSize(w, h) === "S")) return s;
+    const grown: { wh: Wh; base: Wh; k: number }[] = [];
+    for (const [w, h] of s.sizes) {
+      if (canonSize(w, h) === "S") continue;
+      for (let k = 1; h + k <= rows && mgAspect(s.kind, w, h + k, u) >= MG_ASPECT[s.kind].min - 1e-9; k += 1) {
+        if (!s.sizes.some(([a, b]) => a === w && b === h + k) && !grown.some((g) => g.wh[0] === w && g.wh[1] === h + k))
+          grown.push({ wh: [w, h + k], base: [w, h], k });
+      }
+    }
+    if (!grown.length) return s;
+    grown.sort((p, q) => p.k - q.k);
+    return {
+      ...s,
+      sizes: [...s.sizes, ...grown.map((g) => g.wh)],
+      bases: [...s.sizes.map(() => null), ...grown.map((g) => g.base)],
+    };
+  });
+}
+
+/** A tile's rendered aspect, width over height, at `w × h` modules; a canvas
+ *  less its tile head. */
+export function mgAspect(kind: MgKind, w: number, h: number, u: number, rowPx = u): number {
+  const height = h * rowPx + (h - 1) * MG_GAP - (kind === "viewer" || kind === "graph" ? MG_HEAD : 0);
+  return mgSpanPx(w, u) / height;
+}
+
+/** Whether `t` may take one more row: never an S card (rule 5, a fact does
+ *  not grow), a named tall column freely (Detail to about 1 : 2 and never
+ *  past a row more than its content, `limit`), any other tile while its
+ *  rendered aspect stays inside its kind's bound. */
+function mayGrow(t: MgPlace, u: number, limit: Readonly<Record<string, number>>): boolean {
+  if (t.size === "S" || limit[t.id] === 0) return false;
+  if (t.id in limit && t.h + 1 > limit[t.id]) return false;
+  if (t.size === "tall") return t.id !== "detail" || t.h + 1 <= 2 * t.w;
+  return mgAspect(t.kind, t.w, t.h + 1, u) >= MG_ASPECT[t.kind].min - 1e-9;
+}
+
+/** What one more row costs a tile: how far it moves from its kind's ideal
+ *  shape (a canvas 16 : 10, else square). A tall column costs nothing. */
+function growCost(t: MgPlace, u: number): number {
+  if (t.size === "tall") return 0;
+  const ideal = t.kind === "viewer" || t.kind === "graph" ? 1.6 : 1;
+  return Math.abs(Math.log(mgAspect(t.kind, t.w, t.h + 1, u) / ideal));
+}
+
+/** One more row inside the board (y from 0, `h` rows, columns `x0` on for
+ *  `used`), or null. The row goes in at a line `Y`: every tile across the
+ *  line grows by it, and on each column where tiles only meet at the line,
+ *  the one above or the one below grows into it; the tiles below shift down.
+ *  Of every line and choice the cheapest (`growCost`), ties to the first. */
+function growOneRow(
+  tiles: MgPlace[],
+  x0: number,
+  used: number,
+  h: number,
+  u: number,
+  limit: Readonly<Record<string, number>>,
+): MgPlace[] | null {
+  let best: { cost: number; grow: Set<MgPlace>; Y: number } | null = null;
+  for (let Y = 0; Y <= h; Y += 1) {
+    const across = tiles.filter((t) => t.y < Y && Y < t.y + t.h);
+    const above = tiles.filter((t) => t.y + t.h === Y);
+    const below = tiles.filter((t) => t.y === Y);
+    const walk = (x: number, grow: MgPlace[], cost: number) => {
+      if (best && cost >= best.cost) return;
+      if (x === x0 + used) {
+        best = { cost, grow: new Set(grow), Y };
+        return;
+      }
+      const forced = across.find((t) => t.x === x);
+      const options = forced ? [forced] : [above.find((t) => t.x === x), below.find((t) => t.x === x)];
+      for (const t of options) if (t && mayGrow(t, u, limit)) walk(x + t.w, [...grow, t], cost + growCost(t, u));
+    };
+    walk(x0, [], 0);
+  }
+  if (!best) return null;
+  const { grow, Y } = best as { grow: Set<MgPlace>; Y: number };
+  return tiles.map((t) => {
+    if (grow.has(t)) return { ...t, h: t.h + 1, base: t.base ?? [t.w, t.h] };
+    return t.y >= Y ? { ...t, y: t.y + 1 } : t;
+  });
+}
+
+/** Rule 9, the height: the board takes every row of the grid. A board short
+ *  of the grid's rows grows its tiles into them (`growOneRow`, each inside
+ *  its bound), row by row; where nothing more can grow, the rows left are
+ *  fewer and taller instead (`rowPx`), the same height, so no row stays
+ *  empty: as many grown rows as keep every tile inside its bound once the
+ *  rows are taller. `limit`: the most rows a tile may grow to (Detail, its
+ *  content's). */
+export function mgFillRows(layout: MgLayout, limit: Readonly<Record<string, number>> = {}): MgLayout {
+  const { rows, u, top } = layout;
+  // The KPI row stays the KPI row: its tiles (the cards and a treemap that
+  // closes it) keep their two rows, and the body under it grows instead.
+  if (layout.band === "kpis" || layout.band === "kpis+side") {
+    const fixed: Record<string, number> = { ...limit };
+    for (const t of layout.tiles) if (t.y === top && t.h === 2) fixed[t.id] = 0;
+    limit = fixed;
+  }
+  const steps: MgPlace[][] = [layout.tiles.map((t) => ({ ...t, y: t.y - top }))];
+  const start = layout.usedRows;
+  while (start + steps.length - 1 < rows) {
+    const next = growOneRow(steps[steps.length - 1], layout.offset, layout.used, start + steps.length - 1, u, limit);
+    if (!next) break;
+    steps.push(next);
+  }
+  const done = (tiles: MgPlace[]) => [...tiles].sort((p, q) => p.y - q.y || p.x - q.x);
+  if (start + steps.length - 1 === rows) return { ...layout, tiles: done(steps[steps.length - 1]), top: 0, usedRows: rows };
+  const height = mgSpanPx(rows, u);
+  for (let g = steps.length - 1; g >= 0; g -= 1) {
+    const h = start + g;
+    const rowPx = (height - (h - 1) * MG_GAP) / h;
+    const fits = steps[g].every((t) => {
+      if (t.size === "tall" || t.size === "strip") return true;
+      const a = mgAspect(t.kind, t.w, t.h, u, rowPx);
+      return a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9;
+    });
+    if (fits || g === 0) return { ...layout, tiles: done(steps[g]), top: 0, rows: h, usedRows: h, rowPx };
+  }
+  return layout;
 }
 
 /* ── the Overview composition ──────────────────────────────────────────── */
@@ -543,20 +686,48 @@ const MIN_BODY = 4;
  *  checks go back into the board as a tile or a tab, as without a sidebar
  *  (the narrow fallback). */
 export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
+  const need = content.detail ?? 0;
+  const limit: Record<string, number> = need > 0 ? { detail: need + 1 } : {};
+  return bestFilled((grow) => {
+    const board = composeOverview(grid, content, grow);
+    return board && mgFillRows(board, limit);
+  });
+}
+
+/** Rule 9 by composition: the board at canon sizes, filled (`mgFillRows`);
+ *  where that leaves fewer, taller rows, the board composed again with its
+ *  tiles free to grow down (`mgGrown`), and the one of the two that takes
+ *  the most rows, then the first; never one that loses the verification
+ *  sidebar the first has. */
+function bestFilled(compose: (grow: boolean) => MgLayout | null): MgLayout {
+  const first = compose(false)!;
+  if (!first.rowPx) return first;
+  const second = compose(true);
+  // The verification sidebar stays where the first pass seats it.
+  const sided = (l: MgLayout) => l.band === "kpis+side" || l.band === "side-pack";
+  if (!second || (sided(first) && !sided(second))) return first;
+  return second.rows > first.rows ? second : first;
+}
+
+/** `grow`: the second pass (`bestFilled`), the KPI-row boards only, or null;
+ *  the packed and narrow boards are the first pass's. */
+function composeOverview(grid: MgGrid, content: MgContent, grow = false): MgLayout | null {
   // A sidebar wider than the fewest modules gives a column back before it
   // gives up: a check name ellipsizes rather than the sidebar going.
   const want = content.side ?? 0;
   for (let side = want; side > 0 && side >= Math.min(want, SIDE_MODULES[0]) && grid.cols - side > 0; side -= 1) {
     const region = { ...grid, cols: grid.cols - side };
-    const inner = searchOverview(region, content, overviewBody(content, false));
+    const inner = searchOverview(region, content, overviewBody(content, false), grow);
     const withInner = inner ? besideSide(grid, side, inner, "kpis+side", false) : null;
     if (withInner) return withInner;
+    if (grow) continue;
     for (const packed of packedBoards(region, content)) {
       const withPacked = besideSide(grid, side, packed, "side-pack", true);
       if (withPacked) return withPacked;
     }
   }
-  return searchOverview(grid, content, overviewBody(content)) ?? layoutNarrow(grid, content);
+  const board = searchOverview(grid, content, overviewBody(content), grow);
+  return board ?? (grow ? null : layoutNarrow(grid, content));
 }
 
 /** Where the KPI row and the floor sidebar do not fit beside the checks (a
@@ -659,7 +830,7 @@ const DETAIL_WIDTHS = [3, 4] as const;
  *  of the rows it needs wins, then the one that keeps Scope largest, then the
  *  first (the floor sidebar as before). The board itself (its width and
  *  height) is chosen as before: Detail never shrinks the board. */
-function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[]): MgLayout | null {
+function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[], grow = false): MgLayout | null {
   const { cols, rows } = grid;
   const kpiIds = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
   const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.ifc, 2]] };
@@ -685,7 +856,7 @@ function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[]): M
         tried += 1;
         const rest = body.filter((t) => !fill.includes(t));
         const restNoDetail = rest.filter((t) => t.id !== "detail");
-        for (let r = rows - 2; r >= MIN_BODY; r -= 1) {
+        for (let r = rows - 2; r >= (grow ? rows - 2 : MIN_BODY); r -= 1) {
           if (used * (r + 2) < bestScore[0]) break;
           // The right-hand columns, left to right: the floor sidebar as
           // before (its first width that covers); Detail beside it; Detail in
@@ -709,7 +880,7 @@ function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[]): M
             // A canon L (3 × 4) or the named tall column; 4 × 4 is neither.
             // Detail's column is about 1 : 2 at most.
             if (option.cols.some((c) => !canonSize(c.w, r, false, true) || (c.id === "detail" && r > 2 * c.w))) continue;
-            const lower = mgPackExact({ cols: used - side, rows: r, u: grid.u }, option.inner);
+            const lower = mgPackExact({ cols: used - side, rows: r, u: grid.u }, grow ? mgGrown(option.inner, r, grid.u) : option.inner);
             if (!lower) continue;
             if (floorsOnly) floorsDone = true;
             const d = option.cols.some((c) => c.id === "detail") ? r : (lower.tiles.find((t) => t.id === "detail")?.h ?? 0);
@@ -817,6 +988,13 @@ function projectBody(content: MgProjectContent): MgTileSpec[] {
  *  width and body height the one that takes the most of the window wins, as
  *  on the Overview. Under that (about 12 columns), the narrow fallback. */
 export function layoutProject(grid: MgGrid, content: MgProjectContent): MgLayout {
+  return bestFilled((grow) => {
+    const board = composeProject(grid, content, grow);
+    return board && mgFillRows(board);
+  });
+}
+
+function composeProject(grid: MgGrid, content: MgProjectContent, grow = false): MgLayout | null {
   const { cols, rows } = grid;
   const kpiIds = Array.from({ length: content.std }, (_, i) => `std${i}`);
   const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.std, 2]] };
@@ -837,9 +1015,9 @@ export function layoutProject(grid: MgGrid, content: MgProjectContent): MgLayout
         if (!band) continue;
         tried += 1;
         const rest = body.filter((t) => !fill.includes(t));
-        for (let r = rows - 2; r >= MIN_BODY; r -= 1) {
+        for (let r = rows - 2; r >= (grow ? rows - 2 : MIN_BODY); r -= 1) {
           if (used * (r + 2) <= bestCells) break;
-          const lower = mgPackExact({ cols: used, rows: r, u: grid.u }, rest);
+          const lower = mgPackExact({ cols: used, rows: r, u: grid.u }, grow ? mgGrown(rest, r, grid.u) : rest);
           if (!lower) continue;
           const offset = Math.floor((cols - used) / 2);
           const top = Math.floor((rows - 2 - r) / 2);
@@ -866,7 +1044,7 @@ export function layoutProject(grid: MgGrid, content: MgProjectContent): MgLayout
       }
     }
   }
-  return best ?? layoutProjectNarrow(grid, content);
+  return best ?? (grow ? null : layoutProjectNarrow(grid, content));
 }
 
 /** The narrow fallback: the model at 6 × 4, the Standardkrav requirements as
@@ -885,14 +1063,17 @@ function layoutProjectNarrow(grid: MgGrid, content: MgProjectContent): MgLayout 
 
 /* ── the Rom tab: the spaces and their schedule ────────────────────────── */
 
-/** The Rom tab on the same grid: the spatial view (3D or plan) as an XL,
- *  8 × 5 where that leaves the schedule 4 columns, else 6 × 4, else an L
- *  (4 × 3); the schedule beside it at the same height, the columns left,
- *  capped where it would pass the list bound (2 : 1), never under 3. Centred
- *  in whole columns. Under 7 columns the two stack, both L. */
+/** The Rom tab on the same grid: the spatial view (3D or plan) and the
+ *  schedule, together the board's full height (rule 9: no empty row). Beside
+ *  each other, both the full height: the spatial view takes the most columns
+ *  that keep its canvas inside 9 : 16 to 16 : 9 and leave the schedule 3 or
+ *  more inside the list bound (1 : 2 to 2 : 1). Where no such pair exists (a
+ *  narrow, tall window) they stack, the spatial view on top, each inside its
+ *  bound. Of every board, the one that takes the most columns, beside before
+ *  stacked. Centred in whole columns. Where neither exists (under 3 rows),
+ *  they stack as two L. */
 export function roomTiles(grid: MgGrid): { spatial: MgPlace; schedule: MgPlace; used: number; offset: number } {
   const { cols, rows, u } = grid;
-  const px = (n: number) => mgSpanPx(n, u);
   const place = (id: string, kind: MgKind, x: number, y: number, [w, h]: Wh, priority: number): MgPlace => ({
     id,
     kind,
@@ -904,22 +1085,28 @@ export function roomTiles(grid: MgGrid): { spatial: MgPlace; schedule: MgPlace; 
     priority,
     tabs: [],
   });
-  // Each spatial size with the schedule columns it must leave.
-  const options: readonly [Wh, number][] = [
-    [XL[0], 4],
-    [XL[1], 3],
-    [[4, 3], 3],
-  ];
-  for (const [fit, keep] of options) {
-    const h = fit[1];
-    if (cols - fit[0] < keep || h > Math.max(rows, 3)) continue;
-    let sw = cols - fit[0];
-    while (sw > keep && px(sw) > MG_ASPECT.list.max * px(h)) sw -= 1;
-    const used = fit[0] + sw;
+  const inside = (kind: MgKind, w: number, h: number) => {
+    const a = mgAspect(kind, w, h, u);
+    return a >= MG_ASPECT[kind].min - 1e-9 && a <= MG_ASPECT[kind].max + 1e-9;
+  };
+  const board = (used: number) => {
+    // Beside: the spatial view as wide as it may be.
+    for (let fit = used - 3; fit >= 4; fit -= 1) {
+      if (inside("viewer", fit, rows) && inside("list", used - fit, rows)) return { fit: [fit, rows] as Wh, rest: [used - fit, rows] as Wh, stacked: false };
+    }
+    // Stacked: the spatial view as tall as it may be, the schedule 2 or more.
+    for (let h = rows - 2; h >= 3; h -= 1) {
+      if (inside("viewer", used, h) && inside("list", used, rows - h)) return { fit: [used, h] as Wh, rest: [used, rows - h] as Wh, stacked: true };
+    }
+    return null;
+  };
+  for (let used = cols; used >= 4 && rows >= 3; used -= 1) {
+    const b = board(used);
+    if (!b) continue;
     const offset = Math.floor((cols - used) / 2);
     return {
-      spatial: place("spatial", "viewer", offset, 0, fit, 0),
-      schedule: place("schedule", "list", offset + fit[0], 0, [sw, h], 1),
+      spatial: place("spatial", "viewer", offset, 0, b.fit, 0),
+      schedule: place("schedule", "list", b.stacked ? offset : offset + b.fit[0], b.stacked ? b.fit[1] : 0, b.rest, 1),
       used,
       offset,
     };

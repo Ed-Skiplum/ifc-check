@@ -16,8 +16,11 @@ import {
   SIZES,
   canonSize,
   layoutOverview,
+  layoutProject,
+  mgAspect,
   mgGrid,
   mgSpanPx,
+  roomTiles,
 } from "../src/ui/alt/module-grid.ts";
 import { CANVAS_ASPECT, graphStage } from "../src/ui/canvas-aspect.ts";
 
@@ -116,6 +119,7 @@ windows.push([2112, 1300]);
 const REFERENCE = [[1440, 900], [1920, 1080], [2112, 1267], [2112, 1300], [2560, 1440], [3440, 1440]];
 
 let count = 0;
+let taller = 0;
 for (const [design, content] of Object.entries(contents)) {
   const layout = layoutOverview;
   for (const [w, h] of windows) {
@@ -137,11 +141,19 @@ for (const [design, content] of Object.entries(contents)) {
     const occ = new Map();
     let xl = 0;
     for (const t of out.tiles) {
-      const size = canonSize(t.w, t.h, t.id in MG_STRIPS, t.id in MG_TALL);
-      check(size !== null, `rule 7: ${at} ${t.id} ${t.w}×${t.h} is no canon size`);
+      // A tile grown into the board's rows (`mgFillRows`) keeps its class:
+      // its packed size is canon, the grown one inside its kind's bound.
+      const [bw, bh] = t.base ?? [t.w, t.h];
+      const size = canonSize(bw, bh, t.id in MG_STRIPS, t.id in MG_TALL);
+      check(size !== null, `rule 7: ${at} ${t.id} ${bw}×${bh} is no canon size`);
       check(size === t.size, `rule 7: ${at} ${t.id} says ${t.size}, is ${size}`);
+      if (t.base) check(t.w === bw && t.h > bh && size !== "S", `rule 5: ${at} ${t.id} grew ${bw}×${bh} to ${t.w}×${t.h}`);
+      if (size !== "tall" && size !== "strip") {
+        const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx);
+        check(a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9, `rule 3: ${at} ${t.id} ${t.w}×${t.h} renders ${a.toFixed(2)}`);
+      }
       if (size === "XL") xl += 1;
-      check(t.x >= 0 && t.y >= 0 && t.x + t.w <= grid.cols && t.y + t.h <= grid.rows, `rule 1: ${at} ${t.id} outside the grid`);
+      check(t.x >= 0 && t.y >= 0 && t.x + t.w <= grid.cols && t.y + t.h <= out.rows, `rule 1: ${at} ${t.id} outside the grid`);
       check(!(t.w >= grid.cols && size !== "strip"), `rule 3: ${at} ${t.id} spans the full width`);
       for (let y = t.y; y < t.y + t.h; y += 1)
         for (let x = t.x; x < t.x + t.w; x += 1) {
@@ -157,7 +169,11 @@ for (const [design, content] of Object.entries(contents)) {
     check(holes === 0, `rule 9: ${at} has ${holes} holes`);
     check(occ.size === out.used * out.usedRows, `rule 9: ${at} tiles outside the board rectangle`);
     check(Math.abs(out.offset - (grid.cols - out.offset - out.used)) <= 1, `rule 9: ${at} board not centred across`);
-    check(Math.abs(out.top - (grid.rows - out.top - out.usedRows)) <= 1, `rule 9: ${at} board not centred down`);
+    check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows from ${out.top}`);
+    // Fewer, taller rows only where nothing could grow: the same height.
+    const rowPx = out.rowPx ?? grid.u;
+    check(out.rows <= grid.rows && Math.abs(out.rows * rowPx + (out.rows - 1) * MG_GAP - mgSpanPx(grid.rows, grid.u)) < 1e-6, `rule 9: ${at} ${out.rows} rows of ${rowPx.toFixed(1)} px are not the grid's height`);
+    if (out.rowPx) taller += 1;
     // The docks and the model are always tiles; the requirements too (a list
     // or c's panels).
     const ids = new Set(out.tiles.map((t) => t.id));
@@ -216,6 +232,65 @@ for (const [design, content] of Object.entries(contents)) {
     for (const id of out.moved) check(out.tiles.some((t) => t.tabs.includes(id)), `rule 8: ${at} moved ${id} has no host`);
   }
 }
+
+/* ── rule 9 on the Prosjekt and Rom tabs: every row, no holes ───────── */
+
+const projectContents = {
+  bare: { std: 5, trees: [] },
+  mapped: { std: 5, trees: ["ptree-system", "ptree-function"] },
+  few: { std: 3, trees: ["ptree-system"] },
+};
+for (const [design, content] of Object.entries(projectContents)) {
+  for (const [w, h] of windows) {
+    const grid = mgGrid(w, h - 104);
+    const at = `project ${design} ${w}×${h} (${grid.cols}×${grid.rows})`;
+    let out;
+    try {
+      out = layoutProject(grid, content);
+    } catch (error) {
+      check(false, `${at}: no layout (${error.message})`);
+      continue;
+    }
+    count += 1;
+    if (out.rowPx) taller += 1;
+    const occ = new Set();
+    for (const t of out.tiles) {
+      const [bw, bh] = t.base ?? [t.w, t.h];
+      check(canonSize(bw, bh, t.id in MG_STRIPS, t.id in MG_TALL) === t.size, `rule 7: ${at} ${t.id} ${bw}×${bh} is not its ${t.size}`);
+      if (t.size !== "tall" && t.size !== "strip") {
+        const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx);
+        check(a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9, `rule 3: ${at} ${t.id} ${t.w}×${t.h} renders ${a.toFixed(2)}`);
+      }
+      for (let y = t.y; y < t.y + t.h; y += 1)
+        for (let x = t.x; x < t.x + t.w; x += 1) {
+          check(!occ.has(`${x},${y}`), `rule 9: ${at} ${t.id} overlaps`);
+          occ.add(`${x},${y}`);
+        }
+    }
+    let holes = 0;
+    for (let y = 0; y < out.rows; y += 1) for (let x = out.offset; x < out.offset + out.used; x += 1) if (!occ.has(`${x},${y}`)) holes += 1;
+    check(holes === 0 && occ.size === out.used * out.rows, `rule 9: ${at} has ${holes} holes`);
+    check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows`);
+    check(Math.abs(out.rows * (out.rowPx ?? grid.u) + (out.rows - 1) * MG_GAP - mgSpanPx(grid.rows, grid.u)) < 1e-6, `rule 9: ${at} rows are not the grid's height`);
+  }
+}
+for (const [w, h] of windows) {
+  const grid = mgGrid(w, h - 104);
+  const at = `rooms ${w}×${h} (${grid.cols}×${grid.rows})`;
+  const { spatial, schedule } = roomTiles(grid);
+  {
+    const beside = spatial.y === 0 && spatial.h === grid.rows && schedule.y === 0 && schedule.h === grid.rows && schedule.x === spatial.x + spatial.w;
+    const stacked = spatial.y === 0 && schedule.y === spatial.h && spatial.h + schedule.h === grid.rows && spatial.w === schedule.w && spatial.x === schedule.x;
+    check(beside || stacked, `rule 9: ${at} the tiles are not the full height`);
+    const v = mgAspect("viewer", spatial.w, spatial.h, grid.u);
+    const l = mgAspect("list", schedule.w, schedule.h, grid.u);
+    check(v >= CANVAS_ASPECT.min - 1e-9 && v <= CANVAS_ASPECT.max + 1e-9, `rule 4: ${at} spatial ${spatial.w}×${spatial.h} canvas ${v.toFixed(2)}`);
+    check(l >= 0.5 - 1e-9 && l <= 2 + 1e-9, `rule 3: ${at} schedule ${schedule.w}×${schedule.h} renders ${l.toFixed(2)}`);
+  }
+  if (REFERENCE.some(([a, b]) => a === w && b === h))
+    console.log(`  rooms ${w}×${h} ${grid.cols}×${grid.rows}: spatial ${spatial.w}×${spatial.h}@${spatial.x},${spatial.y} · schedule ${schedule.w}×${schedule.h}@${schedule.x},${schedule.y}`);
+}
+console.log(`  fewer, taller rows (nothing could grow): ${taller} of ${count} layouts`);
 
 /* ── the Graf tab: one main surface, the other a small window ───────── */
 
