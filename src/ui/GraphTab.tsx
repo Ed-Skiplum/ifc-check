@@ -188,9 +188,26 @@ export function GraphTab({
   const viewerSlot = useRef<HTMLDivElement>(null);
 
   const centreGuid = selection.length > 0 ? selection[0] : null;
+  // The selection by content (a GlobalId never holds "|"): every gesture
+  // makes a new array, and the same members must not rebuild the drill.
+  const pickedKey = selection.join("|");
+  const picked = useMemo(() => (pickedKey ? pickedKey.split("|") : []), [pickedKey]);
 
   const index = useMemo(() => (profile ? indexProfile(profile) : null), [profile]);
   const scopedIndex = useMemo(() => (scopedProfile ? indexProfile(scopedProfile) : null), [scopedProfile]);
+  // Two-way with the 3D (edkjo 2026-09-29: "select objects from the model in
+  // the graph tab and have it crossfilter back to the graph"). A selection
+  // never changes the filter, so a pick can land outside the graph's scope
+  // (another view is the filter's origin): it is drawn anyway, in its own
+  // storey and bucket, rather than silently missing from the graph.
+  const drillIndex = useMemo(() => {
+    if (!index || !scopedProfile || !scopedIndex) return index;
+    const outside = picked
+      .filter((guid) => !scopedIndex.byId.has(guid))
+      .map((guid) => index.byId.get(guid))
+      .filter((row): row is NonNullable<typeof row> => row !== undefined);
+    return outside.length === 0 ? scopedIndex : indexProfile({ ...scopedProfile, rows: [...scopedProfile.rows, ...outside] });
+  }, [index, scopedIndex, scopedProfile, picked]);
   // The chosen storey or bucket's node, when the graph is the origin.
   const chosenId = useMemo(() => {
     const f = parseFocus(chosen);
@@ -221,25 +238,29 @@ export function GraphTab({
   }, []);
 
   // A selection made elsewhere (the 3D, a table) drills to where it lives, so
-  // its node exists and its relationships can bloom.
+  // every picked product's node exists and the first one's relationships
+  // can bloom.
   useEffect(() => {
-    if (!centreGuid || !index) return;
-    const row = index.byId.get(centreGuid);
-    if (!row) return;
-    const key = storeyKeyOf(row, index.known);
-    const path = [storeyId(key), groupId(key, row.entity)];
+    if (picked.length === 0 || !index) return;
+    const path: string[] = [];
+    for (const guid of picked) {
+      const row = index.byId.get(guid);
+      if (!row) continue;
+      const key = storeyKeyOf(row, index.known);
+      path.push(storeyId(key), groupId(key, row.entity));
+    }
     setExpanded((current) => {
       if (path.every((id) => current.has(id))) return current;
       const next = new Set(current);
       for (const id of path) next.add(id);
       return next;
     });
-  }, [centreGuid, index]);
+  }, [picked, index]);
 
   const drill = useMemo<Drill>(() => {
-    if (!profile || !index || !shown) return { nodes: [], edges: [] };
-    return buildDrill(profile, index, tones, expanded, centreGuid, { psets, quantities }, lang, scopedIndex ?? index);
-  }, [profile, index, scopedIndex, tones, expanded, centreGuid, psets, quantities, lang, shown]);
+    if (!profile || !index || !shown || !drillIndex) return { nodes: [], edges: [] };
+    return buildDrill(profile, index, tones, expanded, centreGuid, { psets, quantities }, lang, drillIndex, picked);
+  }, [profile, index, drillIndex, tones, expanded, centreGuid, picked, psets, quantities, lang, shown]);
 
   /* ── The viewer, borrowed ──────────────────────────────────────────────── */
 
@@ -326,6 +347,8 @@ export function GraphTab({
   const textWidth = useRef(new Map<string, number>());
   const drillRefIds = useRef<Map<string, number> | null>(null);
   const expandedRef = useRef(expanded);
+  /** The newly selected product, while the view brings it on screen. */
+  const seeking = useRef<{ guid: string; frames: number; moving: boolean } | null>(null);
 
   const reducedMotion =
     typeof window !== "undefined" &&
@@ -703,6 +726,28 @@ export function GraphTab({
           Math.abs(k - view.k) > 0.0004 || Math.abs(tx - view.tx) > 0.15 || Math.abs(ty - view.ty) > 0.15;
         viewRef.current = moving ? { k, tx, ty } : target;
       }
+      // A product picked elsewhere that lies off screen: the view pans it to
+      // the centre. Only once the reader has the view (the auto-fit above
+      // frames everything, it included).
+      const seek = seeking.current;
+      if (seek && framed.current && w > 0) {
+        const i = drillRef.current.nodes.findIndex((node) => node.guid === seek.guid);
+        if (i >= 0) {
+          const view = viewRef.current;
+          const node = sim.nodes[i];
+          const dx = w / 2 - (node.x * view.k + view.tx);
+          const dy = h / 2 - (node.y * view.k + view.ty);
+          const edge = 60;
+          if (seek.moving || Math.abs(dx) > w / 2 - edge || Math.abs(dy) > h / 2 - edge) {
+            seek.moving = true;
+            viewRef.current = { ...view, tx: view.tx + dx * 0.14, ty: view.ty + dy * 0.14 };
+            moving = true;
+            if (Math.abs(dx) < 2 && Math.abs(dy) < 2) seeking.current = null;
+          }
+        }
+        seek.frames += 1;
+        if (seek.frames > 180) seeking.current = null;
+      }
       // Parallax eases toward the pointer.
       const p = pointer.current;
       p.px += (p.x - p.px) * 0.06;
@@ -871,6 +916,11 @@ export function GraphTab({
     recomputeFocus();
     wake();
   }, [recomputeFocus, wake]);
+
+  useEffect(() => {
+    seeking.current = centreGuid ? { guid: centreGuid, frames: 0, moving: false } : null;
+    wake();
+  }, [centreGuid, wake]);
 
   useEffect(
     () => () => {
@@ -1131,7 +1181,12 @@ export function GraphTab({
           <canvas
             ref={canvasRef}
             data-graph
-            className="block h-full w-full touch-none select-none"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              // Esc clears the selection, as it does on the 3D.
+              if (event.key === "Escape" && selection.length > 0) onPick(null, false);
+            }}
+            className="block h-full w-full touch-none outline-none select-none"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endGesture}

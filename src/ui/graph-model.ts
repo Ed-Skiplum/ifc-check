@@ -176,6 +176,9 @@ export function buildDrill(
    *  still read the whole model (`index`): a type's siblings are its
    *  siblings whatever is filtered. */
   drillIndex: DrillIndex = index,
+  /** The whole selection: each one is drawn in its bucket even past the cap,
+   *  so a multi-select made in the 3D shows every picked product. */
+  picked: readonly string[] = centre ? [centre] : [],
 ): Drill {
   const isolated = drillIndex !== index;
   const nodes: GNode[] = [];
@@ -292,10 +295,12 @@ export function buildDrill(
       link(sid, gid, key === null ? "" : "IfcRelContainedInSpatialStructure", 34);
       if (!gid || !expanded.has(gid)) continue;
       const shown = rows.slice(0, PER_GROUP_CAP);
-      // The selected element is always drawn, even past the cap.
-      if (centre && !shown.some((r) => r.guid === centre)) {
-        const picked = rows.find((r) => r.guid === centre);
-        if (picked) shown.push(picked);
+      // The selected elements are always drawn, even past the cap.
+      if (rows.length > PER_GROUP_CAP) {
+        const want = new Set(picked);
+        if (centre) want.add(centre);
+        for (const r of shown) want.delete(r.guid);
+        if (want.size > 0) for (const r of rows) if (want.has(r.guid)) shown.push(r);
       }
       for (const row of shown) link(gid, add(elementNode(row, gid)), "", 26);
       const rest = rows.length - PER_GROUP_CAP;
