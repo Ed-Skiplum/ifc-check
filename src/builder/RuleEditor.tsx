@@ -89,6 +89,8 @@ function blankCheck(type: ExtendedCheck["type"]): ExtendedCheck {
         source: { attribute: "Name" },
         extract: "^(.+)$",
       };
+    case "copy-object":
+      return { type, source: { attribute: "Name" }, copy: [], own: [] };
   }
 }
 
@@ -114,7 +116,7 @@ function CodeLookupFields({
               onChange({
                 ...check,
                 list: e.target.value as CodeLookupCheck["list"],
-                values: undefined,
+                codes: undefined,
               })
             }
           >
@@ -596,7 +598,12 @@ export function RuleEditor({
             <input
               type="checkbox"
               checked={rule.enabled !== false}
-              onChange={(e) => onChange({ ...rule, enabled: e.target.checked })}
+              onChange={(e) => {
+                const next = { ...rule };
+                if (e.target.checked) delete next.enabled;
+                else next.enabled = false;
+                onChange(next);
+              }}
             />
             <span className="rb-label">{t("rule.enabled", lang)}</span>
           </label>

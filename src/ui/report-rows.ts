@@ -12,6 +12,7 @@ import { physicalProducts } from "../engine/fundamentals.ts";
 import { functionTree, systemTree, type CodeTree, type TreeReading } from "../engine/code-tree.ts";
 import type { CheckResult, IfcGraph, IfcSummary } from "../engine/types";
 import { codeLookupSubjects, type ModelResult } from "../ids/evaluate.ts";
+import { roleRule } from "../ids/models.ts";
 import type { ExtendedRule, MappingRole, Ruleset } from "../ids/types.ts";
 import type { ModelGraph } from "../ids/model.ts";
 import { CODE_LISTS } from "../codelists/index.ts";
@@ -28,22 +29,20 @@ export interface BoardData {
   measures?: BoardMeasures;
 }
 
+/** The enabled rule playing `role` (models.ts `roleRule`). */
 export function mappingRule(ruleset: Ruleset | null | undefined, role: MappingRole): ExtendedRule | null {
-  const rule = ruleset?.rules.find(
-    (r): r is ExtendedRule =>
-      r.kind === "extended" && r.mapping === role && r.enabled !== false && r.check.type === "code-lookup",
-  );
-  return rule ?? null;
+  return roleRule(ruleset, role);
 }
 
 function readings(
   ruleset: Ruleset | null,
   rule: ExtendedRule | null,
   graph: IfcGraph,
+  file: string,
 ): TreeReading[] | null {
   if (!ruleset || !rule) return null;
   try {
-    return codeLookupSubjects(ruleset, rule, graph as unknown as ModelGraph);
+    return codeLookupSubjects(ruleset, rule, graph as unknown as ModelGraph, file);
   } catch {
     // The rule is not_evaluable and its row says why; the treemap then shows
     // the unconfigured default rather than an invented reading.
@@ -78,7 +77,7 @@ export function boardData(
   const values: BoardData["values"] = {};
   for (const role of ["system-classification", "component-classification", "progress-code", "copy-object"] as const) {
     const rule = mappingRule(ruleset, role);
-    const read = readings(ruleset, rule, graph);
+    const read = readings(ruleset, rule, graph, file);
     if (!rule || !read) continue;
     const byValue = new Map<string | null, string[]>();
     for (const r of read) {
@@ -102,8 +101,8 @@ export function boardData(
     rows,
     values,
     trees: {
-      system: systemTree(objects, readings(ruleset, system, graph), namesOf(system, "ns3451")),
-      function: functionTree(objects, readings(ruleset, component, graph), namesOf(component, "ns3457-8")),
+      system: systemTree(objects, readings(ruleset, system, graph, file), namesOf(system, "ns3451")),
+      function: functionTree(objects, readings(ruleset, component, graph, file), namesOf(component, "ns3457-8")),
     },
   };
 }
