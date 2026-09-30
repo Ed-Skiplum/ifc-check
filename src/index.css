@@ -184,6 +184,24 @@ tr[data-sel] {
     inset 0 0 0 4px var(--sel-halo);
   pointer-events: none;
 }
+/* The object panel's tabs, both levels (themes, and the set ears inside
+   Egenskaper, 2026-09-30): the open one takes the selection teal, as every
+   chosen item does. A ring and a ground, never a border or a size. */
+.obj-tab {
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-muted);
+}
+.obj-tab:hover {
+  color: var(--color-ink);
+  background-color: var(--sel-wash);
+}
+.obj-tab[aria-selected="true"],
+.obj-tab[aria-selected="true"]:hover {
+  color: var(--color-ink);
+  background-color: var(--sel-soft);
+  box-shadow: inset 0 0 0 1.5px var(--sel);
+}
 /* A gallery card: the ground and the ring, over its own shade. */
 .gallery-card[data-sel] {
   box-shadow:

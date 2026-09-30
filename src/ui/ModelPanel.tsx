@@ -316,10 +316,9 @@ export function ModelPanel({
     docked && view.scope && isValidElement(trace)
       ? cloneElement(trace as ReactElement<{ alone?: boolean; origin?: boolean }>, { alone: true, origin: view.origin === "scope" })
       : null;
-  const detail =
-    docked && view.selection.length > 0 ? (
-      <ObjectPanel lang={lang} model={model} selection={view.selection} />
-    ) : null;
+  // Detail is never an empty tile: with nothing selected the panel keeps its
+  // frame (edkjo 2026-09-30, *"dont let it go blank when nothing is selected"*).
+  const detail = docked ? <ObjectPanel lang={lang} model={model} selection={view.selection} /> : null;
 
   const rules = hasRuleset
     ? {

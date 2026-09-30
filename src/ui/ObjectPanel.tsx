@@ -11,13 +11,15 @@
  *
  * So: hierarchy, never curation. Five lead cards in the board's own KPI
  * vocabulary carry what IDENTIFIES the object; under them every single thing
- * the engine holds, grouped the way the standard itself is built:
+ * the engine holds, grouped the way the standard itself is built, one theme
+ * tab per group (2026-09-30, OBJECT PANEL IS TABBED):
  *
- *   1  Attributter   the schema's own attributes on the entity
+ *   1  Attributter   the schema's own attributes on the entity, then its type's
  *   2  Relasjoner    the objectified `IfcRel*` — containment, type,
  *                    decomposition, voids, material, classification
- *   3  Egenskaper    `IfcRelDefinesByProperties`: one TAB per `IfcPropertySet`
- *                    and per `IfcElementQuantity`, plus the profile tab
+ *   3  Egenskaper    `IfcRelDefinesByProperties`: one EAR per `IfcPropertySet`
+ *                    and per `IfcElementQuantity`, grouped Forekomst / Type,
+ *                    plus the profile ear
  *   4  Beregnet      what THIS TOOL measured, never what the file says
  *
  * Group 4 is kept apart on purpose and is labelled as computed. Mixing a
@@ -45,11 +47,12 @@
  * ── One element, several, none ───────────────────────────────────────────
  * One: its values. Several (Shift or Ctrl down the band): the SHARED values,
  * with `Ulike verdier` where they disagree and every variant in the `title`.
- * None: the labels with `—`.
+ * None: the same frame, the lead cards with `—` and Attributter alone.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
-import type { Lang } from "./i18n";
+import { useId, useMemo, useState, type ReactNode } from "react";
+import { tablistKeys } from "./keys";
+import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
@@ -78,6 +81,9 @@ const LABEL_WIDTH = "14ch";
  *  data rather than from a flag someone had to keep in step. */
 interface Field {
   label: string;
+  /** `data-field` when the label repeats inside one panel (the type's Name
+   *  beside the instance's). */
+  key?: string;
   values: string[];
   /** The IFC term this row IS, rendered under the label as a dim token. */
   ifc?: string;
@@ -135,7 +141,7 @@ function metres(value: number): string {
 
 function attributeSection(rows: ProductRowLite[], lang: Lang): Section {
   return {
-    title: t("object.attributes", lang),
+    title: t("inst.this", lang),
     ifc: "IfcRoot · IfcObject",
     fields: [
       { label: t("col.guid", lang), ifc: "GlobalId", values: distinct(rows, (r) => r.guid) },
@@ -166,7 +172,34 @@ function attributeSection(rows: ProductRowLite[], lang: Lang): Section {
         ifc: "Pset_*Common",
         values: distinct(rows, (r) => bool(r.loadBearing)),
       },
+      // ifcfast carries no Description on a product row.
+      { label: "Description", ifc: "Description", values: [], note: rows.length ? t("type.notSupplied", lang) : null },
     ],
+  };
+}
+
+/** The type object's own attributes, under the instance's. */
+function typeSection(rows: ProductRowLite[], lang: Lang): Section {
+  const untyped = rows.length > 0 && rows.every((r) => r.typeGuid == null && r.typed !== true);
+  return {
+    title: t("col.type", lang),
+    ifc: "IfcTypeObject",
+    state: untyped ? t("type.none", lang) : undefined,
+    fields: untyped
+      ? []
+      : [
+          { key: "type.class", label: t("col.class", lang), ifc: "entity", values: distinct(rows, (r) => r.typeEntity ?? null) },
+          { key: "type.name", label: t("col.name", lang), ifc: "Name", values: distinct(rows, (r) => r.typeName ?? null) },
+          { key: "type.guid", label: t("col.guid", lang), ifc: "GlobalId", values: distinct(rows, (r) => r.typeGuid ?? null) },
+          // `TypeObjectRow` is guid, entity and name only.
+          {
+            key: "type.predefinedType",
+            label: t("col.predefinedType", lang),
+            ifc: "PredefinedType",
+            values: [],
+            note: rows.length ? t("type.notSupplied", lang) : null,
+          },
+        ],
   };
 }
 
@@ -327,9 +360,17 @@ function classificationFields(
 
 /* ------------------------------------------------------------- group 3 */
 
-/** A tab: one property set, one quantity set, or the profile. */
+type Level = "instance" | "type";
+
+/** An ear: one property set or quantity set from one source, or the profile. */
 interface DataTab {
+  /** Unique within the panel: level, entity and name. */
+  key: string;
   name: string;
+  /** Whose set it is. ifcfast folds the type's sets onto the occurrence with
+   *  `source: "type"` (AGENTS.md "Pset inventory"); a set carrying rows of
+   *  both sources is two ears. Null: the profile, which is neither. */
+  level: Level | null;
   /** `IfcPropertySet` / `IfcElementQuantity` / `IfcProfileDef`. */
   ifc: string;
   /** buildingSMART's own namespace (`Pset_`, `Qto_`) vs the project's. */
@@ -339,63 +380,70 @@ interface DataTab {
 }
 
 const STANDARD = /^(pset|qto)_/i;
+const PROFILE = "profile";
 
-/** The tabs, and — when there are no SET tabs at all — which of the three
+/** The ears, and — when there are no SET ears at all — which of the three
  *  absences that is. The two are one answer: a strip carrying only the profile
- *  tab says nothing about whether this element has property sets, so the group
- *  says it in its own line above the strip. */
+ *  ear says nothing about whether this element has property sets, so the theme
+ *  says it in its own line beside the strip. */
 function dataTabs(
   rows: ProductRowLite[],
   profile: ModelProfile | null,
   lang: Lang,
 ): { tabs: DataTab[]; absence: string | null } {
   const tabs: DataTab[] = [];
-  const add = (
-    table: Map<string, PsetGroup[]> | undefined,
-    ifcOf: (group: PsetGroup) => string,
-  ) => {
+  const add = (table: Map<string, PsetGroup[]> | undefined, ifc: string) => {
     if (table === undefined) return;
     const sets = rows.flatMap((row) => table.get(row.guid) ?? []);
     const names: string[] = [];
     for (const set of sets) if (!names.includes(set.name)) names.push(set.name);
-    for (const name of names) {
-      const mine = sets.filter((set) => set.name === name);
-      const properties = mine.flatMap((set) => set.properties);
-      const propertyNames: string[] = [];
-      for (const property of properties) {
-        if (!propertyNames.includes(property.name)) propertyNames.push(property.name);
+    for (const level of ["instance", "type"] as const) {
+      for (const name of names) {
+        const properties = sets
+          .filter((set) => set.name === name)
+          .flatMap((set) => set.properties)
+          .filter((p) => (p.source === "type" ? "type" : "instance") === level);
+        if (properties.length === 0) continue;
+        const propertyNames: string[] = [];
+        for (const property of properties) {
+          if (!propertyNames.includes(property.name)) propertyNames.push(property.name);
+        }
+        tabs.push({
+          key: `${level}\u0000${ifc}\u0000${name}`,
+          name,
+          level,
+          ifc,
+          standard: STANDARD.test(name),
+          fields: propertyNames.map((propertyName) => {
+            const own = properties.filter((property) => property.name === propertyName);
+            const types = distinctOf(own, (property) => property.valueType ?? null);
+            return {
+              label: propertyName,
+              ifc: types.length === 1 ? types[0] : undefined,
+              values: distinctOf(own, (property) => property.value),
+            };
+          }),
+        });
       }
-      tabs.push({
-        name,
-        ifc: ifcOf(mine[0]),
-        standard: STANDARD.test(name),
-        fields: propertyNames.map((propertyName) => {
-          const own = properties.filter((property) => property.name === propertyName);
-          const types = distinctOf(own, (property) => property.valueType ?? null);
-          const sources = distinctOf(own, (property) => property.source ?? null);
-          return {
-            label: propertyName,
-            ifc: types.length === 1 ? types[0] : undefined,
-            values: distinctOf(own, (property) => property.value),
-            note: sources.length === 1 ? sources[0] : null,
-          };
-        }),
-      });
     }
   };
-  add(profile?.psets, () => "IfcPropertySet");
-  add(profile?.quantities, () => "IfcElementQuantity");
+  add(profile?.psets, "IfcPropertySet");
+  add(profile?.quantities, "IfcElementQuantity");
 
-  // Standard namespace first, the project's own after: an ordering, not a
-  // filter. Within each half the file's own order is kept.
-  tabs.sort((a, b) => Number(b.standard) - Number(a.standard));
+  // Instance before type; within each, the standard namespace first and the
+  // project's own after: an ordering, not a filter. The file's own order is
+  // kept inside each half (the sort is stable).
+  const rank = (tab: DataTab) => (tab.level === "type" ? 2 : 0) + (tab.standard ? 0 : 1);
+  tabs.sort((a, b) => rank(a) - rank(b));
 
-  // The profile is a tab that exists to state its own absence. ifcfast's wasm
-  // build exposes no `IfcProfileDef` accessor at all, so leaving the tab out
+  // The profile is an ear that exists to state its own absence. ifcfast's wasm
+  // build exposes no `IfcProfileDef` accessor at all, so leaving the ear out
   // would read as "this element has no profile" — a claim about the FILE made
   // out of a gap in the plumbing.
   tabs.push({
+    key: PROFILE,
     name: t("object.profile", lang),
+    level: null,
     ifc: "IfcProfileDef",
     standard: true,
     fields: [],
@@ -706,15 +754,41 @@ interface ObjectPanelProps {
   selection: string[];
 }
 
+/** The themes, the panel's first tab level: the four groups above. */
+type Theme = "attributes" | "relations" | "data" | "derived";
+
+const THEME_LABEL: Record<Theme, StringKey> = {
+  attributes: "object.attributes",
+  relations: "object.relations",
+  data: "object.data",
+  derived: "object.derived",
+};
+
+/**
+ * Two levels of tabs (edkjo 2026-09-30: *"i prefer a tabbed pset layout than
+ * scrolling"* … *"and that we tab the 'themes'"*): the themes, and inside
+ * Egenskaper one ear per set, grouped Forekomst / Type. The lead cards stay
+ * pinned above both; the open tab's content is the one scroller.
+ *
+ * The chosen theme and the chosen ear are remembered across selections, so
+ * stepping from wall to wall keeps `Pset_WallCommon` open. One the next object
+ * does not carry falls back (theme → Attributter, ear → the first ear) while
+ * the choice itself is kept for the object after. Nothing else changes them.
+ * The panel's size is its slot's, whatever is selected or open.
+ */
 export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
   const profile = model.profile ?? null;
   const chosen = new Set(selection);
   const rows = profile ? profile.rows.filter((row) => chosen.has(row.guid)) : [];
+  const any = rows.length > 0;
+  const uid = useId();
 
   // One pass over the streamed geometry per model, not per selection: boxes,
-  // the placement context and the space locator are all model-wide.
+  // the placement context and the space locator are all model-wide. Not run
+  // while nothing is selected: the panel stays mounted empty.
   const derived = useMemo<Derived>(() => {
     const batches = model.meshBatches;
+    if (!any) return { context: null, locator: null, reason: null, capped: false };
     if (!batches || !profile || !model.report) {
       return { context: null, locator: null, reason: t("object.noGeometry", lang), capped: false };
     }
@@ -750,41 +824,68 @@ export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
       capped: model.meshBudget?.capped ?? false,
       triangles,
     };
-  }, [model.meshBatches, model.meshShift, model.meshBudget, model.report, profile, lang]);
+  }, [any, model.meshBatches, model.meshShift, model.meshBudget, model.report, profile, lang]);
 
-  const sections: Section[] = [
-    attributeSection(rows, lang),
-    {
-      ...relationSection(rows, profile, lang),
-      figure:
-        rows.length === 1 ? (
-          <SpatialPath
-            site={profile?.sites?.[0]?.name ?? profile?.sites?.[0]?.guid ?? null}
-            building={
-              (() => {
-                const storey = storeyOf(profile, rows[0].storeyGuid);
-                const guid = storey?.buildingGuid ?? null;
-                const building = profile?.buildings?.find((b) => b.guid === guid);
-                return building ? (building.name ?? building.guid) : null;
-              })()
-            }
-            storey={(() => {
-              const storey = storeyOf(profile, rows[0].storeyGuid);
-              return storey ? (storey.name ?? storey.guid) : null;
-            })()}
-            element={rows[0].name ?? rows[0].entity}
-          />
-        ) : undefined,
-    },
-  ];
-  const derivedSectionValue = derivedSection(rows, derived, lang);
+  const [wantedTheme, setTheme] = useState<Theme>("attributes");
+  const [wantedEar, setEar] = useState<string | null>(null);
+
+  // Nothing selected: Attributter alone, as for an object with nothing else.
+  const themes: Theme[] = any ? ["attributes", "relations", "data", "derived"] : ["attributes"];
+  const theme = themes.includes(wantedTheme) ? wantedTheme : "attributes";
+
   const data = dataTabs(rows, profile, lang);
+  const ear = data.tabs.find((tab) => tab.key === wantedEar) ?? data.tabs[0] ?? null;
+
+  let body: ReactNode;
+  if (!any) {
+    body = <div data-object-empty="" className="min-h-0 flex-1" />;
+  } else if (theme === "attributes") {
+    body = (
+      <Scroller>
+        <SectionBlock lang={lang} section={attributeSection(rows, lang)} />
+        <SectionBlock lang={lang} section={typeSection(rows, lang)} />
+      </Scroller>
+    );
+  } else if (theme === "relations") {
+    const storey = storeyOf(profile, rows[0].storeyGuid);
+    const building = profile?.buildings?.find((b) => b.guid === (storey?.buildingGuid ?? null));
+    body = (
+      <Scroller>
+        <SectionBlock
+          lang={lang}
+          section={{
+            ...relationSection(rows, profile, lang),
+            figure:
+              rows.length === 1 ? (
+                <SpatialPath
+                  site={profile?.sites?.[0]?.name ?? profile?.sites?.[0]?.guid ?? null}
+                  building={building ? (building.name ?? building.guid) : null}
+                  storey={storey ? (storey.name ?? storey.guid) : null}
+                  element={rows[0].name ?? rows[0].entity}
+                />
+              ) : undefined,
+          }}
+        />
+      </Scroller>
+    );
+  } else if (theme === "data") {
+    body = (
+      <DataTheme lang={lang} uid={uid} tabs={data.tabs} absence={data.absence} open={ear} onOpen={setEar} />
+    );
+  } else {
+    body = (
+      <Scroller>
+        <SectionBlock lang={lang} section={derivedSection(rows, derived, lang)} derived />
+      </Scroller>
+    );
+  }
 
   return (
     // `data-object-panel` / `data-field` are how `isolate-gate.mjs` reads this
     // surface, the same way `data-tile-id` marks a board tile.
     <section
       data-object-panel=""
+      data-object-theme={theme}
       className="flex h-full min-h-0 min-w-0 flex-col border-l border-line bg-panel"
     >
       <div className="flex shrink-0 items-baseline gap-2 border-b border-line px-3 py-1">
@@ -798,19 +899,50 @@ export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
         ) : null}
       </div>
 
-      {/* The one scroller. */}
-      <div className="min-h-0 flex-1 overflow-auto bg-input">
-        <div data-object-body="">
-          <LeadCards lang={lang} rows={rows} profile={profile} />
-          {sections.map((section) => (
-            <SectionBlock key={section.title} lang={lang} section={section} />
-          ))}
-          <DataGroup lang={lang} tabs={data.tabs} absence={data.absence} />
-          <SectionBlock lang={lang} section={derivedSectionValue} derived />
-        </div>
+      <div className="shrink-0">
+        <LeadCards lang={lang} rows={rows} profile={profile} />
+      </div>
+
+      <div
+        role="tablist"
+        data-object-themes=""
+        onKeyDown={tablistKeys}
+        className="obj-tabs flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-2 py-1"
+      >
+        {themes.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`${uid}-theme-${id}`}
+            data-theme={id}
+            aria-selected={theme === id}
+            aria-controls={`${uid}-theme-panel`}
+            tabIndex={theme === id ? 0 : -1}
+            onClick={() => setTheme(id)}
+            className="obj-tab shrink-0 px-2 py-0.5 text-[11px] font-semibold tracking-[0.04em] whitespace-nowrap uppercase"
+          >
+            {t(THEME_LABEL[id], lang)}
+          </button>
+        ))}
+      </div>
+
+      <div
+        role="tabpanel"
+        id={`${uid}-theme-panel`}
+        aria-labelledby={`${uid}-theme-${theme}`}
+        data-object-body=""
+        className="flex min-h-0 flex-1 flex-col bg-input"
+      >
+        {body}
       </div>
     </section>
   );
+}
+
+/** The open tab's content: the panel's one scroller. */
+function Scroller({ children }: { children: ReactNode }) {
+  return <div className="min-h-0 flex-1 overflow-auto">{children}</div>;
 }
 
 /* ------------------------------------------------------------ lead cards */
@@ -918,7 +1050,7 @@ function SectionBlock({
   derived?: boolean;
 }) {
   return (
-    <div data-section={section.title} className={derived ? "border-t-2 border-line" : ""}>
+    <div data-section={section.title}>
       <GroupHeader title={section.title} ifc={section.ifc} derived={derived} />
       {section.state ? (
         <div data-section-state="" className="px-3 py-1 font-mono text-[11px] text-muted">
@@ -926,7 +1058,7 @@ function SectionBlock({
         </div>
       ) : null}
       {section.fields.map((field) => (
-        <FieldRow key={field.label} lang={lang} field={field} />
+        <FieldRow key={field.key ?? field.label} lang={lang} field={field} />
       ))}
       {section.figure ? <div className="px-3 py-2">{section.figure}</div> : null}
     </div>
@@ -937,12 +1069,10 @@ function GroupHeader({
   title,
   ifc,
   derived = false,
-  right,
 }: {
   title: string;
   ifc?: string;
   derived?: boolean;
-  right?: ReactNode;
 }) {
   return (
     <div
@@ -955,88 +1085,103 @@ function GroupHeader({
         {title}
       </span>
       {ifc ? <span className="truncate text-[9px] text-muted">{ifc}</span> : null}
-      {right ? <span className="ml-auto shrink-0">{right}</span> : null}
     </div>
   );
 }
 
-/* ------------------------------------------------------------ the data tabs */
+/* ------------------------------------------------------------ the data ears */
 
-/** One tab per property set and per quantity set.
+/** Egenskaper: one ear per property set and per quantity set, grouped by
+ *  whose set it is (Forekomst / Type), then the profile.
  *
  * edkjo: *"I prefer each pset as a tab rather than a sorting group."* A model
- * can carry a dozen sets on one element, and no label is ever cut: a tab is
+ * can carry a dozen sets on one element, and no label is ever cut: an ear is
  * sized to its own name. The strip wraps onto more lines rather than scrolling
- * sideways (2026-09-29): a scroller inside the panel's own scroller is the
- * nested scroll the owner ruled out ("Scrolling inside of the dash when there
- * is space to go is awkward").
- *
- * The selected tab is remembered by NAME across selections, so stepping down a
- * list of walls keeps `Pset_WallCommon` open instead of resetting to the first
- * set on every click. A name the next element does not carry falls back to the
- * first tab. */
-function DataGroup({
+ * sideways (2026-09-29); only the open ear's rows scroll. */
+function DataTheme({
   lang,
+  uid,
   tabs,
   absence,
+  open,
+  onOpen,
 }: {
   lang: Lang;
+  uid: string;
   tabs: DataTab[];
   absence: string | null;
+  open: DataTab | null;
+  onOpen: (key: string) => void;
 }) {
-  const [remembered, setRemembered] = useState<string | null>(null);
-  const names = tabs.map((tab) => tab.name);
-  const active = remembered && names.includes(remembered) ? remembered : names[0];
-  const tab = tabs.find((candidate) => candidate.name === active) ?? null;
-  const firstCustom = tabs.findIndex((candidate) => !candidate.standard);
+  const groups: { level: Level | null; tabs: DataTab[] }[] = [];
+  for (const tab of tabs) {
+    const last = groups[groups.length - 1];
+    if (last && last.level === tab.level) last.tabs.push(tab);
+    else groups.push({ level: tab.level, tabs: [tab] });
+  }
+  const earId = (tab: DataTab) => `${uid}-ear-${tabs.indexOf(tab)}`;
 
   return (
-    <div data-section={t("object.data", lang)} className="border-t-2 border-line">
-      <GroupHeader
-        title={t("object.data", lang)}
-        ifc="IfcRelDefinesByProperties"
-        right={
-          tab && tab.fields.length > 0 ? (
-            <span className="font-mono text-[10px] text-muted">{tab.ifc}</span>
-          ) : null
-        }
-      />
-      {absence !== null ? (
-        <div data-section-state="" className="px-3 py-1 font-mono text-[11px] text-muted">
-          {absence}
-        </div>
-      ) : null}
+    <div data-section={t("object.data", lang)} className="flex min-h-0 flex-1 flex-col">
       <div
+        role="tablist"
         data-pset-tabs=""
-        className="flex shrink-0 flex-wrap gap-px border-b border-line bg-line"
+        onKeyDown={tablistKeys}
+        className="obj-tabs flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-panel px-2 py-1"
       >
-        {tabs.map((candidate, index) => (
-          <button
-            key={candidate.name}
-            type="button"
-            data-pset-tab={candidate.name}
-            aria-selected={candidate.name === active}
-            onClick={() => setRemembered(candidate.name)}
-            className={
-              "shrink-0 px-2 py-1 font-mono text-[11px] whitespace-nowrap " +
-              (index === firstCustom && firstCustom > 0 ? "border-l-2 border-l-gold " : "") +
-              (candidate.name === active
-                ? "bg-input font-semibold text-ink"
-                : "bg-panel text-muted hover:text-green")
-            }
-          >
-            {candidate.name}
-          </button>
+        {groups.map((group, index) => (
+          <span key={index} data-ear-group={group.level ?? ""} className="flex min-w-0 flex-wrap items-center gap-1">
+            {group.level ? (
+              <span className="shrink-0 text-[9px] font-semibold tracking-[0.12em] text-gold uppercase">
+                {t(group.level === "instance" ? "inst.this" : "col.type", lang)}
+              </span>
+            ) : null}
+            {group.tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                id={earId(tab)}
+                data-pset-tab={tab.name}
+                data-ear-level={tab.level ?? ""}
+                aria-selected={tab === open}
+                aria-controls={`${uid}-ear-panel`}
+                tabIndex={tab === open ? 0 : -1}
+                title={tab.ifc}
+                onClick={() => onOpen(tab.key)}
+                className="obj-tab shrink-0 px-2 py-0.5 font-mono text-[11px] whitespace-nowrap"
+              >
+                {tab.name}
+              </button>
+            ))}
+          </span>
         ))}
+        {absence !== null ? (
+          <span data-section-state="" className="font-mono text-[11px] text-muted">
+            {absence}
+          </span>
+        ) : null}
       </div>
-      {tab?.state ? (
-        <div data-section-state="" className="px-3 py-1 font-mono text-[11px] text-muted">
-          {tab.state}
-        </div>
-      ) : null}
-      {tab?.fields.map((field) => (
-        <FieldRow key={field.label} lang={lang} field={field} />
-      ))}
+      <div
+        role="tabpanel"
+        id={`${uid}-ear-panel`}
+        aria-labelledby={open ? earId(open) : undefined}
+        className="min-h-0 flex-1 overflow-auto"
+      >
+        {open ? (
+          <>
+            <GroupHeader title={open.name} ifc={open.ifc} />
+            {open.state ? (
+              <div data-section-state="" className="px-3 py-1 font-mono text-[11px] text-muted">
+                {open.state}
+              </div>
+            ) : null}
+            {open.fields.map((field) => (
+              <FieldRow key={field.label} lang={lang} field={field} />
+            ))}
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1049,7 +1194,7 @@ function FieldRow({ lang, field }: { lang: Lang; field: Field }) {
   const title = field.values.length > 0 ? field.values.join(" · ") : undefined;
   return (
     <div
-      data-field={field.label}
+      data-field={field.key ?? field.label}
       data-value={title ?? ""}
       className="grid items-baseline gap-x-2 border-b border-line px-3 py-0.5"
       style={{ gridTemplateColumns: `${LABEL_WIDTH} minmax(0, 1fr)` }}

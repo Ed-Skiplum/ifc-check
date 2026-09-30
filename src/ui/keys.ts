@@ -51,8 +51,10 @@ export function asButton(handler: () => void) {
 export function tablistKeys(event: ReactKeyboardEvent<HTMLElement>): void {
   const { key } = event;
   if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") return;
-  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(':scope > [role="tab"]')).filter(
-    (tab) => !tab.hasAttribute("disabled"),
+  // The list's own tabs, grouped or not, never those of a tablist nested in it.
+  const list = event.currentTarget;
+  const tabs = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]')).filter(
+    (tab) => !tab.hasAttribute("disabled") && tab.closest('[role="tablist"]') === list,
   );
   const at = tabs.findIndex((tab) => tab === event.target);
   if (at < 0 || tabs.length === 0) return;
