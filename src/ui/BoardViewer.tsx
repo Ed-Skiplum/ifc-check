@@ -10,10 +10,12 @@
  * LAYOUT SYSTEM), rule 6 on the tab's own box with the gallery's 16 px
  * padding as the margin, so the gallery beside the viewer lands on the same
  * columns (its own rule-6 pass over the narrower width gives the same module).
- * The viewer is an XL tile's width, 8 modules where that still leaves a card
- * column, else 6, and takes the column's height (2026-09-30: an 8 × 5 canvas
- * left 300 to 600 px empty under it at 1920 and 2112), inside the 9 : 16 to
- * 16 : 9 bound of rule 4.
+ * The viewer is a canon span wide, the widest that leaves a card column and
+ * fits the column's height inside 16 : 9, and takes the column's height
+ * (2026-09-30: an 8 × 5 canvas left 300 to 600 px empty under it at 1920 and
+ * 2112), inside the 9 : 16 to 16 : 9 bound of rule 4. What is kept under it
+ * (the Typer's material row) is always there, so nothing under the canvas is
+ * empty and nothing moves on a click.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -68,12 +70,6 @@ const VIEWER_SIZES: readonly Wh[] = [
   [3, 2],
   [2, 2],
 ];
-
-/** The largest canon viewer size that fits the rows and leaves `keep`
- *  columns beside it. */
-export function viewerSpan(grid: TabGrid, keep: number): Wh {
-  return VIEWER_SIZES.find(([w, h]) => grid.cols - w >= keep && h <= grid.rows) ?? [2, 2];
-}
 
 /** A slot the board's viewer is lent into while `active` and on screen. */
 export function LentViewer({
@@ -134,14 +130,17 @@ export function LentViewer({
   );
 }
 
-/** The canvas height in a column `columnPx` tall at `widthPx` wide: the
- *  column's, less `reservePx` under it, inside 9 : 16 to 16 : 9 (rule 4); never
- *  under `leastPx`. */
-export function viewerHeight(widthPx: number, columnPx: number, reservePx: number, leastPx: number): number {
-  const room = columnPx - reservePx;
-  const tallest = widthPx / CANVAS_ASPECT.min;
-  const lowest = widthPx / CANVAS_ASPECT.max;
-  return Math.floor(Math.max(leastPx, lowest, Math.min(room, tallest)));
+/** The canvas in a column `roomPx` tall (the column less what is kept
+ *  under it): the widest canon span leaving `keep` columns that fits the
+ *  room inside 16 : 9, the column's height up to 9 : 16 (rule 4). So the
+ *  canvas fills its column and nothing under it is empty (2026-09-30: 227 to
+ *  249 px empty under the Typer viewer). By the window alone. */
+export function viewerBox(grid: TabGrid, keep: number, roomPx: number): { span: Wh; width: number; height: number } {
+  const fits = VIEWER_SIZES.filter(([w]) => grid.cols - w >= keep);
+  const pick = fits.find(([w]) => mgSpanPx(w, grid.u) / CANVAS_ASPECT.max <= roomPx) ?? fits[fits.length - 1] ?? [2, 2];
+  const width = mgSpanPx(pick[0], grid.u);
+  const height = Math.floor(Math.max(width / CANVAS_ASPECT.max, Math.min(roomPx, width / CANVAS_ASPECT.min)));
+  return { span: pick, width, height };
 }
 
 /** A gallery with the viewer beside it on the tab's grid. The gallery scrolls
@@ -164,18 +163,19 @@ export function WithViewer({
   under?: ReactNode;
   /** Rows kept under the viewer for `under`, whether it holds anything or
    *  not, so the canvas does not resize on a click (STABLE LAYOUT): the
-   *  Typer's one row of 2 × 2 material cards. */
+   *  Typer's one row of 2 × 2 material cards. The row is always there and
+   *  takes the rest of the column, drawn empty until a type is chosen. */
   underRows?: number;
 }) {
   const { ref, grid } = useTabGrid<HTMLDivElement>();
-  // Keep one card column (2 modules) for the gallery.
-  const [w, h] = grid ? viewerSpan(grid, 2) : [0, 0];
   // The column less the canvas's top margin and a gap under it; the rows
-  // kept for `under` with their own gap.
-  const canvasW = grid ? mgSpanPx(w, grid.u) : 0;
-  const canvasH = grid
-    ? viewerHeight(canvasW, grid.height - 2 * MG_GAP, underRows > 0 ? mgSpanPx(underRows, grid.u) + MG_GAP : 0, mgSpanPx(h, grid.u))
-    : 0;
+  // kept for `under` with their gallery's padding. One card column (2
+  // modules) is kept for the gallery beside.
+  const room = grid ? grid.height - 2 * MG_GAP - (underRows > 0 ? mgSpanPx(underRows, grid.u) + MG_GAP : 0) : 0;
+  const box = grid ? viewerBox(grid, 2, room) : null;
+  const [w, h] = box ? box.span : [0, 0];
+  const canvasW = box ? box.width : 0;
+  const canvasH = box ? box.height : 0;
   return (
     <div ref={ref} className="flex min-h-0 min-w-0 flex-1" data-tab-grid={grid ? `${grid.cols},${grid.rows},${grid.u.toFixed(2)}` : undefined}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
@@ -188,13 +188,13 @@ export function WithViewer({
             style={{ width: canvasW, height: canvasH, marginTop: MG_GAP, marginRight: MG_GAP }}
             data={{ "data-viewer-span": `${w}x${h}` }}
           />
-          {under ? (
+          {underRows > 0 ? (
             <div
               className="flex min-h-0 flex-1 flex-col"
               style={{ width: mgSpanPx(w, grid.u) + 2 * MG_GAP, marginLeft: -MG_GAP }}
-              data-under-viewer
+              data-under-viewer={under ? "" : "empty"}
             >
-              {under}
+              {under ?? <div className="min-h-0 flex-1 rounded-[10px] bg-panel" style={{ margin: MG_GAP }} />}
             </div>
           ) : null}
         </div>
