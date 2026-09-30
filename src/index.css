@@ -93,7 +93,7 @@ body {
   );
 }
 .gallery-door[aria-current="true"] {
-  outline: 2px solid var(--d-accent, var(--color-green));
+  outline: 2px solid var(--sel);
   outline-offset: -2px;
 }
 /* A material swatch: neutral, since the engine gives no material colour. */
@@ -137,7 +137,7 @@ body {
 }
 /* A card another tab linked to (Typer <-> Materialer, 2026-09-28). */
 .gallery-card[data-revealed] {
-  outline: 2px dashed var(--d-accent, var(--color-green));
+  outline: 2px dashed var(--sel);
   outline-offset: -2px;
 }
 
@@ -149,17 +149,23 @@ body {
  * chart cell holding a selected element gets its ring, a row, card, chip or
  * bar its soft ground. `data-sel` is set by `selection-marks.ts`.
  *
- * Distinct from the filter's ORIGIN highlight, which is the burnt accent
- * (`.alt-chosen`: an amber outline and wash) and dims the rest: the
- * selection is teal, dims nothing, never narrows, and an item can carry
- * both. Nothing here takes space: backgrounds, inset shadows and an overlay,
- * never a border, margin or size. */
+ * The filter's ORIGIN highlight is the same teal (2026-09-30, edkjo: *"same
+ * highlight color goes for other fields and data, not just model"*): the
+ * chosen item (`.alt-chosen`, `.outline-ink`, a current gallery card, the
+ * Graf origin node) takes a teal outline and `--sel-wash`. What still sets
+ * the two apart is behaviour: the origin dims the rest, the selection dims
+ * nothing and never narrows, and an item can carry both. Nothing here takes
+ * space: backgrounds, inset shadows and an overlay, never a border, margin
+ * or size. */
 :root {
   --sel: #1d8a8a;
   /* Opaque, so a sticky header cell that carries it still covers what
      scrolls under it. */
   --sel-soft: color-mix(in srgb, var(--sel) 22%, var(--color-panel));
   --sel-halo: var(--color-cream);
+  /* The chosen item's ground and the hover cue on a door: translucent, so a
+     glass tile keeps its depth under it. */
+  --sel-wash: color-mix(in srgb, var(--sel) 12%, transparent);
 }
 /* Rows, cards, chips, bars: the soft ground. A status fill (a chip in
    its verdict's colour) keeps its colour and takes the ring instead. */

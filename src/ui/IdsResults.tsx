@@ -170,7 +170,7 @@ export function IdsResults({
                     data-ids-spec={spec.index}
                     data-sel={marks.focus(focus) ? "" : undefined}
                     data-state={spec.state}
-                    className={"cursor-pointer border-b border-line/60 hover:bg-ink/5 " + (open ? "bg-ink/10" : "")}
+                    className={"cursor-pointer border-b border-line/60 hover:bg-ink/5 " + (open ? "alt-chosen" : "")}
                   >
                     <td className="truncate px-3 py-1 text-ink">{spec.name}</td>
                     <td className={NUM}>{spec.state === "not_evaluable" ? "–" : formatCount(spec.applicable, lang)}</td>

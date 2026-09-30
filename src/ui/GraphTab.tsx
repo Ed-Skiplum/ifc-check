@@ -344,8 +344,8 @@ export function GraphTab({
   const selHops = useRef<Int16Array>(new Int16Array(0));
   const hoverHops = useRef<Int16Array>(new Int16Array(0));
   const selected = useRef(new Set<number>());
-  /** Of `selected`, the nodes that are selected ELEMENTS (teal, the
-   *  selection accent); the rest is the filter's origin node (amber). */
+  /** Of `selected`, the nodes that are selected ELEMENTS; the rest is the
+   *  filter's origin node. Both ring in the one highlight, the teal. */
   const picks = useRef(new Set<number>());
   const raf = useRef(0);
   const shownRef = useRef(false);
@@ -369,7 +369,7 @@ export function GraphTab({
   useEffect(() => {
     const element = field.current;
     if (!element || !index) return;
-    paletteRef.current = readPalette(element, design !== null, index.entities);
+    paletteRef.current = readPalette(element, index.entities);
   }, [design, index]);
 
   const recomputeFocus = useCallback(() => {
@@ -410,9 +410,9 @@ export function GraphTab({
       const sel = selHops.current;
       const hov = hoverHops.current;
       const hasSel = sel.some((v) => v >= 0);
-      // What fires runs out of the selection when there is one, in its teal;
-      // else out of the origin node, in the origin's amber.
-      const fire = picks.current.size > 0 ? palette.select : palette.accent;
+      // What fires runs out of the selection, or the origin node, in the one
+      // highlight.
+      const fire = palette.select;
       const hasHover = hovered.current >= 0;
       const motion = reducedMotion ? 0 : 1;
       /** An edge the selection fires along: out of the selected node, and on
@@ -547,7 +547,7 @@ export function GraphTab({
           ctx.stroke();
         }
         if (selected.current.has(i)) {
-          const ring = picks.current.has(i) ? palette.select : palette.accent;
+          const ring = palette.select;
           ctx.globalAlpha = 1;
           ctx.globalCompositeOperation = "lighter";
           const pulse = 1 + 0.18 * Math.sin(now * 0.004) * motion;
@@ -682,7 +682,7 @@ export function GraphTab({
           ctx.lineWidth = 3;
           ctx.strokeStyle = palette.outline;
           ctx.strokeText(edge.label, 0, -3);
-          ctx.fillStyle = rgba(palette.accent, 0.95);
+          ctx.fillStyle = rgba(palette.select, 0.95);
           ctx.fillText(edge.label, 0, -3);
           ctx.restore();
         }

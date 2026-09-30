@@ -39,8 +39,8 @@ export interface Palette {
   rel: Record<"type" | "material" | "classification" | "pset" | "quantity" | "count" | "more", Rgb>;
   fail: Rgb;
   warn: Rgb;
-  accent: Rgb;
-  /** The selection accent (`--sel`), distinct from the origin's `accent`. */
+  /** The one highlight (`--sel`): the selection and the filter's origin
+   *  node alike (2026-09-30). */
   select: Rgb;
   edge: Rgb;
   label: Rgb;
@@ -73,20 +73,19 @@ function lift(c: Rgb, t: number): Rgb {
 
 /** One class, one colour, the same on every model and the same as the
  *  board's charts (`chart-colors.ts`, 2026-09-28). The categorical set keeps
- *  off the verdict hues, so the warm verdicts and the accent still stand out. */
+ *  off the verdict hues, so the warm verdicts and the highlight still stand out. */
 export function classRamp(entities: string[]): Map<string, Rgb> {
   const ramp = new Map<string, Rgb>();
   for (const entity of new Set(entities)) ramp.set(entity, classColour(entity));
   return ramp;
 }
 
-export function readPalette(element: Element, design: boolean, entities: string[]): Palette {
+export function readPalette(element: Element, entities: string[]): Palette {
   const style = getComputedStyle(element);
   const token = (name: string, fallback: Rgb) => parseColour(style.getPropertyValue(name), fallback);
   const panel = token("--color-panel", [251, 250, 247]);
   const bad = token("--color-bad", [191, 59, 44]);
   const gold = token("--color-gold", [181, 129, 26]);
-  const accent = design ? token("--d-accent", [194, 90, 16]) : gold;
   return {
     building: panel,
     storey: lift(token("--color-line", [226, 221, 210]), 0.1),
@@ -103,7 +102,6 @@ export function readPalette(element: Element, design: boolean, entities: string[
     },
     fail: lift(bad, 0.18),
     warn: lift(gold, 0.22),
-    accent: lift(accent, 0.25),
     select: lift(token("--sel", [29, 138, 138]), 0.3),
     edge: [150, 178, 192],
     label: lift(panel, 0.2),

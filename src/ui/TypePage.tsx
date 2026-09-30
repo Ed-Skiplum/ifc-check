@@ -831,7 +831,7 @@ function InstanceTable({
           <tr
             key={r.guid}
             onClick={() => onGo(i)}
-            className={"cursor-pointer " + (current === r.guid ? "bg-ink/10" : "hover:bg-ink/5")}
+            className={"cursor-pointer " + (current === r.guid ? "alt-chosen" : "hover:bg-ink/5")}
             data-instance-row={r.guid}
             data-current={current === r.guid ? "" : undefined}
             data-sel={marks.has(r.guid) ? "" : undefined}

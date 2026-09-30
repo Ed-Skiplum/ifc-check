@@ -24,7 +24,9 @@
  *   · 32 px rows, rules between them, no zebra; table heads sticky
  *   · numbers right-aligned in tabular figures
  *   · colour for status only, always with a glyph and a word; one small
- *     accent (amber) for focus, selection and the one primary
+ *     accent (amber) for focus and the one primary; whatever is chosen or
+ *     selected takes the one highlight, the selection teal (`--sel`,
+ *     index.css, 2026-09-30)
  *   · hierarchy by weight and luminance; 11 px caps labels at +0.06 em
  *   · motion 120 ms micro / 180 ms controls / 280 ms panels, ease-out
  *   · radius two-step: 6 px controls, 14 px tiles (for the 100 px module)
@@ -75,7 +77,6 @@
 
   --d-accent: #a24808;
   --d-accent-dim: #8c3f09;
-  --d-accent-wash: rgba(162, 72, 8, 0.1);
   --d-on-accent: #f7f9fb;
   --d-label-color: #475264;
   /* A warm gold readable as TEXT (the fill gold is for blocks with ink on). */
@@ -273,16 +274,17 @@
   border-color: var(--d-hair);
 }
 :root[data-design] .hover\:bg-palegreen:hover {
-  background-color: var(--d-accent-wash);
+  background-color: var(--sel-wash);
 }
+/* A chosen row, cell or card: the one highlight (index.css `--sel`). */
 :root[data-design] .outline-ink {
   outline-width: 2px;
   outline-offset: -2px;
-  outline-color: var(--d-accent);
-  background-color: var(--d-accent-wash);
+  outline-color: var(--sel);
+  background-color: var(--sel-wash);
 }
 :root[data-design] .bg-ink {
-  background-color: var(--d-accent);
+  background-color: var(--sel);
   color: var(--d-on-accent);
 }
 
@@ -404,12 +406,13 @@
   transition: background-color var(--d-dur) var(--d-ease);
 }
 .alt-hover:hover {
-  background-color: var(--d-accent-wash);
+  background-color: var(--sel-wash);
 }
+/* The filter origin's chosen item: the one highlight, the selection teal. */
 .alt-chosen {
-  outline: 2px solid var(--d-accent);
+  outline: 2px solid var(--sel);
   outline-offset: -2px;
-  background-color: var(--d-accent-wash);
+  background-color: var(--sel-wash);
 }
 .alt-figure {
   color: var(--color-ink);

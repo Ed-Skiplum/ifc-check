@@ -376,7 +376,7 @@ function Schedule({
                   data-xf-in={holds ? "" : undefined}
                   data-sel={holdsSel ? "" : undefined}
                   onClick={() => onGroup(group)}
-                  className={"cursor-pointer border-b border-line/60 hover:bg-ink/5 " + (chosen ? "bg-ink/10" : "")}
+                  className={"cursor-pointer border-b border-line/60 hover:bg-ink/5 " + (chosen ? "alt-chosen" : "")}
                 >
                   <td className="truncate px-2 py-1 text-ink" title={group.label ?? undefined}>
                     <button
