@@ -263,8 +263,10 @@ export function Tile({ place, bodies }: { place: MgPlace; bodies: Bodies }) {
           role="tablist"
           data-mg-tablist=""
           onKeyDown={tablistKeys}
-          className="alt-head relative flex shrink-0 items-center gap-1 px-2"
-          style={{ height: MG_HEAD }}
+          // Where the tabs are wider than the tile, the strip wraps to a
+          // second line inside the head: no label is ever cut (2026-09-30).
+          className="alt-head relative flex shrink-0 flex-wrap content-center items-center gap-x-1 gap-y-0.5 px-2 py-1"
+          style={{ minHeight: MG_HEAD }}
         >
           {tabs.map((id) => {
             const b = id === place.id ? own : bodies(id);
