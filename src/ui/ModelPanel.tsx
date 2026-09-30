@@ -263,25 +263,32 @@ export function ModelPanel({
 
   // The file's own facts, on the header line beside name · state · size. They
   // were a 3×2 readout tile on the board, where seven values clipped.
+  // When the line runs short they leave whole, in `drop` order (Lesetid and
+  // Program first, Skjema last; edkjo 2026-09-30), and one with no value
+  // takes its label with it.
   const report = model.report;
-  const fileFacts: Readout[] = report
-    ? [
-        { label: t("kpi.schema", lang), value: report.summary.schema },
-        { label: t("kpi.unit", lang), value: report.summary.length_unit || "—" },
-        {
-          label: t("kpi.products", lang),
-          value: formatCount(report.summary.products, lang),
-          onClick: () => focus({ kind: "kpi", kpi: "products" }, "checks"),
-        },
-        { label: t("kpi.parseTime", lang), value: formatMs(report.parseMs, lang) },
-        { label: t("kpi.project", lang), value: report.summary.project_name ?? "—", text: true },
-        {
-          label: t("kpi.application", lang),
-          value: report.summary.authoring_app ?? "—",
-          text: true,
-        },
-      ]
-    : [];
+  const fileFacts: Readout[] = (
+    report
+      ? [
+          { label: t("kpi.schema", lang), value: report.summary.schema ?? "", drop: 6 },
+          { label: t("kpi.unit", lang), value: report.summary.length_unit ?? "", drop: 4 },
+          {
+            label: t("kpi.products", lang),
+            value: formatCount(report.summary.products, lang),
+            onClick: () => focus({ kind: "kpi", kpi: "products" }, "checks"),
+            drop: 5,
+          },
+          { label: t("kpi.parseTime", lang), value: formatMs(report.parseMs, lang), drop: 1 },
+          { label: t("kpi.project", lang), value: report.summary.project_name ?? "", text: true, drop: 3 },
+          {
+            label: t("kpi.application", lang),
+            value: report.summary.authoring_app ?? "",
+            text: true,
+            drop: 2,
+          },
+        ]
+      : []
+  ).filter((fact) => fact.value.trim() !== "");
 
   // The filter bar, on the tab strip's line (see there).
   const filterProps = {
