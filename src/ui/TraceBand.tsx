@@ -31,7 +31,7 @@
  * does that on the selection change (`ModelScene.followChoice`), not here.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Trace } from "./trace";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
@@ -84,8 +84,18 @@ function columnsFor(rows: { entity: string; name: string | null }[], reasons: st
     columns: `25ch ${classCh}ch minmax(12ch, ${nameCh}fr) minmax(20ch, ${reasonCh}fr)`,
     // four columns, three 0.5rem gaps and the px-3 either side
     width: `clamp(50%, calc(${25 + classCh + nameCh + reasonCh}ch + 3rem), 61.8%)`,
+    // Alone (Scope): one line while the GUID, the class and the name are
+    // whole and the reason keeps 20ch; the columns sized to them.
+    aloneColumns: `25ch ${classCh}ch ${nameCh}ch minmax(20ch, 1fr)`,
+    aloneCh: 25 + classCh + nameCh + 20,
   };
 }
+
+/** A two-line row (Scope under its one-line width): the GUID and the reason
+ *  on the first line, the class and the name on the second. */
+const ROW_HEIGHT_TWO = 44;
+/** The two-line row's first line: the whole GUID, the reason the rest. */
+const TWO_LINE_COLUMNS = "25ch minmax(0, 1fr)";
 
 interface TraceBandProps {
   lang: Lang;
@@ -159,14 +169,34 @@ export function TraceBand({
     [rows, lang, verdicts],
   );
   const fitted = useMemo(() => columnsFor(rows, reasons), [rows, reasons]);
-  // Alone, the list has the panel to itself and may be narrow: the GUID keeps
-  // its width, the other three share the rest and ellipsize (full text in
-  // `title`, as before). No floor under them: a 3-module Scope tile is
-  // narrower than 25ch plus three 8ch minimums, and the floor made the list
-  // scroll sideways (2026-09-29).
-  const { columns, width } = alone
-    ? { columns: "25ch minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr)", width: "100%" }
-    : fitted;
+  // Alone, the list has the panel to itself and may be narrow (a Scope tile
+  // of 3 or 4 modules). Where it seats the content's one-line need
+  // (`columnsFor`: the GUID, the class and the name whole, the reason 20ch
+  // or more), one line in those columns; under it, two lines: the GUID and
+  // the reason, then the class and the name (2026-09-30: at 324 px the one
+  // line read `Ifc… Ba… !`). The GUID is never cut in either.
+  const list = useRef<HTMLDivElement>(null);
+  const chProbe = useRef<HTMLSpanElement>(null);
+  const [listPx, setListPx] = useState(0);
+  const [chPx, setChPx] = useState(0);
+  useLayoutEffect(() => {
+    if (!alone) return;
+    const element = list.current;
+    const probe = chProbe.current;
+    if (!element || !probe) return;
+    const measure = () => {
+      setListPx(element.clientWidth);
+      setChPx(probe.getBoundingClientRect().width / 100);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [alone]);
+  // The four columns' ch, three 0.5rem gaps and the px-3 either side (3rem).
+  const twoLine = alone && listPx > 0 && chPx > 0 && listPx < fitted.aloneCh * chPx + 48;
+  const rowHeight = twoLine ? ROW_HEIGHT_TWO : ROW_HEIGHT;
+  const { columns, width } = alone ? { columns: fitted.aloneColumns, width: "100%" } : fitted;
   // A row that carries a reason IS a finding of the open check or rule, so its
   // reason is drawn in the focal's verdict cell: the same fill and glyph the
   // row above had, read the same way down here (2026-09-24).
@@ -195,17 +225,17 @@ export function TraceBand({
     if (latestAt < 0) return;
     const element = scroller.current;
     if (!element) return;
-    const top = latestAt * ROW_HEIGHT;
-    if (top >= element.scrollTop && top + ROW_HEIGHT <= element.scrollTop + element.clientHeight) {
+    const top = latestAt * rowHeight;
+    if (top >= element.scrollTop && top + rowHeight <= element.scrollTop + element.clientHeight) {
       return;
     }
-    element.scrollTop = Math.max(0, top - element.clientHeight / 2 + ROW_HEIGHT / 2);
-  }, [latestAt]);
+    element.scrollTop = Math.max(0, top - element.clientHeight / 2 + rowHeight / 2);
+  }, [latestAt, rowHeight]);
 
-  const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const last = Math.min(
     rows.length,
-    Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN,
+    Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN,
   );
   const visible = rows.slice(first, last);
 
@@ -309,12 +339,32 @@ export function TraceBand({
       <div
         className={
           stack
-            ? "flex min-h-0 min-w-0 flex-1 flex-col text-[12px]"
-            : "flex min-h-0 min-w-0 shrink-0 flex-col text-[12px]"
+            ? "relative flex min-h-0 min-w-0 flex-1 flex-col text-[12px]"
+            : "relative flex min-h-0 min-w-0 shrink-0 flex-col text-[12px]"
         }
         style={stack ? undefined : { width }}
         data-scope-list={alone ? "" : undefined}
+        data-scope-rows={alone ? (twoLine ? "two" : "one") : undefined}
+        ref={list}
       >
+      {alone ? (
+        <span aria-hidden className="pointer-events-none invisible absolute top-0 left-0 h-0 w-0 overflow-hidden">
+          <span ref={chProbe} className="block text-[12px]" style={{ width: "100ch" }} />
+        </span>
+      ) : null}
+      {twoLine ? (
+        <div className="shrink-0 border-y border-line bg-panel px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
+          <div className="grid items-center gap-x-2" style={{ gridTemplateColumns: TWO_LINE_COLUMNS }}>
+            <span className="truncate">{t("col.guid", lang)}</span>
+            <span className="truncate">{t("col.reason", lang)}</span>
+          </div>
+          <div className="flex min-w-0 gap-1.5">
+            <span className="shrink-0">{t("col.class", lang)}</span>
+            <span aria-hidden>·</span>
+            <span className="truncate">{t("col.name", lang)}</span>
+          </div>
+        </div>
+      ) : (
       <div
         // The same `gap-x-2` the rows carry, or every header after the first
         // sits left of the column it names by the accumulated gaps. And the
@@ -328,14 +378,84 @@ export function TraceBand({
         <span className="truncate text-[10px]">{t("col.name", lang)}</span>
         <span className="truncate text-[10px]">{t("col.reason", lang)}</span>
       </div>
+      )}
 
       <div ref={scroller} onScroll={onScroll} data-xf={origin ? "origin" : undefined} className="min-h-0 flex-1 overflow-auto bg-input">
-        <div style={{ height: rows.length * ROW_HEIGHT, position: "relative" }}>
+        <div style={{ height: rows.length * rowHeight, position: "relative" }}>
           {visible.map((row, index) => {
             const at = first + index;
             const reason = reasons[at];
             const picked = chosen.has(row.guid);
             const lit = hover === row.guid;
+            const reasonCell =
+              reason && findingFill ? (
+                <span
+                  onDoubleClick={copyOnDoubleClick(reason)}
+                  className={`flex h-[${ROW_HEIGHT - 6}px] min-w-0 cursor-copy items-center gap-1.5 px-2 ${findingFill}`}
+                  title={reason}
+                >
+                  <span className="shrink-0 font-mono font-bold">{findingGlyph}</span>
+                  <span className="truncate">{reason}</span>
+                </span>
+              ) : (
+                <span
+                  onDoubleClick={copyOnDoubleClick(reason)}
+                  className="cursor-copy truncate text-muted"
+                  title={reason}
+                >
+                  {reason}
+                </span>
+              );
+            if (twoLine)
+              return (
+                <div
+                  key={`${row.guid}-${at}`}
+                  data-guid={row.guid}
+                  data-chosen={picked ? "" : undefined}
+                  data-sel={picked ? "" : undefined}
+                  onClick={(event) =>
+                    onPick(row.guid, row.name, event.shiftKey || event.ctrlKey || event.metaKey)
+                  }
+                  onMouseEnter={() => onHover(row.guid)}
+                  onMouseLeave={() => onHover(null)}
+                  className={
+                    "absolute inset-x-0 flex cursor-pointer flex-col justify-center gap-0.5 border-b border-line px-3 text-[12px] " +
+                    (picked ? "" : lit ? "bg-gold/40" : "hover:bg-palegreen")
+                  }
+                  style={{ top: at * rowHeight, height: rowHeight }}
+                >
+                  <div className="grid min-w-0 items-center gap-x-2" style={{ gridTemplateColumns: TWO_LINE_COLUMNS }}>
+                    {/* Never truncated. */}
+                    <span onDoubleClick={copyOnDoubleClick(row.guid)} className="cursor-copy font-mono text-[12px]">
+                      {row.guid}
+                    </span>
+                    {reasonCell}
+                  </div>
+                  <div className="flex min-w-0 items-baseline gap-1.5">
+                    <span
+                      onDoubleClick={copyOnDoubleClick(row.entity)}
+                      title={row.entity}
+                      className="shrink-0 cursor-copy font-mono text-[12px] text-green"
+                      data-scope-class
+                    >
+                      {row.entity}
+                    </span>
+                    {row.name ? (
+                      <>
+                        <span aria-hidden className="text-muted">·</span>
+                        <span
+                          onDoubleClick={copyOnDoubleClick(row.name)}
+                          className="min-w-0 cursor-copy truncate"
+                          title={row.name}
+                          data-scope-name
+                        >
+                          {row.name}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              );
             return (
               <div
                 key={`${row.guid}-${at}`}
@@ -356,8 +476,8 @@ export function TraceBand({
                   (picked ? "" : lit ? "bg-gold/40" : "hover:bg-palegreen")
                 }
                 style={{
-                  top: at * ROW_HEIGHT,
-                  height: ROW_HEIGHT,
+                  top: at * rowHeight,
+                  height: rowHeight,
                   gridTemplateColumns: columns,
                 }}
               >
@@ -373,6 +493,7 @@ export function TraceBand({
                   onDoubleClick={copyOnDoubleClick(row.entity)}
                   title={row.entity}
                   className="cursor-copy truncate font-mono text-[12px] text-green"
+                  data-scope-class
                 >
                   {row.entity}
                 </span>
@@ -380,27 +501,11 @@ export function TraceBand({
                   onDoubleClick={copyOnDoubleClick(row.name ?? "")}
                   className="cursor-copy truncate"
                   title={row.name ?? undefined}
+                  data-scope-name
                 >
                   {row.name}
                 </span>
-                {reason && findingFill ? (
-                  <span
-                    onDoubleClick={copyOnDoubleClick(reason)}
-                    className={`flex h-[${ROW_HEIGHT - 6}px] min-w-0 cursor-copy items-center gap-1.5 px-2 ${findingFill}`}
-                    title={reason}
-                  >
-                    <span className="shrink-0 font-mono font-bold">{findingGlyph}</span>
-                    <span className="truncate">{reason}</span>
-                  </span>
-                ) : (
-                  <span
-                    onDoubleClick={copyOnDoubleClick(reason)}
-                    className="cursor-copy truncate text-muted"
-                    title={reason}
-                  >
-                    {reason}
-                  </span>
-                )}
+                {reasonCell}
               </div>
             );
           })}
