@@ -103,7 +103,7 @@ function ValueChip({ row, value, lang, model, selected, onFocus }: DoorProps & {
   const inner = (
     <>
       <span className="truncate">{valueText(value, lang)}</span>
-      <span className="shrink-0 tabular-nums opacity-70">{`×${formatCount(value.n, lang)}`}</span>
+      <span className="shrink-0 tabular-nums">{`×${formatCount(value.n, lang)}`}</span>
     </>
   );
   const cls =
@@ -263,7 +263,7 @@ export function ReqBlock({ req, index, ...door }: DoorProps & { req: Requirement
       >
         <span data-verdict={look.verdict} data-state={req.state} className="alt-square-fill flex h-full w-full flex-col items-center justify-center rounded-[8px]">
           <span aria-hidden className="font-mono text-[18px] leading-none font-bold">{look.glyph}</span>
-          <span className="px-0.5 text-center text-[8px] leading-tight font-semibold uppercase">{look.word}</span>
+          <span className="px-0.5 text-center text-[9px] leading-tight font-semibold uppercase">{look.word}</span>
         </span>
       </HeadButton>
       <div className="flex min-w-0 flex-col gap-1">

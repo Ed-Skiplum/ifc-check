@@ -147,9 +147,31 @@ export function contrast(a: Rgb, b: Rgb): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
-/** The label colour for a fill: ink or cream, whichever reads better. */
-export function labelOn(fill: Rgb): Rgb {
-  return contrast(fill, INK) >= contrast(fill, CREAM) ? INK : CREAM;
+/** The ink flip, one rule for every filled cell with a label on it (the
+ *  treemaps, the Etasje × klasse census): dark ink above the luminance at
+ *  which the pair's two contrasts are equal, the light label below it. The
+ *  threshold is computed from the pair, never tuned by eye. */
+export function inkFlip(dark: Rgb = INK, light: Rgb = CREAM): number {
+  return Math.sqrt((luminance(dark) + 0.05) * (luminance(light) + 0.05)) - 0.05;
+}
+
+/** The label colour for a fill: `dark` above the flip, else `light`, which
+ *  is the one of the two that reads better. */
+export function labelOn(fill: Rgb, dark: Rgb = INK, light: Rgb = CREAM): Rgb {
+  return luminance(fill) > inkFlip(dark, light) ? dark : light;
+}
+
+/** A fill and its label at 4.5:1 or better (WCAG 2.2 AA, text under
+ *  18.66 px bold). Around the flip neither label reaches 4.5 (about
+ *  0.17 to 0.22 relative luminance for ink and cream), so a fill there moves
+ *  out on its own side: lighter above the flip, darker below it. */
+export function readableCell(fill: Rgb, dark: Rgb = INK, light: Rgb = CREAM): { fill: Rgb; ink: Rgb } {
+  const above = luminance(fill) > inkFlip(dark, light);
+  const toward: Rgb = above ? WHITE : dark;
+  const ink = above ? dark : light;
+  let out = fill;
+  for (let i = 0; i < 40 && contrast(out, ink) < 4.5; i += 1) out = mix(out, toward, 0.04);
+  return { fill: out, ink };
 }
 
 /** A fill in the band where neither label reaches 4.5:1 is lifted until ink
@@ -174,6 +196,50 @@ const MMI_HIGH: Rgb = [40, 78, 130];
 /** Level `i` of `n` on the declared scale, low to high. */
 export function mmiColour(i: number, n: number): Rgb {
   return mix(MMI_LOW, MMI_HIGH, n <= 1 ? 1 : i / (n - 1));
+}
+
+/* ── Etasje × klasse ───────────────────────────────────────────────────── */
+
+const CENSUS_LOW: Rgb = [230, 239, 221]; // palegreen #E6EFDD
+const CENSUS_HIGH: Rgb = [44, 94, 63]; // green #2C5E3F
+/** The census count's two inks, #23291E and #F4EEDC. */
+const CENSUS_DARK: Rgb = [35, 41, 30];
+const CENSUS_LIGHT: Rgb = [244, 238, 220];
+
+/** The ramp's share where `ok` stops (or starts) holding, by bisection:
+ *  luminance falls monotonically along the ramp, so each test is a cut. */
+function rampCut(ok: (share: number) => boolean, from: number, to: number): number {
+  let pass = from;
+  let fail = to;
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (pass + fail) / 2;
+    if (ok(mid)) pass = mid;
+    else fail = mid;
+  }
+  return pass;
+}
+
+let censusBand: { dark: number; light: number } | null = null;
+
+/** A census cell: its fill on the one-hue log ramp, and its count's ink by
+ *  the flip rule (`labelOn`), 4.5:1 or better on every cell. It was a fixed
+ *  `share > 0.55`, which set cream on mid green at 2.6 to 3.1:1 (2026-09-30
+ *  review). A share in the band where neither ink reaches 4.5 moves along
+ *  the ramp itself to the band's edge on its own side, so the colour stays
+ *  the ramp's and more elements never read lighter. */
+export function censusCell(count: number, peak: number): { fill: Rgb; ink: Rgb } {
+  const at = (share: number) => mix(CENSUS_LOW, CENSUS_HIGH, share);
+  const share = peak <= 1 ? 1 : Math.log1p(count) / Math.log1p(peak);
+  const fill = at(share);
+  const ink = labelOn(fill, CENSUS_DARK, CENSUS_LIGHT);
+  if (contrast(fill, ink) >= 4.5) return { fill, ink };
+  censusBand ??= {
+    dark: rampCut((s) => contrast(at(s), CENSUS_DARK) >= 4.5, 0, 1),
+    light: rampCut((s) => contrast(at(s), CENSUS_LIGHT) >= 4.5, 1, 0),
+  };
+  return ink === CENSUS_DARK
+    ? { fill: at(censusBand.dark), ink: CENSUS_DARK }
+    : { fill: at(censusBand.light), ink: CENSUS_LIGHT };
 }
 
 /* ── css ──────────────────────────────────────────────────────────────── */

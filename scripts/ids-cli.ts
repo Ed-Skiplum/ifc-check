@@ -100,6 +100,7 @@ import type { ElementQuantity } from "../src/engine/quantities.ts";
 import type { ModelProfile } from "../src/ui/profile.ts";
 import {
   CATEGORICAL,
+  censusCell,
   clashesWithStatus,
   classColour,
   codeColour,
@@ -108,6 +109,7 @@ import {
   labelOn,
   luminance,
   mmiColour,
+  readableCell,
 } from "../src/ui/chart-colors.ts";
 import { classRamp } from "../src/ui/graph-paint.ts";
 import { layerSection, PX_PER_MM, sectionOrientation, UNKNOWN_PX } from "../src/ui/layer-section.ts";
@@ -2276,6 +2278,36 @@ async function cmdSelftest(): Promise<number> {
     "ordered",
     [0, 1, 2, 3, 4, 5, 6].every((i) => i === 0 || luminance(mmiColour(i, 7)) < luminance(mmiColour(i - 1, 7))) ? "ordered" : "not",
   );
+  // The ink flip (2026-09-30): the label's ink is computed from the cell's
+  // own colour, and a fill where neither ink reaches AA moves out of that
+  // band, so every labelled cell reads at 4.5:1.
+  {
+    const census = [1, 7, 40, 154, 1500].flatMap((peak) =>
+      Array.from({ length: 41 }, (_, i) => censusCell(Math.round((peak * i) / 40), peak)),
+    );
+    const low = census.filter((c) => contrast(c.fill, c.ink) < 4.5);
+    record(
+      "ink flip: every Etasje × klasse cell on the ramp holds 4.5:1",
+      "all",
+      low.length === 0 ? "all" : low.map((c) => `${rgb(c.fill)}/${rgb(c.ink)}`).join(" "),
+    );
+    const one = Array.from({ length: 41 }, (_, i) => censusCell(Math.round((154 * i) / 40), 154));
+    record(
+      "ink flip: the census ramp keeps its order (more elements, darker)",
+      "ordered",
+      one.every((c, i) => i === 0 || luminance(c.fill) <= luminance(one[i - 1].fill)) ? "ordered" : "not",
+    );
+    const greys = Array.from({ length: 52 }, (_, i) => [i * 5, i * 5, i * 5] as const);
+    const cells = [...greys, ...CATEGORICAL, ...CATEGORICAL.map(frameColour), ...codes.map(codeColour)].map((f) =>
+      readableCell(f),
+    );
+    const bad = cells.filter((c) => contrast(c.fill, c.ink) < 4.5);
+    record(
+      "ink flip: a treemap cell of any fill, the dead band included, holds 4.5:1",
+      "all",
+      bad.length === 0 ? "all" : bad.map((c) => rgb(c.fill)).join(" "),
+    );
+  }
 
   // The cross-filter reducer (src/ui/filter-state.ts, 2026-09-28): one
   // filter, one origin. A click replaces, the chosen item again clears, and
