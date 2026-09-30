@@ -376,8 +376,9 @@ function packImpl(grid: MgGrid, specs: readonly MgTileSpec[], mirror: boolean, e
     for (const id of moved) {
       const spec = specs.find((s) => s.id === id)!;
       const byPriority = [...tiles].sort((a, b) => b.priority - a.priority);
-      // Never a dock (its slot is its own) or a canvas, unless named.
-      const may = (t: MgPlace) => !specs[t.priority].dock && t.kind !== "viewer" && t.kind !== "graph";
+      // Never a dock (its slot is its own), a canvas or an S card (one
+      // fact, no room for a tab strip), unless named.
+      const may = (t: MgPlace) => !specs[t.priority].dock && t.kind !== "viewer" && t.kind !== "graph" && t.size !== "S";
       const host =
         spec.hosts?.map((h) => tiles.find((t) => t.id === h)).find((t) => t) ??
         byPriority.find((t) => !specs[t.priority].required && may(t)) ??
@@ -531,7 +532,7 @@ function growOneRow(
  *  panel holds (2026-09-29, STABLE LAYOUT). */
 export function mgFillRows(layout: MgLayout, limit: Readonly<Record<string, number>> = {}): MgLayout {
   const { rows, u, top } = layout;
-  // The KPI row stays the KPI row: its tiles (the cards and a treemap that
+  // The KPI row stays the KPI row: its tiles (the cards and an M tile that
   // closes it) keep their two rows, and the body under it grows instead.
   if (layout.band === "kpis" || layout.band === "kpis+side") {
     const fixed: Record<string, number> = { ...limit };
@@ -578,7 +579,8 @@ const M_WIDE: readonly Wh[] = [[3, 2]];
 const L_WIDE: readonly Wh[] = [[4, 3]];
 const S: readonly Wh[] = SIZES.S;
 /** A list or chart whose content scrolls or scales (Scope, Detail, the
- *  treemaps): L where it fits, else M landscape. */
+ *  classification codes, the project tab's treemaps): L where it fits, else
+ *  M landscape. */
 const LM: readonly Wh[] = [...SIZES.L, [3, 2]];
 
 export interface MgContent {
@@ -586,10 +588,6 @@ export interface MgContent {
   ifc: number;
   /** The neutral counts (types, storeys, file size, materials): S tiles. */
   counts: number;
-  /** The treemaps that are general (the IFC-class and PredefinedType
-   *  fallbacks, `tree-system` / `tree-function`). A treemap read through a
-   *  project mapping is not on the Overview. */
-  trees: readonly string[];
   /** The verification sidebar's width in modules (`sideModules`), or 0/absent
    *  for the checks as a tile of the board. */
   side?: number;
@@ -614,9 +612,10 @@ function countTiles(content: MgContent): MgTileSpec[] {
   }));
 }
 
-function treeTiles(content: MgContent): MgTileSpec[] {
-  return content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: LM, hosts: ["checks"] }));
-}
+/** The classification codes the file carries (`ClassCodes.tsx`): one list,
+ *  always there (none is an answer), so the board does not move with it.
+ *  The treemaps are Innhold's (2026-09-30). */
+const CODES: MgTileSpec = { id: "codes", kind: "list", sizes: LM, hosts: ["checks"] };
 
 /** The tiles under the KPI row, beside the floor sidebar, in priority order. */
 function overviewBody(content: MgContent, checks = true): MgTileSpec[] {
@@ -627,7 +626,7 @@ function overviewBody(content: MgContent, checks = true): MgTileSpec[] {
     { id: "detail", kind: "list", sizes: LM, required: true, dock: true },
     // L landscape first: its % column; 3 across it draws compact.
     ...(checks ? [{ id: "checks", kind: "list" as MgKind, sizes: [...L_WIDE, [3, 4], [3, 2]] as Wh[] }] : []),
-    ...treeTiles(content),
+    CODES,
     ...countTiles(content),
   ];
 }
@@ -657,14 +656,14 @@ const MIN_BODY = 4;
  *  tall sidebar"). Three parts, one board:
  *
  *    the KPI row   one S card per IFC-struktur requirement, in the report's
- *                  order, then the neutral counts (S) and, when general, the
- *                  treemaps (M 3 × 2) until the row is closed. Never a list,
+ *                  order, then the neutral counts (S) and the classification
+ *                  codes (M 3 × 2) until the row is closed. Never a list,
  *                  never a scroll.
  *    the sidebar   the floor config (Etasjer), the full height under the
  *                  KPI row on the right: rule 3's named tall exception, a
  *                  building floor chart.
  *    the middle    by priority, the model (hero), Scope, Detail, the checks,
- *                  the general treemaps, the counts the row did not take;
+ *                  the classification codes, the counts the row did not take;
  *                  too little room moves the lowest into a tab of the
  *                  checks or the floor sidebar. Scope and Detail are always
  *                  tiles here.
@@ -740,7 +739,7 @@ function composeOverview(grid: MgGrid, content: MgContent, grow = false): MgLayo
  *  laptop, 12 to 15 columns): the board packs by priority on the columns
  *  left, the KPI cards first (S, never a list; they wrap under and beside the
  *  model as the columns allow), then the model, Scope, Detail, the floors and
- *  the treemaps; what does not fit is a tab of the sidebar. Scope and Detail
+ *  the classification codes; what does not fit is a tab of the sidebar. Scope and Detail
  *  are tiles (required): where they do not fit, there is no packed board.
  *  The counts close the cover: after the docks
  *  where that covers the board, else right after the KPI cards. The full
@@ -754,7 +753,7 @@ function* packedBoards(region: MgGrid, content: MgContent): Generator<MgLayout> 
     { id: "scope", kind: "list", sizes: LM, required: true, dock: true },
     { id: "detail", kind: "list", sizes: LM, required: true, dock: true },
     { id: "floors", kind: "list", sizes: LM },
-    ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: LM })),
+    { id: CODES.id, kind: CODES.kind, sizes: LM },
   ];
   const orders = [
     [...kpis, ...rest, ...countTiles(content)],
@@ -829,7 +828,7 @@ function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[], gr
   const { cols, rows } = grid;
   const kpiIds = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
   const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.ifc, 2]] };
-  const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => content.trees.includes(t.id))];
+  const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => t.id === CODES.id)];
   const sets = fillerSets(pool);
   let best: MgLayout | null = null;
   let bestCells = 0;
@@ -914,7 +913,7 @@ function layoutNarrow(grid: MgGrid, content: MgContent): MgLayout {
     { id: "detail", kind: "list", sizes: M_WIDE, dock: true, hosts: ["scope"] },
     { id: "floors", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
     { id: "checks", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
-    ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: M_WIDE, hosts: ["reqs"] })),
+    { id: CODES.id, kind: CODES.kind, sizes: M_WIDE, hosts: ["reqs"] },
     ...countTiles(content),
   ]);
 }

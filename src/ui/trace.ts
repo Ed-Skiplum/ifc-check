@@ -20,6 +20,7 @@ import { typeGuids } from "./types/aggregate";
 import { reqDoor, treeDoor } from "./board-doors";
 import { labelOfRow } from "./requirements";
 import { findNode } from "../engine/code-tree";
+import { classificationCodes, codeGuids } from "./class-codes";
 
 /** The two census numbers that have rows behind them but no check of their
  *  own. Everything else on the board drills to a check or to a rule. */
@@ -57,6 +58,10 @@ export type Focus =
   | { kind: "req"; id: string; value?: string | null }
   /** One cell of a code treemap (`src/engine/code-tree.ts`), by its key. */
   | { kind: "tree"; axis: "system" | "function"; key: string }
+  /** One classification code the file carries, in its system (the
+   *  Overview's code list, `class-codes.ts`). `system` null: a reference
+   *  with no system; `code` "": one with no Identification. */
+  | { kind: "code"; system: string | null; code: string }
   /** One specification of the loaded `.ids`, by its 0-based position in the
    *  file (the Prosjekt tab). */
   | { kind: "ids"; index: number };
@@ -88,6 +93,9 @@ export function serialiseFocus(focus: Focus): string {
     return focus.value === null ? `req:${focus.id}|-` : `req:${focus.id}|=${focus.value}`;
   }
   if (focus.kind === "tree") return `tree:${focus.axis}|${focus.key}`;
+  // The system is URI-encoded, so the first `|` ends it.
+  if (focus.kind === "code")
+    return `code:${focus.system === null ? "-" : `=${encodeURIComponent(focus.system)}`}|${focus.code}`;
   if (focus.kind === "ids") return `ids:${focus.index}`;
   return `cell:${focus.storeyGuid ?? "-"}|${focus.entity}`;
 }
@@ -134,6 +142,19 @@ export function parseFocus(raw: string | null): Focus | null {
     const axis = rest.slice(0, bar);
     const key = rest.slice(bar + 1);
     return bar > 0 && key && (axis === "system" || axis === "function") ? { kind: "tree", axis, key } : null;
+  }
+  if (kind === "code") {
+    const bar = rest.indexOf("|");
+    if (bar < 0) return null;
+    const sys = rest.slice(0, bar);
+    const code = rest.slice(bar + 1);
+    if (sys === "-") return { kind: "code", system: null, code };
+    if (!sys.startsWith("=")) return null;
+    try {
+      return { kind: "code", system: decodeURIComponent(sys.slice(1)), code };
+    } catch {
+      return null;
+    }
   }
   if (kind === "ids") {
     const index = Number(rest);
@@ -363,6 +384,23 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
       stats: [{ label: "trace.elements", value: guids.length }],
       rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),
       rowsComplete: rows.length === guids.length,
+    };
+  }
+
+  if (focus.kind === "code") {
+    const guids = codeGuids(profile, focus.system, focus.code);
+    if (!guids) return null;
+    const rows = profile.rows.filter((r) => guids.has(r.guid));
+    const name = classificationCodes(profile)
+      ?.find((s) => s.system === focus.system)
+      ?.codes.find((c) => c.code === focus.code)?.name;
+    return {
+      ...base,
+      titleText: [focus.code || "—", name].filter(Boolean).join(" "),
+      notes: [],
+      stats: [{ label: "trace.elements", value: guids.size }],
+      rows: rows.map((r) => ({ guid: r.guid, entity: r.entity, name: r.name })),
+      rowsComplete: rows.length === guids.size,
     };
   }
 

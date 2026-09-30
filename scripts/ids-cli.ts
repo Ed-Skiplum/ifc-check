@@ -92,6 +92,7 @@ import { elementFacets, elementItems, facetCounts, narrow, NONE, typeItems, type
 import { typePage } from "../src/ui/type-page.ts";
 import { EMPTY_FILTER, reduceFilter } from "../src/ui/filter-state.ts";
 import { selectionMarks } from "../src/ui/selection-marks.ts";
+import { classificationCodes, codeGuids } from "../src/ui/class-codes.ts";
 import type { BoardData } from "../src/ui/report-rows.ts";
 import type { ElementQuantity } from "../src/engine/quantities.ts";
 import type { ModelProfile } from "../src/ui/profile.ts";
@@ -1174,6 +1175,40 @@ async function cmdSelftest(): Promise<number> {
     "not_evaluable",
     bare.find((r) => r.id === "phase")?.state ?? "absent",
   );
+
+  // The Overview's classification codes (src/ui/class-codes.ts): presence
+  // per system, sorted by code, the bundled list's name for NS 3451, an
+  // unknown code marked, absent kept apart from none.
+  {
+    const refs = (system: string | null, code: string | null, name: string | null) => ({ system, code, name });
+    const profile = {
+      classifications: new Map([
+        ["a", [refs("NS 3451:2022", "226", null), refs("Uniformat", "B2010", "Exterior Walls")]],
+        ["b", [refs("NS 3451:2022", "22", null), refs("NS 3451:2022", "999", "x")]],
+        ["c", [refs("Uniformat", "B2010", null), refs("Uniformat", "A1010", "Standard Foundations")]],
+      ]),
+    };
+    const all = classificationCodes(profile) ?? [];
+    record(
+      "class codes: per system, sorted by code, no counts",
+      "NS 3451:2022=22,226,999 Uniformat=A1010,B2010",
+      all.map((s) => `${s.system}=${s.codes.map((c) => c.code).join(",")}`).join(" "),
+    );
+    const ns = all[0]?.codes ?? [];
+    record(
+      "class codes: NS 3451 names from the bundled list, an unknown code marked",
+      `${CODE_LISTS.ns3451.codes["226"]}|true|false|x`,
+      `${ns.find((c) => c.code === "226")?.name}|${ns.find((c) => c.code === "226")?.known}|${ns.find((c) => c.code === "999")?.known}|${ns.find((c) => c.code === "999")?.name}`,
+    );
+    record("class codes: a system with no bundled list has no known state", "null", String(all[1]?.codes[0]?.known));
+    record(
+      "class codes: within a filter, only the codes its elements carry",
+      "Uniformat=A1010,B2010",
+      (classificationCodes(profile, new Set(["c"])) ?? []).map((s) => `${s.system}=${s.codes.map((c) => c.code).join(",")}`).join(" "),
+    );
+    record("class codes: a code's elements", "a,c", [...(codeGuids(profile, "Uniformat", "B2010") ?? [])].sort().join(","));
+    record("class codes: absent table is null, empty is none", "null|0", `${classificationCodes({})}|${classificationCodes({ classifications: new Map() })?.length}`);
+  }
 
   // The board's code treemaps (src/engine/code-tree.ts): nesting by level,
   // deviating and missing values kept as their own cells, the PredefinedType

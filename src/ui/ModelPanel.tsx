@@ -439,15 +439,15 @@ export function ModelPanel({
               />
             </div>
             <div role="tabpanel" hidden={tab !== "contents"} className="flex min-h-0 flex-1 flex-col">
-              <div className="contents" data-xf={view.origin === "census" ? "origin" : undefined}>
               <Contents
                 lang={lang}
+                model={model}
                 census={isolating("census") && scopedFacts ? scopedFacts : facts}
                 ledger={isolating("census") && scopedLedger ? scopedLedger : ledger}
                 selected={selected}
-                onFocus={(next) => focus(next, "census")}
+                xf={xf}
+                onFocus={focus}
               />
-              </div>
             </div>
             {/* Same mounted-and-hidden pattern as the other two: the 3D scene
                 on Kontroll must survive a trip here and back. */}
