@@ -2,14 +2,16 @@
  * where ifcopenshell is (queued, loading, running with its count), how it
  * ended (version, failure, or why it could not run), and one ifcfast issue
  * per signature where ifcopenshell found geometry ifcfast did not, filed
- * through the relay or, failing that, the prefilled link (`ifcos-verify.ts`).
+ * through the relay, recorded there for later filing («Logget», or the issue
+ * number once it has one), or, failing that, the prefilled link
+ * (`ifcos-verify.ts`).
  * The per-element verdicts are drawn on the rows (`ifcosVerdictText`).
  */
 
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
-import { retryNomesh, useIfcosRun, type IssueLink } from "./ifcos-verify";
+import { retryNomesh, useIfcosRun, useRelayEntry, type IssueLink } from "./ifcos-verify";
 import type { IssueFacts } from "../engine/body-mesh";
 import type { ModelEntry } from "./useModels";
 
@@ -17,6 +19,26 @@ const CHIP = "flex items-center gap-1.5 px-2 py-0.5 text-[12px]";
 const LINK = `${CHIP} border border-line bg-input text-ink hover:border-green hover:text-green`;
 
 function Issue({ lang, facts, link }: { lang: Lang; facts: IssueFacts; link: IssueLink }) {
+  const recorded = useRelayEntry(facts.signature);
+  if (link.state === "logged") {
+    // Recorded by the relay: the issue number once it has one, «Logget» until then.
+    const number = link.number ?? recorded?.issueNumber ?? undefined;
+    const url = link.url ?? recorded?.issueUrl ?? undefined;
+    if (number !== undefined && url) {
+      return (
+        <a href={url} target="_blank" rel="noreferrer" className={LINK} title={`logged · ${facts.signature}`}>
+          <span className="font-semibold">{`${t("ifcos.issue.open", lang)} #${number}`}</span>
+          <span className="font-mono text-[11px]">{facts.signature}</span>
+        </a>
+      );
+    }
+    return (
+      <span className={`${CHIP} border border-line text-ink`} title={recorded ? `${recorded.status} · ${recorded.reports}` : facts.signature}>
+        <span className="font-semibold">{t("ifcos.issue.logged", lang)}</span>
+        <span className="font-mono text-[11px]">{facts.signature}</span>
+      </span>
+    );
+  }
   if (link.state === "posting" || link.state === "searching") {
     return (
       <span className={`${CHIP} text-muted`} title={link.state === "searching" ? link.relayError : facts.signature}>

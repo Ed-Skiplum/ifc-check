@@ -248,6 +248,7 @@ const STRINGS = {
   "nomesh.miss": { nb: "ifcfast-feil", en: "ifcfast miss" },
   "ifcos.issue.posting": { nb: "Sender ifcfast-sak", en: "Filing ifcfast issue" },
   "ifcos.issue.relayFailed": { nb: "Innsending feilet", en: "Filing failed" },
+  "ifcos.issue.logged": { nb: "Logget", en: "Logged" },
 
   /* ----------------------------------------------------------- type ledger */
   // Column heads that are IFC ATTRIBUTE NAMES stay verbatim in both languages:

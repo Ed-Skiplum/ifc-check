@@ -1,14 +1,30 @@
 /**
  * The relay's selftest: the validator refuses anything that could carry
  * client data, the title and body match the app's own builder, dedupe and
- * rate limits behave, and the token never reaches a log line. GitHub is a
- * mock; nothing leaves the process.
+ * rate limits behave, and the token never reaches a log line. Every accepted
+ * report lands in the database first, without the client address; with no
+ * token the relay runs log only, and `file-pending.mjs` files what is owed.
+ * GitHub is a mock and the database a temp file under tmp/; nothing leaves
+ * the process.
  *
  *   node relay/selftest.mjs
  */
 
-import { buildBody, buildComment, buildTitle, createRelay, validate } from "./relay.mjs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildBody, buildComment, buildTitle, createFiler, createRelay as relayWith, openStore, validate } from "./relay.mjs";
+import { filePending } from "./file-pending.mjs";
 import { issueBody, issueTitle } from "../src/engine/body-mesh.ts";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TMP = join(HERE, "..", "tmp", "relay-selftest");
+rmSync(TMP, { recursive: true, force: true });
+mkdirSync(TMP, { recursive: true });
+
+/** The relay on an in-memory database unless a store is given. */
+const createRelay = (options) => relayWith({ store: openStore(":memory:"), ...options });
 
 const results = [];
 const check = (name, expected, actual) => results.push({ name, ok: expected === actual, expected, actual });
@@ -213,21 +229,128 @@ const sig = facts().signature;
     `403 204 ${ORIGIN} 403 413 415 422 0`,
     `${foreign.status} ${preflight.status} ${preflight.headers["Access-Control-Allow-Origin"]} ${foreignPreflight.status} ${big.status} ${text.status} ${invalid.status} ${gh.calls.length}`,
   );
-  let threw = false;
-  try {
-    createRelay({ token: "" });
-  } catch {
-    threw = true;
-  }
-  check("no token: refuses to start", "true", String(threw));
 }
 
 {
   const failing = { fetch: async () => ({ ok: false, status: 401, json: async () => ({ message: `bad credentials ${TOKEN}` }) }) };
   const logs = [];
-  const out = await createRelay({ token: TOKEN, fetch: failing.fetch, now: () => NOW, log: (l) => logs.push(l) })(request(facts()));
-  check("GitHub refusing: 502 with the status only, nothing echoed", `502 github 401 false`, `${out.status} ${out.json.error} ${JSON.stringify(out).includes(TOKEN) || logs.join().includes(TOKEN)}`);
+  const store = openStore(":memory:");
+  const out = await createRelay({ store, token: TOKEN, fetch: failing.fetch, now: () => NOW, log: (l) => logs.push(l) })(request(facts()));
+  const row = store.owed()[0];
+  check(
+    "GitHub refusing: 202 logged with the status only, the row stays pending, the failure an event, nothing echoed",
+    "202 logged github 401 pending failed:github 401 false",
+    `${out.status} ${out.json.action} ${out.json.error} ${row?.status} ${store.events(row?.id).map((e) => `${e.outcome}:${e.detail}`).join()} ${JSON.stringify(out).includes(TOKEN) || logs.join().includes(TOKEN)}`,
+  );
 }
+
+{
+  const store = openStore(":memory:");
+  const out = await createRelay({ store, token: TOKEN, fetch: mockGitHub().fetch, now: () => NOW, log: () => {} })(request(facts()));
+  const row = store.row(1);
+  check(
+    "with a token: recorded, then filed, the outcome on the row and as an event",
+    "200 created | filed 99 https://github.com/EdvardGK/ifcfast/issues/99 | created",
+    `${out.status} ${out.json.action} | ${row?.status} ${row?.issue_number} ${row?.issue_url} | ${store.events(1).map((e) => e.outcome).join()}`,
+  );
+}
+
+/* ── the database: log only, the listing, no address ────────────────────── */
+
+const IP = "203.0.113.77";
+const DB = join(TMP, "ifc-check.db");
+
+{
+  const store = openStore(DB);
+  let githubCalls = 0;
+  const handle = relayWith({ store, fetch: async () => (githubCalls += 1), now: () => NOW, log: () => {} });
+  const first = await handle(request(facts(), { ip: IP }));
+  const second = await handle(request({ ...facts(), inFile: 21, geometry: 20 }, { ip: IP }));
+  const refused = await handle(request({ ...facts(), fileName: "KNM_ARK_Kistefos.ifc" }, { ip: IP }));
+  const rows = store.owed();
+  check(
+    "no token: starts log only, 202 logged, one row per signature with the count bumped, the latest numbers, no GitHub call",
+    "202 logged pending 1 | 202 2 | 1 row pending 2 in_file 21 | 422 | 0",
+    `${first.status} ${first.json.action} ${first.json.status} ${first.json.reports} | ${second.status} ${second.json.reports} | ${rows.length} row ${rows[0]?.status} ${rows[0]?.reports} in_file ${rows[0]?.in_file} | ${refused.status} | ${githubCalls}`,
+  );
+  check(
+    "the stored row holds the validated fields and the bookkeeping, nothing else",
+    "element_class errors faces_max faces_min first_seen geometry id identifier ifcfast_version ifcopenshell_version in_file issue_number issue_url item_classes last_seen none_count reports signature status types vertices_max vertices_min",
+    Object.keys(rows[0] ?? {}).sort().join(" "),
+  );
+
+  const listing = await handle({ method: "GET", path: "/relay/ifcfast-miss", headers: { origin: ORIGIN }, ip: IP, body: "" });
+  const entry = listing.json.misses?.[0];
+  check(
+    "GET /ifcfast-miss lists signature, counts, status, issue; nothing more",
+    `200 ${ORIGIN} 1 | ${sig} 2 pending null | firstSeen issueNumber issueUrl lastSeen reports signature status`,
+    `${listing.status} ${listing.headers["Access-Control-Allow-Origin"]} ${listing.json.misses?.length} | ${entry?.signature} ${entry?.reports} ${entry?.status} ${entry?.issueNumber} | ${Object.keys(entry ?? {}).sort().join(" ")}`,
+  );
+  store.close();
+
+  const bytes = readdirSync(TMP)
+    .filter((f) => f.startsWith("ifc-check.db"))
+    .map((f) => readFileSync(join(TMP, f)).toString("latin1"))
+    .join("");
+  check("the database file holds the report and never the client address", "true false", `${bytes.includes(sig)} ${bytes.includes(IP)}`);
+}
+
+/* ── file-pending: dry run, then filing against the mock ────────────────── */
+
+{
+  const seed = openStore(DB);
+  const slab = "IfcSlab / IfcExtrudedAreaSolid / ifcfast 0.5.3+6a16c16";
+  const seeded = seed.record({ ...facts(), elementClass: "IfcSlab", signature: slab }, new Date(NOW).toISOString());
+  seed.close();
+
+  // The CLI itself, with no token and GitHub pointed at a closed port: a dry
+  // run needs neither.
+  const out = execFileSync(process.execPath, [join(HERE, "file-pending.mjs"), "--dry-run"], {
+    env: { ...process.env, RELAY_DB: DB, IFCFAST_ISSUES_TOKEN: "", GITHUB_API: "http://127.0.0.1:9" },
+    encoding: "utf8",
+  });
+  const store = openStore(DB);
+  check(
+    "--dry-run: lists both owed signatures, files nothing, writes nothing",
+    "2 | pending pending | 0 0",
+    `${(out.match(/^would file: /gm) ?? []).length} | ${store.owed().map((r) => r.status).join(" ")} | ${store.events(1).length} ${store.events(seeded.id).length}`,
+  );
+
+  // The wall has an open issue, last touched 3 days ago; the slab has none.
+  const open = { number: 7, title: `Body declared, no mesh: ${sig}`, html_url: "https://github.com/EdvardGK/ifcfast/issues/7", created_at: "2026-09-01T00:00:00Z", state: "open" };
+  const gh = mockGitHub({ issues: [open], comments: { 7: [{ body: "```text\nreports: 3\n```", created_at: "2026-09-27T00:00:00Z" }] } });
+  const slept = [];
+  const outcomes = await filePending({
+    store,
+    filer: createFiler({ token: TOKEN, fetch: gh.fetch, now: () => NOW }),
+    now: () => NOW,
+    print: () => {},
+    sleep: async (ms) => slept.push(ms),
+  });
+  const bySig = Object.fromEntries(store.list().map((r) => [r.signature, r]));
+  check(
+    "pending to filed: the open issue commented, the new one created, one pause between them, events recorded",
+    "commented 7, created 99 | filed 7 filed 99 | 3000 | commented created | 0 owed",
+    `${outcomes.map((o) => `${o.action} ${o.number}`).join(", ")} | ${bySig[sig]?.status} ${bySig[sig]?.issueNumber} ${bySig[slab]?.status} ${bySig[slab]?.issueNumber} | ${slept.join(",")} | ${[...store.events(1), ...store.events(seeded.id)].map((e) => e.outcome).join(" ")} | ${store.owed().length} owed`,
+  );
+
+  // A repeat report of a filed signature is owed again, and the relay's
+  // answer carries the issue the row already has.
+  const handle = relayWith({ store, now: () => NOW, log: () => {} });
+  const repeat = await handle(request(facts(), { ip: "10.9.9.9" }));
+  check("a repeat report of a filed signature: 202 logged with its issue, owed again", "202 logged 7 pending", `${repeat.status} ${repeat.json.action} ${repeat.json.number} ${repeat.json.status}`);
+
+  const refusing = { fetch: async () => ({ ok: false, status: 401, json: async () => ({}) }) };
+  const failedRun = await filePending({ store, filer: createFiler({ token: TOKEN, fetch: refusing.fetch }), print: () => {}, sleep: async () => {} });
+  check(
+    "GitHub refusing file-pending: the row marked failed and still owed",
+    "failed github 401 | failed 1",
+    `${failedRun.map((o) => `${o.action} ${o.detail}`).join()} | ${store.owed().map((r) => r.status).join()} ${store.owed().length}`,
+  );
+  store.close();
+}
+
+rmSync(TMP, { recursive: true, force: true });
 
 const failed = results.filter((r) => !r.ok);
 console.log(JSON.stringify({ command: "relay selftest", ok: failed.length === 0, assertions: results.length, failed }, null, 2));

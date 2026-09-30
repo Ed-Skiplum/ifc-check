@@ -1,15 +1,27 @@
 #!/usr/bin/env node
 /**
- * ifcfast-miss relay: files an ifcfast issue when ifc-check's second check
- * (ifcopenshell, in the browser) built geometry for an element ifcfast
- * streamed no mesh for. Node, no dependencies, one file.
+ * ifcfast-miss relay: records, and files as an ifcfast issue, every report
+ * of an element ifc-check's second check (ifcopenshell, in the browser)
+ * built geometry for where ifcfast streamed no mesh. Node, no dependencies,
+ * one file.
  *
  *   POST /ifcfast-miss   the sanitized report (`IssueFacts` in
  *                        src/engine/body-mesh.ts), JSON, at most 4 KB
+ *   GET  /ifcfast-miss   what is recorded: signature, reports, status, issue
  *   GET  /health         200 "ok"
  *
- * The browser app holds no token. This service does (`IFCFAST_ISSUES_TOKEN`,
- * a fine-grained token scoped to EdvardGK/ifcfast issues) and never logs it.
+ * Every accepted report goes into the database first (`openStore`, SQLite
+ * through the built-in `node:sqlite`, at `RELAY_DB`): one `ifcfast_miss` row
+ * per signature, upserted, so a repeat report bumps its count and puts it
+ * back to `pending`; an `event` row per filing outcome. Only the validated
+ * fields are stored. The client address is never written: it lives in
+ * memory, for the rate limit, and nowhere else.
+ *
+ * With a token (`IFCFAST_ISSUES_TOKEN`, a fine-grained token scoped to
+ * EdvardGK/ifcfast issues, never logged) the relay then files it and
+ * answers 200 with the outcome. Without one it runs log only and answers
+ * 202 `logged`; so it does when GitHub fails, and the row stays pending.
+ * `file-pending.mjs` files what is owed later, from the same database.
  *
  * What it accepts is validated here, on the server, field by field against
  * fixed shapes and schema enums (`validate`): the element class must be an
@@ -23,21 +35,23 @@
  * Dedupe by signature (element class + item chain + ifcfast version): an
  * open issue whose title carries the signature verbatim gets a comment with
  * the report count incremented, or nothing when its last activity is under
- * 24 h old; otherwise a new issue. Rate limits: 10 an hour per client IP,
- * 50 a day overall. CORS: only the ifc-check origins.
+ * 24 h old; otherwise a new issue. Rate limits: 10 reports and 60 listings
+ * an hour per client IP, 50 reports a day overall. CORS: only the ifc-check origins.
  *
- * Env: IFCFAST_ISSUES_TOKEN (required), PORT (8791), RELAY_ALLOWED_ORIGINS
- * (comma separated, replaces the default list), TRUST_PROXY=1 (take the
- * client IP from X-Forwarded-For, set behind Caddy), GITHUB_API (tests only:
- * a mock GitHub).
+ * Env: RELAY_DB (/data/ifc-check.db), IFCFAST_ISSUES_TOKEN (optional: none
+ * means log only), PORT (8791), RELAY_ALLOWED_ORIGINS (comma separated,
+ * replaces the default list), TRUST_PROXY=1 (take the client IP from
+ * X-Forwarded-For, set behind Caddy), GITHUB_API (tests only: a mock GitHub).
  */
 
 import http from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 
 export const REPO = "EdvardGK/ifcfast";
 export const DEFAULT_ORIGINS = ["https://ifc-check.skiplum.com", "https://skiplum.com", "https://www.skiplum.com"];
 export const MAX_BODY = 4096;
+export const DEFAULT_DB = "/data/ifc-check.db";
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 
@@ -191,26 +205,159 @@ export function buildComment(facts, reports) {
 
 const REPORTS = /^reports: (\d+)$/m;
 
-/* ── the relay ──────────────────────────────────────────────────────────── */
+/* ── the database ───────────────────────────────────────────────────────── */
+
+/** `ifcfast_miss`: one row per signature, the validated fields one column
+ *  each and nothing else, plus the bookkeeping. `event`: filing outcomes. */
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS ifcfast_miss (
+  id INTEGER PRIMARY KEY,
+  signature TEXT NOT NULL UNIQUE,
+  element_class TEXT NOT NULL,
+  identifier TEXT NOT NULL,
+  types TEXT NOT NULL,
+  item_classes TEXT NOT NULL,
+  ifcfast_version TEXT NOT NULL,
+  ifcopenshell_version TEXT NOT NULL,
+  vertices_min INTEGER NOT NULL,
+  vertices_max INTEGER NOT NULL,
+  faces_min INTEGER NOT NULL,
+  faces_max INTEGER NOT NULL,
+  in_file INTEGER NOT NULL,
+  geometry INTEGER NOT NULL,
+  none_count INTEGER NOT NULL,
+  errors INTEGER NOT NULL,
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  reports INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'filed', 'skipped', 'failed')),
+  issue_number INTEGER,
+  issue_url TEXT
+);
+CREATE TABLE IF NOT EXISTS event (
+  id INTEGER PRIMARY KEY,
+  miss_id INTEGER NOT NULL REFERENCES ifcfast_miss(id),
+  at TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('created', 'commented', 'skipped', 'failed')),
+  issue_number INTEGER,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS ifcfast_miss_status ON ifcfast_miss(status);
+`;
+
+/** Where the relay and `file-pending.mjs` keep the reports. `path` is a file,
+ *  or ":memory:". */
+export function openStore(path) {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
+  db.exec(SCHEMA);
+  const upsert = db.prepare(`
+    INSERT INTO ifcfast_miss (signature, element_class, identifier, types, item_classes, ifcfast_version,
+      ifcopenshell_version, vertices_min, vertices_max, faces_min, faces_max, in_file, geometry, none_count,
+      errors, first_seen, last_seen)
+    VALUES (:signature, :elementClass, :identifier, :types, :itemClasses, :ifcfastVersion, :ifcopenshellVersion,
+      :verticesMin, :verticesMax, :facesMin, :facesMax, :inFile, :geometry, :none, :errors, :at, :at)
+    ON CONFLICT(signature) DO UPDATE SET
+      identifier = excluded.identifier, types = excluded.types, ifcopenshell_version = excluded.ifcopenshell_version,
+      vertices_min = excluded.vertices_min, vertices_max = excluded.vertices_max,
+      faces_min = excluded.faces_min, faces_max = excluded.faces_max,
+      in_file = excluded.in_file, geometry = excluded.geometry, none_count = excluded.none_count,
+      errors = excluded.errors, last_seen = excluded.last_seen, reports = reports + 1, status = 'pending'
+    RETURNING *`);
+  const setStatus = db.prepare(
+    "UPDATE ifcfast_miss SET status = ?, issue_number = coalesce(?, issue_number), issue_url = coalesce(?, issue_url) WHERE id = ?",
+  );
+  const addEvent = db.prepare("INSERT INTO event (miss_id, at, outcome, issue_number, detail) VALUES (?, ?, ?, ?, ?)");
+  const owedRows = db.prepare("SELECT * FROM ifcfast_miss WHERE status IN ('pending', 'failed') ORDER BY last_seen, id LIMIT ?");
+  const listRows = db.prepare(
+    "SELECT signature, reports, status, issue_number, issue_url, first_seen, last_seen FROM ifcfast_miss ORDER BY last_seen DESC, id DESC LIMIT ?",
+  );
+  const byId = db.prepare("SELECT * FROM ifcfast_miss WHERE id = ?");
+  const eventsOf = db.prepare("SELECT at, outcome, issue_number, detail FROM event WHERE miss_id = ? ORDER BY id");
+
+  return {
+    /** Upsert one validated report; the row as it now stands. */
+    record(facts, at) {
+      return upsert.get({
+        signature: facts.signature,
+        elementClass: facts.elementClass,
+        identifier: facts.identifier,
+        types: JSON.stringify(facts.types),
+        itemClasses: facts.itemClasses,
+        ifcfastVersion: facts.ifcfastVersion,
+        ifcopenshellVersion: facts.ifcopenshellVersion,
+        verticesMin: facts.vertices.min,
+        verticesMax: facts.vertices.max,
+        facesMin: facts.faces.min,
+        facesMax: facts.faces.max,
+        inFile: facts.inFile,
+        geometry: facts.geometry,
+        none: facts.none,
+        errors: facts.errors,
+        at,
+      });
+    },
+    /** A filing outcome: the filer's { action, number, url }, or
+     *  { action: "failed", detail } with the status to leave the row in. */
+    outcome(id, result, at, failedStatus = "pending") {
+      const failed = result.action === "failed";
+      const status = failed ? failedStatus : result.action === "skipped" ? "skipped" : "filed";
+      db.exec("BEGIN");
+      try {
+        setStatus.run(status, failed ? null : result.number, failed ? null : result.url, id);
+        addEvent.run(id, at, result.action, failed ? null : result.number, failed ? (result.detail ?? null) : null);
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
+    /** Rows not yet reflected on GitHub (pending, or the last try failed). */
+    owed: (limit = 1000) => owedRows.all(limit),
+    row: (id) => byId.get(id),
+    events: (id) => eventsOf.all(id),
+    /** The public listing: the signature and the bookkeeping, nothing else. */
+    list: (limit = 500) =>
+      listRows.all(limit).map((r) => ({
+        signature: r.signature,
+        reports: r.reports,
+        status: r.status,
+        issueNumber: r.issue_number ?? null,
+        issueUrl: r.issue_url ?? null,
+        firstSeen: r.first_seen,
+        lastSeen: r.last_seen,
+      })),
+    close: () => db.close(),
+  };
+}
+
+/** A stored row back into the report it was built from. */
+export function factsOf(row) {
+  return {
+    signature: row.signature,
+    elementClass: row.element_class,
+    identifier: row.identifier,
+    types: JSON.parse(row.types),
+    itemClasses: row.item_classes,
+    ifcfastVersion: row.ifcfast_version,
+    ifcopenshellVersion: row.ifcopenshell_version,
+    vertices: { min: row.vertices_min, max: row.vertices_max },
+    faces: { min: row.faces_min, max: row.faces_max },
+    inFile: row.in_file,
+    geometry: row.geometry,
+    none: row.none_count,
+    errors: row.errors,
+  };
+}
+
+/* ── filing on GitHub ───────────────────────────────────────────────────── */
 
 /**
- * The request handler, transport-free so the selftest drives it with a mock
- * GitHub. `fetch` is the GitHub transport, `now` the clock, `log` gets one
- * line per request and never the token.
+ * Search, then comment on the open issue or create one. Shared by the relay
+ * and `file-pending.mjs`. `fetch` is the GitHub transport, `now` the clock.
  */
-export function createRelay({
-  token,
-  fetch: fetchImpl = globalThis.fetch,
-  api = "https://api.github.com",
-  origins = DEFAULT_ORIGINS,
-  now = () => Date.now(),
-  log = (line) => console.log(line),
-  perIpHour = 10,
-  perDay = 50,
-}) {
+export function createFiler({ token, fetch: fetchImpl = globalThis.fetch, api = "https://api.github.com", now = () => Date.now() }) {
   if (!token) throw new Error("IFCFAST_ISSUES_TOKEN is not set");
-  const hits = new Map();
-  let day = [];
   /** Issues this process created or found, for the search index's lag. */
   const known = new Map();
 
@@ -277,18 +424,60 @@ export function createRelay({
     return { action: "commented", ...issue };
   }
 
-  function limited(ip) {
+  return { file };
+}
+
+/** The status only: a GitHub error body is never echoed or stored. */
+export const githubError = (err) => (err?.status ? `github ${err.status}` : "github unreachable");
+
+/* ── the relay ──────────────────────────────────────────────────────────── */
+
+/**
+ * The request handler, transport-free so the selftest drives it with a mock
+ * GitHub. `store` is `openStore`'s, `token` optional (none: log only),
+ * `fetch` the GitHub transport, `now` the clock, `log` gets one line per
+ * request and never the token or the client address.
+ */
+export function createRelay({
+  store,
+  token,
+  fetch: fetchImpl = globalThis.fetch,
+  api = "https://api.github.com",
+  origins = DEFAULT_ORIGINS,
+  now = () => Date.now(),
+  log = (line) => console.log(line),
+  perIpHour = 10,
+  perDay = 50,
+}) {
+  if (!store) throw new Error("no store");
+  const filer = token ? createFiler({ token, fetch: fetchImpl, api, now }) : null;
+  const hits = new Map();
+  let day = [];
+  const iso = () => new Date(now()).toISOString();
+
+  /** Per address and hour; reports and listings counted apart. */
+  function limited(ip, kind = "report") {
     const t = now();
-    const mine = (hits.get(ip) ?? []).filter((at) => t - at < HOUR);
-    if (mine.length >= perIpHour) {
-      hits.set(ip, mine);
+    const key = `${kind} ${ip}`;
+    const mine = (hits.get(key) ?? []).filter((at) => t - at < HOUR);
+    if (mine.length >= (kind === "report" ? perIpHour : perIpHour * 6)) {
+      hits.set(key, mine);
       return true;
     }
     mine.push(t);
-    hits.set(ip, mine);
+    hits.set(key, mine);
     if (hits.size > 10000) for (const [k, v] of hits) if (!v.some((at) => t - at < HOUR)) hits.delete(k);
     return false;
   }
+
+  /** 202: recorded, not filed now. Carries the issue when the row has one. */
+  const logged = (row, error) => ({
+    action: "logged",
+    status: row.status,
+    reports: row.reports,
+    ...(row.issue_number ? { number: row.issue_number, url: row.issue_url } : {}),
+    ...(error ? { error } : {}),
+  });
 
   /** `request`: { method, path, headers (lower-case keys), ip, body (string) }. */
   return async function handle(request) {
@@ -306,10 +495,14 @@ export function createRelay({
     if (request.method === "OPTIONS") {
       if (!allowed) return reply(403, { error: "origin" });
       return reply(204, null, {
-        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Methods": "GET, POST",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Max-Age": "600",
       });
+    }
+    if (request.method === "GET") {
+      if (limited(request.ip, "list")) return reply(429, { error: "rate limit: per address" });
+      return reply(200, { misses: store.list() });
     }
     if (request.method !== "POST") return reply(405, { error: "method" });
     if (!allowed) return reply(403, { error: "origin" });
@@ -328,12 +521,24 @@ export function createRelay({
     day = day.filter((at) => t - at < DAY);
     if (day.length >= perDay) return reply(429, { error: "rate limit: daily" });
     day.push(t);
+    // Recorded before any GitHub call, so nothing accepted is lost.
+    let row;
     try {
-      return reply(200, await file(checked.facts));
-    } catch (err) {
-      // The status only: a GitHub error body is not echoed.
-      return reply(502, { error: err?.status ? `github ${err.status}` : "github unreachable" });
+      row = store.record(checked.facts, iso());
+    } catch {
+      return reply(500, { error: "store" });
     }
+    if (!filer) return reply(202, logged(row));
+    let result;
+    try {
+      result = await filer.file(checked.facts);
+    } catch (err) {
+      const error = githubError(err);
+      store.outcome(row.id, { action: "failed", detail: error }, iso(), "pending");
+      return reply(202, logged(store.row(row.id), error));
+    }
+    store.outcome(row.id, result, iso());
+    return reply(200, result);
   };
 }
 
@@ -368,16 +573,14 @@ export function serve(handle, { port = 8791, trustProxy = false } = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const token = process.env.IFCFAST_ISSUES_TOKEN;
-  if (!token) {
-    console.error("IFCFAST_ISSUES_TOKEN is not set");
-    process.exit(1);
-  }
+  const token = process.env.IFCFAST_ISSUES_TOKEN || undefined;
   const origins = process.env.RELAY_ALLOWED_ORIGINS
     ? process.env.RELAY_ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
     : DEFAULT_ORIGINS;
   const port = Number(process.env.PORT ?? 8791);
-  const handle = createRelay({ token, origins, api: process.env.GITHUB_API ?? "https://api.github.com" });
+  const dbPath = process.env.RELAY_DB ?? DEFAULT_DB;
+  const store = openStore(dbPath);
+  const handle = createRelay({ store, token, origins, api: process.env.GITHUB_API ?? "https://api.github.com" });
   serve(handle, { port, trustProxy: process.env.TRUST_PROXY === "1" });
-  console.log(`ifcfast relay on :${port}, origins ${origins.join(" ")}`);
+  console.log(`ifcfast relay on :${port}, ${token ? "filing" : "log only (no token)"}, db ${dbPath}, origins ${origins.join(" ")}`);
 }

@@ -13,9 +13,13 @@
  *
  * Where ifcopenshell found geometry ifcfast did not, one ifcfast issue per
  * signature, filed automatically through the relay (`relay/relay.mjs`),
- * once per signature per session. The relay unreachable or refusing: the
+ * once per signature per session. The relay records every report; when it
+ * does not file it now (no token there, GitHub failing) it answers 202
+ * `logged` and the chip reads «Logget», or the issue number once the
+ * relay's listing has one. The relay unreachable or refusing: the
  * unauthenticated GitHub search and the prefilled new-issue link the user
- * opens, as before, marked as a failed filing.
+ * opens, as before, marked as a failed filing; when unreachable, the report
+ * is also kept in localStorage and sent again on the next load.
  *
  * Held outside React state (a store with `useSyncExternalStore`), so the
  * model list does not re-render for a run's stage changes.
@@ -45,6 +49,10 @@ export type IssueLink =
   /** The relay filed it: a new issue, a comment on the open one, or nothing
    *  (the open one was commented on less than a day ago). */
   | { state: "filed"; url: string; number: number; action: "created" | "commented" | "skipped" }
+  /** The relay recorded it and did not file it now (no token there, or
+   *  GitHub failed): filed later from its database. The issue, when the
+   *  signature already has one. */
+  | { state: "logged"; number?: number; url?: string }
   | { state: "searching"; relayError: string }
   | { state: "found"; url: string; number: number; relayError: string }
   | { state: "new"; url: string; relayError: string }
@@ -252,10 +260,12 @@ async function lookupIssue(facts: IssueFacts, relayError: string): Promise<Issue
   }
 }
 
+type Posted = { link: IssueLink } | { relayError: string; retry: boolean };
+
 /** POST the facts (nothing else: `IssueFacts` has no field for client data)
- *  to the relay; on any failure, the search and the prefilled link. */
-async function file(facts: IssueFacts): Promise<IssueLink> {
-  let relayError: string;
+ *  to the relay. `retry`: the relay did not get it (unreachable, down behind
+ *  the proxy, rate limited), so it is worth sending again later. */
+async function post(facts: IssueFacts): Promise<Posted> {
   try {
     const response = await fetch(RELAY_URL, {
       method: "POST",
@@ -269,19 +279,123 @@ async function file(facts: IssueFacts): Promise<IssueLink> {
       error?: string;
     };
     if (
-      response.ok &&
+      response.status === 200 &&
       (body.action === "created" || body.action === "commented" || body.action === "skipped") &&
       typeof body.url === "string" &&
       typeof body.number === "number"
     ) {
-      return { state: "filed", url: body.url, number: body.number, action: body.action };
+      return { link: { state: "filed", url: body.url, number: body.number, action: body.action } };
     }
-    relayError = `relay ${response.status}${body.error ? `: ${body.error}` : ""}`;
+    if (response.status === 202 && body.action === "logged") {
+      const issue = typeof body.number === "number" && typeof body.url === "string" ? { number: body.number, url: body.url } : {};
+      return { link: { state: "logged", ...issue } };
+    }
+    return {
+      relayError: `relay ${response.status}${body.error ? `: ${body.error}` : ""}`,
+      retry: response.status === 429 || response.status >= 500,
+    };
   } catch (err) {
-    relayError = `relay unreachable: ${err instanceof Error ? err.message : String(err)}`;
+    return { relayError: `relay unreachable: ${err instanceof Error ? err.message : String(err)}`, retry: true };
   }
-  return lookupIssue(facts, relayError);
 }
+
+/** To the relay; when it did not get the report, kept for the next load,
+ *  and meanwhile the search and the prefilled link. */
+async function file(facts: IssueFacts): Promise<IssueLink> {
+  const posted = await post(facts);
+  if ("link" in posted) return posted.link;
+  if (posted.retry) enqueue(facts);
+  return lookupIssue(facts, posted.relayError);
+}
+
+/* ── reports the relay did not get: kept per viewer, sent on the next load ── */
+
+const QUEUE_KEY = "ifc-check.ifcfast-miss.queue";
+const QUEUE_MAX = 50;
+
+function readQueue(): IssueFacts[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(QUEUE_KEY) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((f): f is IssueFacts => typeof f === "object" && f !== null && typeof (f as IssueFacts).signature === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQueue(queue: IssueFacts[]) {
+  try {
+    if (queue.length) window.localStorage.setItem(QUEUE_KEY, JSON.stringify(queue.slice(-QUEUE_MAX)));
+    else window.localStorage.removeItem(QUEUE_KEY);
+  } catch {
+    // Storage blocked or full: the report is not kept; the link still is.
+  }
+}
+
+/** One entry per signature, the latest report. */
+function enqueue(facts: IssueFacts) {
+  writeQueue([...readQueue().filter((f) => f.signature !== facts.signature), facts]);
+}
+
+/** Send what an earlier session could not; what still does not reach the
+ *  relay stays for the next load. Then the listing, fresh. */
+async function flushQueue() {
+  const queue = readQueue();
+  if (queue.length === 0) return;
+  const kept: IssueFacts[] = [];
+  for (const facts of queue) {
+    const posted = await post(facts);
+    if (!("link" in posted) && posted.retry) kept.push(facts);
+  }
+  // A report queued during the flush is not dropped.
+  const added = readQueue().filter((f) => !queue.some((q) => q.signature === f.signature));
+  writeQueue([...kept, ...added]);
+  if (kept.length < queue.length) void loadListing(true);
+}
+
+/* ── what the relay has recorded (GET), by signature ─────────────────────── */
+
+export interface RelayEntry {
+  signature: string;
+  reports: number;
+  status: "pending" | "filed" | "skipped" | "failed";
+  issueNumber: number | null;
+  issueUrl: string | null;
+}
+
+let listing: ReadonlyMap<string, RelayEntry> | null = null;
+let listingLoaded = false;
+const listingListeners = new Set<() => void>();
+
+async function loadListing(force = false) {
+  if (listingLoaded && !force) return;
+  listingLoaded = true;
+  try {
+    const response = await fetch(RELAY_URL, { headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    const body = (await response.json()) as { misses?: RelayEntry[] };
+    if (!Array.isArray(body.misses)) return;
+    listing = new Map(body.misses.filter((m) => typeof m?.signature === "string").map((m) => [m.signature, m]));
+    for (const l of listingListeners) l();
+  } catch {
+    // Unreachable: the chips keep what the POST said.
+  }
+}
+
+function subscribeListing(listener: () => void) {
+  listingListeners.add(listener);
+  void loadListing();
+  return () => listingListeners.delete(listener);
+}
+
+/** The relay's record of a signature, once the listing has answered. */
+export function useRelayEntry(signature: string): RelayEntry | undefined {
+  return useSyncExternalStore(subscribeListing, () => listing?.get(signature));
+}
+
+// The next load after a report could not be sent: send it.
+if (typeof window !== "undefined") window.setTimeout(() => void flushQueue(), 3000);
 
 /** File the ifcfast misses the model worker grouped (`issueFacts`), one
  *  signature at a time. */
