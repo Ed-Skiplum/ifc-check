@@ -241,6 +241,13 @@ const STRINGS = {
   "ifcos.issue.open": { nb: "ifcfast-sak", en: "ifcfast issue" },
   "ifcos.issue.searching": { nb: "Søker i ifcfast-saker", en: "Searching ifcfast issues" },
   "ifcos.issue.searchFailed": { nb: "Søk feilet", en: "Search failed" },
+  // The second check (edkjo 2026-09-30): a no-mesh statement ifcopenshell has
+  // not confirmed yet, and an element ifcopenshell built geometry for where
+  // ifcfast streamed no mesh.
+  "nomesh.unverified": { nb: "ikke verifisert", en: "unverified" },
+  "nomesh.miss": { nb: "ifcfast-feil", en: "ifcfast miss" },
+  "ifcos.issue.posting": { nb: "Sender ifcfast-sak", en: "Filing ifcfast issue" },
+  "ifcos.issue.relayFailed": { nb: "Innsending feilet", en: "Filing failed" },
 
   /* ----------------------------------------------------------- type ledger */
   // Column heads that are IFC ATTRIBUTE NAMES stay verbatim in both languages:

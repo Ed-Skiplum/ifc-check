@@ -156,19 +156,20 @@ export function TraceBand({
   }, []);
 
   const rows = trace.rows;
-  // `body-no-mesh`: ifcopenshell's verdict per element, once it has run.
+  // `body-no-mesh`: the second check's verdict per element, marked
+  // unverified until ifcopenshell has answered for it.
   const ifcos = useIfcosRun(model.id);
-  const verdicts = trace.focus === BODY_NO_MESH_FOCUS ? ifcos?.verdicts : undefined;
+  const second = trace.focus === BODY_NO_MESH_FOCUS;
   const reasons = useMemo(
     () =>
       rows.map((row) => {
         const reason = row.code
           ? reasonText({ ...row, code: row.code, reason: row.reason ?? "" }, lang)
           : (row.reason ?? "");
-        const verdict = verdicts ? ifcosVerdictText(verdicts[row.guid], lang) : "";
+        const verdict = second ? ifcosVerdictText(ifcos, row.guid, lang) : "";
         return verdict ? `${reason} · ${verdict}` : reason;
       }),
-    [rows, lang, verdicts],
+    [rows, lang, second, ifcos],
   );
   const fitted = useMemo(() => columnsFor(rows, reasons), [rows, reasons]);
   // Alone, the list has the panel to itself and may be narrow (a Scope tile

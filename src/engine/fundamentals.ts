@@ -69,7 +69,7 @@ const REASON_EN: Record<ReasonCode, (p: Record<string, string | number>) => stri
   "storey-name-whitespace": (p) => `name "${p.storey}" matches "${p.config}" only after trimming whitespace`,
   "storey-duplicate-match": (p) => `second storey matching config floor "${p.config}"`,
   "storey-count-exceeds": (p) => `${p.count} storeys, config has ${p.config}`,
-  "body-no-mesh": (p) => `${p.identifier} ${p.type} (${p.items}), no mesh`,
+  "body-no-mesh": (p) => (p.items === "(no Body)" ? "no Body, no mesh" : `${p.identifier} ${p.type} (${p.items}), no mesh`),
 };
 
 export function finding(
@@ -111,15 +111,44 @@ const DETAIL_EN: Record<DetailCode, (p: Record<string, string | number>) => stri
       ? `of ${p.compared} against their storey: ${p.green} green, ${p.yellow} yellow ` +
         `(bottom up to ${p.tolerance} m below, top at or above), ${p.red} red`
       : String(p.note)) +
-    `; ${p.unmeshed} without geometry`,
+    unmeshedEn(p),
   "storey-config": (p) =>
     `${p.good} of ${p.total} storeys match the floor config; ` +
     `config has ${p.config}, ${p.absent} absent from this file`,
   "body-mesh": (p) =>
-    `${p.bodyNoMesh} declare a Body representation and have no mesh; ${p.meshed} meshed; ` +
-    `${p.noBody} without mesh declare no Body` +
-    (Number(p.unread) ? `; ${p.unread} not found in the STEP bytes` : ""),
+    (p.verify === "done"
+      ? `${p.meshed} meshed; ${p.miss} ifcfast miss; ${p.bodyNoMesh} declare a Body and have no geometry; ` +
+        `${p.noBody} without geometry declare no Body` +
+        (Number(p.errors) ? `; ${p.errors} ifcopenshell error` : "")
+      : `${p.bodyNoMesh} declare a Body representation and have no mesh; ${p.meshed} meshed; ` +
+        `${p.noBody} without mesh declare no Body`) +
+    (Number(p.unread) ? `; ${p.unread} not found in the STEP bytes` : "") +
+    verifyEn(p),
 };
+
+/** The second check's state at the end of a no-mesh line (`body-mesh.ts`).
+ *  No `verify` param: a line from before the second check, said as is. */
+function verifyEn(p: Record<string, string | number>): string {
+  if (p.verify === "done") return p.ifcos ? `; ifcopenshell ${p.ifcos}` : "";
+  if (p.verify === "failed") return `; ifcopenshell failed (${p.stage})`;
+  if (p.verify === "unavailable") return `; unverified (${p.why})`;
+  if (p.verify === "pending") return "; unverified";
+  return "";
+}
+
+/** `mesh-placement`: "without geometry" is the ifcfast count until the
+ *  second check is done, then only what ifcopenshell also finds none for. */
+function unmeshedEn(p: Record<string, string | number>): string {
+  if (p.verify !== "done") {
+    const state = p.verify === "failed" ? " (ifcopenshell failed)" : p.verify ? " (unverified)" : "";
+    return `; ${p.unmeshed} without geometry${state}`;
+  }
+  return (
+    `; ${p.unmeshedNone} without geometry` +
+    (Number(p.unmeshedMiss) ? `, ${p.unmeshedMiss} ifcfast miss` : "") +
+    (Number(p.unmeshedError) ? `, ${p.unmeshedError} ifcopenshell error` : "")
+  );
+}
 
 /** A detail line: code + params, with the English `detail` derived from it. */
 export function line(code: DetailCode, params: Record<string, string | number> = {}): DetailLine {

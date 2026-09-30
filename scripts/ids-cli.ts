@@ -123,7 +123,9 @@ import {
   issueTitle,
   matchingIssue,
   newIssueUrl,
+  nomeshCounts,
   unmeshedGuids,
+  type NomeshVerification,
 } from "../src/engine/body-mesh.ts";
 import { shapeOf } from "../src/ui/room-plan.ts";
 import { CACHE_SESSION_GRACE_MS, offered, purgeable } from "../src/storage/session.ts";
@@ -2559,6 +2561,69 @@ async function cmdSelftest(): Promise<number> {
       "body-no-mesh: an existing issue counts only when its title carries the signature verbatim",
       "#7 null",
       `#${matchingIssue(sig, [{ title: "IfcWall IfcFacetedBrep", html_url: "u1", number: 3 }, { title: `Body declared, no mesh: ${sig}`, html_url: "u2", number: 7 }])?.number} ${matchingIssue(sig, [{ title: "IfcWall / IfcFacetedBrep", html_url: "u", number: 1 }])}`,
+    );
+
+    // The second check (edkjo 2026-09-30): ifcopenshell on every element
+    // ifcfast left unmeshed. Pending: ifcfast's findings, every line marked
+    // unverified. Done: an element ifcopenshell meshed is an ifcfast miss
+    // (Body or not); a Body it also finds nothing for stays a finding; no
+    // Body and nothing is counted, never a finding. Failed with nothing
+    // found is review, never a pass.
+    const done: NomeshVerification = {
+      state: "done",
+      version: "0.8.5",
+      verdicts: {
+        "0aaaaaaaaaaaaaaaaaaaaa": { kind: "geometry", vertices: 24, faces: 12 },
+        "1bbbbbbbbbbbbbbbbbbbbb": { kind: "none", why: "empty" },
+        "2ccccccccccccccccccccc": { kind: "geometry", vertices: 8, faces: 6 },
+        "3ddddddddddddddddddddd": { kind: "none", why: "no-representation" },
+      },
+    };
+    const verified = checkBodyWithoutMesh(graph, boxes, undefined, undefined, done);
+    const verdictOfFinding = verified.findings.map((f) => `${f.entity}:${f.params?.verdict}:${f.params?.items}`).join(" ");
+    record(
+      "second check: ifcopenshell geometry is an ifcfast miss with or without a Body; Body and nothing stays; no Body and nothing is counted",
+      "fail IfcWall:geometry:IfcMappedItem>IfcFacetedBrep IfcSlab:none:IfcBooleanClippingResult>IfcExtrudedAreaSolid IfcBuildingElementProxy:geometry:(no Body) | miss 2 bodyNoMesh 1 noBody 1 | done 0.8.5",
+      `${verified.state} ${verdictOfFinding} | miss ${verified.detailLine?.params.miss} bodyNoMesh ${verified.detailLine?.params.bodyNoMesh} noBody ${verified.detailLine?.params.noBody} | ${verified.detailLine?.params.verify} ${verified.detailLine?.params.ifcos}`,
+    );
+    const onlyAssembly = { ...graph, products: graph.products.filter((p) => p.guid.startsWith("3") || p.guid.startsWith("4")) } as IfcGraph;
+    const failed = checkBodyWithoutMesh(onlyAssembly, boxes, undefined, undefined, { state: "failed", stage: "wheel", message: "404" });
+    const pendingPass = checkBodyWithoutMesh(onlyAssembly, boxes);
+    const unavailable = checkBodyWithoutMesh(onlyAssembly, boxes, undefined, undefined, { state: "unavailable", why: "no-file" });
+    const agreed = checkBodyWithoutMesh(onlyAssembly, boxes, undefined, undefined, done);
+    record(
+      "second check: failed or unavailable with unmeshed elements and nothing found is review, never a pass; done and agreed is a pass",
+      "review review pass(unverified) pass",
+      `${failed.state} ${unavailable.state} ${pendingPass.state}(${pendingPass.detailLine?.params.verify === "pending" ? "unverified" : "?"}) ${agreed.state}`,
+    );
+    record(
+      "second check: the lines say unverified, failed or the version, in both languages",
+      "; ikke verifisert | ; ifcopenshell feilet (wheel) | ; ikke verifisert (IFC-filen er ikke åpnet i denne økten) | 1 med mesh; 2 ifcfast-feil; 1 med Body uten geometri; 1 uten geometri og uten Body; ifcopenshell 0.8.5 | 1 meshed; 2 ifcfast miss",
+      [
+        detailText(checked.detailLine!, "nb", "").slice(detailText(checked.detailLine!, "nb", "").lastIndexOf(";")),
+        detailText(failed.detailLine!, "nb", "").slice(detailText(failed.detailLine!, "nb", "").lastIndexOf(";")),
+        detailText(unavailable.detailLine!, "nb", "").slice(detailText(unavailable.detailLine!, "nb", "").lastIndexOf(";")),
+        detailText(verified.detailLine!, "nb", ""),
+        detailText(verified.detailLine!, "en", "").split("; ").slice(0, 2).join("; "),
+      ].join(" | "),
+    );
+    record(
+      "second check: nomeshCounts splits ifcfast's unmeshed count by verdict, all unverified before done",
+      "none 2 miss 2 errors 0 unverified 1 | unverified 5",
+      (() => {
+        const guids = [...Object.keys(done.verdicts), "5fffffffffffffffffffff"];
+        const c = nomeshCounts(guids, done);
+        return `none ${c.none} miss ${c.miss} errors ${c.errors} unverified ${c.unverified} | unverified ${nomeshCounts(guids).unverified}`;
+      })(),
+    );
+    const missFacts = issueFacts(verified.findings, done.verdicts, "0.8.5");
+    const missText = missFacts.map((f) => `${issueTitle(f)}\n${issueBody(f)}`).join("\n");
+    record(
+      "second check: a miss with no Body files as its own signature and title; still no GUID, name or file name",
+      `IfcBuildingElementProxy / (no Body) / ifcfast ${bodySignature("IfcX", "x").split(" / ifcfast ")[1]}|No Body, no mesh | leaks: none`,
+      `${missFacts.find((f) => f.elementClass === "IfcBuildingElementProxy")?.signature}|${missText.includes("No Body, no mesh: IfcBuildingElementProxy") ? "No Body, no mesh" : "?"} | leaks: ${
+        ["0aaaaaaaaaaaaaaaaaaaaa", "2ccccccccccccccccccccc", "Vegg A", "Assy", ">P<"].filter((x) => missText.includes(x)).join(",") || "none"
+      }`,
     );
   }
 

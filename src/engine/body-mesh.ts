@@ -282,17 +282,90 @@ export function unmeshedGuids(
  *  second part. */
 export const itemChain = (decl: Pick<BodyDecl, "items">) => (decl.items.length ? decl.items.join(", ") : "(no items)");
 
+/* ── the second check: ifcopenshell on what ifcfast left unmeshed ───────── */
+
+/** What ifcopenshell said about one element, computed in the browser.
+ *  `none.why`: `no-representation` (the element has none), `no-body` (it has
+ *  representations, none of them Body, and create_shape raised on it),
+ *  `empty` (create_shape returned a shape with no vertices). */
+export type IfcosVerdict =
+  | { kind: "geometry"; vertices: number; faces: number }
+  | { kind: "none"; why?: "no-representation" | "no-body" | "empty" }
+  | { kind: "error"; message: string };
+
+/**
+ * The second check's state for one model, as the checks read it. edkjo
+ * 2026-09-30: *"i dont trust ifcfast on that yet, so just add the second
+ * check"*. Every statement that an element has no geometry is ifcfast's
+ * alone until ifcopenshell has looked at the same element:
+ *
+ *   pending      not run yet, or running: every no-mesh count is unverified
+ *   unavailable  cannot run in this session (`why`: no-file, ifczip,
+ *                no-mesh-pass, capped); unverified, and says why
+ *   failed       ifcopenshell did not load, or did not open the file; shown
+ *                as that, never as a pass
+ *   done         one verdict per element ifcfast streamed no mesh for
+ */
+export type NomeshVerification =
+  | { state: "pending" }
+  | { state: "unavailable"; why: string }
+  | { state: "failed"; stage: string; message: string }
+  | { state: "done"; version: string; verdicts: Readonly<Record<string, IfcosVerdict>> };
+
+export const NOMESH_PENDING: NomeshVerification = { state: "pending" };
+
+/** `guids` (elements ifcfast streamed no mesh for) by verdict. Before
+ *  `done`, every one is unverified. */
+export function nomeshCounts(
+  guids: Iterable<string>,
+  verification: NomeshVerification = NOMESH_PENDING,
+): { none: number; miss: number; errors: number; unverified: number } {
+  const out = { none: 0, miss: 0, errors: 0, unverified: 0 };
+  const verdicts = verification.state === "done" ? verification.verdicts : null;
+  for (const guid of guids) {
+    const v = verdicts?.[guid];
+    if (!v) out.unverified += 1;
+    else if (v.kind === "geometry") out.miss += 1;
+    else if (v.kind === "none") out.none += 1;
+    else out.errors += 1;
+  }
+  return out;
+}
+
+/** The detail-line params every no-mesh statement carries: the state, the
+ *  failed stage or the reason it could not run, the ifcopenshell version. */
+export function verifyParams(verification: NomeshVerification): Record<string, string> {
+  if (verification.state === "done") return { verify: "done", ifcos: verification.version };
+  if (verification.state === "failed") return { verify: "failed", stage: verification.stage };
+  if (verification.state === "unavailable") return { verify: "unavailable", why: verification.why };
+  return { verify: "pending" };
+}
+
+/** The item chain on a finding for an element that declares no Body: only
+ *  an ifcfast miss (ifcopenshell built geometry anyway) is ever a finding
+ *  with it. */
+export const NO_BODY = "(no Body)";
+
 /**
  * ADVISORY. `boxes` null = no geometry this session (mesh pass failed, or a
  * restore whose batches were capped); `graph.body_declared` absent = the
  * Body representations were not read. Both are `not_applicable` with the
  * reason.
+ *
+ * `verification` is the second check. Pending (or failed, or unavailable):
+ * the findings are ifcfast's, Body declared and no mesh, and the line says
+ * they are unverified. Done: the findings are every element ifcopenshell
+ * built geometry for (`verdict: geometry`, an ifcfast miss, Body or not),
+ * plus the Body declared ones ifcopenshell also finds nothing for or raised
+ * on. Failed or unavailable with unmeshed elements and no finding is
+ * `review`, never a pass: nothing confirmed ifcfast.
  */
 export function checkBodyWithoutMesh(
   graph: IfcGraph,
   boxes: ReadonlyMap<string, unknown> | null,
   excluded?: ReadonlySet<string>,
   noGeometry = "no geometry: the mesh pass failed",
+  verification: NomeshVerification = NOMESH_PENDING,
 ): CheckResult {
   const id = "body-no-mesh";
   if (boxes === null) {
@@ -303,32 +376,44 @@ export function checkBodyWithoutMesh(
     const why = "Body representations not read from the STEP bytes (ifczip, or not supplied)";
     return { ...result(id, "advisory", 0, [], literal("—"), why), reason: why };
   }
+  const verdicts = verification.state === "done" ? verification.verdicts : null;
   const inScope = physicalProducts(graph, excluded);
   const findings: Finding[] = [];
   let meshed = 0;
   let noBody = 0;
   let unread = 0;
+  let unmeshed = 0;
+  let miss = 0;
+  let bodyNone = 0;
+  let errors = 0;
   for (const p of inScope) {
     if (boxes.has(p.guid)) {
       meshed += 1;
       continue;
     }
-    if (!(p.guid in declared)) {
-      unread += 1;
+    unmeshed += 1;
+    const v = verdicts?.[p.guid];
+    const read = p.guid in declared;
+    const decl = read ? declared[p.guid] : null;
+    const params: Record<string, string | number> = decl
+      ? { identifier: decl.identifier, type: decl.type ?? "-", items: itemChain(decl) }
+      : { identifier: "-", type: "-", items: NO_BODY };
+    if (v?.kind === "geometry") {
+      miss += 1;
+      findings.push(finding(p, "body-no-mesh", { ...params, verdict: "geometry", vertices: v.vertices, faces: v.faces }));
       continue;
     }
-    const decl = declared[p.guid];
-    if (decl === null) {
-      noBody += 1;
+    if (v?.kind === "error") errors += 1;
+    if (!decl) {
+      // No Body (or not read): the STEP and ifcfast agree there is nothing
+      // to mesh. Counted, and a finding only where ifcopenshell raised.
+      if (!read) unread += 1;
+      else if (v?.kind !== "error") noBody += 1;
+      if (v?.kind === "error") findings.push(finding(p, "body-no-mesh", { ...params, verdict: "error" }));
       continue;
     }
-    findings.push(
-      finding(p, "body-no-mesh", {
-        identifier: decl.identifier,
-        type: decl.type ?? "-",
-        items: itemChain(decl),
-      }),
-    );
+    if (v?.kind === "none") bodyNone += 1;
+    findings.push(finding(p, "body-no-mesh", { ...params, verdict: v ? v.kind : "unverified" }));
   }
   const applicable = meshed + findings.length;
   const checked = result(
@@ -337,18 +422,30 @@ export function checkBodyWithoutMesh(
     applicable,
     findings,
     share(meshed, applicable),
-    line("body-mesh", { bodyNoMesh: findings.length, meshed, noBody, unread }),
+    line("body-mesh", {
+      bodyNoMesh: verdicts ? bodyNone : findings.length,
+      meshed,
+      noBody,
+      unread,
+      ...(verdicts ? { miss, errors } : {}),
+      ...verifyParams(verification),
+    }),
   );
-  return { ...checked, tally: { meshed, body_no_mesh: findings.length, no_body: noBody, unread } };
+  const tally: Record<string, number> = verdicts
+    ? { meshed, body_no_mesh: bodyNone, no_body: noBody, unread, ifcfast_miss: miss, ifcopenshell_error: errors }
+    : { meshed, body_no_mesh: findings.length, no_body: noBody, unread, unverified: unmeshed };
+  // Nothing confirmed ifcfast's "no mesh": not a pass.
+  if ((verification.state === "failed" || verification.state === "unavailable") && unmeshed > 0 && findings.length === 0) {
+    const why =
+      verification.state === "failed"
+        ? `ifcopenshell failed (${verification.stage}): ${verification.message}`
+        : `not verified with ifcopenshell: ${verification.why}`;
+    return { ...checked, state: "review", applicable: Math.max(applicable, 1), reason: why, tally };
+  }
+  return { ...checked, tally };
 }
 
 /* ── ifcopenshell's verdict and the ifcfast issue ───────────────────────── */
-
-/** What ifcopenshell said about one element, computed in the browser. */
-export type IfcosVerdict =
-  | { kind: "geometry"; vertices: number; faces: number }
-  | { kind: "none" }
-  | { kind: "error"; message: string };
 
 /** The facts an ifcfast issue may carry, and nothing else. Built from class
  *  names and counts only; no field of this type can hold a GUID, a name, a
@@ -379,8 +476,8 @@ export interface IssueFacts {
 const OTHER = "(other)";
 const classToken = (v: unknown) => (/^Ifc[A-Za-z0-9_]{1,80}$/i.test(String(v ?? "")) ? String(v) : OTHER);
 const chainToken = (v: unknown) =>
-  /^(\(no items\)|[A-Za-z0-9_>+, ]{1,400})$/.test(String(v ?? "")) ? String(v) : OTHER;
-const wordToken = (v: unknown) => (/^[A-Za-z0-9]{1,40}$/.test(String(v ?? "")) ? String(v) : OTHER);
+  /^(\(no items\)|\(no Body\)|[A-Za-z0-9_>+, ]{1,400})$/.test(String(v ?? "")) ? String(v) : OTHER;
+const wordToken = (v: unknown) => (/^([A-Za-z0-9]{1,40}|-)$/.test(String(v ?? "")) ? String(v) : OTHER);
 const versionToken = (v: unknown) => (/^[A-Za-z0-9.+_-]{1,40}$/.test(String(v ?? "")) ? String(v) : OTHER);
 
 /** `IfcWall / IfcFacetedBrep / ifcfast 0.5.3+6a16c16`: element class + item
@@ -436,8 +533,10 @@ export function issueFacts(
   return [...groups.values()].filter((g) => g.geometry > 0).map((g) => ({ ...g, types: g.types.sort() }));
 }
 
+/** `Body declared, no mesh: <signature>`, the title an existing issue is
+ *  found by. An element that declares no Body (`NO_BODY`) says so instead. */
 export function issueTitle(facts: IssueFacts): string {
-  return `Body declared, no mesh: ${facts.signature}`;
+  return facts.itemClasses === NO_BODY ? `No Body, no mesh: ${facts.signature}` : `Body declared, no mesh: ${facts.signature}`;
 }
 
 /**

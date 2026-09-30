@@ -13,16 +13,16 @@
 
 import initWasm, { IfcModel } from "../../vendor/ifcfast-wasm/ifcfast_wasm.js";
 import wasmUrl from "../../vendor/ifcfast-wasm/ifcfast_wasm_bg.wasm?url";
-import { runFundamentals } from "../engine/fundamentals";
+import { collectBoxes, unshiftBoxes, type ElementBox } from "../engine/placement";
 import {
-  checkMeshPlacement,
-  collectBoxes,
-  unshiftBoxes,
-  type ElementBox,
-} from "../engine/placement";
-import { checkStoreyConfig } from "../engine/storey-config";
-import { exemptChecks } from "../engine/exempt.ts";
-import { bodyDeclarations, checkBodyWithoutMesh, unmeshedGuids } from "../engine/body-mesh";
+  bodyDeclarations,
+  NOMESH_PENDING,
+  unmeshedGuids,
+  type IssueFacts,
+  type NomeshVerification,
+} from "../engine/body-mesh";
+import { excludedOf, modelChecks, nomeshInput, nomeshIssues, type HeldModel, type HeldRuleset } from "./nomesh-checks";
+import type { NomeshInput } from "./ifcos-verify";
 import { boardData, type BoardData } from "./report-rows";
 import type { CheckResult, IfcGraph, IfcSummary, ModelReport } from "../engine/types";
 import {
@@ -65,7 +65,10 @@ export type ModelWorkerRequest =
   | { kind: "ids"; imported: ImportedIds }
   /** One mesh batch handed back for the treemap measures, or null for "no
    *  more" (`measure-state.ts`). */
-  | { kind: "measure"; batch: MeasureBatch | null; total: number };
+  | { kind: "measure"; batch: MeasureBatch | null; total: number }
+  /** The second check has settled (`ifcos-verify.ts`): re-run the checks
+   *  with it. */
+  | { kind: "nomesh"; verification: NomeshVerification };
 
 export type ModelWorkerResponse =
   /** `graph` is the parse path handing the raw graph out ONCE, so the main
@@ -74,7 +77,24 @@ export type ModelWorkerResponse =
    *  graph came out of that cache in the first place. */
   /** `board` is the report contract (`src/engine/report.ts`) over the same
    *  checks, the rows the dashboard's requirements read. */
-  | { kind: "parsed"; report: ModelReport; profile: ModelProfile; board: BoardData; graph?: IfcGraph }
+  /** `nomesh` is what the second check is asked about (`ifcos-verify.ts`). */
+  | {
+      kind: "parsed";
+      report: ModelReport;
+      profile: ModelProfile;
+      board: BoardData;
+      graph?: IfcGraph;
+      nomesh: NomeshInput;
+    }
+  /** The checks re-run with a settled second check: with no ruleset
+   *  (`base`), and over the last ruleset evaluated (`current`), plus the
+   *  ifcfast issues it yields. */
+  | {
+      kind: "nomesh-checked";
+      base: { checks: CheckResult[]; board: BoardData };
+      current: { checks: CheckResult[]; board: BoardData } | null;
+      issues: IssueFacts[];
+    }
   | { kind: "parse-error"; fileName: string; message: string }
   | { kind: "mesh-batch"; batch: MeshBatch }
   | { kind: "mesh-done"; shift: [number, number, number]; budget: MeshBudget }
@@ -104,6 +124,10 @@ let heldName = "";
 let heldBoxes: Map<string, ElementBox> | null = null;
 /** The treemap measures: the numbers only, never the meshes. */
 let measures: MeasureChannel | null = null;
+/** The second check, as last settled; pending until then. */
+let heldVerification: NomeshVerification = NOMESH_PENDING;
+/** The ruleset last evaluated, and its result. */
+let heldRuleset: HeldRuleset | null = null;
 
 /** `self` inside a module worker is a `DedicatedWorkerGlobalScope`, whose
  *  `postMessage` takes a transfer list. The project compiles against the DOM
@@ -259,15 +283,18 @@ async function parse(fileName: string, bytes: ArrayBuffer) {
       sizeBytes: bytes.byteLength,
       parseMs,
       summary,
-      checks: [
-        ...runFundamentals(graph, summary),
-        checkStoreyConfig(graph, summary, undefined, fileName),
-        checkMeshPlacement(graph, summary, boxes),
-        checkBodyWithoutMesh(graph, boxes),
-      ],
+      checks: modelChecks(held()!),
     };
     const board = measures.baseBoard(boardData(graph, summary, fileName, report.checks, null, null));
-    send({ kind: "parsed", report, profile: withTypeFacts(profileOf(graph), graph), board, graph });
+    send({
+      kind: "parsed",
+      report,
+      profile: withTypeFacts(profileOf(graph), graph),
+      board,
+      graph,
+      // ifcopenshell is handed the plain STEP only.
+      nomesh: nomeshInput(graph, boxes, zipped ? "ifczip" : null),
+    });
   } catch (err) {
     // A file that cannot be parsed is reported as itself, never folded into
     // the others as a pass or dropped from the run.
@@ -288,17 +315,8 @@ function evaluate(ruleset: Ruleset) {
     const graph: ModelGraph = heldGraph;
     const summary: ModelSummary = heldSummary;
     const result = evaluateRuleset(ruleset, graph, summary, heldName);
-    const excluded = result.excludedGuids?.length ? new Set(result.excludedGuids) : undefined;
-    const checks = exemptChecks(
-      [
-        ...runFundamentals(heldGraph, heldSummary, excluded),
-        checkStoreyConfig(heldGraph, heldSummary, ruleset, heldName),
-        checkMeshPlacement(heldGraph, heldSummary, heldBoxes, excluded),
-        checkBodyWithoutMesh(heldGraph, heldBoxes, excluded),
-      ],
-      ruleset,
-      heldName,
-    );
+    heldRuleset = { ruleset, result };
+    const checks = modelChecks(held()!, excludedOf(result), ruleset);
     const built = boardData(heldGraph, heldSummary, heldName, checks, ruleset, result);
     const board = measures ? measures.currentBoard(built) : built;
     send({ kind: "evaluated", result, checks, board });
@@ -307,6 +325,38 @@ function evaluate(ruleset: Ruleset) {
       kind: "evaluate-error",
       message: err instanceof Error ? err.message : String(err),
     });
+  }
+}
+
+/** The held model as `nomesh-checks.ts` reads it. */
+function held(): HeldModel | null {
+  if (heldGraph === null || heldSummary === null) return null;
+  return { graph: heldGraph, summary: heldSummary, name: heldName, boxes: heldBoxes, verification: heldVerification };
+}
+
+/** A settled second check: the checks again, base and current. */
+function nomesh(verification: NomeshVerification) {
+  heldVerification = verification;
+  const model = held();
+  if (!model) return;
+  try {
+    const baseChecks = modelChecks(model);
+    const baseBoard = boardData(model.graph, model.summary, model.name, baseChecks, null, null);
+    let current: { checks: CheckResult[]; board: BoardData } | null = null;
+    if (heldRuleset) {
+      const { ruleset, result } = heldRuleset;
+      const checks = modelChecks(model, excludedOf(result), ruleset);
+      const built = boardData(model.graph, model.summary, model.name, checks, ruleset, result);
+      current = { checks, board: measures ? measures.currentBoard(built) : built };
+    }
+    send({
+      kind: "nomesh-checked",
+      base: { checks: baseChecks, board: measures ? measures.baseBoard(baseBoard) : baseBoard },
+      current,
+      issues: nomeshIssues(model),
+    });
+  } catch (err) {
+    send({ kind: "evaluate-error", message: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -329,6 +379,7 @@ self.onmessage = (event: MessageEvent<ModelWorkerRequest>) => {
   const message = event.data;
   if (message.kind === "parse") void parse(message.fileName, message.bytes);
   else if (message.kind === "ids") evaluateIdsHere(message.imported);
+  else if (message.kind === "nomesh") nomesh(message.verification);
   else if (message.kind === "measure") {
     if (measures) send(measures.feed(message.batch, message.total));
   } else evaluate(message.ruleset);

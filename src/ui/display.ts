@@ -15,7 +15,7 @@
 
 import type { CheckResult, DetailLine, DisplayNoun, DisplayValue } from "../engine/types";
 import type { Lang } from "./i18n";
-import { locale } from "./i18n.ts";
+import { locale, t } from "./i18n.ts";
 import { formatCount } from "./format.ts";
 
 /** Singular and plural, per language. A count of one is common enough here
@@ -170,8 +170,7 @@ export function detailText(detail: DetailLine, lang: Lang, fallback: string): st
       } else {
         band = String(p.note);
       }
-      const none = nb ? `${n("unmeshed")} uten geometri` : `${n("unmeshed")} without geometry`;
-      return `${far}; ${band}; ${none}`;
+      return `${far}; ${band}; ${unmeshedText(p, lang)}`;
     }
     case "storey-config":
       return nb
@@ -181,16 +180,70 @@ export function detailText(detail: DetailLine, lang: Lang, fallback: string): st
             `config has ${n("config")}, ${n("absent")} absent from this file`;
     case "body-mesh": {
       const unread = Number(p.unread);
-      return nb
-        ? `${n("bodyNoMesh")} med Body uten mesh; ${n("meshed")} med mesh; ${n("noBody")} uten mesh og uten Body` +
-            (unread ? `; ${n("unread")} ikke i STEP-fila` : "")
-        : `${n("bodyNoMesh")} declare a Body representation and have no mesh; ${n("meshed")} meshed; ` +
-            `${n("noBody")} without mesh declare no Body` +
-            (unread ? `; ${n("unread")} not found in the STEP bytes` : "");
+      const unreadText = unread ? (nb ? `; ${n("unread")} ikke i STEP-fila` : `; ${n("unread")} not found in the STEP bytes`) : "";
+      if (p.verify === "done") {
+        const errors = Number(p.errors);
+        return (
+          (nb
+            ? `${n("meshed")} med mesh; ${n("miss")} ${t("nomesh.miss", lang)}; ${n("bodyNoMesh")} med Body uten geometri; ` +
+              `${n("noBody")} uten geometri og uten Body`
+            : `${n("meshed")} meshed; ${n("miss")} ${t("nomesh.miss", lang)}; ${n("bodyNoMesh")} declare a Body and have no geometry; ` +
+              `${n("noBody")} without geometry declare no Body`) +
+          (errors ? `; ${n("errors")} ${t("ifcos.error", lang)}` : "") +
+          unreadText +
+          verifyText(p, lang)
+        );
+      }
+      return (
+        (nb
+          ? `${n("bodyNoMesh")} med Body uten mesh; ${n("meshed")} med mesh; ${n("noBody")} uten mesh og uten Body`
+          : `${n("bodyNoMesh")} declare a Body representation and have no mesh; ${n("meshed")} meshed; ` +
+            `${n("noBody")} without mesh declare no Body`) +
+        unreadText +
+        verifyText(p, lang)
+      );
     }
     default:
       return fallback;
   }
+}
+
+/** Why the second check could not run (`NomeshVerification.why`). */
+function unavailableText(why: unknown, lang: Lang): string {
+  if (why === "no-file") return t("ifcos.noFile", lang);
+  return String(why);
+}
+
+/** The second check's state at the end of a no-mesh line (`body-mesh.ts`):
+ *  «ikke verifisert» until ifcopenshell has run. No `verify` param: a line
+ *  from before the second check existed, said as it was. */
+export function verifyText(p: Record<string, string | number>, lang: Lang): string {
+  if (p.verify === "done") return p.ifcos ? `; ifcopenshell ${p.ifcos}` : "";
+  if (p.verify === "failed") return `; ${t("ifcos.failed", lang)} (${p.stage})`;
+  if (p.verify === "unavailable") return `; ${t("nomesh.unverified", lang)} (${unavailableText(p.why, lang)})`;
+  if (p.verify === "pending") return `; ${t("nomesh.unverified", lang)}`;
+  return "";
+}
+
+/** `mesh-placement`: «uten geometri» is the ifcfast count, marked, until the
+ *  second check is done; then only what ifcopenshell also finds none for. */
+function unmeshedText(p: Record<string, string | number>, lang: Lang): string {
+  const n = (key: string) => formatCount(Number(p[key]), lang);
+  const nb = lang === "nb";
+  if (p.verify !== "done") {
+    const state =
+      p.verify === "failed"
+        ? ` (${t("ifcos.failed", lang)})`
+        : p.verify
+          ? ` (${t("nomesh.unverified", lang)})`
+          : "";
+    return `${n("unmeshed")} ${nb ? "uten geometri" : "without geometry"}${state}`;
+  }
+  return (
+    `${n("unmeshedNone")} ${nb ? "uten geometri" : "without geometry"}` +
+    (Number(p.unmeshedMiss) ? `, ${n("unmeshedMiss")} ${t("nomesh.miss", lang)}` : "") +
+    (Number(p.unmeshedError) ? `, ${n("unmeshedError")} ${t("ifcos.error", lang)}` : "")
+  );
 }
 
 /** A check's detail line: the coded one localised, else the engine's text. */

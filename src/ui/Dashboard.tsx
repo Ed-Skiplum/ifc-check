@@ -325,6 +325,7 @@ function buildTiles({
           hover={view.hover}
           onPick={onPick}
           onHover={onHover}
+          modelId={model.id}
         />
       ),
     },

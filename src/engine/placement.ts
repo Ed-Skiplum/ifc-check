@@ -69,6 +69,7 @@
 
 import type { CheckResult, Finding, IfcGraph, IfcSummary, ProductRow } from "./types";
 import { finding, line, literal, result, share } from "./fundamentals.ts";
+import { NOMESH_PENDING, nomeshCounts, verifyParams, type NomeshVerification } from "./body-mesh.ts";
 
 /** Metres. How far BELOW its storey's elevation a mesh bottom may sit and
  *  still be yellow rather than red (edkjo's "within 100mm", ifc-check#2). There
@@ -465,6 +466,10 @@ export function checkMeshPlacement(
   excluded?: ReadonlySet<string>,
   /** Why `boxes` is null, printed as the not_applicable reason. */
   noGeometry = "no geometry: the mesh pass failed",
+  /** The second check on the unmeshed elements (`body-mesh.ts`): the line's
+   *  "without geometry" count is unverified until it is done, then counts
+   *  only what ifcopenshell also finds none for. */
+  verification: NomeshVerification = NOMESH_PENDING,
 ): CheckResult {
   const id = "mesh-placement";
   if (boxes === null) {
@@ -561,10 +566,27 @@ export function checkMeshPlacement(
       cutoff: round(ctx.cutoff, 1),
       ...band,
       unmeshed: ctx.unmeshed,
+      ...unmeshedParams(products, boxes, verification),
     }),
   );
   // Only-yellow is an Advarsel, not an Avvik: `review` with a deviation
   // severity renders as warn in `verdictOf`, which is the whole mapping.
   if (checked.state === "fail" && tally.red === 0 && tally.far === 0) checked.state = "review";
   return { ...checked, tally };
+}
+
+/** The "without geometry" part of the line: ifcfast's count, and what the
+ *  second check made of it. */
+function unmeshedParams(
+  products: readonly ProductRow[],
+  boxes: ReadonlyMap<string, ElementBox>,
+  verification: NomeshVerification,
+): Record<string, string | number> {
+  const verify = verifyParams(verification);
+  if (verification.state !== "done") return verify;
+  const counts = nomeshCounts(
+    products.filter((p) => !boxes.has(p.guid)).map((p) => p.guid),
+    verification,
+  );
+  return { ...verify, unmeshedNone: counts.none, unmeshedMiss: counts.miss, unmeshedError: counts.errors, unmeshedUnverified: counts.unverified };
 }
