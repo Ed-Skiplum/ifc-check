@@ -104,10 +104,7 @@ for (const u of [88, 93, 100, 108, 112]) {
 const contents = {
   base: { ifc: 5, counts: 4 },
   fewCounts: { ifc: 5, counts: 2 },
-  // The verification as a left sidebar (2026-09-29), at the two widths
-  // `sideModules` picks from.
-  side4: { ifc: 5, counts: 4, side: 4 },
-  side5: { ifc: 5, counts: 4, side: 5 },
+  noCounts: { ifc: 5, counts: 0 },
 };
 // STABLE LAYOUT (2026-09-29, the owner: "I dont like this components
 // changing places based on what is selected"): the layout is the window's
@@ -131,6 +128,7 @@ const REFERENCE = [[1440, 900], [1920, 1080], [2112, 1267], [2112, 1300], [2560,
 
 let count = 0;
 let taller = 0;
+const dockSlots = new Map();
 for (const [design, content] of Object.entries(contents)) {
   const layout = layoutOverview;
   for (const [w, h] of windows) {
@@ -189,65 +187,51 @@ for (const [design, content] of Object.entries(contents)) {
     const rowPx = out.rowPx ?? grid.u;
     check(out.rows <= grid.rows && Math.abs(out.rows * rowPx + (out.rows - 1) * MG_GAP - mgSpanPx(grid.rows, grid.u)) < 1e-6, `rule 9: ${at} ${out.rows} rows of ${rowPx.toFixed(1)} px are not the grid's height`);
     if (out.rowPx) taller += 1;
-    // The docks and the model are always tiles; the requirements too (a list
-    // or c's panels).
+    // The arrangement (2026-09-30, the owner: "the scope tile should go
+    // below the verification tile on the left margin and let the properties
+    // panel take that full height"; "Right edge, full height"). By priority
+    // the model, the checks and Detail are always tiles; Scope a tile, or at
+    // the narrow break a fixed tab of Detail.
     const ids = new Set(out.tiles.map((t) => t.id));
     const tabbed = (id) => out.tiles.some((t) => t.tabs.includes(id));
-    // The docks have a slot of their own: Scope always a tile, Detail a tile
-    // wherever the window seats it (12 × 5 and up), under that a fixed tab of
-    // Scope. Neither hosts any other tab.
-    check(ids.has("viewer") && ids.has("scope"), `${at}: the model or Scope is not a tile`);
-    check(
-      ids.has("detail") || ((grid.cols < 12 || grid.rows < 5) && out.tiles.find((t) => t.id === "scope")?.tabs.includes("detail")),
-      `${at}: Detail is not a tile`,
-    );
-    for (const t of out.tiles)
-      if (t.id === "scope" || t.id === "detail" || t.kind === "viewer")
-        check(t.tabs.every((id) => id === "detail" || id.startsWith("count")), `${at}: ${t.id} hosts ${t.tabs.join(",")}`);
-    check(ids.has("reqs") || ids.has("ifc0"), `${at}: the requirements have no tile`);
-    check(!ids.has("mmi") && ![...ids].some((id) => /^std\d+$/.test(id)), `${at}: a Standardkrav tile on the Overview`);
-    // No treemap on the Overview (2026-09-30); the codes a tile or a tab.
-    check(![...ids].some((id) => /tree/.test(id)) && !out.tiles.some((t) => t.tabs.some((id) => /tree/.test(id))), `${at}: a treemap on the Overview`);
-    check(ids.has("codes") || tabbed("codes"), `${at}: the classification codes are neither a tile nor a tab`);
-    // The KPI row: every IFC-struktur requirement an S card on the TOP row,
-    // never a list; the floor sidebar the full height under it, on the right.
-    if (out.band === "side-pack") {
-      const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
-      check(cards.length === content.ifc && cards.every((t) => t.size === "S"), `${at}: the KPI cards are not S cards`);
-      const order = [...cards].sort((a, b) => a.y - b.y || a.x - b.x).map((t) => t.id).join();
-      check(order === cards.map((_, i) => `ifc${i}`).join(), `${at}: the KPI cards do not read in order (${order})`);
-      check(ids.has("floors") || tabbed("floors"), `${at}: the floors are neither a tile nor a tab`);
-    } else if (!ids.has("reqs")) {
-      const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
-      check(cards.length === content.ifc && cards.every((t) => t.y === out.top && t.size === "S"), `${at}: the KPI cards are not one S row on top`);
-      // The floor sidebar under the KPI row, or where the row cannot cover
-      // the width, the board's full height.
-      const f = out.tiles.find((t) => t.id === "floors");
-      const full = out.band.endsWith("floors");
-      check(
-        !!f && f.y === (full ? out.top : out.top + 2) && f.h === (full ? out.usedRows : out.usedRows - 2) && f.x + f.w === out.offset + out.used,
-        `${at}: the floor sidebar is not the full height on the right (${f ? `${f.x},${f.y} ${f.w}×${f.h}` : "none"})`,
-      );
-    } else check(ids.has("floors") || out.tiles.some((t) => t.tabs.includes("floors")), `${at}: the floors are neither a tile nor a tab`);
-    // The verification sidebar: on the left, the board's full height, its
-    // width; or, where the columns left seat no board, back in the board.
-    if (content.side) {
-      const c = out.tiles.find((t) => t.id === "checks");
-      // Its width is its rows' own, or up to three more where the board
-      // beside it covers no other width.
-      if (out.band === "kpis+side" || out.band === "kpis+side+floors" || out.band === "side-pack")
-        check(
-          !!c && c.x === out.offset && c.y === out.top && c.h === out.usedRows && c.w <= content.side + 3 && c.w >= 4 && c.size === "tall",
-          `${at}: the verification sidebar is not the full height on the left (${c ? `${c.x},${c.y} ${c.w}×${c.h}` : "none"})`,
-        );
-      else {
-        // The break: the sidebar goes only where the board beside it cannot
-        // seat five S cards, the XL model and the two docks as tiles (under
-        // 14 columns or 6 rows).
-        check(grid.cols < 14 || grid.rows < 6, `${at}: no sidebar at ${grid.cols}×${grid.rows}`);
-        check(!!c || tabbed("checks"), `${at}: no sidebar, and the checks are neither a tile nor a tab`);
-      }
+    const tile = (id) => out.tiles.find((t) => t.id === id);
+    check(ids.has("viewer") && ids.has("checks") && ids.has("detail"), `${at}: the model, the checks or Detail is not a tile`);
+    check(ids.has("scope") || tile("detail")?.tabs.includes("scope"), `${at}: Scope is neither a tile nor Detail's tab`);
+    for (const t of out.tiles) {
+      if (t.id === "detail") check(t.tabs.every((id) => id === "scope"), `${at}: Detail hosts ${t.tabs.join(",")}`);
+      else if (t.id === "scope" || t.kind === "viewer") check(t.tabs.length === 0, `${at}: ${t.id} hosts ${t.tabs.join(",")}`);
     }
+    const checks = tile("checks");
+    const detail = tile("detail");
+    const scope = tile("scope");
+    if (out.band?.startsWith("columns") || out.band?.startsWith("left")) {
+      // The left column: the checks on top, the lower tile under them, the
+      // two the full height; Detail the full height on the right edge.
+      check(checks.x === 0 && checks.y === 0, `${at}: the checks are not top left (${checks.x},${checks.y})`);
+      const lower = out.band.startsWith("columns") ? scope : detail;
+      if (lower) check(lower.x === 0 && lower.w === checks.w && lower.y === checks.h && lower.y + lower.h === out.rows, `${at}: ${lower.id} is not under the checks (${lower.x},${lower.y} ${lower.w}×${lower.h})`);
+      else check(checks.h === out.rows, `${at}: the checks are not the full height`);
+      if (out.band.startsWith("columns"))
+        check(detail.x + detail.w === grid.cols && detail.y === 0 && detail.h === out.rows, `${at}: Detail is not the full height on the right edge (${detail.x},${detail.y} ${detail.w}×${detail.h})`);
+      // The KPI row: every IFC-struktur requirement an S card on the top row,
+      // in order, between the columns.
+      if (out.band.includes("kpis")) {
+        const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id)).sort((a, b) => a.x - b.x);
+        check(cards.length === content.ifc && cards.every((t, i) => t.y === 0 && t.size === "S" && t.id === `ifc${i}`), `${at}: the KPI cards are not one S row on top, in order`);
+        check(cards[0].x === checks.w, `${at}: the KPI row does not start beside the checks`);
+      } else check(ids.has("reqs") || tabbed("reqs"), `${at}: the requirements are neither a tile nor a tab`);
+    } else check(ids.has("reqs") || ids.has("ifc0") || tabbed("reqs"), `${at}: the requirements have no tile`);
+    check(ids.has("floors") || tabbed("floors"), `${at}: the floors are neither a tile nor a tab`);
+    check(ids.has("codes") || tabbed("codes"), `${at}: the classification codes are neither a tile nor a tab`);
+    check(!ids.has("mmi") && ![...ids].some((id) => /^std\d+$/.test(id)), `${at}: a Standardkrav tile on the Overview`);
+    // No treemap on the Overview (2026-09-30).
+    check(![...ids].some((id) => /tree/.test(id)) && !out.tiles.some((t) => t.tabs.some((id) => /tree/.test(id))), `${at}: a treemap on the Overview`);
+    // Detail and Scope are fixed per window: the same slot whatever the
+    // loaded content's cards.
+    const docks = JSON.stringify([detail, scope].map((t) => t && [t.x, t.y, t.w, t.h]));
+    const key = `${w}×${h}`;
+    if (dockSlots.has(key)) check(dockSlots.get(key) === docks, `stable: ${at} Detail or Scope moves with the content (${docks} vs ${dockSlots.get(key)})`);
+    else dockSlots.set(key, docks);
     if (REFERENCE.some(([a, b]) => a === w && b === h))
       console.log(`  ${design} ${w}×${h} ${grid.cols}×${grid.rows}: ${out.band ?? "narrow fallback"} · board ${out.used}×${out.usedRows} · ${ms.toFixed(0)} ms · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
     // Rule 8: a tile moved into a tab has lower priority than every tile of

@@ -75,7 +75,6 @@ import {
   MG_MARGIN,
   layoutOverview,
   mgGrid,
-  sideModules,
   type MgGrid,
   type MgLayout,
   type MgPlace,
@@ -167,41 +166,20 @@ export function AltBoard(props: AltBoardProps) {
   const { ref, grid } = useModuleGrid();
   const reqs = useMemo(() => overviewRequirements(model), [model]);
   const counts = useMemo(() => boardCards(model, lang).countCards, [model, lang]);
-  // The verification sidebar's width is its rows' own (`sideModules`): the
-  // checks laid out once more, off screen at their natural width, measured.
-  const rest = useMemo(() => overviewChecks(model), [model]);
-  const probe = useRef<HTMLDivElement>(null);
-  const [needPx, setNeedPx] = useState(0);
-  useLayoutEffect(() => {
-    const el = probe.current;
-    if (!el) return;
-    const measure = () => setNeedPx(Math.ceil(el.getBoundingClientRect().width));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  const side = grid && needPx > 0 && rest.length > 0 ? sideModules(needPx, grid.u) : 0;
   // The layout is a pure function of the window (`grid`) and the loaded
   // content (the model's requirements, counts, checks), never of
   // selection, filter or what Scope and Detail hold (2026-09-29, the owner:
   // "I dont like this components changing places based on what is
   // selected. I prefer a clean UI with predictable movements").
   const layout = useMemo<MgLayout | null>(
-    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, side }) : null),
-    [grid, reqs.length, counts.length, side],
+    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length }) : null),
+    [grid, reqs.length, counts.length],
   );
-  const noFocus = useMemo(() => new Map(), []);
 
   const bodies = layout ? tileBodies(props, reqs, counts, layout) : null;
 
   return (
     <div ref={ref} className="relative w-full min-w-0" style={VARS}>
-      <div aria-hidden inert className="pointer-events-none invisible absolute top-0 left-0 h-0 overflow-hidden">
-        <div ref={probe} className="flex w-max">
-          <Verification lang={lang} checks={rest} claimed={noFocus} selected={null} onFocus={() => {}} flow />
-        </div>
-      </div>
       {grid && layout && bodies ? (
         <div
           data-mg-grid
