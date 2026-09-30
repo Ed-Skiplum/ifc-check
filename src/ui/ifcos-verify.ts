@@ -1,12 +1,21 @@
-/** The ifcopenshell run behind the `body-no-mesh` check, per model.
+/** The second check, per model: ifcopenshell on every element ifcfast
+ * streamed no mesh for (edkjo 2026-09-30: *"i dont trust ifcfast on that
+ * yet, so just add the second check"*).
  *
- * On demand (the control in the derivation band): the file is read again
- * from the `File` the user dropped, handed to `ifcos-worker.ts` with the
- * check's GUIDs, and the verdicts come back per element. Where ifcopenshell
- * found geometry ifcfast did not, one ifcfast issue per signature: first the
- * unauthenticated GitHub search for an open issue carrying that signature in
- * its title, then either that issue's link or a prefilled new-issue link the
- * user opens. Nothing is filed from here; a public page holds no token.
+ * Automatic: `useModels` hands each model's unmeshed GUIDs here once its
+ * checks are on screen (`verifyNomesh`). Runs are queued and go one at a
+ * time, since Pyodide plus an opened model is a couple of GB; the file is
+ * read again from the `File` the user dropped and handed to
+ * `ifcos-worker.ts`, which answers in batches. A model restored from the
+ * cache after a reload has no file this session: that is `unavailable`, said
+ * as such, never a pass. The settled state goes back to the model worker
+ * (`NomeshVerification`), which re-runs the checks with it.
+ *
+ * Where ifcopenshell found geometry ifcfast did not, one ifcfast issue per
+ * signature, filed automatically through the relay (`relay/relay.mjs`),
+ * once per signature per session. The relay unreachable or refusing: the
+ * unauthenticated GitHub search and the prefilled new-issue link the user
+ * opens, as before, marked as a failed filing.
  *
  * Held outside React state (a store with `useSyncExternalStore`), so the
  * model list does not re-render for a run's stage changes.
@@ -14,36 +23,51 @@
 
 import { useSyncExternalStore } from "react";
 import {
-  issueFacts,
   issueSearchUrl,
   matchingIssue,
   newIssueUrl,
   type IfcosVerdict,
   type IssueFacts,
+  type NomeshVerification,
 } from "../engine/body-mesh";
-import type { Finding } from "../engine/types";
 import type { IfcosResponse, IfcosStage } from "./ifcos-worker";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
 
+/** The relay that files ifcfast issues (`relay/DEPLOY.md`). Overridable at
+ *  build time, for a local relay run against a mock GitHub. */
+export const RELAY_URL: string =
+  (import.meta.env.VITE_IFCFAST_RELAY as string | undefined) ?? "https://ifc-check.skiplum.com/relay/ifcfast-miss";
+
 export type IssueLink =
-  | { state: "searching" }
-  | { state: "found"; url: string; number: number }
-  | { state: "new"; url: string }
-  /** The search did not answer (rate limit, offline): the new-issue link is
-   *  still offered, marked as not checked against existing issues. */
-  | { state: "unchecked"; url: string; message: string };
+  | { state: "posting" }
+  /** The relay filed it: a new issue, a comment on the open one, or nothing
+   *  (the open one was commented on less than a day ago). */
+  | { state: "filed"; url: string; number: number; action: "created" | "commented" | "skipped" }
+  | { state: "searching"; relayError: string }
+  | { state: "found"; url: string; number: number; relayError: string }
+  | { state: "new"; url: string; relayError: string }
+  /** The search did not answer either (rate limit, offline): the new-issue
+   *  link is still offered, marked as not checked against existing issues. */
+  | { state: "unchecked"; url: string; message: string; relayError: string };
+
+/** What `useModels` knows about a model's unmeshed elements when its checks
+ *  land: their GUIDs, or why there is no list (mesh pass failed, capped
+ *  cache, ifczip). */
+export type NomeshInput = { guids: string[] } | { unavailable: string };
 
 export interface IfcosRun {
-  status: "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed" | "unavailable";
   stage?: IfcosStage;
+  /** Elements answered so far, of those asked. */
+  progress?: { done: number; total: number };
   /** The failure, as the stage that failed reported it. */
   error?: string;
-  /** The model was restored from the cache: this session never had its
-   *  bytes, so there is nothing to hand ifcopenshell. */
-  noFile?: boolean;
+  /** `unavailable`: why (`no-file`, `ifczip`, or the mesh pass's reason). */
+  why?: string;
   version?: string;
+  /** Per element, filled batch by batch while running. */
   verdicts?: Record<string, IfcosVerdict>;
   issues?: { facts: IssueFacts; link: IssueLink }[];
 }
@@ -66,89 +90,235 @@ export function ifcosRunOf(modelId: string): IfcosRun | undefined {
   return runs.get(modelId);
 }
 
-export function useIfcosRun(modelId: string): IfcosRun | undefined {
-  return useSyncExternalStore(subscribe, () => runs.get(modelId));
+export function useIfcosRun(modelId: string | undefined): IfcosRun | undefined {
+  return useSyncExternalStore(subscribe, () => (modelId === undefined ? undefined : runs.get(modelId)));
 }
 
+/** The run as the checks read it. */
+export function verificationOf(run: IfcosRun | undefined): NomeshVerification {
+  if (!run) return { state: "pending" };
+  if (run.status === "done") return { state: "done", version: run.version ?? "", verdicts: run.verdicts ?? {} };
+  if (run.status === "failed") return { state: "failed", stage: run.stage ?? "pyodide", message: run.error ?? "" };
+  if (run.status === "unavailable") return { state: "unavailable", why: run.why ?? "" };
+  return { state: "pending" };
+}
+
+/* ── the queue: one ifcopenshell at a time ──────────────────────────────── */
+
+interface Job {
+  modelId: string;
+  file: File;
+  guids: string[];
+  settled: (verification: NomeshVerification) => void;
+}
+
+const queue: Job[] = [];
+let active: { modelId: string; worker: Worker | null } | null = null;
+
 export function clearIfcosRun(modelId: string) {
+  const at = queue.findIndex((j) => j.modelId === modelId);
+  if (at >= 0) queue.splice(at, 1);
+  if (active?.modelId === modelId) {
+    active.worker?.terminate();
+    active = null;
+    pump();
+  }
+  inputs.delete(modelId);
+  generations.delete(modelId);
   if (runs.delete(modelId)) for (const l of listeners) l();
 }
 
-async function lookupIssue(facts: IssueFacts): Promise<IssueLink> {
+function pump() {
+  if (active || queue.length === 0) return;
+  const job = queue.shift()!;
+  active = { modelId: job.modelId, worker: null };
+  void run(job);
+}
+
+function finish(job: Job, next: IfcosRun) {
+  if (active?.modelId !== job.modelId) return;
+  active.worker?.terminate();
+  active = null;
+  set(job.modelId, next);
+  job.settled(verificationOf(next));
+  pump();
+}
+
+async function run(job: Job) {
+  const { modelId } = job;
+  set(modelId, { status: "running", stage: "pyodide", progress: { done: 0, total: job.guids.length }, verdicts: {} });
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await job.file.arrayBuffer();
+  } catch (err) {
+    finish(job, { status: "failed", stage: "open", error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  if (active?.modelId !== modelId) return;
+  const worker = new Worker(new URL("./ifcos-worker.ts", import.meta.url), { type: "module" });
+  active.worker = worker;
+  worker.onerror = (event) => {
+    const current = runs.get(modelId);
+    finish(job, { status: "failed", stage: current?.stage ?? "pyodide", error: event.message || "worker error" });
+  };
+  worker.onmessage = (event: MessageEvent<IfcosResponse>) => {
+    const message = event.data;
+    const current = runs.get(modelId);
+    if (!current || active?.modelId !== modelId) return;
+    if (message.kind === "stage") {
+      set(modelId, { ...current, stage: message.stage });
+    } else if (message.kind === "batch") {
+      set(modelId, {
+        ...current,
+        progress: { done: message.done, total: message.total },
+        verdicts: { ...current.verdicts, ...message.verdicts },
+      });
+    } else if (message.kind === "failed") {
+      finish(job, { status: "failed", stage: message.stage, error: message.message });
+    } else {
+      finish(job, { status: "done", version: message.version, verdicts: current.verdicts ?? {}, progress: current.progress });
+    }
+  };
+  worker.postMessage({ kind: "verify", bytes, guids: job.guids }, [bytes]);
+}
+
+/**
+ * Start the second check for a model. `settled` receives the verification
+ * once it is final (done, failed, unavailable), to hand to the model worker.
+ * `file` absent = a model restored from the cache after a reload.
+ */
+export function verifyNomesh(
+  modelId: string,
+  file: File | undefined,
+  input: NomeshInput,
+  settled: (verification: NomeshVerification) => void,
+) {
+  inputs.set(modelId, { file, input, settled });
+  const current = runs.get(modelId);
+  if (current && current.status !== "failed" && current.status !== "unavailable") return;
+  const unavailable = (why: string) => {
+    const next: IfcosRun = { status: "unavailable", why };
+    set(modelId, next);
+    settled(verificationOf(next));
+  };
+  if ("unavailable" in input) return unavailable(input.unavailable);
+  if (input.guids.length === 0) {
+    // Nothing without a mesh: nothing for ifcopenshell to confirm.
+    const next: IfcosRun = { status: "done", verdicts: {}, progress: { done: 0, total: 0 } };
+    set(modelId, next);
+    settled(verificationOf(next));
+    return;
+  }
+  if (!file) return unavailable("no-file");
+  set(modelId, { status: "queued", progress: { done: 0, total: input.guids.length } });
+  queue.push({ modelId, file, guids: input.guids, settled });
+  pump();
+}
+
+/** What each model was started with, so a failed run can be run again. */
+const inputs = new Map<
+  string,
+  { file: File | undefined; input: NomeshInput; settled: (verification: NomeshVerification) => void }
+>();
+
+/** Run a failed second check again (the control in the derivation band). */
+export function retryNomesh(modelId: string) {
+  const held = inputs.get(modelId);
+  const current = runs.get(modelId);
+  if (!held || current?.status !== "failed") return;
+  verifyNomesh(modelId, held.file, held.input, held.settled);
+}
+
+/* ── filing ─────────────────────────────────────────────────────────────── */
+
+/** Signature -> the filing started for it this session: once per signature,
+ *  whichever model found it first. */
+const filed = new Map<string, Promise<IssueLink>>();
+/** The latest `fileIssues` per model: an older one stops writing. */
+const generations = new Map<string, number>();
+
+async function lookupIssue(facts: IssueFacts, relayError: string): Promise<IssueLink> {
   const url = newIssueUrl(facts);
   try {
     const response = await fetch(issueSearchUrl(facts.signature), {
       headers: { Accept: "application/vnd.github+json" },
     });
-    if (!response.ok) return { state: "unchecked", url, message: `GitHub search ${response.status}` };
+    if (!response.ok) return { state: "unchecked", url, message: `GitHub search ${response.status}`, relayError };
     const body = (await response.json()) as { items?: { title?: string; html_url?: string; number?: number }[] };
     const hit = matchingIssue(facts.signature, body.items ?? []);
-    return hit ? { state: "found", ...hit } : { state: "new", url };
+    return hit ? { state: "found", ...hit, relayError } : { state: "new", url, relayError };
   } catch (err) {
-    return { state: "unchecked", url, message: err instanceof Error ? err.message : String(err) };
+    return { state: "unchecked", url, message: err instanceof Error ? err.message : String(err), relayError };
   }
 }
 
-/** Run ifcopenshell on the check's findings. `file` absent = a model restored
- *  from the cache, whose bytes this session never had: the run fails and
- *  says so. */
-export function startIfcosRun(modelId: string, file: File | undefined, findings: readonly Finding[]) {
-  const current = runs.get(modelId);
-  if (current?.status === "running") return;
-  if (!file) {
-    set(modelId, { status: "failed", noFile: true });
-    return;
-  }
-  const guids = [...new Set(findings.map((f) => f.guid))];
-  set(modelId, { status: "running", stage: "pyodide" });
-  void (async () => {
-    let bytes: ArrayBuffer;
-    try {
-      bytes = await file.arrayBuffer();
-    } catch (err) {
-      set(modelId, { status: "failed", error: err instanceof Error ? err.message : String(err) });
-      return;
+/** POST the facts (nothing else: `IssueFacts` has no field for client data)
+ *  to the relay; on any failure, the search and the prefilled link. */
+async function file(facts: IssueFacts): Promise<IssueLink> {
+  let relayError: string;
+  try {
+    const response = await fetch(RELAY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(facts),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      action?: string;
+      url?: string;
+      number?: number;
+      error?: string;
+    };
+    if (
+      response.ok &&
+      (body.action === "created" || body.action === "commented" || body.action === "skipped") &&
+      typeof body.url === "string" &&
+      typeof body.number === "number"
+    ) {
+      return { state: "filed", url: body.url, number: body.number, action: body.action };
     }
-    const worker = new Worker(new URL("./ifcos-worker.ts", import.meta.url), { type: "module" });
-    worker.onerror = (event) => {
-      worker.terminate();
-      set(modelId, { status: "failed", error: event.message || "worker error" });
-    };
-    worker.onmessage = (event: MessageEvent<IfcosResponse>) => {
-      const message = event.data;
-      if (message.kind === "stage") {
-        set(modelId, { status: "running", stage: message.stage });
-        return;
+    relayError = `relay ${response.status}${body.error ? `: ${body.error}` : ""}`;
+  } catch (err) {
+    relayError = `relay unreachable: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  return lookupIssue(facts, relayError);
+}
+
+/** File the ifcfast misses the model worker grouped (`issueFacts`), one
+ *  signature at a time. */
+export function fileIssues(modelId: string, facts: readonly IssueFacts[]) {
+  const current = runs.get(modelId);
+  if (!current || facts.length === 0) return;
+  const issues = facts.map((f) => ({ facts: f, link: { state: "posting" } as IssueLink }));
+  const generation = (generations.get(modelId) ?? 0) + 1;
+  generations.set(modelId, generation);
+  set(modelId, { ...current, issues });
+  void (async () => {
+    const done = [...issues];
+    for (let i = 0; i < done.length; i += 1) {
+      const signature = done[i].facts.signature;
+      let pending = filed.get(signature);
+      if (!pending) {
+        pending = file(done[i].facts);
+        filed.set(signature, pending);
       }
-      worker.terminate();
-      if (message.kind === "failed") {
-        set(modelId, { status: "failed", stage: message.stage, error: message.message });
-        return;
-      }
-      const facts = issueFacts(findings, message.verdicts, message.version);
-      const issues = facts.map((f) => ({ facts: f, link: { state: "searching" } as IssueLink }));
-      set(modelId, { status: "done", version: message.version, verdicts: message.verdicts, issues });
-      // The search API allows ten unauthenticated queries a minute: one per
-      // signature, sequentially.
-      void (async () => {
-        const done = [...issues];
-        for (let i = 0; i < done.length; i += 1) {
-          done[i] = { facts: done[i].facts, link: await lookupIssue(done[i].facts) };
-          const latest = runs.get(modelId);
-          if (!latest || latest.verdicts !== message.verdicts) return;
-          set(modelId, { ...latest, issues: [...done] });
-        }
-      })();
-    };
-    worker.postMessage({ kind: "verify", bytes, guids }, [bytes]);
+      done[i] = { facts: done[i].facts, link: await pending };
+      const latest = runs.get(modelId);
+      if (!latest || generations.get(modelId) !== generation) return;
+      set(modelId, { ...latest, issues: [...done] });
+    }
   })();
 }
 
 export const BODY_NO_MESH_FOCUS = "check:body-no-mesh";
 
-/** One element's verdict, appended to its row's reason. */
-export function ifcosVerdictText(verdict: IfcosVerdict | undefined, lang: Lang): string {
-  if (!verdict) return "";
+/** One element's verdict, appended to its row's reason; «ikke verifisert»
+ *  until ifcopenshell has answered for it, or the run's failure. */
+export function ifcosVerdictText(run: IfcosRun | undefined, guid: string, lang: Lang): string {
+  const verdict = run?.verdicts?.[guid];
+  if (!verdict) {
+    if (run?.status === "failed") return t("ifcos.failed", lang);
+    return t("nomesh.unverified", lang);
+  }
   if (verdict.kind === "geometry") {
     return (
       `${t("ifcos.geometry", lang)} · ${formatCount(verdict.vertices, lang)} ${t("ifcos.vertices", lang)} · ` +

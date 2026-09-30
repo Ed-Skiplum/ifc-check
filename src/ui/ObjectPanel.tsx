@@ -73,6 +73,7 @@ import {
   type PlacementContext,
 } from "../engine/placement";
 import { buildSpaceLocator, countSpaces, type SpaceLocator } from "../bcf/spaces";
+import { useIfcosRun, type IfcosRun } from "./ifcos-verify";
 
 const LABEL_WIDTH = "14ch";
 
@@ -474,7 +475,19 @@ interface Derived {
   triangles?: Map<string, number>;
 }
 
-function derivedSection(rows: ProductRowLite[], derived: Derived, lang: Lang): Section {
+/** «ingen geometri» for a selection with no mesh, as the second check
+ *  (`ifcos-verify.ts`) reads it: marked unverified until ifcopenshell has
+ *  answered for every selected element; an ifcfast miss said as one. */
+function noGeometryState(rows: ProductRowLite[], run: IfcosRun | undefined, lang: Lang): string {
+  const verdicts = rows.map((row) => run?.verdicts?.[row.guid]);
+  if (verdicts.some((v) => v?.kind === "geometry")) return `${t("nomesh.miss", lang)} · ${t("ifcos.geometry", lang)}`;
+  if (verdicts.some((v) => v?.kind === "error")) return `${t("object.noGeometry", lang)} (${t("ifcos.error", lang)})`;
+  if (verdicts.every((v) => v?.kind === "none")) return t("object.noGeometry", lang);
+  const mark = run?.status === "failed" ? t("ifcos.failed", lang) : t("nomesh.unverified", lang);
+  return `${t("object.noGeometry", lang)} (${mark})`;
+}
+
+function derivedSection(rows: ProductRowLite[], derived: Derived, lang: Lang, run?: IfcosRun): Section {
   const title = t("object.derived", lang);
   if (!derived.context) {
     return {
@@ -556,7 +569,7 @@ function derivedSection(rows: ProductRowLite[], derived: Derived, lang: Lang): S
   return {
     title,
     fields,
-    state: boxed.length === 0 && rows.length > 0 ? t("object.noGeometry", lang) : undefined,
+    state: boxed.length === 0 && rows.length > 0 ? noGeometryState(rows, run, lang) : undefined,
     figure:
       boxed.length > 0 && ctx.levels.length > 0 ? (
         <ElevationStrip
@@ -783,6 +796,7 @@ export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
   const any = rows.length > 0;
   const uid = useId();
 
+  const second = useIfcosRun(model.id);
   // One pass over the streamed geometry per model, not per selection: boxes,
   // the placement context and the space locator are all model-wide. Not run
   // while nothing is selected: the panel stays mounted empty.
@@ -875,7 +889,7 @@ export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
   } else {
     body = (
       <Scroller>
-        <SectionBlock lang={lang} section={derivedSection(rows, derived, lang)} derived />
+        <SectionBlock lang={lang} section={derivedSection(rows, derived, lang, second)} derived />
       </Scroller>
     );
   }

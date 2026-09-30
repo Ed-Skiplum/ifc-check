@@ -110,8 +110,8 @@ const REASONS: Record<ReasonCode, Record<Lang, Render>> = {
     en: (p) => `${p.count} storeys, config has ${p.config}`,
   },
   "body-no-mesh": {
-    nb: (p) => `${p.identifier} ${p.type} (${p.items}), ingen mesh`,
-    en: (p) => `${p.identifier} ${p.type} (${p.items}), no mesh`,
+    nb: (p) => (p.items === "(no Body)" ? "ingen Body, ingen mesh" : `${p.identifier} ${p.type} (${p.items}), ingen mesh`),
+    en: (p) => (p.items === "(no Body)" ? "no Body, no mesh" : `${p.identifier} ${p.type} (${p.items}), no mesh`),
   },
 };
 

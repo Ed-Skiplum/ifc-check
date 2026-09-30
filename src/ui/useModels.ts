@@ -58,7 +58,7 @@ import { collectBoxes, unshiftBoxes, type ElementBox } from "../engine/placement
 import type { RestoreWorkerRequest } from "../storage/restore-worker";
 import type { ModelProfile } from "./profile";
 import type { ModelWorkerResponse } from "./model-worker";
-import { clearIfcosRun } from "./ifcos-verify";
+import { clearIfcosRun, fileIssues, verifyNomesh } from "./ifcos-verify";
 import type { ElementQuantity } from "../engine/quantities";
 
 export type FileState = "queued" | "parsing" | "ready" | "failed";
@@ -111,9 +111,10 @@ export interface ModelEntry {
    *  BaseQuantities alone, then once more when the geometry pass completes.
    *  The Typer type page folds them per type. */
   elementQuantities?: { byGuid: Record<string, ElementQuantity>; complete: boolean };
-  /** The dropped file itself, a handle and not its bytes: `body-no-mesh`
-   *  hands it to ifcopenshell on demand (`ifcos-verify.ts`). Absent on a model
-   *  restored from the cache, which this session never had the file for. */
+  /** The dropped file itself, a handle and not its bytes: the second check
+   *  hands it to ifcopenshell after every load (`ifcos-verify.ts`). Absent on
+   *  a model restored from the cache, which this session never had the file
+   *  for. */
   file?: File;
 }
 
@@ -192,6 +193,9 @@ function createController(setModels: SetModels): Controller {
    *  next batch index; one past the end is the closing null. */
   const feeds = new Map<string, MeshBatch[]>();
   const fedAt = new Map<string, number>();
+  /** The dropped files, for the second check (`ifcos-verify.ts`). A model
+   *  restored after a reload has none. */
+  const dropped = new Map<string, File>();
   let active = 0;
   let counter = 0;
   let ruleset: Ruleset | null = null;
@@ -346,6 +350,15 @@ function createController(setModels: SetModels): Controller {
         askIds(id, worker);
         // The board is on screen; the geometric measures follow behind it.
         feed(id, worker);
+        // And the second check behind those: ifcopenshell on every element
+        // ifcfast left unmeshed, off the main thread, after the first paint.
+        const nomesh = message.nomesh;
+        setTimeout(() => {
+          if (!live.has(id)) return;
+          verifyNomesh(id, dropped.get(id), nomesh, (verification) => {
+            if (workers.get(id) === worker) worker.postMessage({ kind: "nomesh", verification });
+          });
+        }, 250);
       } else if (message.kind === "measured") {
         if (message.complete || message.base) {
           const base = message.base;
@@ -424,6 +437,25 @@ function createController(setModels: SetModels): Controller {
               : m,
           ),
         );
+      } else if (message.kind === "nomesh-checked") {
+        // The checks with the second check settled. The current ones only
+        // when a ruleset is on and the worker has evaluated it; otherwise the
+        // ruleset's own `evaluated` answer, still to come, carries it.
+        const current = ruleset !== null ? message.current : null;
+        setModels((all) =>
+          all.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  baseChecks: message.base.checks,
+                  baseBoard: message.base.board,
+                  report: m.report ? { ...m.report, checks: (current ?? message.base).checks } : m.report,
+                  board: (current ?? message.base).board,
+                }
+              : m,
+          ),
+        );
+        fileIssues(id, message.issues);
       } else if (message.kind === "ids-evaluated") {
         patch(id, { idsEvaluating: false, ids: message.result, idsError: undefined });
       } else if (message.kind === "ids-error") {
@@ -560,7 +592,10 @@ function createController(setModels: SetModels): Controller {
         };
         live.add(entry.id);
         order.push(entry.id);
-        if (accepted) queue.push({ id: entry.id, file });
+        if (accepted) {
+          queue.push({ id: entry.id, file });
+          dropped.set(entry.id, file);
+        }
         return entry;
       });
       setModels((current) => [...current, ...entries]);
@@ -645,6 +680,7 @@ function createController(setModels: SetModels): Controller {
       if (queued >= 0) queue.splice(queued, 1);
       live.delete(id);
       dispose(id);
+      dropped.delete(id);
       const at = order.indexOf(id);
       if (at >= 0) order.splice(at, 1);
       keys.delete(id);
@@ -661,6 +697,7 @@ function createController(setModels: SetModels): Controller {
       drafts.clear();
       feeds.clear();
       fedAt.clear();
+      dropped.clear();
       order.length = 0;
       keys.clear();
       for (const id of [...workers.keys()]) dispose(id);

@@ -34,6 +34,7 @@ import {
 } from "./mesh-stream";
 import { ModelScene, type Mode } from "./scene";
 import { registerDock, setDockEmpty } from "./dock";
+import { useIfcosRun, type IfcosRun } from "../ui/ifcos-verify";
 
 declare global {
   interface Window {
@@ -89,6 +90,45 @@ interface ViewerTileProps {
   /** A click on an object (`guid` null: empty space), or Esc. */
   onPick: PickHandler;
   onHover: (guid: string | null) => void;
+  /** The model, for the second check's verdicts (`ifcos-verify.ts`): what
+   *  «Uten geometri» and the ∅ chip count. */
+  modelId?: string;
+}
+
+/** The elements of `missing` (matched, not in the scene) by the second
+ *  check. Before it is done, all of them are ifcfast's count, unverified. */
+function nomeshOf(missing: readonly string[], run: IfcosRun | undefined) {
+  const done = run?.status === "done";
+  let none = 0;
+  let miss = 0;
+  let errors = 0;
+  for (const guid of missing) {
+    const v = run?.verdicts?.[guid];
+    if (!v) continue;
+    if (v.kind === "none") none += 1;
+    else if (v.kind === "geometry") miss += 1;
+    else errors += 1;
+  }
+  return { done, failed: run?.status === "failed", none, miss, errors };
+}
+
+/** «Uten geometri N» and its marks: N is ifcfast's count with «ikke
+ *  verifisert» (or the failure) until the second check is done, then only
+ *  what ifcopenshell also finds none for, with its misses and errors named. */
+function nomeshText(
+  lang: Lang,
+  count: number,
+  state: ReturnType<typeof nomeshOf>,
+): { full: string; short: string } {
+  const label = t("viewer.outside", lang);
+  if (!state.done) {
+    const mark = state.failed ? t("ifcos.failed", lang) : t("nomesh.unverified", lang);
+    return { full: `${label} ${formatCount(count, lang)} (${mark})`, short: `∅ ${formatCount(count, lang)}?` };
+  }
+  const extra =
+    (state.miss ? ` · ${t("nomesh.miss", lang)} ${formatCount(state.miss, lang)}` : "") +
+    (state.errors ? ` · ${t("ifcos.error", lang)} ${formatCount(state.errors, lang)}` : "");
+  return { full: `${label} ${formatCount(state.none, lang)}${extra}`, short: `∅ ${formatCount(state.none, lang)}` };
 }
 
 export function ViewerTile({
@@ -103,6 +143,7 @@ export function ViewerTile({
   hover,
   onPick,
   onHover,
+  modelId,
 }: ViewerTileProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -228,11 +269,17 @@ export function ViewerTile({
      smaller answer than the table. */
   const reach = useMemo(() => {
     if (!set) return null;
-    if (matched === null) return { shown: set.index.size, asked: set.index.size };
+    if (matched === null) return { shown: set.index.size, asked: set.index.size, missing: [] as string[] };
     let shown = 0;
-    for (const guid of matched) if (set.index.has(guid)) shown += 1;
-    return { shown, asked: matched.size };
+    const missing: string[] = [];
+    for (const guid of matched) {
+      if (set.index.has(guid)) shown += 1;
+      else missing.push(guid);
+    }
+    return { shown, asked: matched.size, missing };
   }, [set, matched]);
+  const run = useIfcosRun(modelId);
+  const nomesh = useMemo(() => nomeshOf(reach?.missing ?? [], run), [reach, run]);
 
   /* A filter whose matches have no geometry here (2026-09-30, the canon's
      NO-GEOMETRY FILTER): the whole model ghosted, never a blank canvas that
@@ -251,7 +298,7 @@ export function ViewerTile({
     matched !== null && matched.size === 0
       ? t("viewer.noObjects", lang)
       : noGeometry
-        ? `${t("viewer.outside", lang)} ${formatCount(matched.size, lang)}`
+        ? nomeshText(lang, matched.size, nomesh).full
         : null;
   useEffect(() => {
     if (batches) setDockEmpty(batches, empty);
@@ -339,12 +386,11 @@ export function ViewerTile({
           </Chip>
         ) : null}
 
+        {/* Present whenever ifcfast left matches unmeshed, so the second
+            check changes the number, never the row of chips. */}
         {missing > 0 ? (
-          <Chip
-            tone="bg-gold text-ink"
-            title={`${t("viewer.outside", lang)} ${formatCount(missing, lang)}`}
-          >
-            {`∅ ${formatCount(missing, lang)}`}
+          <Chip tone="bg-gold text-ink" title={nomeshText(lang, missing, nomesh).full}>
+            {nomeshText(lang, missing, nomesh).short}
           </Chip>
         ) : null}
 
