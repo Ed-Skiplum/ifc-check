@@ -473,6 +473,7 @@ export function TypesTab({
         <WithViewer
           meshBatches={meshBatches}
           active={open === null}
+          underRows={2}
           under={
             under ? (
               <div className="contents" data-xf={view.origin === "type-materials" ? "origin" : undefined}>

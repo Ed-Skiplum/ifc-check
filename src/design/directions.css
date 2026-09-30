@@ -137,10 +137,11 @@
   background: transparent;
 }
 /* The frame margin, MG_MARGIN (`module-grid.ts`) on every side, so the
-   module grid is the window less 2 × 6 px (layout canon, rule 6; cut from 24
-   on 2026-09-30 so the app and skiplum.com's header fit one view). */
+   module grid is the window less 2 × 12 px (layout canon, rule 6; cut from 24
+   to 6 on 2026-09-30 so the app and skiplum.com's header fit one view, then
+   12, edkjo: "I would add a small margin though"). */
 :root[data-design] main {
-  padding: 6px;
+  padding: 12px;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

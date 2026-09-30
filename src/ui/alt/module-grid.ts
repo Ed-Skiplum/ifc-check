@@ -7,9 +7,10 @@
  * implements, rule by rule:
  *
  *   1  One grid, sized to the window: a square module of about 100 px, a
- *      16 px gap, a 6 px frame margin (the canon's 24, cut 2026-09-30: the app
+ *      16 px gap, a 12 px frame margin (the canon's 24, cut to 6 2026-09-30, the app
  *      sits in an iframe under skiplum.com's header, edkjo: "the app just
- *      having too much padding"). A wider window gets MORE columns at the same
+ *      having too much padding", then 12: "I would add a small margin
+ *      though"). A wider window gets MORE columns at the same
  *      module, never fatter tiles.
  *   6  The formulas, for a window W × H whose board starts `top` px down:
  *        C = round((W − 2M + 16) / 116)          M = MG_MARGIN
@@ -43,7 +44,7 @@ import { CANVAS_ASPECT } from "../canvas-aspect.ts";
 export const MG_MODULE = 100;
 export const MG_GAP = 16;
 /** The frame: `main`'s padding on every side (`directions.css`). */
-export const MG_MARGIN = 6;
+export const MG_MARGIN = 12;
 /** A tile's own head: its label line. */
 export const MG_HEAD = 32;
 
@@ -123,11 +124,12 @@ export const MG_STRIPS: Record<string, string> = {
   mmi: "a bar chart with few items: one bar per MMI level, read across",
 };
 
-/** The named tall exception (rule 3): a column taller than wide, the full
- *  height under the KPI row. */
+/** The named tall exception (rule 3): a column taller than wide. */
 export const MG_TALL: Record<string, string> = {
   floors: "a building floor chart: the storeys stacked, read down",
-  checks: "the verification sidebar: one check per line, read down, the board's full height",
+  checks: "the verification column: one check per line, read down, on the left edge",
+  scope: "the scope list: one element per row, read down, under the checks on the left edge",
+  detail: "the object panel: one property per line, read down, the board's full height on the right edge",
 };
 
 export interface MgTileSpec {
@@ -726,7 +728,7 @@ export function mgFillCols(layout: MgLayout): MgLayout {
   };
 }
 
-/* ── the Overview composition ──────────────────────────────────────────── */
+/* ── the shared compositions' vocabulary ───────────────────────────────── */
 
 /** Each tile's size class (rule 7), its orientations in preference order.
  *  A tile keeps its class at every viewport; only the hero steps, 6 × 4 to
@@ -738,63 +740,10 @@ const XL: readonly Wh[] = [
 /** M landscape only: Scope's GUID column and Detail's lead cards need
  *  the width a 2 × 3 does not have. */
 const M_WIDE: readonly Wh[] = [[3, 2]];
-/** L landscape only: the checks list, whose name column and verdict column
- *  need 400 px across. */
-const L_WIDE: readonly Wh[] = [[4, 3]];
 const S: readonly Wh[] = SIZES.S;
 /** A list or chart whose content scrolls or scales (Scope, Detail, the
- *  classification codes, the project tab's treemaps): L where it fits, else
- *  M landscape. */
+ *  project tab's treemaps): L where it fits, else M landscape. */
 const LM: readonly Wh[] = [...SIZES.L, [3, 2]];
-
-export interface MgContent {
-  /** The IFC-struktur requirements: one S KPI card each, on the top row. */
-  ifc: number;
-  /** The neutral counts (types, storeys, file size, materials): S tiles. */
-  counts: number;
-  /** The verification sidebar's width in modules (`sideModules`), or 0/absent
-   *  for the checks as a tile of the board. */
-  side?: number;
-}
-
-/** The verification sidebar's width: the fewest modules, 4 to 5, whose span
- *  seats `needPx` (the rows' own width, measured: the longest check name,
- *  the verdict cell, the % column). Under 4 the rows lose their verdict word
- *  and % column (`compact`); past 5 a name ellipsizes rather than the board
- *  giving up a sixth column. */
-export const SIDE_MODULES = [4, 5] as const;
-export function sideModules(needPx: number, u: number): number {
-  return SIDE_MODULES.find((w) => mgSpanPx(w, u) >= needPx) ?? SIDE_MODULES[SIDE_MODULES.length - 1];
-}
-
-function countTiles(content: MgContent): MgTileSpec[] {
-  return Array.from({ length: content.counts }, (_, i) => ({
-    id: `count${i}`,
-    kind: "panel" as MgKind,
-    sizes: S,
-    series: "count",
-  }));
-}
-
-/** The classification codes the file carries (`ClassCodes.tsx`): one list,
- *  always there (none is an answer), so the board does not move with it.
- *  The treemaps are Innhold's (2026-09-30). */
-const CODES: MgTileSpec = { id: "codes", kind: "list", sizes: LM, hosts: ["checks"] };
-
-/** The tiles under the KPI row, beside the floor sidebar, in priority order.
- *  The model, the docks and the codes grow to cover the board (`mgFlex`). */
-function overviewBody(content: MgContent, checks: boolean, grid: MgGrid): MgTileSpec[] {
-  return [
-    flexViewer(grid),
-    // The docks: a tile each at every size, Detail beside Scope.
-    flexDock("scope", grid),
-    flexDock("detail", grid),
-    // L landscape first: its % column; 3 across it draws compact.
-    ...(checks ? [{ id: "checks", kind: "list" as MgKind, sizes: [...L_WIDE, [3, 4], [3, 2]] as Wh[] }] : []),
-    CODES,
-    ...countTiles(content),
-  ];
-}
 
 /** The widest a grown list may be: 6 modules, or on a tall board as wide as
  *  keeps a full-height list inside 1 : 2. */
@@ -838,7 +787,7 @@ const bigDock = (s: MgTileSpec, w: number, h: number) => (s.dock ? Math.min(w, h
 /** How strict a cover is, tried in order by every composition: 0 the model
  *  landscape (5 : 4 or wider) and the docks at L or more; 1 the docks at L
  *  or more; 2 any size. So the docks take a useful size and the model its
- *  shape before a count or the codes keep a tile of their own. */
+ *  shape before a count or a chart keeps a tile of its own. */
 const PHASES = [0, 1, 2] as const;
 type Phase = (typeof PHASES)[number];
 
@@ -875,298 +824,301 @@ function fillerSets(pool: readonly MgTileSpec[]): MgTileSpec[][] {
     .map((e) => e.set);
 }
 
-/** The floor sidebar's widths, most wanted first: a floor table's name,
- *  kote and one column per loaded model. */
-const FLOOR_WIDTHS = [3, 4] as const;
 /** The fewest rows under the KPI row: the XL hero's 4. */
 const MIN_BODY = 4;
-
-/** The Overview (owner, 2026-09-28: "KPI cards go on top, then sidebar and
- *  larger tiled components"; "show the floor config on the right side as a
- *  tall sidebar"). Three parts, one board:
- *
- *    the KPI row   one S card per IFC-struktur requirement, in the report's
- *                  order, then the neutral counts (S) and the classification
- *                  codes (M 3 × 2) until the row is closed. Never a list,
- *                  never a scroll.
- *    the sidebar   the floor config (Etasjer), the full height under the
- *                  KPI row on the right: rule 3's named tall exception, a
- *                  building floor chart.
- *    the middle    by priority, the model (hero), Scope, Detail, the checks,
- *                  the classification codes, the counts the row did not take;
- *                  too little room moves the lowest into a tab of the
- *                  checks or the floor sidebar. Scope and Detail are always
- *                  tiles here.
- *
- *  Of every board width (whole columns, centred) and body height, the one
- *  whose cover takes the most of the window wins (rule 9: a board, not a
- *  strip), ties to the wider. Where no such board exists (under about 12
- *  columns) the narrow fallback applies. Pure and deterministic.
- *
- *  THE VERIFICATION SIDEBAR (owner, 2026-09-29: "the verification panel
- *  should come out and be a left sidebar. Scrolling inside of the dash when
- *  there is space to go is awkward"). With `content.side` the checks leave
- *  the board and take `side` columns on the left, the board's full height
- *  (KPI row included); the board above packs in the columns left, without
- *  them, and the two centre as one; the sidebar runs the board's full
- *  height, its rows top-aligned, and scrolls only past it. Where the KPI row
- *  and the floor sidebar do not fit in the columns left (12 to 15 columns),
- *  the board packs by priority instead (`packedBoards`), and what it cannot
- *  seat is a tab of the sidebar. The break: where the columns left cannot
- *  hold five S cards, the XL model and Scope and Detail as tiles (under 14
- *  columns or 6 rows), the checks go back into the board as a tile or a tab,
- *  as without a sidebar.
- *
- *  STABLE (2026-09-29, the owner: "I dont like this components changing
- *  places based on what is selected. I prefer a clean UI with predictable
- *  movements"). The input is the window and the loaded content (models,
- *  ruleset), never selection, filter or what a panel holds: Scope and Detail
- *  keep one slot each whether empty or filled, and scroll inside it. */
-export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
-  return bestFilled((grow) => {
-    const board = composeOverview(grid, content, grow);
-    return board && mgFillRows(mgFillCols(board));
-  });
-}
 
 /** Rule 9 by composition: the board at canon sizes, filled (`mgFillRows`);
  *  where that leaves fewer, taller rows, the board composed again with its
  *  tiles free to grow down (`mgGrown`), and the one of the two that takes
- *  the most rows, then the first; never one that loses the verification
- *  sidebar the first has. */
+ *  the most rows, then the first. */
 function bestFilled(compose: (grow: boolean) => MgLayout | null): MgLayout {
   const first = compose(false)!;
   if (!first.rowPx) return first;
   const second = compose(true);
-  // The verification sidebar stays where the first pass seats it.
-  const sided = (l: MgLayout) => l.band === "kpis+side" || l.band === "kpis+side+floors" || l.band === "side-pack";
-  if (!second || (sided(first) && !sided(second))) return first;
+  if (!second) return first;
   return second.rows > first.rows ? second : first;
 }
 
-/** How many modules a sidebar may widen past what it wants, where the board
- *  beside it covers no other width (rule 9: every column used). */
-const SIDE_GROW = 3;
+/* ── the Overview composition ──────────────────────────────────────────── */
 
-/** `grow`: the second pass (`bestFilled`), the KPI-row boards only, or null;
- *  the packed and narrow boards are the first pass's. Every board takes the
- *  grid's every column (rule 9, 2026-09-30). */
-function composeOverview(grid: MgGrid, content: MgContent, grow = false): MgLayout | null {
-  // A sidebar wider than the fewest modules gives a column back before it
-  // gives up: a check name ellipsizes rather than the sidebar going. Where
-  // the board beside it covers none of those widths, the sidebar widens.
-  const want = content.side ?? 0;
-  const sides: number[] = [];
-  for (let side = want; side > 0 && side >= Math.min(want, SIDE_MODULES[0]); side -= 1) sides.push(side);
-  if (want > 0) for (let side = want + 1; side <= want + SIDE_GROW; side += 1) sides.push(side);
-  const seat = sides.filter((side) => grid.cols - side > 0 && canonSize(side, grid.rows, false, true));
-  // The floor sidebar under the KPI row first; where the KPI row cannot
-  // cover the width, the floor sidebar the full height too.
-  for (const phase of PHASES)
-    for (const side of seat)
-      for (const floorsFull of [false, true]) {
-        const region = { ...grid, cols: grid.cols - side };
-        const inner = searchOverview(region, content, overviewBody(content, false, region), grow, floorsFull, phase);
-        const withInner = inner ? besideSide(grid, side, inner, floorsFull ? "kpis+side+floors" : "kpis+side", false) : null;
-        if (withInner) return withInner;
-      }
-  if (!grow)
-    for (const side of seat) {
-      const region = { ...grid, cols: grid.cols - side };
-      for (const packed of packedBoards(region, content)) {
-        const withPacked = besideSide(grid, side, packed, "side-pack", true);
-        if (withPacked) return withPacked;
-      }
-    }
-  const body = overviewBody(content, true, grid);
-  for (const phase of PHASES)
-    for (const floorsFull of [false, true]) {
-      const board = searchOverview(grid, content, body, grow, floorsFull, phase);
-      if (board) return board;
-    }
-  return grow ? null : layoutNarrow(grid, content);
+export interface MgContent {
+  /** The IFC-struktur requirements: one S KPI card each, on the top row. */
+  ifc: number;
+  /** The neutral counts (types, storeys, file size, materials): S tiles. */
+  counts: number;
 }
 
-/** Where the KPI row and the floor sidebar do not fit beside the checks (a
- *  laptop, 12 to 15 columns): the board packs by priority on the columns
- *  left, the KPI cards first (S, never a list; they wrap under and beside the
- *  model as the columns allow), then the model, Scope, Detail, the floors and
- *  the classification codes; what does not fit is a tab of the sidebar. Scope and Detail
- *  are tiles (required): where they do not fit, there is no packed board.
- *  The counts close the cover: after the docks
- *  where that covers the board, else right after the KPI cards. The full
- *  board first, then the largest that is covered (`mgPack`), centred. */
-function* packedBoards(region: MgGrid, content: MgContent): Generator<MgLayout> {
-  // The KPI row's two and the model's four: fewer rows is the break.
-  if (region.rows < 2 + MIN_BODY) return;
-  const kpis = Array.from({ length: content.ifc }, (_, i) => ({ id: `ifc${i}`, kind: "panel" as MgKind, sizes: S, required: true }));
-  const rest: MgTileSpec[] = [
-    flexViewer(region),
-    flexDock("scope", region),
-    flexDock("detail", region),
-    mgFlex({ id: "floors", kind: "list", sizes: LM }, region.u, listMaxW(region, 5), region.rows, listCost(region.u)),
-    mgFlex({ id: CODES.id, kind: CODES.kind, sizes: LM }, region.u, listMaxW(region, 5), region.rows, listCost(region.u)),
-  ];
-  const orders = [
-    [...kpis, ...rest, ...countTiles(content)],
-    [...kpis, ...countTiles(content), ...rest],
-  ];
-  for (const specs of orders) {
-    const exact = packBody(region, specs);
-    if (exact) yield readingOrder(exact);
+/** A tile of a fixed composition at `w × h`: its class from `canonSize`, or,
+ *  grown, the class of the largest canon size inside it (`base`, never an S
+ *  card; a canvas only from XL, a list never XL). Null where it has neither
+ *  or renders outside its kind's bound (a named tall column excepted). */
+function fixedTile(id: string, kind: MgKind, x: number, y: number, w: number, h: number, u: number): MgPlace | null {
+  const size = canonSize(w, h, id in MG_STRIPS, id in MG_TALL);
+  const canvas = kind === "viewer" || kind === "graph";
+  let place: MgPlace;
+  if (size && (canvas ? size === "XL" : size !== "XL")) place = { id, kind, x, y, w, h, size, priority: 0, tabs: [] };
+  else {
+    let base: Wh | null = null;
+    const pool = canvas ? SIZES.XL : [...SIZES.M, ...SIZES.L];
+    for (const [bw, bh] of pool) if (bw <= w && bh <= h && (!base || bw * bh > base[0] * base[1])) base = [bw, bh];
+    if (!base) return null;
+    place = { id, kind, x, y, w, h, size: canonSize(base[0], base[1])!, base, priority: 0, tabs: [] };
   }
+  if (place.size !== "tall" && place.size !== "strip") {
+    const a = mgAspect(kind, w, h, u);
+    if (a < MG_ASPECT[kind].min - 1e-9 || a > MG_ASPECT[kind].max + 1e-9) return null;
+  }
+  return place;
 }
 
-/** The S cards (the KPI cards, then the counts) are interchangeable slots:
- *  they take the board's S places in reading order, row-major, so the cards
- *  read in the report's order wherever the cover put them. */
-function readingOrder(layout: MgLayout): MgLayout {
-  const slot = (t: MgPlace) => /^(ifc|count)\d+$/.test(t.id) && t.w === 2 && t.h === 2;
-  const places = layout.tiles.filter(slot).sort((a, b) => a.y - b.y || a.x - b.x);
-  const cards = places.map((t) => ({ id: t.id, priority: t.priority })).sort((a, b) => a.priority - b.priority);
-  const at = new Map(places.map((t, i) => [t, cards[i]]));
-  return { ...layout, tiles: layout.tiles.map((t) => (at.has(t) ? { ...t, ...at.get(t)! } : t)) };
+/** The priority order the tiles read in (rule 8), the narrow break's too:
+ *  the model, the checks, Detail, Scope, then the body's own. */
+const OVERVIEW_ORDER = ["viewer", "checks", "detail", "scope", "reqs", "floors", "codes"];
+const overviewRank = (id: string): number => {
+  const k = OVERVIEW_ORDER.indexOf(id);
+  if (k >= 0) return k;
+  const n = /^(ifc|count)(\d+)$/.exec(id);
+  return n ? OVERVIEW_ORDER.length + (n[1] === "ifc" ? 0 : 100) + Number(n[2]) : 999;
+};
+
+/** What a composition choice costs; the cheapest board wins. A tile moved
+ *  into a tab costs by its rank: Scope most, then the requirements as one
+ *  list (no KPI row), the floors, the codes; a count left to the checks'
+ *  rows a little. */
+const COST_TAB: Record<string, number> = { scope: 30, reqs: 10, floors: 8, codes: 6 };
+const COST_REQS_LIST = 25;
+const COST_COUNT = 0.2;
+/** The sidebars' width, a cost per module away from 4 (about 450 px: the
+ *  checks' verdict and % columns, Scope's four columns, Detail's lead
+ *  cards); 3 draws the checks compact. */
+const SIDE_WANT = 4;
+
+interface BodyPlan {
+  cost: number;
+  tiles: MgPlace[];
+  /** Tiles the body cannot seat: tabs of the checks. */
+  toChecks: string[];
+  band: string;
 }
 
-/** The checks as a column `side` modules wide on the left of `inner` (laid
- *  out on the columns left), the board's full height, the two centred as
- *  one. `adopt`: the tiles `inner` moved are tabs of the sidebar. Null where
- *  the column is no canon shape. */
-function besideSide(grid: MgGrid, side: number, inner: MgLayout, band: string, adopt: boolean): MgLayout | null {
-  const size = canonSize(side, inner.usedRows, false, true);
-  if (!size) return null;
-  const used = side + inner.used;
-  const offset = Math.floor((grid.cols - used) / 2);
-  const shift = offset + side - inner.offset;
-  const sidebar: MgPlace = {
-    id: "checks",
-    kind: "list",
-    x: offset,
-    y: inner.top,
-    w: side,
-    h: inner.usedRows,
-    size,
-    priority: inner.tiles.length,
-    // The counts among them are rows of the checks list, never tabs (`Tile`).
-    tabs: adopt ? [...inner.moved] : [],
+/** The body between the two columns, `B × R` modules from (0, 0): the KPI
+ *  row on top where it fits (every IFC-struktur card, then counts, then the
+ *  codes), under it the model and a column of the floors over the codes
+ *  (under the row, or the full height beside it); else the model and the
+ *  requirements as one list beside it; else the model alone. Every choice
+ *  exact, every tile inside its bound; the cheapest. */
+function overviewBody(B: number, R: number, u: number, content: MgContent): BodyPlan | null {
+  let best: BodyPlan | null = null;
+  const consider = (plan: BodyPlan) => {
+    if (!best || plan.cost < best.cost - 1e-9) best = plan;
   };
-  return {
-    ...grid,
-    used,
-    usedRows: inner.usedRows,
-    offset,
-    top: inner.top,
-    tiles: [sidebar, ...inner.tiles.map((t) => ({ ...t, x: t.x + shift, tabs: adopt ? [] : t.tabs }))].sort(
-      (p, q) => p.y - q.y || p.x - q.x,
-    ),
-    moved: inner.moved,
-    band,
-  };
-}
-
-/** The floor sidebar's widths where it runs the full height, beside the KPI
- *  row too: the widths under the row, then wider, as the columns need. */
-const FLOOR_FULL_WIDTHS = [3, 4, 5, 6, 7, 8] as const;
-
-/** The KPI row, the body and the floor sidebar on `grid` (see
- *  `layoutOverview`), every column of it, or null where no such board
- *  exists. `floorsFull`: the floor sidebar the full height, the KPI row
- *  beside it (where the row cannot cover the width above it). Scope and
- *  Detail keep the slots the cover gives them whatever they hold (2026-09-29,
- *  the owner: "I dont like this components changing places based on what is
- *  selected"): the input is the window and the loaded content only. */
-function searchOverview(
-  grid: MgGrid,
-  content: MgContent,
-  body: MgTileSpec[],
-  grow = false,
-  floorsFull = false,
-  phase?: Phase,
-): MgLayout | null {
-  const { cols, rows, u } = grid;
-  if (content.ifc <= 0 || rows - 2 < MIN_BODY) return null;
-  const kpiIds = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
-  const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.ifc, 2]] };
-  const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => t.id === CODES.id)];
-  const sets = fillerSets(pool);
-  let best: MgLayout | null = null;
-  let bestRows = 0;
-  for (const sw of floorsFull ? FLOOR_FULL_WIDTHS : FLOOR_WIDTHS) {
-    const bandW = floorsFull ? cols - sw : cols;
-    if (cols - sw < 6 || bandW < 2 * content.ifc) continue;
-    let tried = 0;
-    for (const fill of sets) {
-      if (tried >= 4) break;
-      // In the KPI row a filler is a canon tile two rows high.
-      const bandSpecs = [
-        kpis,
-        ...fill.map((t) => {
-          const k = t.sizes.map((_wh, i) => i).filter((i) => t.sizes[i][1] === 2 && !t.bases?.[i]);
-          return { id: t.id, kind: t.kind, series: t.series, sizes: k.map((i) => t.sizes[i]) };
-        }),
-      ];
-      if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
-      const band = coverRun(bandW, 2, bandSpecs);
-      if (!band) continue;
-      tried += 1;
-      const rest = body.filter((t) => !fill.some((f) => f.id === t.id));
-      for (let r = rows - 2; r >= (grow ? rows - 2 : MIN_BODY); r -= 1) {
-        if (r + 2 <= bestRows) break;
-        // The floor sidebar: a canon L (3 × 4) or the named tall column;
-        // 4 × 4 is neither.
-        const fh = floorsFull ? r + 2 : r;
-        if (!canonSize(sw, fh, false, true)) continue;
-        const lower = packBody({ cols: cols - sw, rows: r, u }, grow ? mgGrown(rest, r, u) : rest, phase);
-        if (!lower) continue;
-        const top = Math.floor((rows - 2 - r) / 2);
-        const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, y: top + t.y, priority: i, tabs: [] }));
-        const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({ ...t, y: top + 2 + t.y, priority: bandTiles.length + t.priority }));
-        const floors: MgPlace = {
-          id: "floors",
-          kind: "list",
-          x: cols - sw,
-          y: floorsFull ? top : top + 2,
-          w: sw,
-          h: fh,
-          size: canonSize(sw, fh, false, true)!,
-          priority: bandTiles.length + lowerTiles.length,
-          // What the body moved and none of its tiles may host (the docks
-          // and the model never do): a tab of the floor sidebar.
-          tabs: lower.moved.filter((id) => !lowerTiles.some((t) => t.tabs.includes(id))),
-        };
-        best = {
-          ...grid,
-          used: cols,
-          usedRows: r + 2,
-          offset: 0,
-          top,
-          tiles: [...bandTiles, ...lowerTiles, floors].sort((p, q) => p.y - q.y || p.x - q.x),
-          moved: lower.moved,
-          band: floorsFull ? "kpis+floors" : "kpis",
-        };
-        bestRows = r + 2;
-        break;
+  const viewerCostOf = (w: number, h: number) =>
+    4 * Math.abs(Math.log(mgAspect("viewer", w, h, u) / 1.6)) - 0.03 * w * h;
+  // A column of `ids` stacked, `F × H` from (x, y), the first taking the
+  // rest of the rows; the last ones tabs of the first where they do not fit.
+  const column = (ids: string[], x: number, y: number, F: number, H: number): { tiles: MgPlace[]; tabs: string[] } | null => {
+    for (let n = ids.length; n >= 1; n -= 1) {
+      const shown = ids.slice(0, n);
+      const tabs = ids.slice(n);
+      if (n === 1) {
+        const t = fixedTile(shown[0], "list", x, y, F, H, u);
+        if (t) return { tiles: [{ ...t, tabs }], tabs: [] };
+        continue;
       }
+      // The lower ones a third of the height each (2 rows or more), the
+      // first the rest: the floor chart reads down, the codes are a list.
+      const lower = Math.max(2, Math.round(H / (n + 1)));
+      let cy = y + H - lower * (n - 1);
+      if (cy - y < 2) continue;
+      const first = fixedTile(shown[0], "list", x, y, F, cy - y, u);
+      const rest: MgPlace[] = [];
+      for (const id of shown.slice(1)) {
+        const t = fixedTile(id, "list", x, cy, F, lower, u);
+        if (!t) break;
+        rest.push(t);
+        cy += lower;
+      }
+      if (first && rest.length === n - 1) return { tiles: [{ ...first, tabs }, ...rest], tabs: [] };
     }
+    return null;
+  };
+
+  // The KPI row.
+  const cards = 2 * content.ifc;
+  if (content.ifc > 0 && R - 2 >= MIN_BODY && B >= cards) {
+    for (const full of [false, true])
+      for (const F of full ? [3, 4, 5] : [0, 3, 4, 5]) {
+        const V = B - F;
+        const K = full ? B - F : B;
+        if (V < 6 || K < cards) continue;
+        const viewer = fixedTile("viewer", "viewer", 0, 2, V, R - 2, u);
+        if (!viewer) continue;
+        for (const codesInRow of [false, true]) {
+          const left = K - cards - (codesInRow ? 3 : 0);
+          if (left < 0 || left % 2 || left / 2 > content.counts) continue;
+          const row: MgPlace[] = [];
+          for (let i = 0; i < content.ifc; i += 1) row.push(fixedTile(`ifc${i}`, "panel", 2 * i, 0, 2, 2, u)!);
+          for (let i = 0; i < left / 2; i += 1) row.push(fixedTile(`count${i}`, "panel", cards + 2 * i, 0, 2, 2, u)!);
+          if (codesInRow) row.push(fixedTile("codes", "list", K - 3, 0, 3, 2, u)!);
+          const ids = codesInRow ? ["floors"] : ["floors", "codes"];
+          const col = F > 0 ? column(ids, V, full ? 0 : 2, F, full ? R : R - 2) : { tiles: [], tabs: ids };
+          if (!col) continue;
+          const tabbed = [...col.tabs, ...col.tiles.flatMap((t) => t.tabs)];
+          const cost =
+            viewerCostOf(V, R - 2) +
+            tabbed.reduce((a, id) => a + COST_TAB[id], 0) +
+            COST_COUNT * (content.counts - left / 2) +
+            (codesInRow ? 1 : 0) +
+            (full ? 0.5 : 0);
+          consider({ cost, tiles: [...row, viewer, ...col.tiles], toChecks: col.tabs, band: full ? "kpis+column" : "kpis" });
+        }
+      }
+  }
+  // No KPI row: the requirements as one list.
+  for (const F of [0, 3, 4, 5]) {
+    const V = B - F;
+    if (V < 6) continue;
+    const viewer = fixedTile("viewer", "viewer", 0, 0, V, R, u);
+    if (!viewer) continue;
+    const ids = ["reqs", "floors", "codes"];
+    const col = F > 0 ? column(ids, V, 0, F, R) : { tiles: [], tabs: ids };
+    if (!col) continue;
+    const tabbed = [...col.tabs, ...col.tiles.flatMap((t) => t.tabs)];
+    const cost =
+      COST_REQS_LIST +
+      viewerCostOf(V, R) +
+      tabbed.reduce((a, id) => a + COST_TAB[id], 0) +
+      COST_COUNT * content.counts;
+    consider({ cost, tiles: [viewer, ...col.tiles], toChecks: col.tabs, band: F > 0 ? "list" : "model" });
   }
   return best;
 }
 
-/** The narrow fallback: the model first and at 6 × 4, the IFC-struktur
- *  requirements and Scope as M beside it; the floors, the checks and Detail
- *  in tabs of those. Where the window seats it (12 × 5), Detail is a tile;
- *  under that, a fixed tab of Scope. Which it is depends on the window
- *  only. */
-function layoutNarrow(grid: MgGrid, content: MgContent): MgLayout {
+/** The Overview (owner, 2026-09-30: "the scope tile should go below the
+ *  verification tile on the left margin and let the properties panel take
+ *  that full height"; "Right edge, full height"). Three columns, one board:
+ *
+ *    the left column   the checks (Verifikasjon) on top, Scope under them,
+ *                      the board's full height together; the split by the
+ *                      window's rows only (Scope the lower half).
+ *    the body          the KPI row (one S card per IFC-struktur requirement,
+ *                      then the neutral counts, then the codes where the row
+ *                      needs 3 more), under it the model (hero) and a column
+ *                      of the floors (Etasjer) over the classification codes,
+ *                      under the row or the full height beside it.
+ *    the right edge    Detail (the object panel), the board's full height.
+ *
+ *  The sidebars are rule 3's named tall exception (`MG_TALL`); their widths
+ *  (3 to 6 modules, 4 wanted) and the body's arrangement are the cheapest
+ *  exact cover (`overviewBody`), every column and every row, every tile
+ *  inside its bound.
+ *
+ *  THE BREAKS, by the priority the model, the checks, Detail, Scope. Where
+ *  the body cannot seat the KPI row (under 16 columns, or 6 rows), the
+ *  IFC-struktur requirements are one list in the body's column; where the
+ *  body cannot seat that column either, the list, the floors and the codes
+ *  are tabs of the checks. Where the left column cannot hold the checks and
+ *  Scope, Scope is a fixed tab of Detail. Where three columns do not fit
+ *  (under 12), Detail goes under the checks, Scope its fixed tab. Which it
+ *  is depends on the window only.
+ *
+ *  STABLE (2026-09-29, the owner: "I dont like this components changing
+ *  places based on what is selected"). The input is the window and the
+ *  loaded content (the requirement and count cards), never selection,
+ *  filter or what a panel holds: Scope and Detail keep one slot each
+ *  whether empty or filled, and scroll inside it. Pure and deterministic. */
+export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
+  // The columns are chosen for the reference content, so Detail and Scope
+  // keep their slots whichever model is loaded; the body then seats the
+  // actual cards. Only where it cannot, the columns are chosen again.
+  return composeOverview(grid, content, OVERVIEW_REFERENCE) ?? composeOverview(grid, content, content) ?? layoutOverviewPacked(grid);
+}
+
+/** The content the columns are chosen for: the five IFC-struktur cards and
+ *  the four counts every model has. */
+const OVERVIEW_REFERENCE: MgContent = { ifc: 5, counts: 4 };
+
+function composeOverview(grid: MgGrid, content: MgContent, reference: MgContent): MgLayout | null {
+  const { cols, rows, u } = grid;
+  let best: { cost: number; tiles: MgPlace[]; band: string; Lw: number; Dw: number } | null = null;
+  // Scope takes the lower half of the left column, by the rows alone.
+  const scopeRows = Math.floor(rows / 2);
+  for (const Lw of [4, 5, 3, 6])
+    for (const Dw of [4, 5, 3, 6, 0]) {
+      const B = cols - Lw - Dw;
+      if (B < 6) continue;
+      const body = overviewBody(B, rows, u, reference);
+      if (!body) continue;
+      // The left column: the checks over Scope, or (no right column) over
+      // Detail; the lower one a tab host where they do not both fit.
+      const lower = Dw > 0 ? "scope" : "detail";
+      const lefts: { tiles: MgPlace[]; cost: number }[] = [];
+      if (scopeRows >= 2 && rows - scopeRows >= 2) {
+        const c = fixedTile("checks", "list", 0, 0, Lw, rows - scopeRows, u);
+        const s = fixedTile(lower, "list", 0, rows - scopeRows, Lw, scopeRows, u);
+        if (c && s) lefts.push({ tiles: [c, lower === "detail" ? { ...s, tabs: ["scope"] } : s], cost: lower === "detail" ? COST_TAB.scope : 0 });
+      }
+      if (Dw > 0) {
+        const c = fixedTile("checks", "list", 0, 0, Lw, rows, u);
+        if (c) lefts.push({ tiles: [c], cost: COST_TAB.scope });
+      }
+      const right = Dw > 0 ? fixedTile("detail", "list", cols - Dw, 0, Dw, rows, u) : null;
+      if (Dw > 0 && !right) continue;
+      for (const left of lefts) {
+        const scopeTab = !left.tiles.some((t) => t.id === "scope") && !left.tiles.some((t) => t.tabs.includes("scope"));
+        const tiles = [
+          ...left.tiles.map((t) => (t.id === "checks" ? { ...t, tabs: body.toChecks } : t)),
+          ...body.tiles.map((t) => ({ ...t, x: t.x + Lw })),
+          ...(right ? [{ ...right, tabs: scopeTab ? ["scope"] : [] }] : []),
+        ];
+        const cost =
+          body.cost +
+          left.cost +
+          2 * Math.abs(Lw - SIDE_WANT) +
+          (Lw < SIDE_WANT ? 2 : 0) +
+          (Dw > 0 ? 2 * Math.abs(Dw - SIDE_WANT) : 40);
+        if (!best || cost < best.cost - 1e-9) best = { cost, tiles, band: `${Dw > 0 ? "columns" : "left"}+${body.band}`, Lw, Dw };
+      }
+    }
+  if (!best) return null;
+  if (reference !== content) {
+    // The columns as chosen; the body for the content loaded.
+    const { Lw, Dw } = best;
+    const body = overviewBody(cols - Lw - Dw, rows, u, content);
+    if (!body) return null;
+    const sides = best.tiles.filter((t) => t.id === "checks" || t.id === "scope" || t.id === "detail");
+    best = {
+      ...best,
+      tiles: [
+        ...sides.map((t) => (t.id === "checks" ? { ...t, tabs: body.toChecks } : t)),
+        ...body.tiles.map((t) => ({ ...t, x: t.x + Lw })),
+      ],
+      band: `${Dw > 0 ? "columns" : "left"}+${body.band}`,
+    };
+  }
+  const tiles = best.tiles
+    .map((t) => ({ ...t, priority: overviewRank(t.id) }))
+    .sort((p, q) => p.y - q.y || p.x - q.x);
+  const moved = tiles.flatMap((t) => t.tabs).sort((a, b) => overviewRank(a) - overviewRank(b));
+  return { ...grid, used: cols, usedRows: rows, offset: 0, top: 0, tiles, moved, band: best.band };
+}
+
+/** The last break (a board the columns cannot cover inside the bounds: an
+ *  ultrawide short window, a narrow tall one): the packer by priority, the
+ *  model, the checks, Detail, Scope (a fixed tab of Detail), the
+ *  requirements as one list; the floors and the codes tabs of the list, the
+ *  counts rows of the checks. By the window alone. */
+function layoutOverviewPacked(grid: MgGrid): MgLayout {
+  const list = (id: string, extra: Partial<MgTileSpec> = {}) =>
+    mgFlex({ id, kind: "list" as MgKind, sizes: M_WIDE, ...extra }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u));
   const specs: MgTileSpec[] = [
     flexViewer(grid),
-    mgFlex({ id: "reqs", kind: "list", sizes: M_WIDE, required: true }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u)),
-    flexDock("scope", grid, M_WIDE),
-    flexDock("detail", grid, M_WIDE, { required: false, hosts: ["scope"] }),
-    ...["floors", "checks", CODES.id].map((id) =>
-      mgFlex({ id, kind: "list" as MgKind, sizes: M_WIDE, hosts: ["reqs"] }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u)),
-    ),
-    ...countTiles(content),
+    list("checks", { required: true }),
+    flexDock("detail", grid, M_WIDE),
+    flexDock("scope", grid, M_WIDE, { required: false, hosts: ["detail"] }),
+    list("reqs", { hosts: ["checks"] }),
+    list("floors", { hosts: ["reqs", "checks"] }),
+    list("codes", { hosts: ["reqs", "checks"] }),
   ];
   return mgPackExact(grid, specs) ?? mgPack(grid, specs);
 }
