@@ -56,6 +56,8 @@ export interface BcfRender extends BcfStrings {
   checkLabel: (checkId: string) => string;
   reason: (finding: Finding) => string;
   displayValue: (value: DisplayValue) => string;
+  /** A check's detail line in the export's language. */
+  checkDetail: (check: CheckResult) => string;
 }
 
 export type SnapshotFn = (
@@ -112,7 +114,7 @@ function toChecks(source: BcfModelSource, render: BcfRender): BcfCheck[] {
     checks.push({
       key: `fundamental:${check.id}`,
       label: render.checkLabel(check.id),
-      head: [render.displayValue(check.displayValue), check.detail].filter(Boolean),
+      head: [render.displayValue(check.displayValue), render.checkDetail(check)].filter(Boolean),
       findings: check.findings
         .filter((f) => keep(f.guid))
         .map((f) => ({ guid: f.guid, reason: render.reason(f) })),

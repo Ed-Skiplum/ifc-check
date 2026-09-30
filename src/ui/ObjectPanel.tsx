@@ -871,7 +871,7 @@ function LeadCards({
             >
               {card.label}
             </span>
-            <span title={card.ifc} className="truncate text-[8px] leading-tight text-muted">
+            <span title={card.ifc} className="truncate text-[9px] leading-tight text-muted">
               {card.ifc}
             </span>
           </span>
@@ -892,7 +892,7 @@ function LeadCards({
           >
             {t("col.guid", lang)}
           </span>
-          <span className="truncate text-[8px] leading-tight text-muted">IfcRoot.GlobalId</span>
+          <span className="truncate text-[9px] leading-tight text-muted">IfcRoot.GlobalId</span>
         </span>
         <span
           onDoubleClick={copyOnDoubleClick(guid)}
@@ -1062,7 +1062,7 @@ function FieldRow({ lang, field }: { lang: Lang; field: Field }) {
           {field.label}
         </span>
         {field.ifc ? (
-          <span title={field.ifc} className="truncate text-[8px] leading-tight text-muted/70">
+          <span title={field.ifc} className="truncate text-[9px] leading-tight text-muted/70">
             {field.ifc}
           </span>
         ) : null}

@@ -5,7 +5,7 @@
  */
 
 import type { Lang } from "./i18n";
-import { locale } from "./i18n";
+import { locale } from "./i18n.ts";
 
 export function formatBytes(bytes: number, lang: Lang): string {
   const l = locale(lang);

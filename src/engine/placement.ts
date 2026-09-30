@@ -68,7 +68,7 @@
  */
 
 import type { CheckResult, Finding, IfcGraph, IfcSummary, ProductRow } from "./types";
-import { finding, literal, result, share } from "./fundamentals.ts";
+import { finding, line, literal, result, share } from "./fundamentals.ts";
 
 /** Metres. How far BELOW its storey's elevation a mesh bottom may sit and
  *  still be yellow rather than red (edkjo's "within 100mm", ifc-check#2). There
@@ -269,6 +269,9 @@ export interface PlacementContext {
   /** Null when the storey band CAN be compared; otherwise the reason it
    *  cannot, in the engine's own words. */
   storeyReason: string | null;
+  /** `storeyReason` as code + params (`why`: unit / flat / frames), for the
+   *  check's localised detail line. Null exactly when `storeyReason` is. */
+  storeyWhy: Record<string, string | number> | null;
   /** Elements the band was compared for. */
   compared: number;
   /** Products with no geometry at all. */
@@ -312,10 +315,14 @@ export function placementContext(
   }
 
   let storeyReason: string | null = null;
+  let storeyWhy: Record<string, string | number> | null = null;
   let compared = 0;
   if (!input.unitResolved) {
     storeyReason = "storey comparison not run: length unit unresolved";
+    storeyWhy = { why: "unit" };
   } else if (distinct.length < 2) {
+    storeyWhy = { why: "flat", n: levels.length };
+    if (distinct.length === 1) storeyWhy.at = distinct[0].toFixed(3);
     storeyReason =
       `storey comparison not run: ${levels.length} storey elevation(s) are not distinguishable` +
       (distinct.length === 1 ? ` (all at ${distinct[0].toFixed(3)} m)` : "");
@@ -337,6 +344,13 @@ export function placementContext(
     }
     const band = STOREY_TOLERANCE_M;
     if (compared > 0 && (bottomHi < elevLo - band || bottomLo > elevHi + band)) {
+      storeyWhy = {
+        why: "frames",
+        bottomLo: bottomLo.toFixed(2),
+        bottomHi: bottomHi.toFixed(2),
+        elevLo: elevLo.toFixed(2),
+        elevHi: elevHi.toFixed(2),
+      };
       storeyReason =
         `storey comparison not run: mesh bottoms ${bottomLo.toFixed(2)}..${bottomHi.toFixed(2)} m ` +
         `and storey elevations ${elevLo.toFixed(2)}..${elevHi.toFixed(2)} m do not overlap, ` +
@@ -353,6 +367,7 @@ export function placementContext(
     levels,
     storeyByGuid,
     storeyReason,
+    storeyWhy,
     compared,
     unmeshed: input.products.length - meshed.length,
     at,
@@ -498,9 +513,9 @@ export function checkMeshPlacement(
     // states are then unknown, not zero.
     band_ran: ctx.storeyReason === null ? 1 : 0,
   };
-  let storeyNote: string;
+  let band: Record<string, string | number>;
   if (ctx.storeyReason !== null) {
-    storeyNote = ctx.storeyReason;
+    band = { ...ctx.storeyWhy, note: ctx.storeyReason };
   } else {
     for (const p of ctx.meshed) {
       if (ctx.far.has(p.guid)) continue;
@@ -525,9 +540,13 @@ export function checkMeshPlacement(
         }),
       );
     }
-    storeyNote =
-      `of ${ctx.compared} against their storey: ${tally.green} green, ${tally.yellow} yellow ` +
-      `(bottom up to ${STOREY_TOLERANCE_M} m below, top at or above), ${tally.red} red`;
+    band = {
+      compared: ctx.compared,
+      green: tally.green,
+      yellow: tally.yellow,
+      tolerance: STOREY_TOLERANCE_M,
+      red: tally.red,
+    };
   }
 
   const checked = result(
@@ -536,8 +555,13 @@ export function checkMeshPlacement(
     ctx.meshed.length,
     findings,
     share(ctx.meshed.length - findings.length, ctx.meshed.length),
-    `${ctx.far.size} of ${ctx.meshed.length} far from the model (cutoff ${round(ctx.cutoff, 1)} m); ` +
-      `${storeyNote}; ${ctx.unmeshed} without geometry`,
+    line("placement", {
+      far: ctx.far.size,
+      meshed: ctx.meshed.length,
+      cutoff: round(ctx.cutoff, 1),
+      ...band,
+      unmeshed: ctx.unmeshed,
+    }),
   );
   // Only-yellow is an Advarsel, not an Avvik: `review` with a deviation
   // severity renders as warn in `verdictOf`, which is the whole mapping.

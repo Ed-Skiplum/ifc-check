@@ -29,7 +29,7 @@ import type { Lang, StringKey } from "./i18n";
 import { verdictOf } from "../engine/fundamentals";
 import { t } from "./i18n";
 import { useSelectionMarks } from "./selection-context";
-import { displayText } from "./display";
+import { checkDetail, displayText } from "./display";
 import { formatCount, formatShare } from "./format";
 import {
   RESULT_FILL,
@@ -175,7 +175,7 @@ export function Verification({
               type="button"
               data-sel={marks.focus(focus) ? "" : undefined}
               onClick={() => onFocus(focus)}
-              title={rule ? rule.ruleName : check.detail}
+              title={rule ? rule.ruleName : checkDetail(check, lang)}
               className={
                 `${ROW} hover:bg-palegreen ` +
                 (selected === key ? "outline-2 -outline-offset-2 outline-ink" : "")

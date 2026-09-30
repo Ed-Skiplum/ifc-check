@@ -35,6 +35,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Trace } from "./trace";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
+import { detailText } from "./display";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
 import { ObjectPanel } from "./ObjectPanel";
@@ -308,7 +309,9 @@ export function TraceBand({
       {trace.detail || trace.reason || trace.notes.length > 0 ? (
         <div className="flex shrink-0 flex-col gap-1 px-3 pb-1.5">
           {trace.detail ? (
-            <span className="font-mono text-[11px] leading-snug text-muted">{trace.detail}</span>
+            <span className="font-mono text-[11px] leading-snug text-muted">
+              {trace.detailLine ? detailText(trace.detailLine, lang, trace.detail) : trace.detail}
+            </span>
           ) : null}
           {trace.reason ? (
             <span className="flex w-fit items-start gap-1.5 bg-gold px-2 py-0.5 font-mono text-[11px] leading-snug text-ink">

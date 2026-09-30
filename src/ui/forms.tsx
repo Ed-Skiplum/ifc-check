@@ -14,6 +14,7 @@ import type { Verdict } from "../engine/types";
 import type { ClassCount } from "./profile";
 import type { Focus } from "./trace";
 import type { Lang } from "./i18n";
+import { useLayoutEffect, useRef, useState } from "react";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
@@ -139,6 +140,9 @@ export interface Readout {
   text?: boolean;
   /** A door: the value opens a derivation. */
   onClick?: () => void;
+  /** `ReadoutStrip` only: when the line runs short, the lowest `drop` leaves
+   *  first. None: it never leaves. */
+  drop?: number;
 }
 
 /** Label-over-value pairs in a fixed box. Used for the file's own facts and
@@ -171,40 +175,110 @@ export function ReadoutList({ items }: { items: Readout[] }) {
 }
 
 /** The same pairs on one line: the model panel's header carries the file's
- *  own facts this way (2026-09-21), where a 3×2 readout tile clipped them. */
+ *  own facts this way (2026-09-21), where a 3×2 readout tile clipped them.
+ *
+ *  A pair is shown whole or not at all (2026-09-30 review: «LENGDEENI»,
+ *  «PROSJI», «SKJEMA IF…» at 1440 and 1920). When the line runs short the
+ *  pairs leave in `drop` order, lowest first, measured from their rendered
+ *  widths, never cut mid-word. */
 export function ReadoutStrip({ items }: { items: Readout[] }) {
+  const box = useRef<HTMLDivElement>(null);
+  const probe = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState<boolean[] | null>(null);
+  const key = items.map((i) => `${i.label}|${i.value}|${i.drop ?? ""}`).join(";");
+  useLayoutEffect(() => {
+    const el = box.current;
+    const row = probe.current;
+    if (!el || !row) return;
+    const fit = () => {
+      const widths = Array.from(row.children).map((c) => c.getBoundingClientRect().width);
+      const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+      const next = fitReadouts(widths, items.map((i) => i.drop), el.getBoundingClientRect().width, gap);
+      setShown((prev) => (prev && prev.length === next.length && prev.every((v, i) => v === next[i]) ? prev : next));
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    observer.observe(row);
+    return () => observer.disconnect();
+    // `key` stands for `items`, which is a new array on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
   return (
-    <div className="flex min-w-0 flex-1 items-baseline gap-x-3 overflow-hidden">
-      {items.map((item) => (
-        <span key={item.label} className="flex min-w-0 items-baseline gap-1.5 overflow-hidden">
-          <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
-            {item.label}
+    <div ref={box} className="relative flex min-w-0 flex-1 items-baseline gap-x-3 overflow-hidden">
+      {/* The measuring row: every pair at its natural width, never seen. */}
+      <div
+        ref={probe}
+        aria-hidden
+        className="pointer-events-none invisible absolute top-0 left-0 flex w-max items-baseline gap-x-3 whitespace-nowrap"
+      >
+        {items.map((item) => (
+          <span key={item.label} className="flex shrink-0 items-baseline gap-1.5">
+            <span className="text-[10px] font-semibold tracking-[0.12em] uppercase">{item.label}</span>
+            <span className={"text-[12px] " + (item.text ? "" : "font-mono tabular-nums")}>{item.value}</span>
           </span>
-          {item.onClick ? (
-            <button
-              type="button"
-              onClick={item.onClick}
-              title={item.value}
-              className="truncate font-mono text-[12px] tabular-nums text-ink underline decoration-line underline-offset-2 hover:text-green"
-            >
-              {item.value}
-            </button>
-          ) : (
-            <span
-              onDoubleClick={copyOnDoubleClick(item.value)}
-              title={item.value}
-              className={
-                "cursor-copy truncate text-[12px] text-ink " +
-                (item.text ? "" : "font-mono tabular-nums")
-              }
-            >
-              {item.value}
+        ))}
+      </div>
+      {items.map((item, i) =>
+        shown && !shown[i] ? null : (
+          <span key={item.label} className="flex shrink-0 items-baseline gap-1.5 whitespace-nowrap">
+            <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
+              {item.label}
             </span>
-          )}
-        </span>
-      ))}
+            {item.onClick ? (
+              <button
+                type="button"
+                onClick={item.onClick}
+                title={item.value}
+                className="font-mono text-[12px] tabular-nums text-ink underline decoration-line underline-offset-2 hover:text-green"
+              >
+                {item.value}
+              </button>
+            ) : (
+              <span
+                onDoubleClick={copyOnDoubleClick(item.value)}
+                title={item.value}
+                className={"cursor-copy text-[12px] text-ink " + (item.text ? "" : "font-mono tabular-nums")}
+              >
+                {item.value}
+              </span>
+            )}
+          </span>
+        ),
+      )}
     </div>
   );
+}
+
+/** Which readouts fit `available` px: every one while they do, then they leave
+ *  in ascending `drop` order until the rest fit. A readout with no `drop`
+ *  stays. Pure, so the order can be tested without a browser. */
+export function fitReadouts(
+  widths: readonly number[],
+  drop: readonly (number | undefined)[],
+  available: number,
+  gap: number,
+): boolean[] {
+  const shown = widths.map(() => true);
+  const total = () => {
+    let sum = 0;
+    let n = 0;
+    widths.forEach((w, i) => {
+      if (!shown[i]) return;
+      sum += w;
+      n += 1;
+    });
+    return sum + gap * Math.max(0, n - 1);
+  };
+  const order = widths
+    .map((_, i) => i)
+    .filter((i) => drop[i] !== undefined)
+    .sort((a, b) => drop[a]! - drop[b]!);
+  for (const i of order) {
+    if (total() <= available + 0.5) break;
+    shown[i] = false;
+  }
+  return shown;
 }
 
 /* ------------------------------------------------------------ the KPI row */

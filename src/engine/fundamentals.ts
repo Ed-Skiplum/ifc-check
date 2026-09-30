@@ -27,6 +27,8 @@
 import type {
   CheckResult,
   CheckSeverity,
+  DetailCode,
+  DetailLine,
   DisplayNoun,
   DisplayValue,
   Finding,
@@ -83,6 +85,49 @@ export function finding(
     ...(Object.keys(params).length ? { params } : {}),
     reason: REASON_EN[code](params),
   };
+}
+
+/* ------------------------------------------------------------ detail line */
+
+/** English rendering of a detail code: exactly the line `detail` has always
+ *  carried, so the CLI, the JSON and the report contract read as before. */
+const DETAIL_EN: Record<DetailCode, (p: Record<string, string | number>) => string> = {
+  "unit-scale": (p) => `${p.unit}, unit scale ${p.scale}`,
+  "spatial-levels": (p) => `${p.good} of ${p.total} spatial levels present (${p.levels})`,
+  "in-storey": (p) => `${p.good} of ${p.total} elements sit in a storey`,
+  "storey-in-building": (p) => `${p.good} of ${p.total} storeys belong to a building`,
+  "distinct-elevations": (p) => `${p.distinct} distinct elevation(s) across ${p.total} storeys`,
+  "distinct-guids": (p) => `${p.distinct} distinct GlobalId across ${p.total} products`,
+  named: (p) => `${p.good} of ${p.total} elements carry a name`,
+  typed: (p) => `${p.good} of ${p.total} elements linked to a type`,
+  "real-type-name": (p) => `${p.good} of ${p.total} typed elements have a real type name`,
+  "single-instance-types": (p) => `${p.n} of ${p.total} types used by exactly one element`,
+  "types-used": (p) => `${p.good} of ${p.total} declared type objects are used by an element`,
+  "no-type-objects": () => "no type objects declared",
+  "with-material": (p) => `${p.good} of ${p.total} elements carry a material`,
+  placement: (p) =>
+    `${p.far} of ${p.meshed} far from the model (cutoff ${p.cutoff} m); ` +
+    (p.why === undefined
+      ? `of ${p.compared} against their storey: ${p.green} green, ${p.yellow} yellow ` +
+        `(bottom up to ${p.tolerance} m below, top at or above), ${p.red} red`
+      : String(p.note)) +
+    `; ${p.unmeshed} without geometry`,
+  "storey-config": (p) =>
+    `${p.good} of ${p.total} storeys match the floor config; ` +
+    `config has ${p.config}, ${p.absent} absent from this file`,
+  "body-mesh": (p) =>
+    `${p.bodyNoMesh} declare a Body representation and have no mesh; ${p.meshed} meshed; ` +
+    `${p.noBody} without mesh declare no Body` +
+    (Number(p.unread) ? `; ${p.unread} not found in the STEP bytes` : ""),
+};
+
+/** A detail line: code + params, with the English `detail` derived from it. */
+export function line(code: DetailCode, params: Record<string, string | number> = {}): DetailLine {
+  return { code, params };
+}
+
+export function detailEn(detail: DetailLine): string {
+  return DETAIL_EN[detail.code](detail.params);
 }
 
 /* ------------------------------------------------------------ found value */
@@ -147,9 +192,13 @@ export function result(
   applicable: number,
   findings: Finding[],
   displayValue: DisplayValue,
-  detail: string,
+  /** Free text, or a coded line the screen localises (`line`). */
+  detailIn: string | DetailLine,
   opts: { review?: boolean; naValue?: DisplayValue } = {},
 ): CheckResult {
+  const coded = typeof detailIn === "string" ? null : detailIn;
+  const detail = coded ? detailEn(coded) : (detailIn as string);
+  const withLine = coded ? { detailLine: coded } : {};
   if (applicable === 0) {
     return {
       id,
@@ -160,10 +209,11 @@ export function result(
       applicable: 0,
       findings: [],
       detail,
+      ...withLine,
     };
   }
   const state = findings.length === 0 ? "pass" : opts.review ? "review" : "fail";
-  return { id, state, severity, displayValue, applicable, findings, detail };
+  return { id, state, severity, displayValue, applicable, findings, detail, ...withLine };
 }
 
 /** The word the screen prints. Derived, never stored (see `Verdict`).
@@ -233,7 +283,7 @@ function checkParseIntegrity(summary: IfcSummary): CheckResult {
     1,
     findings,
     value,
-    `${summary.length_unit}, unit scale ${summary.unit_scale}`,
+    line("unit-scale", { unit: summary.length_unit, scale: summary.unit_scale }),
   );
 }
 
@@ -267,8 +317,11 @@ function checkSpatialChain(graph: IfcGraph): CheckResult {
     levels.length,
     findings,
     share(present, levels.length),
-    `${present} of ${levels.length} spatial levels present ` +
-      `(${levels.map((l) => `${l.level} ${l.size}`).join(", ")})`,
+    line("spatial-levels", {
+      good: present,
+      total: levels.length,
+      levels: levels.map((l) => `${l.level} ${l.size}`).join(", "),
+    }),
   );
 }
 
@@ -289,7 +342,7 @@ function checkContained(products: ProductRow[]): CheckResult {
     products.length,
     findings,
     share(products.length - findings.length, products.length),
-    `${products.length - findings.length} of ${products.length} elements sit in a storey`,
+    line("in-storey", { good: products.length - findings.length, total: products.length }),
   );
 }
 
@@ -308,7 +361,7 @@ function checkStoreyInBuilding(graph: IfcGraph): CheckResult {
     graph.storeys.length,
     findings,
     share(graph.storeys.length - findings.length, graph.storeys.length),
-    `${graph.storeys.length - findings.length} of ${graph.storeys.length} storeys belong to a building`,
+    line("storey-in-building", { good: graph.storeys.length - findings.length, total: graph.storeys.length }),
   );
 }
 
@@ -360,7 +413,7 @@ function checkStoreyElevation(graph: IfcGraph, summary: IfcSummary): CheckResult
     withElevation.length,
     findings,
     value,
-    `${at.size} distinct elevation(s) across ${withElevation.length} storeys`,
+    line("distinct-elevations", { distinct: at.size, total: withElevation.length }),
     { naValue: count(graph.storeys.length, "storeys") },
   );
 }
@@ -394,7 +447,7 @@ function checkGuidUnique(graph: IfcGraph, excluded?: ReadonlySet<string>): Check
     products.length,
     findings,
     unique(seen.size, products.length),
-    `${seen.size} distinct GlobalId across ${products.length} products`,
+    line("distinct-guids", { distinct: seen.size, total: products.length }),
   );
 }
 
@@ -414,7 +467,7 @@ function checkNamed(products: ProductRow[]): CheckResult {
     products.length,
     findings,
     share(products.length - findings.length, products.length),
-    `${products.length - findings.length} of ${products.length} elements carry a name`,
+    line("named", { good: products.length - findings.length, total: products.length }),
   );
 }
 
@@ -432,7 +485,7 @@ function checkTyped(products: ProductRow[]): CheckResult {
     products.length,
     findings,
     share(products.length - findings.length, products.length),
-    `${products.length - findings.length} of ${products.length} elements linked to a type`,
+    line("typed", { good: products.length - findings.length, total: products.length }),
   );
 }
 
@@ -451,7 +504,7 @@ function checkTypeNames(products: ProductRow[]): CheckResult {
     typed.length,
     findings,
     share(typed.length - findings.length, typed.length),
-    `${typed.length - findings.length} of ${typed.length} typed elements have a real type name`,
+    line("real-type-name", { good: typed.length - findings.length, total: typed.length }),
   );
 }
 
@@ -481,7 +534,7 @@ function checkSingleInstanceTypes(products: ProductRow[]): CheckResult {
     byType.size,
     findings,
     share(byType.size - findings.length, byType.size),
-    `${findings.length} of ${byType.size} types used by exactly one element`,
+    line("single-instance-types", { n: findings.length, total: byType.size }),
     { review: true, naValue: count(byType.size, "types") },
   );
 }
@@ -544,12 +597,13 @@ function checkUnusedTypes(graph: IfcGraph): CheckResult {
     declared.length,
     findings,
     share(declared.length - findings.length, declared.length),
-    `${declared.length - findings.length} of ${declared.length} declared type objects are used by an element`,
+    line("types-used", { good: declared.length - findings.length, total: declared.length }),
     { naValue: count(0, "types") },
   );
   if (result_.state === "not_applicable") {
     result_.reason = "the file declares no type objects";
-    result_.detail = "no type objects declared";
+    result_.detailLine = line("no-type-objects");
+    result_.detail = detailEn(result_.detailLine);
   }
   return result_;
 }
@@ -611,7 +665,7 @@ function checkMaterials(products: ProductRow[], graph: IfcGraph): CheckResult {
     products.length,
     findings,
     share(products.length - findings.length, products.length),
-    `${products.length - findings.length} of ${products.length} elements carry a material`,
+    line("with-material", { good: products.length - findings.length, total: products.length }),
   );
 }
 

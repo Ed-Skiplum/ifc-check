@@ -21,7 +21,7 @@
 
 import { useLayoutEffect, useState, type CSSProperties } from "react";
 import { VERDICT_GLYPH } from "../state-visuals";
-import { categorical, classColour, codeColour, css, frameColour, labelOn, type Rgb } from "../chart-colors";
+import { categorical, classColour, codeColour, css, frameColour, readableCell, type Rgb } from "../chart-colors";
 import type { CodeTree, TreeNode } from "../../engine/code-tree";
 import type { Requirement } from "../requirements";
 import type { DoorProps } from "./Requirements";
@@ -187,7 +187,8 @@ function cellStyle(node: TreeNode, frame: boolean): Record<string, string> {
   else if (node.kind === "type" || node.kind === "fallback") fill = categorical(node.label ?? "");
   else return {};
   if (frame) fill = frameColour(fill);
-  return { "--cell": css(fill), "--cell-ink": css(labelOn(fill)) };
+  const cell = readableCell(fill);
+  return { "--cell": css(cell.fill), "--cell-ink": css(cell.ink) };
 }
 
 /** A node's elements that are in `iso`, counted once per render. */
@@ -334,12 +335,12 @@ export function CodeTreemap({
                     {glyph}
                   </span>
                 ) : null}
-                {node.kind === "fallback" ? (
-                  <span className="shrink-0 font-mono opacity-70">{t("col.predefinedType", lang)}</span>
-                ) : null}
+                {/* The value only: the header names the field (a fallback
+                    is marked by its hatch). No opacity on a label: at 10 px
+                    it took the ink under 4.5:1 (2026-09-30 review). */}
                 <span className="truncate font-mono font-semibold">{label(node)}</span>
-                {node.name ? <span className="truncate opacity-75">{node.name}</span> : null}
-                <span className="ml-auto shrink-0 font-mono tabular-nums opacity-70">{figure(node)}</span>
+                {node.name ? <span className="truncate">{node.name}</span> : null}
+                <span className="ml-auto shrink-0 font-mono tabular-nums">{figure(node)}</span>
               </span>
             )}
           </button>

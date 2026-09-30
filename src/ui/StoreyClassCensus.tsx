@@ -20,9 +20,7 @@ import { t } from "./i18n";
 import { formatCount } from "./format";
 import { useSelectionMarks } from "./selection-context";
 import { asButton } from "./keys";
-
-const LOW = [230, 239, 221] as const; // palegreen #E6EFDD
-const HIGH = [44, 94, 63] as const; // green #2C5E3F
+import { censusCell, css } from "./chart-colors.ts";
 
 /** `IfcBuildingElementProxy` → `Building|Element|Proxy`: no prefix, and a
  *  zero-width break at each hump so a header can wrap to two lines. */
@@ -31,12 +29,8 @@ function header(entity: string): string {
 }
 
 function ramp(count: number, peak: number): { background: string; color: string } {
-  const share = peak <= 1 ? 1 : Math.log1p(count) / Math.log1p(peak);
-  const mix = LOW.map((low, i) => Math.round(low + (HIGH[i] - low) * share));
-  return {
-    background: `rgb(${mix[0]} ${mix[1]} ${mix[2]})`,
-    color: share > 0.55 ? "#F4EEDC" : "#23291E",
-  };
+  const cell = censusCell(count, peak);
+  return { background: css(cell.fill), color: css(cell.ink) };
 }
 
 interface StoreyClassCensusProps {

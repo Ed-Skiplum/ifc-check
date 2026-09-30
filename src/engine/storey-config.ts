@@ -32,7 +32,7 @@
  */
 
 import type { CheckResult, Finding, IfcGraph, IfcSummary } from "./types";
-import { finding, literal, result, share } from "./fundamentals.ts";
+import { finding, line, literal, result, share } from "./fundamentals.ts";
 import { storeyPolicy, type StoreyPolicy } from "../ids/models.ts";
 import type { Ruleset, StoreyLevel, StoreyPlane, StoreyTolerance } from "../ids/types.ts";
 
@@ -215,7 +215,6 @@ export function checkStoreyConfig(
     graph.storeys.length,
     findings,
     share(matched, graph.storeys.length),
-    `${matched} of ${graph.storeys.length} storeys match the floor config; ` +
-      `config has ${config.length}, ${absent} absent from this file`,
+    line("storey-config", { good: matched, total: graph.storeys.length, config: config.length, absent }),
   );
 }
