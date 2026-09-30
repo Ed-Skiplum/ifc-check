@@ -60,6 +60,7 @@ import { MaterialsTab } from "./MaterialsTab";
 import type { IdsSession } from "./IdsResults";
 import { ProjectBoard } from "./alt/ProjectBoard";
 import { RoomsTab } from "./RoomsTab";
+import { ModelTab } from "./ModelTab";
 import type { Reveal } from "./TypesTab";
 import { catalogue as buildCatalogue, typeCodes } from "./type-links";
 import { elementFacets } from "./facets";
@@ -71,10 +72,11 @@ import { aggregateTypes, meshIndex } from "./types";
 import type { FloorConfig } from "../engine/storey-config";
 import type { FloorPeer } from "./FloorSetup";
 
-export type Tab = "checks" | "contents" | "graph" | "types" | "materials" | "rooms" | "project";
-const TABS: readonly Tab[] = ["checks", "contents", "graph", "types", "materials", "rooms", "project"];
+export type Tab = "checks" | "model" | "contents" | "graph" | "types" | "materials" | "rooms" | "project";
+const TABS: readonly Tab[] = ["checks", "model", "contents", "graph", "types", "materials", "rooms", "project"];
 const TAB_LABEL: Record<Tab, StringKey> = {
   checks: "tab.checks",
+  model: "tile.viewer",
   contents: "tab.contents",
   graph: "tab.graph",
   types: "tile.types",
@@ -438,6 +440,9 @@ export function ModelPanel({
                 detail={tab === "checks" ? detail : null}
               />
             </div>
+            <div role="tabpanel" hidden={tab !== "model"} className="flex min-h-0 flex-1 flex-col">
+              <ModelTab lang={lang} model={model} view={view} active={tab === "model"} />
+            </div>
             <div role="tabpanel" hidden={tab !== "contents"} className="flex min-h-0 flex-1 flex-col">
               <div className="contents" data-xf={view.origin === "census" ? "origin" : undefined}>
               <Contents
@@ -547,8 +552,9 @@ export function ModelPanel({
                 and neither pushes the band out of view nor sits under it. */}
             {/* Not on Rom: its two tiles fit the window (the layout canon,
                 rule 1), and a foot band would cover them. Not on Graf, the
-                showpiece stage (2026-09-29). */}
-            {trace && !docked && tab !== "rooms" && tab !== "graph" ? (
+                showpiece stage (2026-09-29). Not on Modell: its panel is the
+                selection's info. */}
+            {trace && !docked && tab !== "rooms" && tab !== "graph" && tab !== "model" ? (
               <div className="flex h-[38.2dvh] min-h-[16rem] shrink-0 flex-col">
                 {trace}
               </div>
