@@ -70,7 +70,9 @@ import { exemptChecks } from "../src/engine/exempt.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
 import { REQUIREMENT_IDS, type IdsRule, type Ruleset } from "../src/ids/types.ts";
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
-import { runFundamentals } from "../src/engine/fundamentals.ts";
+import { detailEn, line as detailLine, runFundamentals } from "../src/engine/fundamentals.ts";
+import { detailText } from "../src/ui/display.ts";
+import { labelOfFocus } from "../src/ui/requirements.ts";
 import {
   checkMeshPlacement,
   collectBoxes,
@@ -2561,6 +2563,31 @@ async function cmdSelftest(): Promise<number> {
       `${purgeable(rows, null, at).length} ${rows.filter((row) => offered(row, null)).length}`,
     );
     record("model cache: the grace period is 2 hours", "7200000", String(CACHE_SESSION_GRACE_MS));
+  }
+
+  // One name per thing, one language per screen (2026-09-30).
+  {
+    const typed = detailLine("typed", { good: 1388, total: 1389 });
+    record(
+      "detail line: the English `detail` is unchanged by the code",
+      "1388 of 1389 elements linked to a type",
+      detailEn(typed),
+    );
+    // `toLocaleString` groups with a no-break space; the words are what is tested.
+    record(
+      "detail line: Norwegian from the code",
+      "1 388 av 1 389 objekter med typeobjekt",
+      detailText(typed, "nb", "").replace(/\s/g, " "),
+    );
+    record(
+      "label: a requirement card's check focus takes the card's name, a plain check its own",
+      "req.typeobjekt req.guid none",
+      [
+        labelOfFocus({ kind: "check", checkId: "element-typed" }, []),
+        labelOfFocus({ kind: "check", checkId: "guid-unique" }, []),
+        labelOfFocus({ kind: "check", checkId: "spatial-chain" }, []) ?? "none",
+      ].join(" "),
+    );
   }
 
   await xlsxSelftest(record);

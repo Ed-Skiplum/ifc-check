@@ -137,6 +137,22 @@ export function rowOfReq(rows: readonly ReportRow[] | undefined, id: string): Re
   return (rows ?? []).find((r) => r.id === id || r.mapping === id) ?? null;
 }
 
+/** The requirement card's own label for the check or rule focus it opens, so
+ *  the filter chip and the Scope header name the thing the card names
+ *  (2026-09-30: card «Typeobjekt», chip «Typet objekt»). Null when no card
+ *  opens that focus: the check keeps its own `check.*` label, the rule its
+ *  name. */
+export function labelOfFocus(focus: Focus, rows: readonly ReportRow[] | undefined): StringKey | null {
+  if (focus.kind === "check") {
+    return REQUIREMENTS.find((s) => !s.mapping && s.id === focus.checkId)?.label ?? null;
+  }
+  if (focus.kind === "rule") {
+    const row = (rows ?? []).find((r) => r.mapping && r.id === focus.ruleId);
+    return row ? labelOfRow(row) : null;
+  }
+  return null;
+}
+
 /** The label of the requirement a row belongs to, for a chip or a title. */
 export function labelOfRow(row: ReportRow): StringKey | null {
   const spec = REQUIREMENTS.find((s) =>

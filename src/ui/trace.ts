@@ -10,7 +10,7 @@
  * exists only as JSX.
  */
 
-import type { CheckResult, ReasonCode, Verdict } from "../engine/types";
+import type { CheckResult, DetailLine, ReasonCode, Verdict } from "../engine/types";
 import { verdictOf } from "../engine/fundamentals";
 import type { ResultState } from "../ids/evaluate.ts";
 import type { StringKey } from "./i18n";
@@ -18,7 +18,7 @@ import type { ModelEntry } from "./useModels";
 import { cellRows, storeyNames, storeyRows } from "./profile";
 import { typeGuids } from "./types/aggregate";
 import { reqDoor, treeDoor } from "./board-doors";
-import { labelOfRow } from "./requirements";
+import { labelOfFocus, labelOfRow } from "./requirements";
 import { findNode } from "../engine/code-tree";
 import { classificationCodes, codeGuids } from "./class-codes";
 
@@ -204,6 +204,9 @@ export interface Trace {
   verdict?: Verdict;
   /** Factual line from the engine, already English, never localised here. */
   detail?: string;
+  /** A check's `detail` as code + params: the band renders this in the
+   *  active language (`detailText`), `detail` is its English fallback. */
+  detailLine?: DetailLine;
   /** Why a verdict could not be reached. The one thing a reader would
    *  otherwise mistake for a pass. */
   reason?: string;
@@ -225,12 +228,15 @@ function checkOf(model: ModelEntry, id: string) {
 function traceOfCheck(
   base: { focus: string; modelId: string; fileName: string },
   check: CheckResult,
+  /** The requirement card's label when a card opened it (`labelOfFocus`). */
+  titleKey?: StringKey | null,
 ): Trace {
   return {
     ...base,
-    titleKey: `check.${check.id}` as Trace["titleKey"],
+    titleKey: titleKey ?? (`check.${check.id}` as Trace["titleKey"]),
     verdict: verdictOf(check),
     detail: check.detail,
+    detailLine: check.detailLine,
     reason: check.reason,
     notes: [],
     stats: [
@@ -255,10 +261,12 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
   if (focus.kind === "rule") {
     const result = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
     if (!result) return null;
+    // A mapping rule is opened by its requirement card: the card's name.
+    const card = labelOfFocus(focus, model.board?.rows);
     return {
       ...base,
-      titleKey: "trace.rule",
-      titleText: result.ruleName,
+      titleKey: card ?? "trace.rule",
+      titleText: card ? undefined : result.ruleName,
       state: result.state,
       detail: result.detail,
       reason: result.reason,
@@ -282,7 +290,7 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
   if (focus.kind === "check") {
     const check = checkOf(model, focus.checkId);
     if (!check) return null;
-    return traceOfCheck(base, check);
+    return traceOfCheck(base, check, labelOfFocus(focus, model.board?.rows));
   }
 
   if (focus.kind === "ids") {

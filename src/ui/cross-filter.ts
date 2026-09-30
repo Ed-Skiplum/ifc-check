@@ -31,7 +31,7 @@ import { cellRows, storeyNames, storeyRows } from "./profile";
 import { serialiseFocus, type Focus } from "./trace";
 import { typeGuids } from "./types/aggregate";
 import { reqDoor, treeDoor } from "./board-doors";
-import { labelOfRow } from "./requirements";
+import { labelOfFocus, labelOfRow } from "./requirements";
 import { findNode } from "../engine/code-tree";
 import { codeGuids } from "./class-codes";
 import type { ModelEntry } from "./useModels";
@@ -54,12 +54,14 @@ export function filterOf(focus: Focus, model: ModelEntry, lang: Lang): { kind: C
   if (focus.kind === "check") {
     const check = model.report?.checks.find((c) => c.id === focus.checkId);
     if (!check || check.state === "not_applicable") return null;
-    return { kind: "check", label: t(`check.${focus.checkId}` as StringKey, lang), focus };
+    const card = labelOfFocus(focus, model.board?.rows);
+    return { kind: "check", label: t(card ?? (`check.${focus.checkId}` as StringKey), lang), focus };
   }
   if (focus.kind === "rule") {
     const rule = model.evaluation?.results.find((r) => r.ruleId === focus.ruleId);
     if (!rule || rule.state === "not_evaluable" || rule.state === "not_applicable") return null;
-    return { kind: "rule", label: rule.ruleName ?? focus.ruleId, focus };
+    const card = labelOfFocus(focus, model.board?.rows);
+    return { kind: "rule", label: card ? t(card, lang) : (rule.ruleName ?? focus.ruleId), focus };
   }
   if (focus.kind === "type") return { kind: "type", label: focus.typeName ?? t("type.untyped", lang), focus };
   if (focus.kind === "req") {

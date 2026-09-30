@@ -282,6 +282,32 @@ export interface DisplayValue {
   text: string;
 }
 
+/** A check's `detail` line as a code plus parameters, the same way
+ *  `DisplayValue` carries the found value: the UI renders it in the active
+ *  language (`src/ui/display.ts`), `CheckResult.detail` keeps the English. */
+export type DetailCode =
+  | "unit-scale"
+  | "spatial-levels"
+  | "in-storey"
+  | "storey-in-building"
+  | "distinct-elevations"
+  | "distinct-guids"
+  | "named"
+  | "typed"
+  | "real-type-name"
+  | "single-instance-types"
+  | "types-used"
+  | "no-type-objects"
+  | "with-material"
+  | "placement"
+  | "storey-config"
+  | "body-mesh";
+
+export interface DetailLine {
+  code: DetailCode;
+  params: Record<string, string | number>;
+}
+
 /** Why one element failed one check.
  *
  * A code plus its parameters, not a sentence. Two consumers need this and
@@ -340,8 +366,12 @@ export interface CheckResult {
   /** How many elements the check looked at. Zero means it matched nothing. */
   applicable: number;
   findings: Finding[];
-  /** Short factual line, e.g. "0 of 851 elements linked to a type". */
+  /** Short factual line, e.g. "0 of 851 elements linked to a type". English;
+   *  the screen renders `detailLine` when it is set. */
   detail: string;
+  /** `detail` as code + params, localised on render. Absent where the line is
+   *  free text (a not_applicable reason copied into it). */
+  detailLine?: DetailLine;
   /** Per-state element counts, where a check has more states than
    *  pass/finding. `mesh-placement` sets green / yellow / red / far /
    *  no_storey / unmeshed. Read by the report contract (`report.ts`). */

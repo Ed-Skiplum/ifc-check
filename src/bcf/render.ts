@@ -4,7 +4,7 @@
 import type { StringKey, Lang } from "../ui/i18n.ts";
 import { t } from "../ui/i18n.ts";
 import { reasonText } from "../ui/reasons.ts";
-import { displayText } from "../ui/display.ts";
+import { checkDetail, displayText } from "../ui/display.ts";
 import type { BcfRender } from "./export.ts";
 
 export function bcfRender(lang: Lang): BcfRender {
@@ -19,6 +19,7 @@ export function bcfRender(lang: Lang): BcfRender {
     },
     reason: (finding) => reasonText(finding, lang),
     displayValue: (value) => displayText(value, lang),
+    checkDetail: (check) => checkDetail(check, lang),
     noStorey: t("matrix.noStorey", lang),
   };
 }

@@ -33,7 +33,7 @@
  */
 
 import type { CheckResult, Finding, IfcGraph } from "./types";
-import { finding, literal, physicalProducts, result, share } from "./fundamentals.ts";
+import { finding, line, literal, physicalProducts, result, share } from "./fundamentals.ts";
 import { argsFrom } from "./quantities.ts";
 import { splitArgs, stepText } from "./rooms.ts";
 
@@ -337,9 +337,7 @@ export function checkBodyWithoutMesh(
     applicable,
     findings,
     share(meshed, applicable),
-    `${findings.length} declare a Body representation and have no mesh; ${meshed} meshed; ` +
-      `${noBody} without mesh declare no Body` +
-      (unread ? `; ${unread} not found in the STEP bytes` : ""),
+    line("body-mesh", { bodyNoMesh: findings.length, meshed, noBody, unread }),
   );
   return { ...checked, tally: { meshed, body_no_mesh: findings.length, no_body: noBody, unread } };
 }
