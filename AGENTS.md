@@ -2016,13 +2016,17 @@ full height"*, *"Right edge, full height"*):
   Where no column cover fits (ultrawide short windows such as 30×5, narrow
   tall ones such as 10×13) the packer places them by that priority
   (`layoutOverviewPacked`).
+- **Frame:** a 12 px margin around the board on every side (`MG_MARGIN`,
+  `main`'s padding, the gaps between the tab row, the board and the band);
+  the 16 px tile gap is unchanged. Was 6 px (bc67ecb); edkjo 2026-09-30: *"I
+  would add a small margin though"*.
 - **Scope rows:** `TraceBand` alone sizes its columns by `columnsFor`; under
   the width that seats the GUID, the class and the name whole with 20ch of
   reason, a row is two lines: GUID and Årsak, then class · name. The GUID is
   never cut.
 - Tile maps (node, `bento-pack-test`): 1440×780 12×5 checks 3×3 (tabs
   IFC-struktur, Etasjer, Klassifikasjon) over Scope 3×2, model 6×5, Detail
-  3×5. 1920×950 17×7 checks 4×4 over Scope 4×3, KPI row 10×2, model 7×5,
+  3×5. 1920×950 16×7 checks 3×4 over Scope 3×3, KPI row 10×2, model 7×5,
   Etasjer 3×3 over Klassifikasjon 3×2, Detail 3×7. 2133×1170 18×9 checks
   4×5 / Scope 4×4, model 7×7, Etasjer 3×5 / Klassifikasjon 3×2, Detail 4×9.
   2112×1267 18×10 checks 4×5 / Scope 4×5, model 7×8, Etasjer 3×5 /

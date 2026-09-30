@@ -37,12 +37,11 @@ const check = (ok, what) => {
 
 /* ── rule 6: the formulas and the canon's reference table ─────────────── */
 
-// The reference at the 6 px frame margin (2026-09-30; the canon's table,
-// 1920 → 16 × 8, is at its 24 px margin): 1440 → 12, 1920 → 17, 2112 → 18,
-// 2560 → 22 columns.
+// The reference at the 12 px frame margin (2026-09-30; the canon's table is
+// at its 24 px margin): 1440 → 12, 1920 → 16, 2112 → 18, 2560 → 22 columns.
 for (const [w, c] of [
   [1440, 12],
-  [1920, 17],
+  [1920, 16],
   [2112, 18],
   [2560, 22],
 ]) {
@@ -52,10 +51,10 @@ for (const [w, c] of [
   check(Math.abs(g.cols * g.u + (g.cols - 1) * MG_GAP - (w - 2 * MG_MARGIN)) < 1e-6, `rule 6: ${w} px, C·u + (C−1)·16 = W − 2M`);
 }
 // Rows: R = floor((H − chrome − 2M + 16) / (u + 16)); with a 64 px chrome the
-// reference rows come out: 900 → 6, 1080 → 9, 1267 → 10, 1440 → 11.
+// reference rows come out: 900 → 6, 1080 → 8, 1267 → 10, 1440 → 11.
 for (const [w, h, r] of [
   [1440, 900, 6],
-  [1920, 1080, 9],
+  [1920, 1080, 8],
   [2112, 1267, 10],
   [2560, 1440, 11],
 ]) {

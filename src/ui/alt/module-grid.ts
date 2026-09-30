@@ -7,9 +7,10 @@
  * implements, rule by rule:
  *
  *   1  One grid, sized to the window: a square module of about 100 px, a
- *      16 px gap, a 6 px frame margin (the canon's 24, cut 2026-09-30: the app
+ *      16 px gap, a 12 px frame margin (the canon's 24, cut to 6 2026-09-30, the app
  *      sits in an iframe under skiplum.com's header, edkjo: "the app just
- *      having too much padding"). A wider window gets MORE columns at the same
+ *      having too much padding", then 12: "I would add a small margin
+ *      though"). A wider window gets MORE columns at the same
  *      module, never fatter tiles.
  *   6  The formulas, for a window W × H whose board starts `top` px down:
  *        C = round((W − 2M + 16) / 116)          M = MG_MARGIN
@@ -43,7 +44,7 @@ import { CANVAS_ASPECT } from "../canvas-aspect.ts";
 export const MG_MODULE = 100;
 export const MG_GAP = 16;
 /** The frame: `main`'s padding on every side (`directions.css`). */
-export const MG_MARGIN = 6;
+export const MG_MARGIN = 12;
 /** A tile's own head: its label line. */
 export const MG_HEAD = 32;
 

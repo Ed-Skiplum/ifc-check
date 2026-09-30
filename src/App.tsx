@@ -321,7 +321,7 @@ export default function App() {
           ) : null}
 
           {setupPage ?? (
-          <main className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto p-1.5">
+          <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
             {models.map((model) => (
               <ModelPanel
                 key={model.id}
