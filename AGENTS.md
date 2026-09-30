@@ -1226,10 +1226,13 @@ ask above.
   permanently right of the gallery, lent through `dock.ts` as Graf lends it
   (no second copy). The tab's grid is rule 6 on the tab body with the
   gallery's 16 px padding as margin, so the gallery (its own rule-6 pass on
-  the narrower width) lands on the same module. The viewer is XL, 8 × 5 when
-  that leaves a card column, else 6 × 4 (smaller canon sizes only on a tab too
-  short for XL). The gallery scrolls in its own area; the tab fills to the
-  window foot, no page scroll.
+  the narrower width) lands on the same module. The viewer is 8 modules wide
+  when that leaves a card column, else 6 (smaller canon sizes only on a tab
+  too short for XL), and since 2026-09-30 takes the column's height inside
+  9 : 16 to 16 : 9 (`viewerHeight`); Typer keeps a fixed row of 2 × 2 under it
+  for the chosen type's material cards (`underRows`), empty until a type is
+  chosen, so the canvas does not resize on a click. The gallery scrolls in
+  its own area; the tab fills to the window foot, no page scroll.
 - **Click** a type card: its instances are selected. A material card or a
   layer set card: the elements using it (`LayerSetCard.guids`, new). The
   viewer frames and pivots on it as on every selection. The card stays marked
@@ -1983,29 +1986,57 @@ the new main version … we iterate on b"*. The tab is «Oversikt» / "Overview"
 (i18n `tab.checks`, key unchanged). General model health only
 (`layoutOverview` in `module-grid.ts`, `AltBoard.tsx`):
 
-- **KPI row:** one S card per IFC-struktur requirement (IFC-skjema,
-  Typeobjekt, GUID, Etasjedefinisjon, Objekter i etasje, `ReqCard`), then the
-  counts and, when general, the treemaps as M 3×2, until the row closes. No
-  ellipsis, no scroll (the text wraps).
-- **Sidebar:** the floor config (`FloorSetupMatrix`, or `StoreyList` with no
-  config), the full height under the KPI row on the right; 3×4 L, else the
-  named tall exception `MG_TALL.floors` (a floor chart, 3 or 4 wide).
-- **Middle:** the model (XL), Scope, Detail, the checks no requirement shows
-  (own verdicts, no project claims, no project rules; `compact` under
-  400 px), the general treemaps, the counts left; the lowest move into tabs
-  of Scope. A dock tab brought forward by a fill gives way when it empties.
+Three columns since 2026-09-30 (owner: *"the scope tile should go below the
+verification tile on the left margin and let the properties panel take that
+full height"*, *"Right edge, full height"*):
+
+- **Left column:** the checks no requirement shows (Verifikasjon: own
+  verdicts, no project claims, no project rules; `compact` under 400 px) on
+  top, Scope under them, together the board's full height. Scope takes
+  `floor(rows / 2)` rows, by the window alone.
+- **Right edge:** Detail (`ObjectPanel`), the board's full height.
+- **Body between:** the KPI row (one S `ReqCard` per IFC-struktur
+  requirement, IFC-skjema, Typeobjekt, GUID, Etasjedefinisjon, Objekter i
+  etasje, then the counts, then the codes as M 3×2 where the row needs 3
+  more; no ellipsis, no scroll), under it the model (XL, grown) and a column
+  of Etasjer (`FloorSetupMatrix`, or `StoreyList` with no config) over
+  Klassifikasjon (`ClassCodes`), under the row or the full height beside it.
+  Counts the row does not seat are rows of the checks list.
+- **Sizes:** the sidebars are `MG_TALL` (`checks`, `scope`, `detail`) with
+  `floors`; 3 to 6 modules wide, 4 wanted. The side widths and the Scope
+  split are chosen for the reference content (5 cards, 4 counts), so Detail
+  and Scope keep their slots whichever model is loaded; the body then seats
+  the actual cards (`layoutOverview`, `overviewBody`, the cheapest exact
+  cover, every tile inside its bound).
+- **Breaks, by priority (model, checks, Detail, Scope):** under 16 columns or
+  6 rows no KPI row: the IFC-struktur requirements are one list (`reqs`) in
+  the body's column, else, with Etasjer and Klassifikasjon, tabs of the
+  checks. Where the left column cannot hold both, Scope is a fixed tab of
+  Detail. Under 12 columns Detail goes under the checks, Scope its tab.
+  Where no column cover fits (ultrawide short windows such as 30×5, narrow
+  tall ones such as 10×13) the packer places them by that priority
+  (`layoutOverviewPacked`).
+- **Scope rows:** `TraceBand` alone sizes its columns by `columnsFor`; under
+  the width that seats the GUID, the class and the name whole with 20ch of
+  reason, a row is two lines: GUID and Årsak, then class · name. The GUID is
+  never cut.
+- Tile maps (node, `bento-pack-test`): 1440×780 12×5 checks 3×3 (tabs
+  IFC-struktur, Etasjer, Klassifikasjon) over Scope 3×2, model 6×5, Detail
+  3×5. 1920×950 17×7 checks 4×4 over Scope 4×3, KPI row 10×2, model 7×5,
+  Etasjer 3×3 over Klassifikasjon 3×2, Detail 3×7. 2133×1170 18×9 checks
+  4×5 / Scope 4×4, model 7×7, Etasjer 3×5 / Klassifikasjon 3×2, Detail 4×9.
+  2112×1267 18×10 checks 4×5 / Scope 4×5, model 7×8, Etasjer 3×5 /
+  Klassifikasjon 3×3, Detail 4×10.
 - **Not here (the project tab's):** Standardkrav (Systemkode, Funksjonskode,
   Materiale/Produkt, Kopiobjekt, MMI, Fase), the MMI bars, a treemap read
   through a project mapping, the project rules. They are the project tab's
   board (below).
-- The search keeps the board that covers most of the window. With the HI90
-  fixture (mapped treemaps off) 2112×1267 is 12×10 of 18×10: the content does
-  not fill 18 columns. 1440×900 is 12×6, full.
 - a and c compositions are removed from `module-grid.ts` and `AltBoard.tsx`;
   `#design=a|c` now render this board. `ReqRow`, `ReqPanel`, `ReqSection`
   in `Requirements.tsx` are unmounted (kept for the project tab).
-- Measured locally (`module-grid-gate --design b --scenario hi90-fixture`),
-  not on a deployed site.
+- `module-grid-gate.mjs`'s Overview block still asserts the 2026-09-29
+  verification sidebar (`kpis+side`); not updated with the 2026-09-30
+  arrangement.
 
 ### The project tab board (Prosjekt, 2026-09-28)
 
