@@ -33,7 +33,7 @@ import { LentViewer } from "./BoardViewer";
 import { EmptyMark } from "../viewer/ViewerTile";
 import { NoGeometryMark } from "./Gallery";
 import { useModuleGrid, VARS } from "./alt/AltBoard";
-import { MG_GAP, MG_HEAD, roomTiles, type MgPlace } from "./alt/module-grid";
+import { MG_GAP, MG_HEAD, mgRow, roomTiles, type MgPlace } from "./alt/module-grid";
 import { SourceLine } from "./alt/Charts";
 import { CATEGORICAL, css, type Rgb } from "./chart-colors";
 import { findDock, onDocksChanged } from "../viewer/dock";
@@ -149,7 +149,7 @@ export function RoomsTab({
           style={{
             width: grid.cols * grid.u + (grid.cols - 1) * MG_GAP,
             gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
-            gridTemplateRows: `repeat(${Math.max(grid.rows, tiles.schedule.y + tiles.schedule.h)}, ${grid.u}px)`,
+            gridTemplateRows: `repeat(${Math.max(grid.rows, tiles.schedule.y + tiles.schedule.h)}, ${mgRow(grid)}px)`,
             gap: MG_GAP,
           }}
         >

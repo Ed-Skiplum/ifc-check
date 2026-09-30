@@ -36,7 +36,7 @@ import { IdsHead, IdsResults, isIdsFile, type IdsSession } from "../IdsResults";
 import { ReqCard } from "./Requirements";
 import { CodeTreemap, MeasureSwitch, MmiChart, StandardkravList } from "./Standardkrav";
 import { mmiRequirement, projectTrees, standardRequirements, treeTitle } from "./req-view";
-import { MG_GAP, layoutProject, type MgLayout } from "./module-grid";
+import { MG_GAP, layoutProject, mgRow, type MgLayout } from "./module-grid";
 import { Tile, VARS, useModuleGrid, type Bodies, type TileBody } from "./AltBoard";
 
 export interface ProjectBoardProps {
@@ -192,7 +192,7 @@ export function ProjectBoard(props: ProjectBoardProps) {
           style={{
             width: grid.cols * grid.u + (grid.cols - 1) * MG_GAP,
             gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
-            gridTemplateRows: `repeat(${layout.rows}, ${layout.rowPx ?? grid.u}px)`,
+            gridTemplateRows: `repeat(${layout.rows}, ${layout.rowPx ?? mgRow(grid)}px)`,
             gap: MG_GAP,
           }}
         >

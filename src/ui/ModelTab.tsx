@@ -37,7 +37,7 @@ import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
 import { LentViewer } from "./BoardViewer";
 import { useModuleGrid, VARS } from "./alt/AltBoard";
-import { MG_GAP, MG_HEAD, mgSpanPx, type MgGrid } from "./alt/module-grid";
+import { MG_GAP, MG_HEAD, mgRow, mgSpanPx, type MgGrid } from "./alt/module-grid";
 import { CANVAS_ASPECT } from "./canvas-aspect";
 
 /* ── layout ───────────────────────────────────────────────────────────── */
@@ -53,7 +53,7 @@ export interface ModelTiles {
 /** A pure function of the grid: the same window gives the same tiles. */
 export function modelTiles(grid: MgGrid): ModelTiles {
   const { cols, rows, u } = grid;
-  const height = mgSpanPx(rows, u);
+  const height = rows * mgRow(grid) + (rows - 1) * MG_GAP;
   const floor = Math.min(cols - 1, Math.max(4, Math.round(cols * 0.26)));
   let panelCols = floor;
   for (let p = floor; p <= cols - 2; p += 1) {
@@ -155,7 +155,7 @@ export function ModelTab({
           style={{
             width: grid.cols * grid.u + (grid.cols - 1) * MG_GAP,
             gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
-            gridTemplateRows: `repeat(${grid.rows}, ${grid.u}px)`,
+            gridTemplateRows: `repeat(${grid.rows}, ${mgRow(grid)}px)`,
             gap: MG_GAP,
           }}
         >

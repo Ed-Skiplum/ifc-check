@@ -76,6 +76,7 @@ import {
   MG_MARGIN,
   layoutOverview,
   mgGrid,
+  mgRow,
   type MgGrid,
   type MgLayout,
   type MgPlace,
@@ -145,7 +146,9 @@ export function useModuleGrid() {
       // outside the room.
       const next = mgGrid(main.clientWidth, roomBelow(el) + 2 * MG_MARGIN);
       setGrid((prev) =>
-        prev && prev.cols === next.cols && prev.rows === next.rows && Math.abs(prev.u - next.u) < 0.01 ? prev : next,
+        prev && prev.cols === next.cols && prev.rows === next.rows && Math.abs(prev.u - next.u) < 0.01 && Math.abs(mgRow(prev) - mgRow(next)) < 0.01
+          ? prev
+          : next,
       );
     };
     measure();
@@ -194,7 +197,7 @@ export function AltBoard(props: AltBoardProps) {
           style={{
             width: grid.cols * grid.u + (grid.cols - 1) * MG_GAP,
             gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
-            gridTemplateRows: `repeat(${layout.rows}, ${layout.rowPx ?? grid.u}px)`,
+            gridTemplateRows: `repeat(${layout.rows}, ${layout.rowPx ?? mgRow(grid)}px)`,
             gap: MG_GAP,
           }}
         >

@@ -20,6 +20,7 @@ import {
   layoutProject,
   mgAspect,
   mgGrid,
+  mgRow,
   mgSpanPx,
   roomTiles,
 } from "../src/ui/alt/module-grid.ts";
@@ -61,6 +62,27 @@ for (const [w, h, r] of [
   const g = mgGrid(w, h - 64);
   check(g.rows === r, `rule 6: ${w}×${h} with a 64 px chrome gives ${g.rows} rows, the reference ${r}`);
 }
+// The rows take the leftover under the floor (2026-09-30): a row is the
+// module or a little more, and the rows end one margin above the foot.
+for (let h = 600; h <= 1700; h += 13) {
+  const g = mgGrid(1920, h);
+  const r = mgRow(g);
+  check(r >= g.u - 1e-9 && r < g.u + (g.u + MG_GAP) / g.rows + 1e-9, `rule 6: ${h} px gives a ${r.toFixed(1)} px row on a ${g.u.toFixed(1)} px module`);
+  check(Math.abs(g.rows * r + (g.rows - 1) * MG_GAP + 2 * MG_MARGIN - h) < 1e-6, `rule 6: ${h} px, R·r + (R−1)·16 + 2M = H − chrome`);
+}
+
+/** The board's inset from the window's frame, left, right, top, bottom:
+ *  `avail` is the height under the chrome, margins included (`mgGrid`). The
+ *  12 px frame margin on all four sides (2026-09-30). */
+function insets(width, avail, layout, grid) {
+  const rowPx = layout.rowPx ?? mgRow(grid);
+  const left = MG_MARGIN + layout.offset * (grid.u + MG_GAP);
+  const boardW = mgSpanPx(layout.used, grid.u);
+  const top = MG_MARGIN + layout.top * (rowPx + MG_GAP);
+  const boardH = layout.usedRows * rowPx + (layout.usedRows - 1) * MG_GAP;
+  return [left, width - left - boardW, top, avail - top - boardH];
+}
+const inset12 = (i) => i.every((v) => Math.abs(v - MG_MARGIN) < 1e-6);
 // Wider = more columns at the same module, never fatter tiles.
 let lastCols = 0;
 for (let w = 1100; w <= 3840; w += 7) {
@@ -160,7 +182,7 @@ for (const [design, content] of Object.entries(contents)) {
       check(size === t.size, `rule 7: ${at} ${t.id} says ${t.size}, is ${size}`);
       if (t.base) check(t.w >= bw && t.h >= bh && t.w * t.h > bw * bh && size !== "S", `rule 5: ${at} ${t.id} grew ${bw}×${bh} to ${t.w}×${t.h}`);
       if (size !== "tall" && size !== "strip") {
-        const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx);
+        const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx ?? mgRow(grid));
         check(a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9, `rule 3: ${at} ${t.id} ${t.w}×${t.h} renders ${a.toFixed(2)}`);
       }
       if (size === "XL") xl += 1;
@@ -183,8 +205,11 @@ for (const [design, content] of Object.entries(contents)) {
     check(out.offset === 0 && out.used === grid.cols, `rule 9: ${at} the board takes ${out.used} of ${grid.cols} columns from ${out.offset}`);
     check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows from ${out.top}`);
     // Fewer, taller rows only where nothing could grow: the same height.
-    const rowPx = out.rowPx ?? grid.u;
-    check(out.rows <= grid.rows && Math.abs(out.rows * rowPx + (out.rows - 1) * MG_GAP - mgSpanPx(grid.rows, grid.u)) < 1e-6, `rule 9: ${at} ${out.rows} rows of ${rowPx.toFixed(1)} px are not the grid's height`);
+    const rowPx = out.rowPx ?? mgRow(grid);
+    const gridH = grid.rows * mgRow(grid) + (grid.rows - 1) * MG_GAP;
+    check(out.rows <= grid.rows && Math.abs(out.rows * rowPx + (out.rows - 1) * MG_GAP - gridH) < 1e-6, `rule 9: ${at} ${out.rows} rows of ${rowPx.toFixed(1)} px are not the grid's height`);
+    const ins = insets(w, h - 104, out, grid);
+    check(inset12(ins), `margin: ${at} inset ${ins.map((v) => v.toFixed(1)).join("/")}, not 12 on every side`);
     if (out.rowPx) taller += 1;
     // The arrangement (2026-09-30, the owner: "the scope tile should go
     // below the verification tile on the left margin and let the properties
@@ -273,7 +298,7 @@ for (const [design, content] of Object.entries(projectContents)) {
       check(canonSize(bw, bh, t.id in MG_STRIPS, t.id in MG_TALL) === t.size, `rule 7: ${at} ${t.id} ${bw}×${bh} is not its ${t.size}`);
       if (t.base) check(t.w >= bw && t.h >= bh && t.w * t.h > bw * bh, `rule 5: ${at} ${t.id} grew ${bw}×${bh} to ${t.w}×${t.h}`);
       if (t.size !== "tall" && t.size !== "strip") {
-        const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx);
+        const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx ?? mgRow(grid));
         check(a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9, `rule 3: ${at} ${t.id} ${t.w}×${t.h} renders ${a.toFixed(2)}`);
       }
       for (let y = t.y; y < t.y + t.h; y += 1)
@@ -287,7 +312,9 @@ for (const [design, content] of Object.entries(projectContents)) {
     check(holes === 0 && occ.size === grid.cols * out.rows, `rule 9: ${at} has ${holes} empty cells`);
     check(out.offset === 0 && out.used === grid.cols, `rule 9: ${at} the board takes ${out.used} of ${grid.cols} columns`);
     check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows`);
-    check(Math.abs(out.rows * (out.rowPx ?? grid.u) + (out.rows - 1) * MG_GAP - mgSpanPx(grid.rows, grid.u)) < 1e-6, `rule 9: ${at} rows are not the grid's height`);
+    check(Math.abs(out.rows * (out.rowPx ?? mgRow(grid)) + (out.rows - 1) * MG_GAP - (grid.rows * mgRow(grid) + (grid.rows - 1) * MG_GAP)) < 1e-6, `rule 9: ${at} rows are not the grid's height`);
+    const ins = insets(w, h - 104, out, grid);
+    check(inset12(ins), `margin: ${at} inset ${ins.map((v) => v.toFixed(1)).join("/")}, not 12 on every side`);
   }
 }
 const roomsUncovered = [];
@@ -304,16 +331,20 @@ for (const [w, h] of windows) {
     // 16 : 9 + 2 : 1 side by side, nor a near square one (either split puts
     // one tile outside its bound): there the board is the widest that is
     // covered, centred, and the window is listed below.
-    const inV = (w, h) => { const a = mgAspect("viewer", w, h, grid.u); return a >= CANVAS_ASPECT.min - 1e-9 && a <= CANVAS_ASPECT.max + 1e-9; };
-    const inL = (w, h) => { const a = mgAspect("list", w, h, grid.u); return a >= 0.5 - 1e-9 && a <= 2 + 1e-9; };
+    const inV = (w, h) => { const a = mgAspect("viewer", w, h, grid.u, mgRow(grid)); return a >= CANVAS_ASPECT.min - 1e-9 && a <= CANVAS_ASPECT.max + 1e-9; };
+    const inL = (w, h) => { const a = mgAspect("list", w, h, grid.u, mgRow(grid)); return a >= 0.5 - 1e-9 && a <= 2 + 1e-9; };
     let coverable = false;
     for (let f = 1; f < grid.cols; f += 1) if (inV(f, grid.rows) && inL(grid.cols - f, grid.rows)) coverable = true;
     for (let r = 1; r < grid.rows; r += 1) if (inV(grid.cols, r) && inL(grid.cols, grid.rows - r)) coverable = true;
     const across = beside ? spatial.w + schedule.w : spatial.w;
     if (coverable) check(spatial.x === 0 && across === grid.cols, `rule 9: ${at} the tiles take ${across} of ${grid.cols} columns from ${spatial.x}`);
     else roomsUncovered.push(`${w}×${h} (${grid.cols}×${grid.rows}): ${across} of ${grid.cols}`);
-    const v = mgAspect("viewer", spatial.w, spatial.h, grid.u);
-    const l = mgAspect("list", schedule.w, schedule.h, grid.u);
+    // The 12 px margin: top and bottom always, left and right wherever the
+    // two tiles cover every column.
+    const ins = insets(w, h - 104, { offset: spatial.x, used: across, top: 0, usedRows: grid.rows }, grid);
+    check(inset12(coverable ? ins : [MG_MARGIN, MG_MARGIN, ins[2], ins[3]]), `margin: ${at} inset ${ins.map((v) => v.toFixed(1)).join("/")}, not 12`);
+    const v = mgAspect("viewer", spatial.w, spatial.h, grid.u, mgRow(grid));
+    const l = mgAspect("list", schedule.w, schedule.h, grid.u, mgRow(grid));
     check(v >= CANVAS_ASPECT.min - 1e-9 && v <= CANVAS_ASPECT.max + 1e-9, `rule 4: ${at} spatial ${spatial.w}×${spatial.h} canvas ${v.toFixed(2)}`);
     check(l >= 0.5 - 1e-9 && l <= 2 + 1e-9, `rule 3: ${at} schedule ${schedule.w}×${schedule.h} renders ${l.toFixed(2)}`);
   }
