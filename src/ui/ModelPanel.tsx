@@ -34,7 +34,8 @@
  * answerable at a glance.
  */
 
-import { cloneElement, isValidElement, useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { cloneElement, isValidElement, useCallback, useId, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { tablistKeys } from "./keys";
 import type { KpiClaims } from "./claims";
 import type { ModelEntry } from "./useModels";
 import type { Focus } from "./trace";
@@ -300,6 +301,9 @@ export function ModelPanel({
   // selected identity. Neither overlays the board and both are always there;
   // empty, they show nothing. Innhold and Graf keep the band at the foot.
   // The project tab docks them too, on its own module grid (2026-09-28).
+  // The tab strip's ids (WAI-ARIA tabs: aria-controls / aria-labelledby).
+  const uid = useId();
+  const panel = (id: Tab) => ({ id: `${uid}-panel-${id}`, "aria-labelledby": `${uid}-tab-${id}` });
   const docked = (design !== null && tab === "checks") || tab === "project";
   const scope =
     docked && view.scope && isValidElement(trace)
@@ -388,13 +392,17 @@ export function ModelPanel({
               outside the tab panels, and it no longer costs a line of its own
               above the board (2026-09-24). */}
           <div className={oneLine ? "flex min-w-0 shrink-0 items-center gap-4" : "relative shrink-0"}>
-          <div role="tablist" className="flex shrink-0 items-end gap-px border-b border-line">
+          <div role="tablist" onKeyDown={tablistKeys} className="flex shrink-0 items-end gap-px border-b border-line">
             {TABS.map((id) => (
               <button
                 key={id}
                 type="button"
                 role="tab"
+                id={`${uid}-tab-${id}`}
                 aria-selected={tab === id}
+                aria-controls={`${uid}-panel-${id}`}
+                // Roving tabindex (WAI-ARIA tabs): one stop, the arrows move.
+                tabIndex={tab === id ? 0 : -1}
                 onClick={() => onTab(id)}
                 className={
                   "-mb-px border px-3 py-1 text-[12px] " +
@@ -420,7 +428,7 @@ export function ModelPanel({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col gap-1.5">
-            <div role="tabpanel" hidden={tab !== "checks"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("checks")} hidden={tab !== "checks"} className="flex min-h-0 flex-1 flex-col">
               <Dashboard
                 lang={lang}
                 model={model}
@@ -441,10 +449,10 @@ export function ModelPanel({
                 detail={tab === "checks" ? detail : null}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "model"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("model")} hidden={tab !== "model"} className="flex min-h-0 flex-1 flex-col">
               <ModelTab lang={lang} model={model} view={view} active={tab === "model"} />
             </div>
-            <div role="tabpanel" hidden={tab !== "contents"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("contents")} hidden={tab !== "contents"} className="flex min-h-0 flex-1 flex-col">
               <Contents
                 lang={lang}
                 model={model}
@@ -457,7 +465,7 @@ export function ModelPanel({
             </div>
             {/* Same mounted-and-hidden pattern as the other two: the 3D scene
                 on Kontroll must survive a trip here and back. */}
-            <div role="tabpanel" hidden={tab !== "graph"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("graph")} hidden={tab !== "graph"} className="flex min-h-0 flex-1 flex-col">
               <GraphTab
                 lang={lang}
                 design={design}
@@ -471,7 +479,7 @@ export function ModelPanel({
                 onFocus={(next) => focus(next, "graph")}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "types"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("types")} hidden={tab !== "types"} className="flex min-h-0 flex-1 flex-col">
               <TypesTab
                 lang={lang}
                 profile={profile ?? null}
@@ -506,7 +514,7 @@ export function ModelPanel({
                 }}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "materials"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("materials")} hidden={tab !== "materials"} className="flex min-h-0 flex-1 flex-col">
               <MaterialsTab
                 lang={lang}
                 profile={profile ?? null}
@@ -520,7 +528,7 @@ export function ModelPanel({
                 onOpenType={openType}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "rooms"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("rooms")} hidden={tab !== "rooms"} className="flex min-h-0 flex-1 flex-col">
               <RoomsTab
                 lang={lang}
                 model={model}
@@ -530,7 +538,7 @@ export function ModelPanel({
                 onDispatch={onDispatch}
               />
             </div>
-            <div role="tabpanel" hidden={tab !== "project"} className="flex min-h-0 flex-1 flex-col">
+            <div role="tabpanel" {...panel("project")} hidden={tab !== "project"} className="flex min-h-0 flex-1 flex-col">
               <ProjectBoard
                 lang={lang}
                 model={model}

@@ -52,6 +52,7 @@ import { formatElevation } from "./format";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 import { shortModelLabels } from "./model-labels";
 import { useSelectionMarks } from "./selection-context";
+import { asButton } from "./keys";
 
 export interface FloorPeer {
   id: string;
@@ -356,6 +357,7 @@ export function StoreyList({
                 onClick={
                   live ? () => onFocus({ kind: "storey", storeyGuids: [storey.guid] }) : undefined
                 }
+                {...(live ? asButton(() => onFocus({ kind: "storey", storeyGuids: [storey.guid] })) : {})}
                 className={
                   (live ? "cursor-pointer hover:bg-palegreen " : "") +
                   (selected === key ? "outline-2 -outline-offset-2 outline-ink" : "")

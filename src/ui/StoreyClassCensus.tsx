@@ -19,6 +19,7 @@ import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
 import { useSelectionMarks } from "./selection-context";
+import { asButton } from "./keys";
 
 const LOW = [230, 239, 221] as const; // palegreen #E6EFDD
 const HIGH = [44, 94, 63] as const; // green #2C5E3F
@@ -107,6 +108,7 @@ export function StoreyClassCensus({
                 scope="row"
                 data-sel={rowSel}
                 onClick={openRow}
+                {...(openRow ? asButton(openRow) : {})}
                 // A storey with no name falls back to its GlobalId. That is
                 // never truncated, so it renders mono and full width.
                 className={
@@ -126,6 +128,7 @@ export function StoreyClassCensus({
               <td
                 data-sel={rowSel}
                 onClick={openRow}
+                {...(openRow ? asButton(openRow) : {})}
                 className={
                   "sticky left-36 z-10 h-7 border-r-2 border-b border-line bg-panel px-1 text-right font-mono text-[11px] tabular-nums text-ink" +
                   (live ? " cursor-pointer hover:bg-palegreen" : "") +

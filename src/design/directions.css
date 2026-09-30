@@ -159,7 +159,7 @@
 }
 
 /* Tabs: a sunken tray, the active tab a raised pill standing in it. */
-:root[data-design] [role="tablist"] {
+:root[data-design] [role="tablist"]:not([data-mg-tablist]) {
   border-bottom-color: transparent;
   gap: 2px;
   align-self: flex-start;
@@ -170,7 +170,7 @@
   background-color: var(--d-tint-strong);
   box-shadow: inset 0 1px 2px rgba(var(--d-shade), 0.14);
 }
-:root[data-design] [role="tab"] {
+:root[data-design] [role="tab"]:not(.alt-tab) {
   margin-bottom: 0;
   border-color: transparent;
   border-radius: var(--d-pill);
@@ -178,10 +178,10 @@
   font-weight: 600;
   padding-inline: 0.85rem;
 }
-:root[data-design] [role="tab"]:hover {
+:root[data-design] [role="tab"]:not(.alt-tab):hover {
   color: var(--color-ink);
 }
-:root[data-design] [role="tab"][aria-selected="true"] {
+:root[data-design] [role="tab"]:not(.alt-tab)[aria-selected="true"] {
   background-color: var(--color-panel);
   border-color: transparent;
   color: var(--color-ink);
@@ -358,6 +358,17 @@
 .alt-tab[aria-pressed="true"] {
   background-color: var(--color-ink);
   color: var(--color-cream);
+}
+/* A tile's tabs (WAI-ARIA tabs, 2026-09-30): the pressed look, on
+   `aria-selected`, as the pressed pill draws it under a direction. */
+.alt-tab[role="tab"] {
+  border-color: transparent;
+}
+.alt-tab[role="tab"][aria-selected="true"],
+.alt-tab[role="tab"][aria-selected="true"]:hover {
+  background-color: var(--color-ink);
+  color: var(--color-panel);
+  box-shadow: none;
 }
 /* The treemaps' measure switch: compact, and a measure still waiting on the
    geometry pass is inert. The pass itself is a thin line along the head's

@@ -90,7 +90,7 @@ import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 import { catalogue as typeCatalogue, typeCodes, typeObjectClass } from "../src/ui/type-links.ts";
 import { elementFacets, elementItems, facetCounts, narrow, NONE, typeItems, type FacetSelection } from "../src/ui/facets.ts";
 import { typePage } from "../src/ui/type-page.ts";
-import { EMPTY_FILTER, reduceFilter } from "../src/ui/filter-state.ts";
+import { EMPTY_FILTER, escapeAll, reduceFilter } from "../src/ui/filter-state.ts";
 import { selectionMarks } from "../src/ui/selection-marks.ts";
 import { classificationCodes, codeGuids } from "../src/ui/class-codes.ts";
 import type { BoardData } from "../src/ui/report-rows.ts";
@@ -2327,6 +2327,28 @@ async function cmdSelftest(): Promise<number> {
     record("select: Scope's list stays", "same", sel({ ...a, scope: { kind: "element", guids: ["g1"] } }, "g2").scope?.kind === "element" ? "same" : "lost");
     record("select: with no filter it selects and filters nothing", "none @null sel g4", g(sel(EMPTY_FILTER, "g4")));
     record("select: Tøm clears the filter and keeps the selection", "none @null sel g2", g(reduceFilter(c1, { type: "clear" })));
+
+    // Esc from anywhere (2026-09-30, ESC ESCALATES): one window-level path
+    // over every model. A check row's filter, then a Scope row's selection:
+    // the first Esc clears the selection only, the second the filter.
+    const check = reduceFilter(EMPTY_FILTER, {
+      type: "choose",
+      origin: "checks",
+      key: "check:type-unused",
+      filter: { kind: "check", label: "Ubrukt type", guids: ["t1", "t2"] },
+      scope: { kind: "check", checkId: "type-unused" },
+    });
+    const scoped = sel(check, "t2");
+    const two = { m1: scoped, m2: a };
+    const e1 = escapeAll(two);
+    record("esc: first Esc clears the selection, both filters stay", "checks:check:type-unused=t1,t2 @checks sel  | tree-system:A=g1,g2,g3 @tree-system sel ", `${g(e1.m1)} | ${g(e1.m2)}`);
+    record("esc: the first Esc leaves a model without a selection untouched", "same", e1.m2 === a ? "same" : "new");
+    record("esc: first Esc keeps Scope's list", "check", e1.m1.scope?.kind ?? "none");
+    const e2 = escapeAll(e1);
+    record("esc: second Esc clears every filter (the chip's ✕)", "none @null sel  | none @null sel ", `${g(e2.m1)} | ${g(e2.m2)}`);
+    record("esc: second Esc clears Scope", "none", e2.m1.scope?.kind ?? "none");
+    record("esc: at rest Esc changes nothing (same object)", "same", escapeAll(e2) === e2 ? "same" : "new");
+    record("esc: a filter with no selection clears on the first Esc", "none @null sel ", g(escapeAll({ m: check }).m));
   }
   {
     // Which containers hold the selection (src/ui/selection-marks.ts): the

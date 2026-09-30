@@ -131,6 +131,22 @@ function elementState(origin: Origin, guids: string[], label: string, prev: Filt
   };
 }
 
+/** Esc from anywhere in the app, over every loaded model (2026-09-30, the
+ *  canon's ESC ESCALATES): while any model holds a selection, the first Esc
+ *  clears the selections only; with none left, it clears the filters. Each
+ *  model steps through `escape`. The same object back when nothing changes. */
+export function escapeAll<T extends FilterState>(states: Record<string, T>): Record<string, T> {
+  const anySelection = Object.values(states).some((s) => s.selection.length > 0);
+  let out: Record<string, T> | null = null;
+  for (const [id, s] of Object.entries(states)) {
+    const idle = s.origin === null && s.key === null && s.filter === null && s.scope === null;
+    if (anySelection ? s.selection.length === 0 : idle) continue;
+    out ??= { ...states };
+    out[id] = { ...s, ...reduceFilter(s, { type: "escape" }) };
+  }
+  return out ?? states;
+}
+
 export function reduceFilter(state: FilterState, action: FilterAction): FilterState {
   // Clearing the filter keeps the selection: it is its own state.
   if (action.type === "clear") return { ...EMPTY_FILTER, selection: state.selection };

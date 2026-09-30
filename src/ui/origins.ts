@@ -21,8 +21,8 @@ export function isoOf(xf: Xf, self: Origin | readonly Origin[]): Set<string> | n
   return mine ? null : xf.matched;
 }
 
-/** `data-xf` on a view's body: `origin` dims every item but the chosen one
- *  (the CSS in `index.css`); `whole` marks a view that keeps whole-model
+/** `data-xf` on a view's body: `origin` is the view the filter came from
+ *  (it marks its chosen item and dims nothing, 2026-09-30); `whole` marks a view that keeps whole-model
  *  figures under a filter from elsewhere. */
 export function xfMark(xf: Xf, self: Origin | readonly Origin[], whole = false): "origin" | "whole" | undefined {
   if (xf.origin === null) return undefined;

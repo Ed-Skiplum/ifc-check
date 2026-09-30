@@ -2,9 +2,10 @@ import { useLayoutEffect, useRef, useState } from "react";
 
 /** The box a tab's content has to fit: its tab panel, which the model panel
  *  sizes to the window less the chrome above it and the derivation band under
- *  it; outside a tab panel, the scrolling `main`. */
+ *  it; outside a tab panel, the scrolling `main`. A tile's own tab panel
+ *  (`data-mg-panel`, the tabs inside a tile) is not a region. */
 export function fitRegion(el: Element): HTMLElement | null {
-  return el.closest<HTMLElement>('[role="tabpanel"]') ?? el.closest("main");
+  return el.closest<HTMLElement>('[role="tabpanel"]:not([data-mg-panel])') ?? el.closest("main");
 }
 
 /** Px from `el`'s top edge down to the foot of its region, measured, never

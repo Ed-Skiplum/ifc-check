@@ -35,7 +35,7 @@ import { labelOfRow } from "./requirements";
 import { findNode } from "../engine/code-tree";
 import { codeGuids } from "./class-codes";
 import type { ModelEntry } from "./useModels";
-import { EMPTY_FILTER, reduceFilter, type ActiveFilter, type ChipKind, type FilterAction, type FilterState, type Origin } from "./filter-state";
+import { EMPTY_FILTER, escapeAll, reduceFilter, type ActiveFilter, type ChipKind, type FilterAction, type FilterState, type Origin } from "./filter-state";
 
 export type { Mode, ActiveFilter, ChipKind, FilterAction, FilterState, Origin };
 
@@ -170,6 +170,8 @@ export interface CrossFilterApi {
   view: (modelId: string) => ModelView;
   views: Record<string, ModelView>;
   dispatch: (modelId: string, action: FilterAction) => void;
+  /** Esc from anywhere: every model's selection, else every filter. */
+  escape: () => void;
   setMode: (modelId: string, mode: Mode) => void;
   setHover: (modelId: string, guid: string | null) => void;
 }
@@ -194,6 +196,7 @@ export function useCrossFilter(): CrossFilterApi {
         }),
       [patch],
     ),
+    escape: useCallback(() => setViews((current) => escapeAll(current)), []),
     setMode: useCallback((modelId, mode) => patch(modelId, (v) => ({ ...v, mode })), [patch]),
     setHover: useCallback(
       (modelId, guid) => patch(modelId, (v) => (v.hover === guid ? v : { ...v, hover: guid })),

@@ -75,12 +75,16 @@ export function LentViewer({
   className,
   style,
   data,
+  empty,
 }: {
   meshBatches: MeshBatch[] | undefined;
   active: boolean;
   className?: string;
   style?: CSSProperties;
   data?: Record<`data-${string}`, string | number | undefined>;
+  /** This surface's own state word over the canvas (the Rom tab's «Ingen
+   *  rom»), in place of the home tile's. */
+  empty?: string | null;
 }) {
   const slot = useRef<HTMLDivElement>(null);
   const [, bumpDocks] = useState(0);
@@ -113,7 +117,7 @@ export function LentViewer({
       {...data}
     >
       {dock ? (
-        active && shown ? <EmptyMark text={dock.empty} /> : null
+        active && shown ? <EmptyMark text={empty ?? dock.empty} /> : null
       ) : (
         <div className="flex h-full items-center justify-center">
           <NoGeometryMark />

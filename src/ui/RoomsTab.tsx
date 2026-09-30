@@ -16,7 +16,7 @@
  * The one filter, one origin: a group row is origin `rooms` with the group's
  * rooms as the filter. A room row, a room in the plan or a room in the 3D
  * only SELECTS it; the filter stays (`filter-state.ts`, 2026-09-29). The
- * origin keeps its items and dims all but the chosen; the other surfaces
+ * origin keeps its items and marks the chosen, dimming none; the other surfaces
  * isolate (the plan by `Vis kun / Uthev`, as the 3D). Every
  * choice is framed: the scene by its own rule, the plan by its box, on the
  * storey that holds it.
@@ -30,6 +30,7 @@ import { t } from "./i18n";
 import { formatCount, formatQuantity } from "./format";
 import { isoOf, xfMark, type Xf } from "./origins";
 import { LentViewer } from "./BoardViewer";
+import { EmptyMark } from "../viewer/ViewerTile";
 import { NoGeometryMark } from "./Gallery";
 import { useModuleGrid, VARS } from "./alt/AltBoard";
 import { MG_GAP, MG_HEAD, roomTiles, type MgPlace } from "./alt/module-grid";
@@ -40,9 +41,14 @@ import type { SceneLens } from "../viewer/scene";
 import { planBounds, planShapes, type PlanShape } from "./room-plan";
 import { roomLabel, roomSchedule, totalOf, type RoomGroup, type RoomGrouping, type RoomRow, type RoomSum } from "../engine/rooms";
 import type { ElementQuantity } from "../engine/quantities";
+import { asButton } from "./keys";
 
 const NUM = "px-2 text-right font-mono text-[11.5px] tabular-nums";
 const NO_STOREY = "";
+
+/** The keys a pick reads: a click's, or none for Enter and Space. */
+type Modifiers = Pick<MouseEvent, "shiftKey" | "ctrlKey" | "metaKey">;
+const NO_MODIFIERS: Modifiers = { shiftKey: false, ctrlKey: false, metaKey: false };
 
 const hex = (c: Rgb) => `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 
@@ -109,7 +115,7 @@ export function RoomsTab({
   };
   const labelOf = useMemo(() => new Map(rooms.map((r) => [r.guid, roomLabel(r)])), [rooms]);
   // A room row or a room in the plan selects it; the filter stays.
-  const pickRoom = (guid: string | null, event: MouseEvent) =>
+  const pickRoom = (guid: string | null, event: Modifiers) =>
     onDispatch({ type: "select", guid, additive: event.shiftKey || event.ctrlKey || event.metaKey });
 
   const tiles = grid ? roomTiles(grid) : null;
@@ -163,7 +169,12 @@ export function RoomsTab({
             xf={spatial === "plan" ? xfMark(xf, "room-plan") : undefined}
           >
             {spatial === "3d" ? (
-              <Lensed model={model} active={active} colourOf={colourOf} />
+              <Lensed
+                model={model}
+                active={active}
+                colourOf={colourOf}
+                empty={rooms.length === 0 ? t("bcf.noSpaces", lang) : null}
+              />
             ) : (
               <Plan
                 lang={lang}
@@ -307,7 +318,7 @@ function Schedule({
   view: ModelView;
   notRead: boolean;
   onGroup: (group: RoomGroup) => void;
-  onRoom: (guid: string | null, event: MouseEvent) => void;
+  onRoom: (guid: string | null, event: Modifiers) => void;
 }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const byGuid = useMemo(() => new Map(rooms.map((r) => [r.guid, r])), [rooms]);
@@ -376,6 +387,7 @@ function Schedule({
                   data-xf-in={holds ? "" : undefined}
                   data-sel={holdsSel ? "" : undefined}
                   onClick={() => onGroup(group)}
+                  {...asButton(() => onGroup(group))}
                   className={"cursor-pointer border-b border-line/60 hover:bg-ink/5 " + (chosen ? "alt-chosen" : "")}
                 >
                   <td className="truncate px-2 py-1 text-ink" title={group.label ?? undefined}>
@@ -429,6 +441,7 @@ function Schedule({
                           data-sel={on ? "" : undefined}
                           aria-current={on ? "true" : undefined}
                           onClick={(event) => onRoom(guid, event)}
+                          {...asButton(() => onRoom(guid, NO_MODIFIERS))}
                           className="cursor-pointer border-b border-line/30 text-[11.5px] hover:bg-ink/5"
                         >
                           <td className="truncate py-0.5 pr-2 pl-9 text-ink" title={guid}>
@@ -475,7 +488,18 @@ function Schedule({
 
 /* ── 3D: the board's scene under the rooms lens ───────────────────────── */
 
-function Lensed({ model, active, colourOf }: { model: ModelEntry; active: boolean; colourOf: Map<string, Rgb> }) {
+function Lensed({
+  model,
+  active,
+  colourOf,
+  empty,
+}: {
+  model: ModelEntry;
+  active: boolean;
+  colourOf: Map<string, Rgb>;
+  /** «Ingen rom»: a model with no spaces draws an empty lens and says so. */
+  empty: string | null;
+}) {
   const [, bump] = useState(0);
   useEffect(() => onDocksChanged(() => bump((k) => k + 1)), []);
   const dock = findDock(model.meshBatches);
@@ -490,7 +514,9 @@ function Lensed({ model, active, colourOf }: { model: ModelEntry; active: boolea
     dock.scene.setLens(lens);
     return () => dock.scene.setLens(null);
   }, [dock, active, lens]);
-  return <LentViewer meshBatches={model.meshBatches} active={active} className="flex-1" data={{ "data-rooms-3d": "" }} />;
+  return (
+    <LentViewer meshBatches={model.meshBatches} active={active} className="flex-1" data={{ "data-rooms-3d": "" }} empty={empty} />
+  );
 }
 
 /* ── the plan ─────────────────────────────────────────────────────────── */
@@ -515,7 +541,7 @@ function Plan({
   view: ModelView;
   /** The filter's rooms when another view is the origin, else null. */
   iso: Set<string> | null;
-  onPick: (guid: string | null, event: MouseEvent) => void;
+  onPick: (guid: string | null, event: Modifiers) => void;
 }) {
   const guids = useMemo(() => new Set(rooms.map((r) => r.guid)), [rooms]);
   const shapes = useMemo(() => planShapes(model.meshBatches, guids), [model.meshBatches, guids]);
@@ -598,7 +624,7 @@ function Plan({
     return (
       <div ref={box} className="relative flex min-h-0 flex-1 items-center justify-center" data-rooms-plan="">
         {picker}
-        {size ? <NoGeometryMark /> : null}
+        {rooms.length === 0 ? <EmptyMark text={t("bcf.noSpaces", lang)} /> : size ? <NoGeometryMark /> : null}
       </div>
     );
   }

@@ -223,13 +223,36 @@ export function ViewerTile({
     };
   }, [batches]);
 
-  useEffect(() => {
-    scene.current?.setFilter(matched, mode);
-  }, [matched, mode]);
+  /* How much of the filter actually has geometry in this scene. A filter that
+     matches elements the budget withheld must say so rather than showing a
+     smaller answer than the table. */
+  const reach = useMemo(() => {
+    if (!set) return null;
+    if (matched === null) return { shown: set.index.size, asked: set.index.size };
+    let shown = 0;
+    for (const guid of matched) if (set.index.has(guid)) shown += 1;
+    return { shown, asked: matched.size };
+  }, [set, matched]);
 
-  // A filter that matched nothing leaves a blank canvas: it says so, here and
-  // wherever the canvas is lent. After the dock is registered (above).
-  const empty = matched !== null && matched.size === 0 ? t("viewer.noObjects", lang) : null;
+  /* A filter whose matches have no geometry here (2026-09-30, the canon's
+     NO-GEOMETRY FILTER): the whole model ghosted, never a blank canvas that
+     reads as "no elements", and «Uten geometri N» on the canvas. It is the
+     highlight mode's drawing with nothing in the matched run. */
+  const noGeometry = matched !== null && matched.size > 0 && reach !== null && reach.shown === 0;
+
+  useEffect(() => {
+    scene.current?.setFilter(matched, noGeometry ? "highlight" : mode);
+  }, [matched, mode, noGeometry]);
+
+  // A blank or ghosted canvas says why, here and wherever the canvas is lent:
+  // «Ingen objekter» for a filter that matched nothing, «Uten geometri N» for
+  // matches with no geometry. After the dock is registered (above).
+  const empty =
+    matched !== null && matched.size === 0
+      ? t("viewer.noObjects", lang)
+      : noGeometry
+        ? `${t("viewer.outside", lang)} ${formatCount(matched.size, lang)}`
+        : null;
   useEffect(() => {
     if (batches) setDockEmpty(batches, empty);
   }, [batches, empty]);
@@ -259,17 +282,6 @@ export function ViewerTile({
 
   const fit = useCallback(() => scene.current?.fit(INSETS), []);
   const zoom = useCallback(() => scene.current?.zoomToSelection(), []);
-
-  /* How much of the filter actually has geometry in this scene. A filter that
-     matches elements the budget withheld must say so rather than showing a
-     smaller answer than the table. */
-  const reach = useMemo(() => {
-    if (!set) return null;
-    if (matched === null) return { shown: set.index.size, asked: set.index.size };
-    let shown = 0;
-    for (const guid of matched) if (set.index.has(guid)) shown += 1;
-    return { shown, asked: matched.size };
-  }, [set, matched]);
 
   const capped = budget?.capped === true;
   const missing = reach ? reach.asked - reach.shown : 0;

@@ -30,6 +30,7 @@ import { importIds } from "./ids/import.ts";
 import { buildTrace, parseFocus, serialiseFocus } from "./ui/trace";
 import { loadDesignFonts } from "./design/fonts";
 import { useHashView } from "./ui/useHashView";
+import { escapeTarget } from "./ui/keys";
 import { isAcceptedFile, useModels } from "./ui/useModels";
 
 const EMPTY_RULESET: Ruleset = {
@@ -55,6 +56,20 @@ export default function App() {
   // views of one selection. Held per model id, so two files on screen do not
   // share a filter.
   const cross = useCrossFilter();
+
+  // Esc escalates from anywhere in the app (2026-09-30): the selection first,
+  // then the filter, the same as the chip's ✕. ONE window-level path, so the
+  // focus can be in a list, on a row, on the canvas or nowhere; a text field,
+  // an open dialog, or a component that handled the key keeps it
+  // (`escapeTarget`).
+  const escape = cross.escape;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (escapeTarget(event)) escape();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [escape]);
 
   // Keep the document language in step with the toggle, for screen readers and
   // for the browser's own hyphenation.

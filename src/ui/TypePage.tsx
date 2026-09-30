@@ -43,6 +43,7 @@ import type { Absent, InstanceRow, PropLine, QtoLine, TypePage as Page, ValueCou
 import type { Focus } from "./trace";
 import type { ReportState } from "../engine/report";
 import { useSelectionMarks } from "./selection-context";
+import { asButton } from "./keys";
 
 export interface Open {
   key: string;
@@ -819,7 +820,7 @@ function InstanceTable({
       <thead className="sticky top-0 bg-input/95">
         <tr className="text-[9.5px] text-muted">
           {cols.map((c) => (
-            <th key={c.key} className={"cursor-pointer font-normal whitespace-nowrap select-none hover:text-ink " + (c.right ? "text-right" : "text-left")} onClick={() => onSort(c.key)} data-sort={c.key}>
+            <th key={c.key} className={"cursor-pointer font-normal whitespace-nowrap select-none hover:text-ink " + (c.right ? "text-right" : "text-left")} onClick={() => onSort(c.key)} {...asButton(() => onSort(c.key))} data-sort={c.key}>
               {c.label}
               {sort.key === c.key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
             </th>
@@ -831,6 +832,7 @@ function InstanceTable({
           <tr
             key={r.guid}
             onClick={() => onGo(i)}
+            {...asButton(() => onGo(i))}
             className={"cursor-pointer " + (current === r.guid ? "alt-chosen" : "hover:bg-ink/5")}
             data-instance-row={r.guid}
             data-current={current === r.guid ? "" : undefined}

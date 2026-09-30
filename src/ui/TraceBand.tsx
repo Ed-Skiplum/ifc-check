@@ -43,6 +43,7 @@ import { reasonText } from "./reasons";
 import { RESULT_FILL, RESULT_GLYPH, VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 import { IfcosControl } from "./IfcosControl";
 import { BODY_NO_MESH_FOCUS, ifcosVerdictText, useIfcosRun } from "./ifcos-verify";
+import { asButton } from "./keys";
 
 const ROW_HEIGHT = 26;
 const OVERSCAN = 12;
@@ -345,6 +346,7 @@ export function TraceBand({
                 onClick={(event) =>
                   onPick(row.guid, row.name, event.shiftKey || event.ctrlKey || event.metaKey)
                 }
+                {...asButton(() => onPick(row.guid, row.name, false))}
                 onMouseEnter={() => onHover(row.guid)}
                 onMouseLeave={() => onHover(null)}
                 // Whole-surface colour, never an edge stripe: the selection

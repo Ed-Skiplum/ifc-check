@@ -120,21 +120,10 @@ body {
   background: repeating-linear-gradient(135deg, var(--color-panel) 0 4px, var(--color-line) 4px 8px);
 }
 /* The cross-filter's ORIGIN view (2026-09-28, edkjo: "Original: Highlight,
-   everything else: Isolate"): every item stays, the chosen one keeps its own
-   highlight and the rest fall back. `data-xf-in` is a treemap cell holding
-   chosen elements (the frame around a chosen cell, a cell inside a chosen
-   frame). The other views isolate in code; nothing here hides anything. */
-[data-xf="origin"]
-  :is(.alt-hover, .cursor-pointer, .gallery-door, [data-tree-cell]):not(
-    .alt-chosen,
-    .outline-ink,
-    [aria-current="true"],
-    [data-chosen],
-    [data-xf-in],
-    [data-sel]
-  ) {
-  opacity: 0.38;
-}
+   everything else: Isolate"): every item stays and the chosen one takes the
+   teal mark. Nothing else in the origin changes: it MARKS, it does not dim
+   (2026-09-30, the canon's ORIGIN MARKS, DOESN'T DIM, which ended the 0.38
+   fade of the rest). The other views isolate in code. */
 /* A card another tab linked to (Typer <-> Materialer, 2026-09-28). */
 .gallery-card[data-revealed] {
   outline: 2px dashed var(--sel);
@@ -153,8 +142,8 @@ body {
  * highlight color goes for other fields and data, not just model"*): the
  * chosen item (`.alt-chosen`, `.outline-ink`, a current gallery card, the
  * Graf origin node) takes a teal outline and `--sel-wash`. What still sets
- * the two apart is behaviour: the origin dims the rest, the selection dims
- * nothing and never narrows, and an item can carry both. Nothing here takes
+ * the two apart is behaviour: the filter isolates the other views, the
+ * selection never narrows, and an item can carry both. Nothing here takes
  * space: backgrounds, inset shadows and an overlay, never a border, margin
  * or size. */
 :root {

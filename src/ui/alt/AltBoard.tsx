@@ -36,14 +36,15 @@
  *
  * The cross-filter (2026-09-28, one origin): each tile names the view it is
  * (`viewer`, `codes`, `checks`, `reqs`, `floors`).
- * The tile the click came from keeps every item and dims all but the chosen
- * one (`data-xf="origin"`); the 3D, the codes and the floor sidebar
+ * The tile the click came from keeps every item at full strength and marks
+ * the chosen one (`data-xf="origin"`, 2026-09-30: it marks, it does not dim); the 3D, the codes and the floor sidebar
  * isolate to the filter; the KPI cards and the checks keep the whole model's
  * figures and say so (`data-xf="whole"`, «Hele modellen»), because a
  * requirement's base is not known per element.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { tablistKeys } from "../keys";
 import type { CSSProperties, ReactNode } from "react";
 import type { ModelResult } from "../../ids/evaluate.ts";
 import type { KpiClaims } from "../claims";
@@ -242,7 +243,8 @@ export interface TileBody {
   /** A dock with nothing in it yet (Scope, Detail). Drawn empty in its slot;
    *  it never changes which tab a tile shows. */
   empty?: boolean;
-  /** The cross-filter: `origin` dims all but the chosen item; `whole` marks
+  /** The cross-filter: `origin` is the view it came from (its chosen item
+   *  marked, nothing dimmed); `whole` marks
    *  whole-model figures under a filter from another view, with `whole`'s
    *  text in the corner. */
   xf?: "origin" | "whole";
@@ -260,6 +262,7 @@ export function Tile({ place, bodies }: { place: MgPlace; bodies: Bodies }) {
   const own = bodies(place.id);
   const tabs = [place.id, ...place.tabs.filter((id) => !id.startsWith("count") && bodies(id))];
   const [active, setActive] = useState<string | null>(null);
+  const uid = useId();
   const shown = active && tabs.includes(active) ? active : place.id;
   const body = shown === place.id ? own : bodies(shown);
   if (!own || !body) return null;
@@ -275,15 +278,26 @@ export function Tile({ place, bodies }: { place: MgPlace; bodies: Bodies }) {
       style={{ gridColumn: `${place.x + 1} / span ${place.w}`, gridRow: `${place.y + 1} / span ${place.h}` }}
     >
       {tabbed ? (
-        <div className="alt-head relative flex shrink-0 items-center gap-1 px-2" style={{ height: MG_HEAD }}>
+        <div
+          role="tablist"
+          data-mg-tablist=""
+          onKeyDown={tablistKeys}
+          className="alt-head relative flex shrink-0 items-center gap-1 px-2"
+          style={{ height: MG_HEAD }}
+        >
           {tabs.map((id) => {
             const b = id === place.id ? own : bodies(id);
             return (
               <button
                 key={id}
                 type="button"
+                role="tab"
+                id={`${uid}-tab-${id}`}
                 data-mg-tab={id}
-                aria-pressed={shown === id}
+                aria-selected={shown === id}
+                aria-controls={`${uid}-panel`}
+                // Roving tabindex (WAI-ARIA tabs): one stop, the arrows move.
+                tabIndex={shown === id ? 0 : -1}
                 onClick={() => setActive(id)}
                 className="alt-tab shrink-0 px-2 py-0.5 whitespace-nowrap"
               >
@@ -306,7 +320,11 @@ export function Tile({ place, bodies }: { place: MgPlace; bodies: Bodies }) {
         // their own thin row under it.
         <div className="relative flex h-7 shrink-0 items-center px-2">{body.head}</div>
       ) : null}
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-xf={body.xf}>
+      <div
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+        data-xf={body.xf}
+        {...(tabbed ? { role: "tabpanel", "data-mg-panel": "", id: `${uid}-panel`, "aria-labelledby": `${uid}-tab-${shown}` } : {})}
+      >
         {body.body}
         {body.xf === "whole" && body.wholeText ? (
           <span data-xf-whole className="alt-label pointer-events-none absolute top-1 right-2 text-[9px] whitespace-nowrap">

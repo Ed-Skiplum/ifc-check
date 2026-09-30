@@ -37,6 +37,7 @@ import { t } from "../i18n";
 import { copyOnDoubleClick } from "../copy";
 import { useSelectionMarks } from "../selection-context";
 import { formatCount, formatShare } from "../format";
+import { asButton } from "../keys";
 import {
   TYPE_BUCKETS,
   TYPE_HEALTH_BANDS,
@@ -351,6 +352,7 @@ function LedgerRow({
       onClick={() =>
         onFocus({ kind: "type", typeName: row.typeName })
       }
+      {...asButton(() => onFocus({ kind: "type", typeName: row.typeName }))}
       className={
         "cursor-pointer hover:bg-palegreen " +
         (chosen ? "outline-2 -outline-offset-2 outline-ink" : "")

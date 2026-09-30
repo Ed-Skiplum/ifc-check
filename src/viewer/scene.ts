@@ -371,7 +371,8 @@ export class ModelScene {
     canvas.addEventListener("pointerleave", this.onPointerLeave);
     canvas.addEventListener("wheel", this.onWheel, { passive: false });
     canvas.addEventListener("contextmenu", this.onContextMenu);
-    canvas.addEventListener("keydown", this.onKeyDown);
+    // No keydown here: Esc is the app's, one window-level path (`App.tsx`),
+    // so it clears the selection, then the filter, whatever has focus.
     window.addEventListener("pointerup", this.onPointerUp);
 
     this.loop();
@@ -399,7 +400,6 @@ export class ModelScene {
     this.canvas.removeEventListener("pointerleave", this.onPointerLeave);
     this.canvas.removeEventListener("wheel", this.onWheel);
     this.canvas.removeEventListener("contextmenu", this.onContextMenu);
-    this.canvas.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("pointerup", this.onPointerUp);
     this.clearOverlays();
     for (const view of this.batches) view.mesh.geometry.dispose();
@@ -1253,11 +1253,6 @@ export class ModelScene {
 
   private onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
-  };
-
-  private onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Escape") return;
-    this.callbacks.onPick({ guid: null, additive: false, escape: true });
   };
 
   /* ----------------------------------------------------------------- loop */

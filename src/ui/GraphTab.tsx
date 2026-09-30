@@ -382,13 +382,14 @@ export function GraphTab({
       if (node.guid && picked.has(node.guid)) chosen.add(i);
     });
     // The graph as the origin: the chosen storey or bucket is ringed, and
-    // with no element in focus it is what the rest sinks back from.
+    // that is all. The origin MARKS, it does not dim (2026-09-30): nothing
+    // sinks back from it; only an element in focus sets the depth.
     const origin = chosenId ? nodes.findIndex((node) => node.id === chosenId) : -1;
     picks.current = new Set(chosen);
     if (origin >= 0) chosen.add(origin);
     selected.current = chosen;
     const centre = nodes.findIndex((node) => node.guid !== undefined && node.guid === centreGuid);
-    selHops.current = hopsFrom(centre >= 0 ? [centre] : origin >= 0 ? [origin] : [], look.adjacency, nodes.length);
+    selHops.current = hopsFrom(centre >= 0 ? [centre] : [], look.adjacency, nodes.length);
     hoverHops.current = hopsFrom([hovered.current], look.adjacency, nodes.length);
   }, [selection, centreGuid, chosenId]);
 
@@ -410,8 +411,7 @@ export function GraphTab({
       const sel = selHops.current;
       const hov = hoverHops.current;
       const hasSel = sel.some((v) => v >= 0);
-      // What fires runs out of the selection, or the origin node, in the one
-      // highlight.
+      // What fires runs out of the selection, in the one highlight.
       const fire = palette.select;
       const hasHover = hovered.current >= 0;
       const motion = reducedMotion ? 0 : 1;
@@ -1193,10 +1193,7 @@ export function GraphTab({
             ref={canvasRef}
             data-graph
             tabIndex={0}
-            onKeyDown={(event) => {
-              // Esc clears the selection, as it does on the 3D.
-              if (event.key === "Escape" && selection.length > 0) onPick(null, false);
-            }}
+            // Esc is the app's (`App.tsx`): the selection first, then the filter.
             className="block h-full w-full touch-none outline-none select-none"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
