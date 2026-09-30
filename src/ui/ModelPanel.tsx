@@ -569,8 +569,11 @@ export function ModelPanel({
             {/* Not on Rom: its two tiles fit the window (the layout canon,
                 rule 1), and a foot band would cover them. Not on Graf, the
                 showpiece stage (2026-09-29). Not on Modell: its panel is the
-                selection's info. */}
-            {trace && !docked && tab !== "rooms" && tab !== "graph" && tab !== "model" ? (
+                selection's info. Not on Typer and Materialer: the band
+                opened on a click and shrank the gallery and the viewer
+                (STABLE LAYOUT, 2026-09-30: nothing resizes on a selection
+                or a filter). */}
+            {trace && !docked && tab !== "rooms" && tab !== "graph" && tab !== "model" && tab !== "types" && tab !== "materials" ? (
               <div className="flex h-[38.2dvh] min-h-[16rem] shrink-0 flex-col">
                 {trace}
               </div>
