@@ -94,7 +94,7 @@ export function AppBar({
     // 2026-09-21: at 390 px the bar ran 740-820 px wide and BCF, the ruleset,
     // Oppsett and NB/EN were off-screen). The board itself has no portrait
     // layout; the bar is chrome and must not lock anyone out.
-    <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-panel px-4 py-2">
+    <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-panel px-1.5 py-1">
       {/* The filled primary only while nothing is open. Once a model is on the
           board it is the action least needed next, and a filled green block in
           the corner pulled the first look away from the verdicts (2026-09-24):

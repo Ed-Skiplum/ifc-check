@@ -136,10 +136,11 @@
 :root[data-design] body .bg-ground {
   background: transparent;
 }
-/* The canon's margin: 24 px at the sides and the foot of the page, so the
-   module grid is the window less 48 px (layout canon, rule 6). */
+/* The frame margin, MG_MARGIN (`module-grid.ts`) on every side, so the
+   module grid is the window less 2 × 6 px (layout canon, rule 6; cut from 24
+   on 2026-09-30 so the app and skiplum.com's header fit one view). */
 :root[data-design] main {
-  padding: 8px 24px 24px;
+  padding: 6px;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

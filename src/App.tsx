@@ -263,7 +263,7 @@ export default function App() {
     >
       {models.length === 0 ? (
         <>
-          <header className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-4 py-2">
+          <header className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-1.5 py-1">
             <button
               type="button"
               onClick={() => setView({ page: null })}
@@ -321,7 +321,7 @@ export default function App() {
           ) : null}
 
           {setupPage ?? (
-          <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto px-4 py-3">
+          <main className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto p-1.5">
             {models.map((model) => (
               <ModelPanel
                 key={model.id}

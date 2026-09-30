@@ -137,7 +137,7 @@ export function useModuleGrid() {
     const region = fitRegion(el);
     const measure = () => {
       if (!main || el.getClientRects().length === 0) return;
-      // H − chrome, with the canon's two 24 px margins counted inside it: the
+      // H − chrome, with the frame's two margins counted inside it: the
       // top one is the chrome's, the foot one is `main`'s padding, already
       // outside the room.
       const next = mgGrid(main.clientWidth, roomBelow(el) + 2 * MG_MARGIN);

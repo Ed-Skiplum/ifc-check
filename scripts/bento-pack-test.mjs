@@ -11,6 +11,7 @@ import {
   MG_ASPECT,
   MG_GAP,
   MG_HEAD,
+  MG_MARGIN,
   MG_STRIPS,
   MG_TALL,
   SIZES,
@@ -36,23 +37,25 @@ const check = (ok, what) => {
 
 /* ── rule 6: the formulas and the canon's reference table ─────────────── */
 
-// The reference: 1440 → 12, 1920 → 16, 2112 → 18, 2560 → 22 columns.
+// The reference at the 6 px frame margin (2026-09-30; the canon's table,
+// 1920 → 16 × 8, is at its 24 px margin): 1440 → 12, 1920 → 17, 2112 → 18,
+// 2560 → 22 columns.
 for (const [w, c] of [
   [1440, 12],
-  [1920, 16],
+  [1920, 17],
   [2112, 18],
   [2560, 22],
 ]) {
   const g = mgGrid(w, 2000);
   check(g.cols === c, `rule 6: ${w} px gives ${g.cols} columns, the reference ${c}`);
   check(Math.abs(g.u - 100) < 8, `rule 6: ${w} px gives a ${g.u.toFixed(1)} px module, about 100`);
-  check(Math.abs(g.cols * g.u + (g.cols - 1) * MG_GAP - (w - 48)) < 1e-6, `rule 6: ${w} px, C·u + (C−1)·16 = W − 48`);
+  check(Math.abs(g.cols * g.u + (g.cols - 1) * MG_GAP - (w - 2 * MG_MARGIN)) < 1e-6, `rule 6: ${w} px, C·u + (C−1)·16 = W − 2M`);
 }
-// Rows: R = floor((H − chrome − 48 + 16) / (u + 16)); with a 64 px chrome the
-// reference rows come out: 900 → 6, 1080 → 8, 1267 → 10, 1440 → 11.
+// Rows: R = floor((H − chrome − 2M + 16) / (u + 16)); with a 64 px chrome the
+// reference rows come out: 900 → 6, 1080 → 9, 1267 → 10, 1440 → 11.
 for (const [w, h, r] of [
   [1440, 900, 6],
-  [1920, 1080, 8],
+  [1920, 1080, 9],
   [2112, 1267, 10],
   [2560, 1440, 11],
 ]) {
@@ -310,12 +313,12 @@ console.log(`  fewer, taller rows (nothing could grow): ${taller} of ${count} la
 /* ── the Graf tab: one main surface, the other a small window ───────── */
 
 // The tab is the window less its chrome (104 px assumed, as above) and the
-// main's 24 px margins. Both swap states are the same boxes, only which
+// main's frame margins. Both swap states are the same boxes, only which
 // surface is in which, so one layout per window covers both.
 const inBound = (r) => r.width / r.height >= CANVAS_ASPECT.min - 1e-9 && r.width / r.height <= CANVAS_ASPECT.max + 1e-9;
 for (const [w, h] of windows) for (const second of [true, false]) {
-  const sw = w - 48;
-  const sh = h - 104 - 48;
+  const sw = w - 2 * MG_MARGIN;
+  const sh = h - 104 - 2 * MG_MARGIN;
   const g = graphStage(sw, sh, second);
   const at = `graf ${w}×${h}${second ? "" : " alone"}`;
   check(inBound(g.main), `${at}: main aspect ${(g.main.width / g.main.height).toFixed(2)}`);

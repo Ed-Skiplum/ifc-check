@@ -7,12 +7,14 @@
  * implements, rule by rule:
  *
  *   1  One grid, sized to the window: a square module of about 100 px, a
- *      16 px gap, a 24 px margin. A wider window gets MORE columns at the same
+ *      16 px gap, a 6 px frame margin (the canon's 24, cut 2026-09-30: the app
+ *      sits in an iframe under skiplum.com's header, edkjo: "the app just
+ *      having too much padding"). A wider window gets MORE columns at the same
  *      module, never fatter tiles.
  *   6  The formulas, for a window W × H whose board starts `top` px down:
- *        C = round((W − 48 + 16) / 116)
- *        u = (W − 48 − (C − 1)·16) / C          the module, and the row height
- *        R = floor((H − chrome − 48 + 16) / (u + 16)),  chrome = top − 24
+ *        C = round((W − 2M + 16) / 116)          M = MG_MARGIN
+ *        u = (W − 2M − (C − 1)·16) / C          the module, and the row height
+ *        R = floor((H − chrome − 2M + 16) / (u + 16)),  chrome = top − M
  *      The canon writes `floor` for C, and its own reference table
  *      (2112 → 18, 2560 → 22) is `round`: floor gives 17 and 21 there. The
  *      table is what the canon was checked against, so C rounds; u then stays
@@ -37,7 +39,8 @@ import { CANVAS_ASPECT } from "../canvas-aspect.ts";
 
 export const MG_MODULE = 100;
 export const MG_GAP = 16;
-export const MG_MARGIN = 24;
+/** The frame: `main`'s padding on every side (`directions.css`). */
+export const MG_MARGIN = 6;
 /** A tile's own head: its label line. */
 export const MG_HEAD = 32;
 
@@ -50,7 +53,7 @@ export interface MgGrid {
 }
 
 /** Rule 6. `width` is the window's width (the page's content box plus its two
- *  24 px margins); `avail` is the height left for the board, margins
+ *  MG_MARGIN margins); `avail` is the height left for the board, margins
  *  included: H − chrome. */
 export function mgGrid(width: number, avail: number): MgGrid {
   const cols = Math.max(1, Math.round((width - 2 * MG_MARGIN + MG_GAP) / (MG_MODULE + MG_GAP)));

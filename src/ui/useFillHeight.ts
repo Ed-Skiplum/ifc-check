@@ -8,8 +8,8 @@ export function fitRegion(el: Element): HTMLElement | null {
 }
 
 /** Px from `el`'s top edge down to the foot of its region, measured, never
- *  assumed. The region ends at `main`'s padding, which is already the canon's
- *  24 px foot margin (`directions.css`), or at the band under the tab. Both
+ *  assumed. The region ends at `main`'s padding, which is already the
+ *  frame's foot margin (`directions.css`), or at the band under the tab. Both
  *  edges move together when the page scrolls, so a second model further down
  *  gets the same answer as the first. */
 export function roomBelow(el: Element): number {
@@ -18,7 +18,7 @@ export function roomBelow(el: Element): number {
   return bottom - el.getBoundingClientRect().top;
 }
 
-/** The tab fills its region (down to the canon's 24 px foot margin, or to
+/** The tab fills its region (down to the frame's foot margin, or to
  *  the band), so the gallery scrolls inside it and the page does not
  *  (rule 1). Measured on the section's own top, again whenever it is shown,
  *  the band opens or closes, or the window changes. */
