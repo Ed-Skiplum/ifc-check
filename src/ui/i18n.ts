@@ -194,6 +194,7 @@ const STRINGS = {
   "object.room": { nb: "Rom", en: "Room" },
   "object.notComputed": { nb: "ikke beregnet", en: "not computed" },
   "object.noGeometry": { nb: "ingen geometri", en: "no geometry" },
+  "object.pick": { nb: "Velg en forekomst for å se detaljer", en: "Select an instance to see details" },
 
   "matrix.noStorey": { nb: "Uten etasje", en: "No storey" },
   "storey.shared": { nb: "Delt kote", en: "Shared elevation" },

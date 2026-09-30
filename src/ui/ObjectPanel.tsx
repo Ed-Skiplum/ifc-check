@@ -852,7 +852,11 @@ export function ObjectPanel({ lang, model, selection }: ObjectPanelProps) {
 
   let body: ReactNode;
   if (!any) {
-    body = <div data-object-empty="" className="min-h-0 flex-1" />;
+    body = (
+      <div data-object-empty="" className="flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[12px] text-muted">
+        {t("object.pick", lang)}
+      </div>
+    );
   } else if (theme === "attributes") {
     body = (
       <Scroller>
