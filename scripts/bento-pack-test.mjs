@@ -155,13 +155,13 @@ for (const [design, content] of Object.entries(contents)) {
     const occ = new Map();
     let xl = 0;
     for (const t of out.tiles) {
-      // A tile grown into the board's rows (`mgFillRows`) keeps its class:
-      // its packed size is canon, the grown one inside its kind's bound.
+      // A tile grown to cover the board (`mgFillRows`, `mgFlex`) keeps its
+      // class: its base is canon, the grown size inside its kind's bound.
       const [bw, bh] = t.base ?? [t.w, t.h];
       const size = canonSize(bw, bh, t.id in MG_STRIPS, t.id in MG_TALL);
       check(size !== null, `rule 7: ${at} ${t.id} ${bw}×${bh} is no canon size`);
       check(size === t.size, `rule 7: ${at} ${t.id} says ${t.size}, is ${size}`);
-      if (t.base) check(t.w === bw && t.h > bh && size !== "S", `rule 5: ${at} ${t.id} grew ${bw}×${bh} to ${t.w}×${t.h}`);
+      if (t.base) check(t.w >= bw && t.h >= bh && t.w * t.h > bw * bh && size !== "S", `rule 5: ${at} ${t.id} grew ${bw}×${bh} to ${t.w}×${t.h}`);
       if (size !== "tall" && size !== "strip") {
         const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx);
         check(a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9, `rule 3: ${at} ${t.id} ${t.w}×${t.h} renders ${a.toFixed(2)}`);
@@ -176,13 +176,14 @@ for (const [design, content] of Object.entries(contents)) {
         }
     }
     check(xl <= 2, `rule 7: ${at} has ${xl} XL`);
-    // Rule 9: the tiles cover the board rectangle exactly, centred.
+    // Rule 9: the tiles cover every cell of the grid, every column and every
+    // row (2026-09-30: a board of 16 of 18 columns, centred, and a hole
+    // beside Detail went live because only the rows were asserted).
     let holes = 0;
-    for (let y = out.top; y < out.top + out.usedRows; y += 1)
-      for (let x = out.offset; x < out.offset + out.used; x += 1) if (!occ.has(`${x},${y}`)) holes += 1;
-    check(holes === 0, `rule 9: ${at} has ${holes} holes`);
-    check(occ.size === out.used * out.usedRows, `rule 9: ${at} tiles outside the board rectangle`);
-    check(Math.abs(out.offset - (grid.cols - out.offset - out.used)) <= 1, `rule 9: ${at} board not centred across`);
+    for (let y = 0; y < out.rows; y += 1) for (let x = 0; x < grid.cols; x += 1) if (!occ.has(`${x},${y}`)) holes += 1;
+    check(holes === 0, `rule 9: ${at} has ${holes} empty cells`);
+    check(occ.size === grid.cols * out.rows, `rule 9: ${at} tiles outside the grid`);
+    check(out.offset === 0 && out.used === grid.cols, `rule 9: ${at} the board takes ${out.used} of ${grid.cols} columns from ${out.offset}`);
     check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows from ${out.top}`);
     // Fewer, taller rows only where nothing could grow: the same height.
     const rowPx = out.rowPx ?? grid.u;
@@ -219,9 +220,12 @@ for (const [design, content] of Object.entries(contents)) {
     } else if (!ids.has("reqs")) {
       const cards = out.tiles.filter((t) => /^ifc\d+$/.test(t.id));
       check(cards.length === content.ifc && cards.every((t) => t.y === out.top && t.size === "S"), `${at}: the KPI cards are not one S row on top`);
+      // The floor sidebar under the KPI row, or where the row cannot cover
+      // the width, the board's full height.
       const f = out.tiles.find((t) => t.id === "floors");
+      const full = out.band.endsWith("floors");
       check(
-        !!f && f.y === out.top + 2 && f.h === out.usedRows - 2 && f.x + f.w === out.offset + out.used,
+        !!f && f.y === (full ? out.top : out.top + 2) && f.h === (full ? out.usedRows : out.usedRows - 2) && f.x + f.w === out.offset + out.used,
         `${at}: the floor sidebar is not the full height on the right (${f ? `${f.x},${f.y} ${f.w}×${f.h}` : "none"})`,
       );
     } else check(ids.has("floors") || out.tiles.some((t) => t.tabs.includes("floors")), `${at}: the floors are neither a tile nor a tab`);
@@ -229,9 +233,11 @@ for (const [design, content] of Object.entries(contents)) {
     // width; or, where the columns left seat no board, back in the board.
     if (content.side) {
       const c = out.tiles.find((t) => t.id === "checks");
-      if (out.band === "kpis+side" || out.band === "side-pack")
+      // Its width is its rows' own, or up to three more where the board
+      // beside it covers no other width.
+      if (out.band === "kpis+side" || out.band === "kpis+side+floors" || out.band === "side-pack")
         check(
-          !!c && c.x === out.offset && c.y === out.top && c.h === out.usedRows && c.w <= content.side && c.w >= 4 && c.size === "tall",
+          !!c && c.x === out.offset && c.y === out.top && c.h === out.usedRows && c.w <= content.side + 3 && c.w >= 4 && c.size === "tall",
           `${at}: the verification sidebar is not the full height on the left (${c ? `${c.x},${c.y} ${c.w}×${c.h}` : "none"})`,
         );
       else {
@@ -257,6 +263,7 @@ const projectContents = {
   bare: { std: 5, trees: [] },
   mapped: { std: 5, trees: ["ptree-system", "ptree-function"] },
   few: { std: 3, trees: ["ptree-system"] },
+  noMmi: { std: 5, trees: [], mmi: false },
 };
 for (const [design, content] of Object.entries(projectContents)) {
   for (const [w, h] of windows) {
@@ -275,10 +282,13 @@ for (const [design, content] of Object.entries(projectContents)) {
       check(JSON.stringify(layoutProject({ ...grid }, { ...content, ...extra })) === JSON.stringify(out), `stable: ${at} moves with ${state}`);
     // The docks: tiles from 12 columns up, never hosts; under that fixed tabs.
     if (grid.cols >= 12 && grid.rows >= 6) check(["scope", "detail"].every((id) => out.tiles.some((t) => t.id === id)), `${at}: Scope or Detail is not a tile`);
+    // Without MMI no MMI tile (it would be an empty tile).
+    if (content.mmi === false) check(!out.tiles.some((t) => t.id === "mmi" || t.tabs.includes("mmi")), `${at}: an MMI tile without MMI`);
     const occ = new Set();
     for (const t of out.tiles) {
       const [bw, bh] = t.base ?? [t.w, t.h];
       check(canonSize(bw, bh, t.id in MG_STRIPS, t.id in MG_TALL) === t.size, `rule 7: ${at} ${t.id} ${bw}×${bh} is not its ${t.size}`);
+      if (t.base) check(t.w >= bw && t.h >= bh && t.w * t.h > bw * bh, `rule 5: ${at} ${t.id} grew ${bw}×${bh} to ${t.w}×${t.h}`);
       if (t.size !== "tall" && t.size !== "strip") {
         const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx);
         check(a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9, `rule 3: ${at} ${t.id} ${t.w}×${t.h} renders ${a.toFixed(2)}`);
@@ -290,12 +300,14 @@ for (const [design, content] of Object.entries(projectContents)) {
         }
     }
     let holes = 0;
-    for (let y = 0; y < out.rows; y += 1) for (let x = out.offset; x < out.offset + out.used; x += 1) if (!occ.has(`${x},${y}`)) holes += 1;
-    check(holes === 0 && occ.size === out.used * out.rows, `rule 9: ${at} has ${holes} holes`);
+    for (let y = 0; y < out.rows; y += 1) for (let x = 0; x < grid.cols; x += 1) if (!occ.has(`${x},${y}`)) holes += 1;
+    check(holes === 0 && occ.size === grid.cols * out.rows, `rule 9: ${at} has ${holes} empty cells`);
+    check(out.offset === 0 && out.used === grid.cols, `rule 9: ${at} the board takes ${out.used} of ${grid.cols} columns`);
     check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows`);
     check(Math.abs(out.rows * (out.rowPx ?? grid.u) + (out.rows - 1) * MG_GAP - mgSpanPx(grid.rows, grid.u)) < 1e-6, `rule 9: ${at} rows are not the grid's height`);
   }
 }
+const roomsUncovered = [];
 for (const [w, h] of windows) {
   const grid = mgGrid(w, h - 104);
   const at = `rooms ${w}×${h} (${grid.cols}×${grid.rows})`;
@@ -304,6 +316,19 @@ for (const [w, h] of windows) {
     const beside = spatial.y === 0 && spatial.h === grid.rows && schedule.y === 0 && schedule.h === grid.rows && schedule.x === spatial.x + spatial.w;
     const stacked = spatial.y === 0 && schedule.y === spatial.h && spatial.h + schedule.h === grid.rows && spatial.w === schedule.w && spatial.x === schedule.x;
     check(beside || stacked, `rule 9: ${at} the tiles are not the full height`);
+    // Every column wherever two tiles inside their bounds can cover the grid
+    // (beside or stacked). Two tiles cannot cover a board much wider than
+    // 16 : 9 + 2 : 1 side by side, nor a near square one (either split puts
+    // one tile outside its bound): there the board is the widest that is
+    // covered, centred, and the window is listed below.
+    const inV = (w, h) => { const a = mgAspect("viewer", w, h, grid.u); return a >= CANVAS_ASPECT.min - 1e-9 && a <= CANVAS_ASPECT.max + 1e-9; };
+    const inL = (w, h) => { const a = mgAspect("list", w, h, grid.u); return a >= 0.5 - 1e-9 && a <= 2 + 1e-9; };
+    let coverable = false;
+    for (let f = 1; f < grid.cols; f += 1) if (inV(f, grid.rows) && inL(grid.cols - f, grid.rows)) coverable = true;
+    for (let r = 1; r < grid.rows; r += 1) if (inV(grid.cols, r) && inL(grid.cols, grid.rows - r)) coverable = true;
+    const across = beside ? spatial.w + schedule.w : spatial.w;
+    if (coverable) check(spatial.x === 0 && across === grid.cols, `rule 9: ${at} the tiles take ${across} of ${grid.cols} columns from ${spatial.x}`);
+    else roomsUncovered.push(`${w}×${h} (${grid.cols}×${grid.rows}): ${across} of ${grid.cols}`);
     const v = mgAspect("viewer", spatial.w, spatial.h, grid.u);
     const l = mgAspect("list", schedule.w, schedule.h, grid.u);
     check(v >= CANVAS_ASPECT.min - 1e-9 && v <= CANVAS_ASPECT.max + 1e-9, `rule 4: ${at} spatial ${spatial.w}×${spatial.h} canvas ${v.toFixed(2)}`);
@@ -313,6 +338,7 @@ for (const [w, h] of windows) {
     console.log(`  rooms ${w}×${h} ${grid.cols}×${grid.rows}: spatial ${spatial.w}×${spatial.h}@${spatial.x},${spatial.y} · schedule ${schedule.w}×${schedule.h}@${schedule.x},${schedule.y}`);
 }
 console.log(`  fewer, taller rows (nothing could grow): ${taller} of ${count} layouts`);
+console.log(`  Rom, no two-tile cover inside the bounds (widest covered, centred): ${roomsUncovered.length} windows${roomsUncovered.length ? ": " + roomsUncovered.join(" · ") : ""}`);
 
 /* ── the Graf tab: one main surface, the other a small window ───────── */
 

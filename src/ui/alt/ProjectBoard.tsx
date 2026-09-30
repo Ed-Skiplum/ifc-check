@@ -71,10 +71,10 @@ export function ProjectBoard(props: ProjectBoardProps) {
   const trees = useMemo(() => projectTrees(model), [model]);
   const treeKey = trees.map(treeId).join(",");
   const layout = useMemo<MgLayout | null>(
-    () => (grid ? layoutProject(grid, { std: reqs.length, trees: trees.map(treeId) }) : null),
+    () => (grid ? layoutProject(grid, { std: reqs.length, trees: trees.map(treeId), mmi: !!mmi }) : null),
     // `trees` is keyed by its ids; the layout is a pure function of them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grid, reqs.length, treeKey],
+    [grid, reqs.length, treeKey, !!mmi],
   );
 
   const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });

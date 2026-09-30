@@ -26,10 +26,13 @@
  *   8  `mgPack`: each tile has sizes (its canon size, largest first) and a
  *      priority. Tiles pack by priority, row-major; the board is exactly
  *      covered, no holes. Too little room moves the lowest priority into a tab
- *      of a tile that stays; nothing shrinks below its size. More room than
- *      the content fills at its sizes narrows the board (centred on the
- *      grid, whole columns), never stretches a tile. Deterministic: a pure
- *      function of its input.
+ *      of a tile that stays; nothing shrinks below its size. Deterministic:
+ *      a pure function of its input.
+ *   9  Every column and every row (2026-09-30): the model, the docks and the
+ *      lists grow from a canon size to cover the board (`mgFlex`), inside
+ *      their bounds; a board still short of the grid widens its tiles into
+ *      the columns left (`mgFillCols`) and its rows (`mgFillRows`). No
+ *      margin columns, no holes.
  *
  * Pure TS, `.ts` imports only, so `scripts/module-grid-gate.mjs` and
  * `scripts/bento-pack-test.mjs` import the same numbers they assert.
@@ -152,9 +155,12 @@ export interface MgTileSpec {
    *  members are, each at the canon size `unit`. */
   members?: readonly string[];
   unit?: Wh;
-  /** Per size, the canon size it grew from (`mgGrown`), or null for a canon
-   *  size. */
+  /** Per size, the canon size it grew from (`mgGrown`, `mgFlex`), or null
+   *  for a canon size. */
   bases?: readonly (Wh | null)[];
+  /** Per size, what taking it costs the cover (`mgFlex`); without, a size
+   *  costs its index in `sizes` times the tile's rank. */
+  costs?: readonly number[];
 }
 
 /** A block spec for `members` at `unit`: every arrangement that holds them
@@ -255,7 +261,7 @@ function coverRun(cols: number, rows: number, specs: readonly MgTileSpec[]): Pla
     if (fitsRun(w * h, i, j)) {
       if (j - i === 1) {
         const k = specs[i].sizes.findIndex(([a, b]) => a === w && b === h);
-        if (k >= 0) out = { cost: k * weight[i], k };
+        if (k >= 0) out = { cost: specs[i].costs?.[k] ?? k * weight[i], k };
       } else {
         for (const flip of [false, true]) {
           for (const vertical of [true, false]) {
@@ -443,7 +449,7 @@ function packImpl(grid: MgGrid, specs: readonly MgTileSpec[], mirror: boolean, e
  *  where the canon sizes leave rows empty. Never an S card or a block. */
 export function mgGrown(specs: readonly MgTileSpec[], rows: number, u: number): MgTileSpec[] {
   return specs.map((s) => {
-    if (s.members || s.sizes.every(([w, h]) => canonSize(w, h) === "S")) return s;
+    if (s.members || s.costs || s.sizes.every(([w, h]) => canonSize(w, h) === "S")) return s;
     const grown: { wh: Wh; base: Wh; k: number }[] = [];
     for (const [w, h] of s.sizes) {
       if (canonSize(w, h) === "S") continue;
@@ -460,6 +466,74 @@ export function mgGrown(specs: readonly MgTileSpec[], rows: number, u: number): 
       bases: [...s.sizes.map(() => null), ...grown.map((g) => g.base)],
     };
   });
+}
+
+/** The whole width (rule 9, 2026-09-30): a board short of the grid's columns
+ *  left them empty at both sides, and a dock too small for what it holds
+ *  beside a hole. So the tiles that hold a canvas or a list that scrolls (the
+ *  model, Scope, Detail, the codes) may take any size grown from one of their
+ *  canon sizes, across and down, up to `maxW × maxH`, while the rendered
+ *  aspect stays inside their kind's bound; the grown size keeps the class of
+ *  the largest canon size inside it (`base`). `cost` prices each size, canon
+ *  or grown: the cover takes the cheapest. A pure function of the grid. */
+export function mgFlex(
+  spec: MgTileSpec,
+  u: number,
+  maxW: number,
+  maxH: number,
+  cost: (w: number, h: number, canon: boolean) => number,
+): MgTileSpec {
+  const sizes: Wh[] = [];
+  const bases: (Wh | null)[] = [];
+  const costs: number[] = [];
+  const bound = MG_ASPECT[spec.kind];
+  for (const [w, h] of spec.sizes) {
+    sizes.push([w, h]);
+    bases.push(null);
+    costs.push(cost(w, h, true));
+  }
+  const minW = Math.min(...spec.sizes.map(([w]) => w));
+  const minH = Math.min(...spec.sizes.map(([, h]) => h));
+  for (let w = minW; w <= maxW; w += 1)
+    for (let h = minH; h <= maxH; h += 1) {
+      if (spec.sizes.some(([a, b]) => a === w && b === h)) continue;
+      const a = mgAspect(spec.kind, w, h, u);
+      if (a < bound.min - 1e-9 || a > bound.max + 1e-9) continue;
+      let base: Wh | null = null;
+      for (const [bw, bh] of spec.sizes)
+        if (bw <= w && bh <= h && (!base || bw * bh > base[0] * base[1])) base = [bw, bh];
+      if (!base) continue;
+      sizes.push([w, h]);
+      bases.push(base);
+      costs.push(cost(w, h, false));
+    }
+  return { ...spec, sizes, bases, costs };
+}
+
+/** A dock's price (Scope, Detail): the object panel and the element list
+ *  want room both ways, so a size under 3 modules either way costs; past
+ *  that, the nearer square the cheaper, and a larger one a little cheaper. */
+function dockCost(u: number) {
+  return (w: number, h: number) => {
+    const a = mgAspect("list", w, h, u);
+    const small = Math.min(w, h) < 3 ? 6 : 0;
+    return small + 2 * Math.abs(Math.log(a)) - 0.15 * w * h;
+  };
+}
+
+/** The model's price: 8 × 5 the hero, 6 × 4 a step down (as `COST_HERO_STEP`),
+ *  a grown size between, the nearer 16 : 10 the cheaper. */
+function viewerCost(u: number) {
+  return (w: number, h: number, canon: boolean) => {
+    if (canon) return w === 8 && h === 5 ? 0 : COST_HERO_STEP;
+    return 2 + 6 * Math.abs(Math.log(mgAspect("viewer", w, h, u) / 1.6)) + 0.1 * Math.max(0, w * h - 40);
+  };
+}
+
+/** A lower list's price (the codes): its canon sizes by order, a grown size
+ *  after them. */
+function listCost(u: number) {
+  return (w: number, h: number, canon: boolean) => (canon ? 0 : 3 + 2 * Math.abs(Math.log(mgAspect("list", w, h, u))));
 }
 
 /** A tile's rendered aspect, width over height, at `w × h` modules; a canvas
@@ -537,7 +611,7 @@ export function mgFillRows(layout: MgLayout, limit: Readonly<Record<string, numb
   const { rows, u, top } = layout;
   // The KPI row stays the KPI row: its tiles (the cards and an M tile that
   // closes it) keep their two rows, and the body under it grows instead.
-  if (layout.band === "kpis" || layout.band === "kpis+side") {
+  if (layout.band?.startsWith("kpis")) {
     const fixed: Record<string, number> = { ...limit };
     for (const t of layout.tiles) if (t.y === top && t.h === 2) fixed[t.id] = 0;
     limit = fixed;
@@ -563,6 +637,93 @@ export function mgFillRows(layout: MgLayout, limit: Readonly<Record<string, numb
     if (fits || g === 0) return { ...layout, tiles: done(steps[g]), top: 0, rows: h, usedRows: h, rowPx };
   }
   return layout;
+}
+
+/** Whether every tile of `layout` renders inside its kind's bound (rule 3,
+ *  rule 4) at the layout's row height; a named tall column or strip always. */
+export function mgInBounds(layout: MgLayout): boolean {
+  return layout.tiles.every((t) => {
+    if (t.size === "tall" || t.size === "strip") return true;
+    const a = mgAspect(t.kind, t.w, t.h, layout.u, layout.rowPx);
+    return a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9;
+  });
+}
+
+/* ── the full width (rule 9) ───────────────────────────────────────────── */
+
+/** Whether `t` may take one more column: never an S card (rule 5), a named
+ *  tall column while it stays taller than wide, a named strip freely, any
+ *  other tile while its rendered aspect stays inside its kind's bound. */
+function mayWiden(t: MgPlace, u: number, rowPx: number): boolean {
+  if (t.size === "S") return false;
+  if (t.size === "tall") return t.w + 1 < t.h;
+  if (t.size === "strip") return true;
+  return mgAspect(t.kind, t.w + 1, t.h, u, rowPx) <= MG_ASPECT[t.kind].max + 1e-9;
+}
+
+/** What one more column costs a tile: how far it moves from its kind's
+ *  ideal shape (a canvas 16 : 10, else square); a sidebar a flat 1. */
+function widenCost(t: MgPlace, u: number, rowPx: number): number {
+  if (t.size === "tall" || t.size === "strip") return 1;
+  const ideal = t.kind === "viewer" || t.kind === "graph" ? 1.6 : 1;
+  return Math.abs(Math.log(mgAspect(t.kind, t.w + 1, t.h, u, rowPx) / ideal));
+}
+
+/** One more column inside a board `used` wide and `rows` high (x and y from
+ *  0), or null: `growOneRow` across. The column goes in at a line `X`:
+ *  every tile across the line widens, and on each row where tiles only meet
+ *  at the line, the one left or the one right of it widens into it; the
+ *  tiles right of it shift. Of every line and choice the cheapest. */
+function growOneCol(tiles: MgPlace[], used: number, rows: number, u: number, rowPx: number): MgPlace[] | null {
+  let best: { cost: number; grow: Set<MgPlace>; X: number } | null = null;
+  for (let X = 0; X <= used; X += 1) {
+    const across = tiles.filter((t) => t.x < X && X < t.x + t.w);
+    const left = tiles.filter((t) => t.x + t.w === X);
+    const right = tiles.filter((t) => t.x === X);
+    const walk = (y: number, grow: MgPlace[], cost: number) => {
+      if (best && cost >= best.cost) return;
+      if (y === rows) {
+        best = { cost, grow: new Set(grow), X };
+        return;
+      }
+      const forced = across.find((t) => t.y === y);
+      const options = forced ? [forced] : [left.find((t) => t.y === y), right.find((t) => t.y === y)];
+      for (const t of options) if (t && mayWiden(t, u, rowPx)) walk(y + t.h, [...grow, t], cost + widenCost(t, u, rowPx));
+    };
+    walk(0, [], 0);
+  }
+  if (!best) return null;
+  const { grow, X } = best as { grow: Set<MgPlace>; X: number };
+  return tiles.map((t) => {
+    if (grow.has(t)) return { ...t, w: t.w + 1, base: t.base ?? [t.w, t.h] };
+    return t.x >= X ? { ...t, x: t.x + 1 } : t;
+  });
+}
+
+/** Rule 9, the width (2026-09-30): a board narrower than the grid (more room
+ *  than its tiles at their sizes cover) widens its tiles into the columns
+ *  left, one column at a time (`growOneCol`, each inside its bound), from
+ *  the grid's first column. Where nothing more can widen, the board stays as
+ *  wide as it got, centred. A pure function of the board. */
+export function mgFillCols(layout: MgLayout): MgLayout {
+  const { cols, u } = layout;
+  if (layout.used >= cols) return layout;
+  const rowPx = layout.rowPx ?? u;
+  let tiles = layout.tiles.map((t) => ({ ...t, x: t.x - layout.offset, y: t.y - layout.top }));
+  let used = layout.used;
+  while (used < cols) {
+    const next = growOneCol(tiles, used, layout.usedRows, u, rowPx);
+    if (!next) break;
+    tiles = next;
+    used += 1;
+  }
+  const offset = Math.floor((cols - used) / 2);
+  return {
+    ...layout,
+    used,
+    offset,
+    tiles: tiles.map((t) => ({ ...t, x: t.x + offset, y: t.y + layout.top })).sort((p, q) => p.y - q.y || p.x - q.x),
+  };
 }
 
 /* ── the Overview composition ──────────────────────────────────────────── */
@@ -620,18 +781,84 @@ function countTiles(content: MgContent): MgTileSpec[] {
  *  The treemaps are Innhold's (2026-09-30). */
 const CODES: MgTileSpec = { id: "codes", kind: "list", sizes: LM, hosts: ["checks"] };
 
-/** The tiles under the KPI row, beside the floor sidebar, in priority order. */
-function overviewBody(content: MgContent, checks = true): MgTileSpec[] {
+/** The tiles under the KPI row, beside the floor sidebar, in priority order.
+ *  The model, the docks and the codes grow to cover the board (`mgFlex`). */
+function overviewBody(content: MgContent, checks: boolean, grid: MgGrid): MgTileSpec[] {
   return [
-    { id: "viewer", kind: "viewer", sizes: XL, required: true },
+    flexViewer(grid),
     // The docks: a tile each at every size, Detail beside Scope.
-    { id: "scope", kind: "list", sizes: LM, required: true, dock: true },
-    { id: "detail", kind: "list", sizes: LM, required: true, dock: true },
+    flexDock("scope", grid),
+    flexDock("detail", grid),
     // L landscape first: its % column; 3 across it draws compact.
     ...(checks ? [{ id: "checks", kind: "list" as MgKind, sizes: [...L_WIDE, [3, 4], [3, 2]] as Wh[] }] : []),
     CODES,
     ...countTiles(content),
   ];
+}
+
+/** The widest a grown list may be: 6 modules, or on a tall board as wide as
+ *  keeps a full-height list inside 1 : 2. */
+function listMaxW(grid: MgGrid, least = 6): number {
+  return Math.max(least, Math.ceil(grid.rows / 2) + 1);
+}
+
+/** The model at XL, grown to cover the board where that is what is left. */
+function flexViewer(grid: MgGrid, id = "viewer"): MgTileSpec {
+  return mgFlex({ id, kind: "viewer", sizes: XL, required: true }, grid.u, Math.min(grid.cols, 12), grid.rows, viewerCost(grid.u));
+}
+
+/** A dock, L where it fits, else M, grown to cover the board: fixed per
+ *  window, whatever it holds (STABLE LAYOUT). */
+function flexDock(id: "scope" | "detail", grid: MgGrid, sizes: readonly Wh[] = LM, extra: Partial<MgTileSpec> = {}): MgTileSpec {
+  return mgFlex({ id, kind: "list", sizes, required: true, dock: true, ...extra }, grid.u, listMaxW(grid), grid.rows, dockCost(grid.u));
+}
+
+/** `specs` with only the sizes `ok` allows for the tiles it names, or null
+ *  where that leaves nothing out or a tile no size. */
+function narrowed(specs: readonly MgTileSpec[], ok: (s: MgTileSpec, w: number, h: number) => boolean | null): MgTileSpec[] | null {
+  let changed = false;
+  const out: MgTileSpec[] = [];
+  for (const s of specs) {
+    const keep = s.sizes.map((_wh, k) => k).filter((k) => ok(s, s.sizes[k][0], s.sizes[k][1]) !== false);
+    if (!keep.length) return null;
+    if (keep.length < s.sizes.length) changed = true;
+    out.push({
+      ...s,
+      sizes: keep.map((k) => s.sizes[k]),
+      bases: s.bases && keep.map((k) => s.bases![k]),
+      costs: s.costs && keep.map((k) => s.costs![k]),
+    });
+  }
+  return changed ? out : null;
+}
+
+/** A dock at L or more: 3 modules or more either way, 12 cells. */
+const bigDock = (s: MgTileSpec, w: number, h: number) => (s.dock ? Math.min(w, h) >= 3 && w * h >= 12 : null);
+
+/** How strict a cover is, tried in order by every composition: 0 the model
+ *  landscape (5 : 4 or wider) and the docks at L or more; 1 the docks at L
+ *  or more; 2 any size. So the docks take a useful size and the model its
+ *  shape before a count or the codes keep a tile of their own. */
+const PHASES = [0, 1, 2] as const;
+type Phase = (typeof PHASES)[number];
+
+/** The exact cover of `grid` by `specs` (`mgPackExact`) at `phase`; without
+ *  one, every phase in turn. */
+function packBody(grid: MgGrid, specs: readonly MgTileSpec[], phase?: Phase): MgLayout | null {
+  if (phase === undefined) {
+    for (const p of PHASES) {
+      const found = packBody(grid, specs, p);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (phase === 2) return mgPackExact(grid, specs);
+  const only =
+    phase === 0
+      ? narrowed(specs, (s, w, h) => (s.kind === "viewer" ? mgAspect("viewer", w, h, grid.u) >= 1.25 : bigDock(s, w, h)))
+      : narrowed(specs, bigDock);
+  // Nothing narrowed: the same cover as the looser phase, found there.
+  return only && mgPackExact(grid, only);
 }
 
 /** Every subset of `pool` (by index), fewest non-count tiles first, then
@@ -698,7 +925,7 @@ const MIN_BODY = 4;
 export function layoutOverview(grid: MgGrid, content: MgContent): MgLayout {
   return bestFilled((grow) => {
     const board = composeOverview(grid, content, grow);
-    return board && mgFillRows(board);
+    return board && mgFillRows(mgFillCols(board));
   });
 }
 
@@ -712,30 +939,52 @@ function bestFilled(compose: (grow: boolean) => MgLayout | null): MgLayout {
   if (!first.rowPx) return first;
   const second = compose(true);
   // The verification sidebar stays where the first pass seats it.
-  const sided = (l: MgLayout) => l.band === "kpis+side" || l.band === "side-pack";
+  const sided = (l: MgLayout) => l.band === "kpis+side" || l.band === "kpis+side+floors" || l.band === "side-pack";
   if (!second || (sided(first) && !sided(second))) return first;
   return second.rows > first.rows ? second : first;
 }
 
+/** How many modules a sidebar may widen past what it wants, where the board
+ *  beside it covers no other width (rule 9: every column used). */
+const SIDE_GROW = 3;
+
 /** `grow`: the second pass (`bestFilled`), the KPI-row boards only, or null;
- *  the packed and narrow boards are the first pass's. */
+ *  the packed and narrow boards are the first pass's. Every board takes the
+ *  grid's every column (rule 9, 2026-09-30). */
 function composeOverview(grid: MgGrid, content: MgContent, grow = false): MgLayout | null {
   // A sidebar wider than the fewest modules gives a column back before it
-  // gives up: a check name ellipsizes rather than the sidebar going.
+  // gives up: a check name ellipsizes rather than the sidebar going. Where
+  // the board beside it covers none of those widths, the sidebar widens.
   const want = content.side ?? 0;
-  for (let side = want; side > 0 && side >= Math.min(want, SIDE_MODULES[0]) && grid.cols - side > 0; side -= 1) {
-    const region = { ...grid, cols: grid.cols - side };
-    const inner = searchOverview(region, content, overviewBody(content, false), grow);
-    const withInner = inner ? besideSide(grid, side, inner, "kpis+side", false) : null;
-    if (withInner) return withInner;
-    if (grow) continue;
-    for (const packed of packedBoards(region, content)) {
-      const withPacked = besideSide(grid, side, packed, "side-pack", true);
-      if (withPacked) return withPacked;
+  const sides: number[] = [];
+  for (let side = want; side > 0 && side >= Math.min(want, SIDE_MODULES[0]); side -= 1) sides.push(side);
+  if (want > 0) for (let side = want + 1; side <= want + SIDE_GROW; side += 1) sides.push(side);
+  const seat = sides.filter((side) => grid.cols - side > 0 && canonSize(side, grid.rows, false, true));
+  // The floor sidebar under the KPI row first; where the KPI row cannot
+  // cover the width, the floor sidebar the full height too.
+  for (const phase of PHASES)
+    for (const side of seat)
+      for (const floorsFull of [false, true]) {
+        const region = { ...grid, cols: grid.cols - side };
+        const inner = searchOverview(region, content, overviewBody(content, false, region), grow, floorsFull, phase);
+        const withInner = inner ? besideSide(grid, side, inner, floorsFull ? "kpis+side+floors" : "kpis+side", false) : null;
+        if (withInner) return withInner;
+      }
+  if (!grow)
+    for (const side of seat) {
+      const region = { ...grid, cols: grid.cols - side };
+      for (const packed of packedBoards(region, content)) {
+        const withPacked = besideSide(grid, side, packed, "side-pack", true);
+        if (withPacked) return withPacked;
+      }
     }
-  }
-  const board = searchOverview(grid, content, overviewBody(content), grow);
-  return board ?? (grow ? null : layoutNarrow(grid, content));
+  const body = overviewBody(content, true, grid);
+  for (const phase of PHASES)
+    for (const floorsFull of [false, true]) {
+      const board = searchOverview(grid, content, body, grow, floorsFull, phase);
+      if (board) return board;
+    }
+  return grow ? null : layoutNarrow(grid, content);
 }
 
 /** Where the KPI row and the floor sidebar do not fit beside the checks (a
@@ -752,26 +1001,19 @@ function* packedBoards(region: MgGrid, content: MgContent): Generator<MgLayout> 
   if (region.rows < 2 + MIN_BODY) return;
   const kpis = Array.from({ length: content.ifc }, (_, i) => ({ id: `ifc${i}`, kind: "panel" as MgKind, sizes: S, required: true }));
   const rest: MgTileSpec[] = [
-    { id: "viewer", kind: "viewer", sizes: XL, required: true },
-    { id: "scope", kind: "list", sizes: LM, required: true, dock: true },
-    { id: "detail", kind: "list", sizes: LM, required: true, dock: true },
-    { id: "floors", kind: "list", sizes: LM },
-    { id: CODES.id, kind: CODES.kind, sizes: LM },
+    flexViewer(region),
+    flexDock("scope", region),
+    flexDock("detail", region),
+    mgFlex({ id: "floors", kind: "list", sizes: LM }, region.u, listMaxW(region, 5), region.rows, listCost(region.u)),
+    mgFlex({ id: CODES.id, kind: CODES.kind, sizes: LM }, region.u, listMaxW(region, 5), region.rows, listCost(region.u)),
   ];
   const orders = [
     [...kpis, ...rest, ...countTiles(content)],
     [...kpis, ...countTiles(content), ...rest],
   ];
   for (const specs of orders) {
-    const exact = mgPackExact(region, specs);
+    const exact = packBody(region, specs);
     if (exact) yield readingOrder(exact);
-  }
-  for (const specs of orders) {
-    try {
-      yield readingOrder(mgPack(region, specs));
-    } catch {
-      /* no cover at any size */
-    }
   }
 }
 
@@ -822,81 +1064,88 @@ function besideSide(grid: MgGrid, side: number, inner: MgLayout, band: string, a
   };
 }
 
+/** The floor sidebar's widths where it runs the full height, beside the KPI
+ *  row too: the widths under the row, then wider, as the columns need. */
+const FLOOR_FULL_WIDTHS = [3, 4, 5, 6, 7, 8] as const;
+
 /** The KPI row, the body and the floor sidebar on `grid` (see
- *  `layoutOverview`), or null where no such board exists. Scope and Detail
- *  keep the slots the cover gives them whatever they hold (2026-09-29, the
- *  owner: "I dont like this components changing places based on what is
+ *  `layoutOverview`), every column of it, or null where no such board
+ *  exists. `floorsFull`: the floor sidebar the full height, the KPI row
+ *  beside it (where the row cannot cover the width above it). Scope and
+ *  Detail keep the slots the cover gives them whatever they hold (2026-09-29,
+ *  the owner: "I dont like this components changing places based on what is
  *  selected"): the input is the window and the loaded content only. */
-function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[], grow = false): MgLayout | null {
-  const { cols, rows } = grid;
+function searchOverview(
+  grid: MgGrid,
+  content: MgContent,
+  body: MgTileSpec[],
+  grow = false,
+  floorsFull = false,
+  phase?: Phase,
+): MgLayout | null {
+  const { cols, rows, u } = grid;
+  if (content.ifc <= 0 || rows - 2 < MIN_BODY) return null;
   const kpiIds = Array.from({ length: content.ifc }, (_, i) => `ifc${i}`);
   const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.ifc, 2]] };
   const pool = [...body.filter((t) => t.series === "count"), ...body.filter((t) => t.id === CODES.id)];
   const sets = fillerSets(pool);
   let best: MgLayout | null = null;
-  let bestCells = 0;
-  if (content.ifc > 0 && rows - 2 >= MIN_BODY) {
-    for (let used = cols; used >= 2 * content.ifc; used -= 1) {
-      if (used * rows <= bestCells) break;
-      let tried = 0;
-      for (const fill of sets) {
-        if (tried >= 4) break;
-        const bandSpecs = [kpis, ...fill.map((t) => ({ ...t, sizes: t.sizes.filter(([, h]) => h === 2) }))];
-        if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
-        const band = coverRun(used, 2, bandSpecs);
-        if (!band) continue;
-        tried += 1;
-        const rest = body.filter((t) => !fill.includes(t));
-        for (let r = rows - 2; r >= (grow ? rows - 2 : MIN_BODY); r -= 1) {
-          if (used * (r + 2) <= bestCells) break;
-          // The floor sidebar: its first width that covers. A canon L
-          // (3 × 4) or the named tall column; 4 × 4 is neither.
-          let lower: MgLayout | null = null;
-          let sw = 0;
-          for (const w of FLOOR_WIDTHS) {
-            if (used - w < 6 || !canonSize(w, r, false, true)) continue;
-            lower = mgPackExact({ cols: used - w, rows: r, u: grid.u }, grow ? mgGrown(rest, r, grid.u) : rest);
-            if (lower) {
-              sw = w;
-              break;
-            }
-          }
-          if (!lower) continue;
-          const offset = Math.floor((cols - used) / 2);
-          const top = Math.floor((rows - 2 - r) / 2);
-          const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, x: offset + t.x, y: top + t.y, priority: i, tabs: [] }));
-          const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({
-            ...t,
-            x: offset + t.x,
-            y: top + 2 + t.y,
-            priority: bandTiles.length + t.priority,
-          }));
-          const floors: MgPlace = {
-            id: "floors",
-            kind: "list",
-            x: offset + used - sw,
-            y: top + 2,
-            w: sw,
-            h: r,
-            size: canonSize(sw, r, false, true)!,
-            priority: bandTiles.length + lowerTiles.length,
-            // What the body moved and none of its tiles may host (the docks
-            // and the model never do): a tab of the floor sidebar.
-            tabs: lower.moved.filter((id) => !lowerTiles.some((t) => t.tabs.includes(id))),
-          };
-          best = {
-            ...grid,
-            used,
-            usedRows: r + 2,
-            offset,
-            top,
-            tiles: [...bandTiles, ...lowerTiles, floors].sort((p, q) => p.y - q.y || p.x - q.x),
-            moved: lower.moved,
-            band: "kpis",
-          };
-          bestCells = used * (r + 2);
-          break;
-        }
+  let bestRows = 0;
+  for (const sw of floorsFull ? FLOOR_FULL_WIDTHS : FLOOR_WIDTHS) {
+    const bandW = floorsFull ? cols - sw : cols;
+    if (cols - sw < 6 || bandW < 2 * content.ifc) continue;
+    let tried = 0;
+    for (const fill of sets) {
+      if (tried >= 4) break;
+      // In the KPI row a filler is a canon tile two rows high.
+      const bandSpecs = [
+        kpis,
+        ...fill.map((t) => {
+          const k = t.sizes.map((_wh, i) => i).filter((i) => t.sizes[i][1] === 2 && !t.bases?.[i]);
+          return { id: t.id, kind: t.kind, series: t.series, sizes: k.map((i) => t.sizes[i]) };
+        }),
+      ];
+      if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
+      const band = coverRun(bandW, 2, bandSpecs);
+      if (!band) continue;
+      tried += 1;
+      const rest = body.filter((t) => !fill.some((f) => f.id === t.id));
+      for (let r = rows - 2; r >= (grow ? rows - 2 : MIN_BODY); r -= 1) {
+        if (r + 2 <= bestRows) break;
+        // The floor sidebar: a canon L (3 × 4) or the named tall column;
+        // 4 × 4 is neither.
+        const fh = floorsFull ? r + 2 : r;
+        if (!canonSize(sw, fh, false, true)) continue;
+        const lower = packBody({ cols: cols - sw, rows: r, u }, grow ? mgGrown(rest, r, u) : rest, phase);
+        if (!lower) continue;
+        const top = Math.floor((rows - 2 - r) / 2);
+        const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, y: top + t.y, priority: i, tabs: [] }));
+        const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({ ...t, y: top + 2 + t.y, priority: bandTiles.length + t.priority }));
+        const floors: MgPlace = {
+          id: "floors",
+          kind: "list",
+          x: cols - sw,
+          y: floorsFull ? top : top + 2,
+          w: sw,
+          h: fh,
+          size: canonSize(sw, fh, false, true)!,
+          priority: bandTiles.length + lowerTiles.length,
+          // What the body moved and none of its tiles may host (the docks
+          // and the model never do): a tab of the floor sidebar.
+          tabs: lower.moved.filter((id) => !lowerTiles.some((t) => t.tabs.includes(id))),
+        };
+        best = {
+          ...grid,
+          used: cols,
+          usedRows: r + 2,
+          offset: 0,
+          top,
+          tiles: [...bandTiles, ...lowerTiles, floors].sort((p, q) => p.y - q.y || p.x - q.x),
+          moved: lower.moved,
+          band: floorsFull ? "kpis+floors" : "kpis",
+        };
+        bestRows = r + 2;
+        break;
       }
     }
   }
@@ -909,16 +1158,17 @@ function searchOverview(grid: MgGrid, content: MgContent, body: MgTileSpec[], gr
  *  under that, a fixed tab of Scope. Which it is depends on the window
  *  only. */
 function layoutNarrow(grid: MgGrid, content: MgContent): MgLayout {
-  return mgPack(grid, [
-    { id: "viewer", kind: "viewer", sizes: XL, required: true },
-    { id: "reqs", kind: "list", sizes: M_WIDE, required: true },
-    { id: "scope", kind: "list", sizes: M_WIDE, required: true, dock: true },
-    { id: "detail", kind: "list", sizes: M_WIDE, dock: true, hosts: ["scope"] },
-    { id: "floors", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
-    { id: "checks", kind: "list", sizes: M_WIDE, hosts: ["reqs"] },
-    { id: CODES.id, kind: CODES.kind, sizes: M_WIDE, hosts: ["reqs"] },
+  const specs: MgTileSpec[] = [
+    flexViewer(grid),
+    mgFlex({ id: "reqs", kind: "list", sizes: M_WIDE, required: true }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u)),
+    flexDock("scope", grid, M_WIDE),
+    flexDock("detail", grid, M_WIDE, { required: false, hosts: ["scope"] }),
+    ...["floors", "checks", CODES.id].map((id) =>
+      mgFlex({ id, kind: "list" as MgKind, sizes: M_WIDE, hosts: ["reqs"] }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u)),
+    ),
     ...countTiles(content),
-  ]);
+  ];
+  return mgPackExact(grid, specs) ?? mgPack(grid, specs);
 }
 
 /* ── the project tab («Prosjekt») ──────────────────────────────────────── */
@@ -929,6 +1179,9 @@ export interface MgProjectContent {
   /** The treemaps read through a project mapping (`ptree-system`,
    *  `ptree-function`); none without a mapping. */
   trees: readonly string[];
+  /** The MMI bars: false where the model carries no MMI (the tile would be
+   *  empty); absent counts as there. */
+  mmi?: boolean;
 }
 
 /** The MMI bars: M, or the named strip (`MG_STRIPS.mmi`) across 3 to 8. */
@@ -936,99 +1189,154 @@ const MMI_SIZES: readonly Wh[] = [[3, 2], [2, 3], ...[8, 6, 5, 4, 3].map((k) => 
 
 /** The tiles under the KPI row, in priority order. The IDS table needs about
  *  680 px across (a name, three counts, the state), so it is XL, never
- *  narrower than 6: with the model, the board's two XL. */
-function projectBody(content: MgProjectContent): MgTileSpec[] {
+ *  narrower than 6: with the model, the board's two XL. The model, the IDS
+ *  table and the docks grow to cover the board (`mgFlex`). */
+function projectBody(content: MgProjectContent, grid: MgGrid): MgTileSpec[] {
   return [
-    { id: "viewer", kind: "viewer", sizes: XL, required: true },
-    { id: "ids", kind: "list", sizes: [[6, 4], [8, 5]], required: true },
-    { id: "scope", kind: "list", sizes: LM, required: true, dock: true },
-    { id: "detail", kind: "list", sizes: LM, required: true, dock: true },
+    flexViewer(grid),
+    mgFlex({ id: "ids", kind: "list", sizes: [[6, 4], [8, 5]], required: true }, grid.u, 10, grid.rows, listCost(grid.u)),
+    flexDock("scope", grid),
+    flexDock("detail", grid),
     ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: LM, hosts: ["ids"] })),
-    { id: "mmi", kind: "chart", sizes: MMI_SIZES, hosts: ["ids"] },
+    ...(content.mmi === false ? [] : [{ id: "mmi", kind: "chart" as MgKind, sizes: MMI_SIZES, hosts: ["ids"] }]),
   ];
 }
+
+/** The tiles that may leave the body for a column the full height on the
+ *  right, where the KPI row cannot cover the board's width: none, the IDS
+ *  table, then the docks with it. */
+const PROJECT_RIGHT: readonly (readonly string[])[] = [[], ["ids"], ["ids", "detail"], ["ids", "scope", "detail"]];
 
 /** The project tab: the Standardkrav KPI row on top (one S card each, never
  *  a list), then the IDS table, the model, Scope, Detail, the mapped
  *  treemaps and the MMI bars by priority. The row is closed with M tiles
  *  (the MMI bars, a treemap) where the board is wider than the cards; too
- *  little room moves the lowest into a tab of the IDS table. Of every board
- *  width and body height the one that takes the most of the window wins, as
- *  on the Overview. Under that (about 12 columns), the narrow fallback. */
+ *  little room moves the lowest into a tab of the IDS table. Every column of
+ *  the grid is used (rule 9, 2026-09-30): where the KPI row cannot cover the
+ *  width, the IDS table (then the docks) runs the full height on the right
+ *  and the row covers what is left. Of every board the one that takes the
+ *  most rows wins. Under that (about 12 columns), the narrow fallback. */
 export function layoutProject(grid: MgGrid, content: MgProjectContent): MgLayout {
   return bestFilled((grow) => {
     const board = composeProject(grid, content, grow);
-    return board && mgFillRows(board);
+    return board && mgFillRows(mgFillCols(board));
   });
 }
 
 function composeProject(grid: MgGrid, content: MgProjectContent, grow = false): MgLayout | null {
-  const { cols, rows } = grid;
+  if (content.std > 0 && grid.rows - 2 >= MIN_BODY) {
+    const body = projectBody(content, grid);
+    for (const phase of PHASES)
+      for (const right of PROJECT_RIGHT) {
+        const board = searchProject(grid, content, body, right, grow, phase);
+        // Where the rows it leaves are fewer and taller, a tile must stay
+        // inside its bound at their height too.
+        if (board && mgInBounds(mgFillRows(mgFillCols(board)))) return board;
+      }
+  }
+  return grow ? null : layoutProjectNarrow(grid, content);
+}
+
+/** The KPI row over the body on the left, `right` a column the full height
+ *  beside them (none: the row the board's width), every column used, or
+ *  null. */
+function searchProject(
+  grid: MgGrid,
+  content: MgProjectContent,
+  body: MgTileSpec[],
+  right: readonly string[],
+  grow: boolean,
+  phase: Phase,
+): MgLayout | null {
+  const { cols, rows, u } = grid;
   const kpiIds = Array.from({ length: content.std }, (_, i) => `std${i}`);
   const kpis: MgTileSpec = { ...mgBlock("kpis", "panel", kpiIds, S[0]), sizes: [[2 * content.std, 2]] };
-  const body = projectBody(content);
   const pool = body.filter((t) => t.id === "mmi" || content.trees.includes(t.id));
   const sets = fillerSets(pool);
+  const sideSpecs = body.filter((t) => right.includes(t.id));
+  const main = body.filter((t) => !right.includes(t.id));
   let best: MgLayout | null = null;
-  let bestCells = 0;
-  if (content.std > 0 && rows - 2 >= MIN_BODY) {
-    for (let used = cols; used >= 2 * content.std; used -= 1) {
-      if (used * rows <= bestCells) break;
-      let tried = 0;
-      for (const fill of sets) {
-        if (tried >= 4) break;
-        const bandSpecs = [kpis, ...fill.map((t) => ({ ...t, sizes: t.sizes.filter(([, h]) => h === 2) }))];
-        if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
-        const band = coverRun(used, 2, bandSpecs);
-        if (!band) continue;
-        tried += 1;
-        const rest = body.filter((t) => !fill.includes(t));
-        for (let r = rows - 2; r >= (grow ? rows - 2 : MIN_BODY); r -= 1) {
-          if (used * (r + 2) <= bestCells) break;
-          const lower = mgPackExact({ cols: used, rows: r, u: grid.u }, grow ? mgGrown(rest, r, grid.u) : rest);
-          if (!lower) continue;
-          const offset = Math.floor((cols - used) / 2);
-          const top = Math.floor((rows - 2 - r) / 2);
-          const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, x: offset + t.x, y: top + t.y, priority: i, tabs: [] }));
-          const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({
-            ...t,
-            x: offset + t.x,
-            y: top + 2 + t.y,
-            priority: bandTiles.length + t.priority,
-          }));
-          best = {
-            ...grid,
-            used,
-            usedRows: r + 2,
-            offset,
-            top,
-            tiles: [...bandTiles, ...lowerTiles].sort((p, q) => p.y - q.y || p.x - q.x),
-            moved: lower.moved,
-            band: "kpis",
-          };
-          bestCells = used * (r + 2);
-          break;
-        }
+  let bestRows = 0;
+  for (let left = right.length ? cols - 3 : cols; left >= (right.length ? 2 * content.std : cols); left -= 1) {
+    // The column, as tall as the board beside it.
+    const columns = new Map<number, MgLayout | null>();
+    const columnOf = (h: number) => {
+      if (!right.length) return null;
+      if (!columns.has(h)) {
+        const c = packBody({ cols: cols - left, rows: h, u }, sideSpecs, phase);
+        columns.set(h, c && !c.moved.length ? c : null);
+      }
+      return columns.get(h)!;
+    };
+    let tried = 0;
+    for (const fill of sets) {
+      if (tried >= 4) break;
+      const bandSpecs = [
+        kpis,
+        ...fill.map((t) => {
+          const k = t.sizes.map((_wh, i) => i).filter((i) => t.sizes[i][1] === 2 && !t.bases?.[i]);
+          return { id: t.id, kind: t.kind, sizes: k.map((i) => t.sizes[i]) };
+        }),
+      ];
+      if (bandSpecs.some((t) => t.sizes.length === 0)) continue;
+      const band = coverRun(left, 2, bandSpecs);
+      if (!band) continue;
+      tried += 1;
+      const rest = main.filter((t) => !fill.some((f) => f.id === t.id));
+      for (let r = rows - 2; r >= (grow ? rows - 2 : MIN_BODY); r -= 1) {
+        if (r + 2 <= bestRows) break;
+        const column = columnOf(r + 2);
+        if (right.length && !column) continue;
+        const lower = packBody({ cols: left, rows: r, u }, grow ? mgGrown(rest, r, u) : rest, phase);
+        if (!lower) continue;
+        const top = Math.floor((rows - 2 - r) / 2);
+        const bandTiles: MgPlace[] = band.map((t, i) => ({ ...t, y: top + t.y, priority: i, tabs: [] }));
+        const lowerTiles: MgPlace[] = lower.tiles.map((t) => ({ ...t, y: top + 2 + t.y, priority: bandTiles.length + t.priority }));
+        const sideTiles: MgPlace[] = (column?.tiles ?? []).map((t) => ({
+          ...t,
+          x: left + t.x,
+          y: top + t.y,
+          priority: bandTiles.length + lowerTiles.length + t.priority,
+        }));
+        // What the body moved: a tab of the IDS table wherever it stands.
+        const all = [...bandTiles, ...lowerTiles, ...sideTiles];
+        const ids = all.find((t) => t.id === "ids");
+        if (ids) for (const id of lower.moved) if (!all.some((t) => t.tabs.includes(id))) ids.tabs.push(id);
+        best = {
+          ...grid,
+          used: cols,
+          usedRows: r + 2,
+          offset: 0,
+          top,
+          tiles: all.sort((p, q) => p.y - q.y || p.x - q.x),
+          moved: lower.moved,
+          band: right.length ? `kpis+${right.join("+")}` : "kpis",
+        };
+        bestRows = r + 2;
+        break;
       }
     }
+    if (best) break;
   }
-  return best ?? (grow ? null : layoutProjectNarrow(grid, content));
+  return best;
 }
 
 /** The narrow fallback: the model at 6 × 4, the Standardkrav requirements as
  *  one list and the IDS table as M beside it; the rest in tabs of those. */
 function layoutProjectNarrow(grid: MgGrid, content: MgProjectContent): MgLayout {
-  return mgPack(grid, [
-    { id: "viewer", kind: "viewer", sizes: XL, required: true },
-    { id: "reqs", kind: "list", sizes: M_WIDE, required: true },
-    { id: "ids", kind: "list", sizes: M_WIDE, required: true },
+  const specs: MgTileSpec[] = [
+    flexViewer(grid),
+    mgFlex({ id: "reqs", kind: "list", sizes: M_WIDE, required: true }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u)),
+    mgFlex({ id: "ids", kind: "list", sizes: M_WIDE, required: true }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u)),
     // Under 12 columns the model, the requirements and the IDS table leave no
     // room for the docks: fixed tabs of the IDS table, by the window alone.
-    { id: "scope", kind: "list", sizes: M_WIDE, dock: true, hosts: ["ids"] },
-    { id: "detail", kind: "list", sizes: M_WIDE, dock: true, hosts: ["scope", "ids"] },
-    ...content.trees.map((id) => ({ id, kind: "chart" as MgKind, sizes: M_WIDE, hosts: ["reqs"] })),
-    { id: "mmi", kind: "chart", sizes: M_WIDE, hosts: ["reqs"] },
-  ]);
+    flexDock("scope", grid, M_WIDE, { required: false, hosts: ["ids"] }),
+    flexDock("detail", grid, M_WIDE, { required: false, hosts: ["scope", "ids"] }),
+    ...[...content.trees, ...(content.mmi === false ? [] : ["mmi"])].map((id) =>
+      mgFlex({ id, kind: "chart" as MgKind, sizes: M_WIDE, hosts: ["reqs"] }, grid.u, listMaxW(grid), grid.rows, listCost(grid.u)),
+    ),
+  ];
+  return mgPackExact(grid, specs) ?? mgPack(grid, specs);
 }
 
 /* ── the Rom tab: the spaces and their schedule ────────────────────────── */
