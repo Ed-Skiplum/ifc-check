@@ -33,6 +33,7 @@ import { typeGuids } from "./types/aggregate";
 import { reqDoor, treeDoor } from "./board-doors";
 import { labelOfRow } from "./requirements";
 import { findNode } from "../engine/code-tree";
+import { codeGuids } from "./class-codes";
 import type { ModelEntry } from "./useModels";
 import { EMPTY_FILTER, reduceFilter, type ActiveFilter, type ChipKind, type FilterAction, type FilterState, type Origin } from "./filter-state";
 
@@ -75,6 +76,9 @@ export function filterOf(focus: Focus, model: ModelEntry, lang: Lang): { kind: C
     const tree = model.board?.trees[focus.axis];
     const node = tree ? findNode(tree.root, focus.key) : null;
     return node ? { kind: "tree", label: node.label ?? "—", focus } : null;
+  }
+  if (focus.kind === "code") {
+    return model.profile?.classifications ? { kind: "tree", label: focus.code || "—", focus } : null;
   }
   if (focus.kind === "ids") {
     const spec = model.ids?.specs[focus.index];
@@ -130,6 +134,7 @@ export function guidsOfFocus(focus: Focus, model: ModelEntry): Set<string> | nul
     // a type object's finding stands for the elements that use it.
     return new Set(spec.findings.filter((f) => f.guid !== "-").flatMap((f) => f.members ?? [f.guid]));
   }
+  if (focus.kind === "code") return codeGuids(profile, focus.system, focus.code);
   if (focus.kind === "element") return new Set(focus.guids);
   return null;
 }

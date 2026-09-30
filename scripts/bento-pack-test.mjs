@@ -98,15 +98,16 @@ for (const u of [88, 93, 100, 108, 112]) {
 
 /* ── rules 7, 8, 9 on every layout, over a sweep of windows ──────────────── */
 
-// The Overview (the one board since 2026-09-28): with a project mapping the
-// treemaps are the project tab's (none here), without one both are general.
+// The Overview (the one board since 2026-09-28): fundamental IFC health
+// only. The treemaps are Innhold's since 2026-09-30; the classification codes
+// the file carries are one list tile, always there.
 const contents = {
-  mapped: { ifc: 5, counts: 4, trees: [] },
-  general: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"] },
+  base: { ifc: 5, counts: 4 },
+  fewCounts: { ifc: 5, counts: 2 },
   // The verification as a left sidebar (2026-09-29), at the two widths
   // `sideModules` picks from.
-  side4: { ifc: 5, counts: 4, trees: ["tree-system", "tree-function"], side: 4 },
-  side5: { ifc: 5, counts: 4, trees: [], side: 5 },
+  side4: { ifc: 5, counts: 4, side: 4 },
+  side5: { ifc: 5, counts: 4, side: 5 },
 };
 // STABLE LAYOUT (2026-09-29, the owner: "I dont like this components
 // changing places based on what is selected"): the layout is the window's
@@ -117,7 +118,7 @@ const contents = {
 const STATES = {
   detailFilled: { detail: 12, detailPx: 1250 },
   detailBody: { detail: 5 },
-  filtered: { filter: { origin: "tree-system", matched: ["a", "b"] }, selected: "req:ifc0", scope: true },
+  filtered: { filter: { origin: "codes", matched: ["a", "b"] }, selected: "code:=Uniformat|B2010", scope: true },
   selected: { selection: ["3kZ$example0000000000"], hover: "3kZ$example0000000000" },
 };
 const windows = [];
@@ -204,6 +205,9 @@ for (const [design, content] of Object.entries(contents)) {
         check(t.tabs.every((id) => id === "detail" || id.startsWith("count")), `${at}: ${t.id} hosts ${t.tabs.join(",")}`);
     check(ids.has("reqs") || ids.has("ifc0"), `${at}: the requirements have no tile`);
     check(!ids.has("mmi") && ![...ids].some((id) => /^std\d+$/.test(id)), `${at}: a Standardkrav tile on the Overview`);
+    // No treemap on the Overview (2026-09-30); the codes a tile or a tab.
+    check(![...ids].some((id) => /tree/.test(id)) && !out.tiles.some((t) => t.tabs.some((id) => /tree/.test(id))), `${at}: a treemap on the Overview`);
+    check(ids.has("codes") || tabbed("codes"), `${at}: the classification codes are neither a tile nor a tab`);
     // The KPI row: every IFC-struktur requirement an S card on the TOP row,
     // never a list; the floor sidebar the full height under it, on the right.
     if (out.band === "side-pack") {

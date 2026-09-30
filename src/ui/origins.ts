@@ -35,6 +35,8 @@ export function originOfFocus(focus: Focus): Origin {
   switch (focus.kind) {
     case "tree":
       return `tree-${focus.axis}`;
+    case "code":
+      return "codes";
     case "req":
       return "reqs";
     case "ids":

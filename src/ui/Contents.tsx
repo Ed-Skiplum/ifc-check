@@ -9,15 +9,30 @@
  *   band 1   Klasser (38.2 %) | Etasje × klasse (61.8 %)
  *   band 2   Typer, full width
  *
+ * and, beside them (2026-09-30, off the Overview: *"The Innhold page needs a
+ * big overhaul, and thats where treemaps and content belongs"*), the two code
+ * treemaps stacked in a column of 38.2 %, each with its Antall / Volum / Areal
+ * switch, where the model's trees are general (the IFC-class and
+ * PredefinedType fallbacks; a treemap read through a project mapping is the
+ * project tab's). The column is there or not by the loaded content only.
+ *
  * Every click cross-filters exactly as it did on the board: a chip, and the
- * derivation band under the tab.
+ * derivation band under the tab. The census cards are one view (`census`),
+ * each treemap its own (`tree-system`, `tree-function`): the origin dims all
+ * but the chosen item, the others isolate.
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import type { Census } from "./profile";
 import type { Focus } from "./trace";
+import type { ModelEntry } from "./useModels";
+import type { Origin } from "./filter-state";
+import { isoOf, xfMark, type Xf } from "./origins";
+import type { Measure } from "../engine/quantities";
+import { CodeTreemap, MeasureSwitch } from "./alt/Charts";
+import { generalTrees, treeTitle } from "./alt/req-view";
 import { formatCount } from "./format";
 import { MicroLabel } from "./BentoGrid";
 import { ClassDistribution } from "./forms";
@@ -35,19 +50,26 @@ const SCALE = {
 function Card({
   label,
   sub,
+  head,
+  xf,
   className,
   children,
 }: {
   label: string;
   sub?: string;
+  /** Controls at the head's end, in place of `sub`. */
+  head?: ReactNode;
+  /** The cross-filter mark of the view this card is (`xfMark`). */
+  xf?: "origin" | "whole";
   className: string;
   children: ReactNode;
 }) {
   return (
-    <section className={`flex min-h-0 min-w-0 flex-col overflow-hidden border border-line bg-panel ${className}`}>
-      <div className="flex shrink-0 items-baseline gap-2 px-2 pt-1.5 pb-1">
+    <section data-xf={xf} className={`flex min-h-0 min-w-0 flex-col overflow-hidden border border-line bg-panel ${className}`}>
+      <div className="relative flex shrink-0 items-baseline gap-2 px-2 pt-1.5 pb-1">
         <MicroLabel>{label}</MicroLabel>
-        {sub ? (
+        {head ?? null}
+        {!head && sub ? (
           <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted">{sub}</span>
         ) : null}
       </div>
@@ -58,23 +80,36 @@ function Card({
 
 export function Contents({
   lang,
+  model,
   census,
   ledger,
   selected,
-  onFocus,
+  xf,
+  onFocus: onFocusFrom,
 }: {
   lang: Lang;
+  model: ModelEntry;
   census: Census;
   ledger: TypeLedger;
   selected: string | null;
-  onFocus: (focus: Focus) => void;
+  xf: Xf;
+  /** A click, and the view it came from. */
+  onFocus: (focus: Focus, origin: Origin) => void;
 }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3" style={SCALE}>
+  const onFocus = (focus: Focus) => onFocusFrom(focus, "census");
+  const censusXf = xfMark(xf, "census");
+  const board = model.board;
+  const trees = generalTrees(model);
+  // Antall / Volum / Areal per treemap. A measure still waiting on the
+  // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
+  const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
+  const censusBands = (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <div className="grid min-h-0 flex-[40_1_0] gap-3 [grid-template-columns:minmax(0,38.2fr)_minmax(0,61.8fr)] [grid-template-rows:minmax(0,1fr)]">
         <Card
           label={t("tile.classes", lang)}
           sub={formatCount(census.classes.length, lang)}
+          xf={censusXf}
           className="h-full"
         >
           <ClassDistribution
@@ -87,6 +122,7 @@ export function Contents({
         <Card
           label={t("tile.census", lang)}
           sub={`${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`}
+          xf={censusXf}
           className="h-full"
         >
           <StoreyClassCensus
@@ -105,6 +141,7 @@ export function Contents({
       <Card
         label={t("tile.types", lang)}
         sub={`${formatCount(ledger.singles, lang)} / ${formatCount(ledger.types, lang)}`}
+        xf={censusXf}
         className="flex-[55_1_0]"
       >
         {ledger.factsPresent ? (
@@ -117,6 +154,58 @@ export function Contents({
           </div>
         )}
       </Card>
+    </div>
+  );
+  if (!board || trees.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" style={SCALE}>
+        {censusBands}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="grid min-h-0 flex-1 gap-3 [grid-template-columns:minmax(0,61.8fr)_minmax(0,38.2fr)] [grid-template-rows:minmax(0,1fr)]"
+      style={SCALE}
+    >
+      {censusBands}
+      <div className="flex min-h-0 min-w-0 flex-col gap-3" data-contents-trees>
+        {trees.map((id) => {
+          const axis = id === "tree-system" ? "system" : "function";
+          const tree = board.trees[axis];
+          return (
+            <Card
+              key={id}
+              label={t(treeTitle(tree), lang)}
+              xf={xfMark(xf, id)}
+              className="flex-1 basis-0"
+              head={
+                <MeasureSwitch
+                  tree={tree}
+                  measures={board.measures}
+                  progress={model.measureProgress}
+                  measure={measure[axis]}
+                  onMeasure={(m) => setMeasure((prev) => ({ ...prev, [axis]: m }))}
+                  lang={lang}
+                />
+              }
+            >
+              <CodeTreemap
+                tree={tree}
+                measure={measure[axis]}
+                measures={board.measures}
+                iso={isoOf(xf, id)}
+                lit={xfMark(xf, id) === "origin" ? xf.matched : null}
+                quantities={model.elementQuantities?.byGuid}
+                lang={lang}
+                model={model}
+                selected={selected}
+                onFocus={(focus) => onFocusFrom(focus, id)}
+              />
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

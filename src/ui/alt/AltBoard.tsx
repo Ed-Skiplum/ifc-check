@@ -17,8 +17,12 @@
  *                 seats one (2026-09-29, the owner: *"the verification panel
  *                 should come out and be a left sidebar"*), else in the middle
  *   the middle    the model (hero), Scope, Detail, the checks that are not a
- *                 requirement, and the treemaps where they are general (the
- *                 IFC-class and PredefinedType fallbacks)
+ *                 requirement, and the classification codes the file carries
+ *                 (presence only, `ClassCodes.tsx`)
+ *
+ * 2026-09-30, the owner: *"For the main page, we dont need the treemaps, and
+ * we should only focus on fundamental ifc health"*; the two code treemaps are
+ * Innhold's (`Contents.tsx`).
  *
  * NOT here, for the project tab: the Standardkrav requirements (Systemkode,
  * Funksjonskode, Materiale/Produkt, Kopiobjekt, MMI, Fase), the MMI bars, a
@@ -31,9 +35,9 @@
  * click means.
  *
  * The cross-filter (2026-09-28, one origin): each tile names the view it is
- * (`viewer`, `tree-system`, `tree-function`, `checks`, `reqs`, `floors`).
+ * (`viewer`, `codes`, `checks`, `reqs`, `floors`).
  * The tile the click came from keeps every item and dims all but the chosen
- * one (`data-xf="origin"`); the 3D, the treemaps and the floor sidebar
+ * one (`data-xf="origin"`); the 3D, the codes and the floor sidebar
  * isolate to the filter; the KPI cards and the checks keep the whole model's
  * figures and say so (`data-xf="whole"`, «Hele modellen»), because a
  * requirement's base is not known per element.
@@ -63,9 +67,8 @@ import { boardCards } from "../board-data";
 import { FloorSetupMatrix, StoreyList, type FloorPeer } from "../FloorSetup";
 import { requirementRowIds, requirements, type Requirement } from "../requirements";
 import { ReqBlock, ReqCard } from "./Requirements";
-import { CodeTreemap, MeasureSwitch } from "./Charts";
-import type { Measure } from "../../engine/quantities";
-import { generalTrees, overviewRequirements, treeTitle } from "./req-view";
+import { ClassCodes } from "./ClassCodes";
+import { overviewRequirements } from "./req-view";
 import {
   MG_GAP,
   MG_HEAD,
@@ -164,8 +167,6 @@ export function AltBoard(props: AltBoardProps) {
   const { ref, grid } = useModuleGrid();
   const reqs = useMemo(() => overviewRequirements(model), [model]);
   const counts = useMemo(() => boardCards(model, lang).countCards, [model, lang]);
-  const trees = useMemo(() => generalTrees(model), [model]);
-  const treeKey = trees.join(",");
   // The verification sidebar's width is its rows' own (`sideModules`): the
   // checks laid out once more, off screen at their natural width, measured.
   const rest = useMemo(() => overviewChecks(model), [model]);
@@ -182,24 +183,17 @@ export function AltBoard(props: AltBoardProps) {
   }, []);
   const side = grid && needPx > 0 && rest.length > 0 ? sideModules(needPx, grid.u) : 0;
   // The layout is a pure function of the window (`grid`) and the loaded
-  // content (the model's requirements, counts, treemaps, checks), never of
+  // content (the model's requirements, counts, checks), never of
   // selection, filter or what Scope and Detail hold (2026-09-29, the owner:
   // "I dont like this components changing places based on what is
   // selected. I prefer a clean UI with predictable movements").
   const layout = useMemo<MgLayout | null>(
-    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, trees, side }) : null),
-    // `trees` is keyed by its ids; the layout is a pure function of them.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grid, reqs.length, counts.length, treeKey, side],
+    () => (grid ? layoutOverview(grid, { ifc: reqs.length, counts: counts.length, side }) : null),
+    [grid, reqs.length, counts.length, side],
   );
   const noFocus = useMemo(() => new Map(), []);
 
-  // Antall / Volum / Areal per treemap. A measure still waiting on the
-  // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
-  const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
-  const bodies = layout
-    ? tileBodies(props, reqs, counts, layout, measure, (axis, m) => setMeasure((prev) => ({ ...prev, [axis]: m })))
-    : null;
+  const bodies = layout ? tileBodies(props, reqs, counts, layout) : null;
 
   return (
     <div ref={ref} className="relative w-full min-w-0" style={VARS}>
@@ -239,7 +233,7 @@ export function AltBoard(props: AltBoardProps) {
 export interface TileBody {
   label?: string;
   sub?: string;
-  /** Controls at the head's end (the treemaps' measure switch), in place of
+  /** Controls at the head's end (a treemap's measure switch), in place of
    *  `sub`. */
   head?: ReactNode;
   body: ReactNode;
@@ -331,13 +325,10 @@ function tileBodies(
   reqs: Requirement[],
   counts: KpiCard[],
   layout: MgLayout,
-  measure: { system: Measure; function: Measure },
-  onMeasure: (axis: "system" | "function", m: Measure) => void,
 ): Bodies {
   const { lang, model, selected, onFocus, view, xf, onPick, onHover } = props;
   const door = (origin: Origin) => ({ lang, model, selected, onFocus: (focus: Focus) => onFocus(focus, origin) });
   const whole = (self: Origin) => ({ xf: xfMark(xf, self, true), wholeText: t("filter.wholeModel", lang) });
-  const board = model.board;
   const placed = new Set(layout.tiles.map((t) => t.id));
   const countsInList = counts.filter((_, i) => !placed.has(`count${i}`));
 
@@ -363,35 +354,10 @@ function tileBodies(
     ),
   };
 
-  const tree = (id: string): TileBody | null => {
-    const axis = id === "tree-system" ? "system" : "function";
-    const code = board?.trees[axis];
-    if (!code || code.by === "mapping") return null;
-    return {
-      xf: xfMark(xf, id),
-      label: t(treeTitle(code), lang),
-      head: (
-        <MeasureSwitch
-          tree={code}
-          measures={board?.measures}
-          progress={model.measureProgress}
-          measure={measure[axis]}
-          onMeasure={(m) => onMeasure(axis, m)}
-          lang={lang}
-        />
-      ),
-      body: (
-        <CodeTreemap
-          tree={code}
-          measure={measure[axis]}
-          measures={board?.measures}
-          iso={isoOf(xf, id)}
-          lit={xfMark(xf, id) === "origin" ? xf.matched : null}
-          quantities={model.elementQuantities?.byGuid}
-          {...door(id)}
-        />
-      ),
-    };
+  const codes: TileBody = {
+    xf: xfMark(xf, "codes"),
+    label: t("type.classifications", lang),
+    body: <ClassCodes iso={isoOf(xf, "codes")} {...door("codes")} />,
   };
 
   // The tile the checks are drawn in: their own, or the one they are a tab of.
@@ -423,7 +389,7 @@ function tileBodies(
         label: t("tile.detail", lang),
         body: <div className="alt-dock flex min-h-0 flex-1 flex-col" data-dock="detail">{props.detail}</div>,
       };
-    if (id === "tree-system" || id === "tree-function") return tree(id);
+    if (id === "codes") return codes;
     if (id === "checks") return checks;
     if (id === "floors") return floorsBody(props);
     const count = /^count(\d+)$/.exec(id);
