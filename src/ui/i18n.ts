@@ -476,9 +476,9 @@ const STRINGS = {
   "tab.graph": { nb: "Graf", en: "Graph" },
 
   /* ------------------------------------------------------------- project */
-  // The tab's name is pending the owner (2026-09-28): one key, so a rename
-  // is one line.
-  "tab.project": { nb: "Prosjekt", en: "Project" },
+  // The tab's name (edkjo 2026-09-30: "the prosjekt tab needs to be named
+  // IDS"). The id and hash key stay `project`, so old links still open it.
+  "tab.project": { nb: "IDS", en: "IDS" },
   "ids.heading": { nb: "IDS", en: "IDS" },
   "action.openIds": { nb: "Åpne IDS", en: "Open IDS" },
   // A specification whose applicability matched nothing. Never a pass.

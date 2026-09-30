@@ -72,7 +72,8 @@ import type { FloorConfig } from "../engine/storey-config";
 import type { FloorPeer } from "./FloorSetup";
 
 export type Tab = "checks" | "contents" | "graph" | "types" | "materials" | "rooms" | "project";
-const TABS: readonly Tab[] = ["checks", "contents", "graph", "types", "materials", "rooms", "project"];
+// Oversikt, IDS, then the rest; Graf last (edkjo 2026-09-30).
+const TABS: readonly Tab[] = ["checks", "project", "contents", "types", "materials", "rooms", "graph"];
 const TAB_LABEL: Record<Tab, StringKey> = {
   checks: "tab.checks",
   contents: "tab.contents",
