@@ -2,7 +2,7 @@
  *
  *   IFC        the drop target, the largest thing on the page
  *   ruleset    IDS or ruleset.json, dropped or picked; the loaded name once set
- *   setup      the four project mappings, marked by whether the ruleset sets them
+ *   setup      one button into the Oppsett walk
  *   recent     models the cache can put back on the board without the file
  *
  * Tiles in the board's own chrome (panel fill, hairline, gold micro-label) on
@@ -15,9 +15,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Ruleset } from "../ids/types.ts";
-import { SwitchGlyph } from "./Switch";
-import { MAPPING_ROLES } from "../ids/lint.ts";
-import { ruleRole } from "../ids/models.ts";
 import { listCached, type CachedListing } from "../storage/model-cache.ts";
 import { MicroLabel } from "./BentoGrid";
 import { formatBytes, formatCount } from "./format";
@@ -48,7 +45,7 @@ export function Landing(props: LandingProps) {
           <IfcTile {...props} />
           <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-1 @3xl:gap-[13px]">
             <RulesetTile {...props} />
-            <SetupTile lang={lang} ruleset={props.ruleset} onSetup={props.onSetup} />
+            <SetupTile lang={lang} onSetup={props.onSetup} />
           </div>
         </div>
         {recent.length > 0 ? (
@@ -268,50 +265,16 @@ function RulesetTile({
 
 /* ------------------------------------------------------------------- setup */
 
-/** Set = the ruleset carries an enabled rule with that mapping role, the same
- *  test the setup page uses to draw its switch, and drawn as the same switch. */
-function mappingSet(ruleset: Ruleset | null, role: string): boolean {
-  if (ruleset === null) return false;
-  return ruleset.rules.some(
-    (rule) => ruleRole(rule) === role && rule.enabled !== false,
-  );
-}
-
-function SetupTile({
-  lang,
-  ruleset,
-  onSetup,
-}: {
-  lang: Lang;
-  ruleset: Ruleset | null;
-  onSetup: () => void;
-}) {
+function SetupTile({ lang, onSetup }: { lang: Lang; onSetup: () => void }) {
   return (
     <Tile label={t("action.setup", lang)}>
       <div className="flex flex-1 flex-col px-4 pb-4">
         <button
           type="button"
           onClick={onSetup}
-          className="group flex flex-1 flex-col border border-line bg-input text-left hover:border-green"
+          className="flex min-h-[5.5rem] flex-1 items-center justify-center border border-line bg-input px-3 py-3 text-[15px] font-medium text-ink hover:border-green hover:text-green"
         >
-          <ul className="m-0 flex flex-1 list-none flex-col p-0">
-            {MAPPING_ROLES.map((role) => {
-              const set = mappingSet(ruleset, role);
-              return (
-                <li
-                  key={role}
-                  className="flex flex-1 items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
-                >
-                  <SwitchGlyph on={set} />
-                  <span className="truncate text-[13px] text-ink">{t(`mapping.${role}`, lang)}</span>
-                </li>
-              );
-            })}
-          </ul>
-          <span className="flex items-center justify-end gap-2 border-t border-line px-3 py-2 text-[12px] font-medium text-green group-hover:text-ink">
-            {t("action.setup", lang)}
-            <span aria-hidden="true">→</span>
-          </span>
+          {t("action.startSetup", lang)}
         </button>
       </div>
     </Tile>

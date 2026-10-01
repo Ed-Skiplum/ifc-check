@@ -326,6 +326,7 @@ const STRINGS = {
   // Systemkode, Prosesstatuskode (MMI), Duplikat objekt, and NS 3457-8
   // komponentklasser. Field labels match the rule builder's (builder/strings.ts).
   "action.setup": { nb: "Oppsett", en: "Setup" },
+  "action.startSetup": { nb: "Start oppsett", en: "Start setup" },
   "action.download": { nb: "Last ned", en: "Download" },
   "mapping.system-classification": { nb: "Systemkode", en: "System code" },
   "mapping.component-classification": { nb: "Komponentklasse", en: "Component class" },
