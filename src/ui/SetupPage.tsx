@@ -809,7 +809,12 @@ function MappingCard({
           ?.find((c) => c.set === source.property.propertySet)
           ?.props.find((p) => p.name === source.property.name)
       : undefined;
-  const [example, setExample] = useState("");
+  // The example defaults to the property's most frequent value, so a pattern
+  // always shows; a typed or picked one replaces it until the property changes.
+  const propKey = "property" in source ? `${source.property.propertySet}\u0000${source.property.name}` : "";
+  const [typed, setTyped] = useState<{ key: string; value: string } | null>(null);
+  const example = typed !== null && typed.key === propKey ? typed.value : (prop?.values[0]?.v ?? "");
+  const setExample = (value: string) => setTyped({ key: propKey, value });
   const exampleRef = useRef<HTMLInputElement>(null);
   const pickExample = (value: string) => {
     setExample(value);
