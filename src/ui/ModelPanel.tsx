@@ -549,6 +549,7 @@ export function ModelPanel({
               <ProjectBoard
                 lang={lang}
                 model={model}
+                ruleset={ruleset}
                 selected={selected}
                 onFocus={focus}
                 xf={xf}

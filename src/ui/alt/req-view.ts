@@ -4,7 +4,10 @@
  *  counts. */
 
 import type { CodeTree } from "../../engine/code-tree";
-import type { ReportRow, ReportState, ReportValue } from "../../engine/report";
+import type { ReportRow, ReportSource, ReportState, ReportValue } from "../../engine/report";
+import type { Applicability, Cardinality, EntityFacet, IdsValue, Requirements, Ruleset } from "../../ids/types.ts";
+import { roleRule } from "../../ids/models.ts";
+import { CODE_LISTS } from "../../codelists/index.ts";
 import type { Verdict } from "../../engine/types";
 import type { Focus } from "../trace";
 import type { Lang, StringKey } from "../i18n";
@@ -222,4 +225,111 @@ export function barLook(bars: readonly Bar[]): (bar: Bar) => BarLook {
     const step = scale.findIndex((b) => b.value === bar.value);
     return { verdict: undefined, glyph: null, style: { "--bar": css(mmiColour(step, scale.length)) } };
   };
+}
+
+/* ── the IDS tab's report: what each requirement asks (2026-10-01) ─────────
+ *
+ * The report's REQUIREMENT column, as data: what the ruleset or the `.ids`
+ * states, in its own terms, never prose. */
+
+/** What a Standardkrav requirement reads and judges against: the sources
+ *  the report row read (`dekning.kilder`), the code list (a bundled list's
+ *  label, or the project's own codes), the Uttrekk, and the values a row
+ *  without a code list accepts (`godtatte`) or, on Kopiobjekt, the values
+ *  that mark a copy. */
+export interface StdAsk {
+  sources: ReportSource[];
+  list: string | null;
+  extract: string | null;
+  values: { label: StringKey; values: string[] } | null;
+}
+
+export function stdAsk(req: Requirement, ruleset: Ruleset | null): StdAsk | null {
+  const row = req.row;
+  if (!row || row.state === "not_configured") return null;
+  const rule = row.mapping ? roleRule(ruleset, row.mapping) : null;
+  const check = rule?.check;
+  let list: string | null = null;
+  let extract: string | null = null;
+  let values: StdAsk["values"] = null;
+  if (check?.type === "code-lookup") {
+    extract = check.extract;
+    if (check.list !== undefined) list = CODE_LISTS[check.list]?.meta.label ?? check.list;
+    else if (check.codes?.length) list = check.codes.map((c) => c.code).join(" · ");
+  } else if (check?.type === "copy-object") {
+    values = { label: "field.copy", values: check.copy };
+  } else if (row.godtatte?.length) {
+    values = { label: "field.accepted", values: row.godtatte };
+  }
+  return { sources: row.dekning.kilder, list, extract, values };
+}
+
+/** A Standardkrav row's result counts: Aktuelle the objects judged
+ *  (`grunnlag`), Bestått `oppfylt`, Avvik `avvik` + `mangler`. Null where
+ *  the row does not count it. */
+export function stdCounts(req: Requirement): { applicable: number | null; passed: number | null; failed: number | null } {
+  const d = req.row?.dekning;
+  if (!d || req.state === "not_configured" || req.state === "not_evaluable") return { applicable: null, passed: null, failed: null };
+  const failed = d.avvik === null && d.mangler === null ? null : (d.avvik ?? 0) + (d.mangler ?? 0);
+  return { applicable: d.grunnlag, passed: d.oppfylt, failed };
+}
+
+/** A name side of a facet (a property set, a base name, a system): a
+ *  simpleValue as written, a restriction by its enumeration or pattern. */
+function idsName(value: IdsValue): string {
+  if (typeof value === "string") return value;
+  const r = value.restriction;
+  if (r.enumeration) return `{${r.enumeration.join(" | ")}}`;
+  if (r.pattern !== undefined) return `/${r.pattern}/`;
+  return idsValue(value);
+}
+
+/** A value side: `= "x"` for a simpleValue, a restriction by its facets
+ *  (`∈ {a | b}`, `~ /re/`, the bounds, the length), its base where it is
+ *  not a string. */
+export function idsValue(value: IdsValue): string {
+  if (typeof value === "string") return `= "${value}"`;
+  const r = value.restriction;
+  const parts: string[] = [];
+  if (r.base && r.base !== "string") parts.push(`xs:${r.base}`);
+  if (r.enumeration) parts.push(`∈ {${r.enumeration.join(" | ")}}`);
+  if (r.pattern !== undefined) parts.push(`~ /${r.pattern}/`);
+  if (r.minInclusive !== undefined) parts.push(`≥ ${r.minInclusive}`);
+  if (r.minExclusive !== undefined) parts.push(`> ${r.minExclusive}`);
+  if (r.maxInclusive !== undefined) parts.push(`≤ ${r.maxInclusive}`);
+  if (r.maxExclusive !== undefined) parts.push(`< ${r.maxExclusive}`);
+  if (r.length !== undefined) parts.push(`length = ${r.length}`);
+  if (r.minLength !== undefined) parts.push(`length ≥ ${r.minLength}`);
+  if (r.maxLength !== undefined) parts.push(`length ≤ ${r.maxLength}`);
+  return parts.join(" ");
+}
+
+function entityText(e: EntityFacet): string {
+  const name = e.classes ? e.classes.join(" | ") : e.group ? e.group : e.name !== undefined ? idsName(e.name) : "";
+  return e.predefinedType === undefined ? name : `${name} predefinedType ${idsValue(e.predefinedType)}`;
+}
+
+/** Cardinality where it is not IDS's default, `required`. */
+function card(c: Cardinality | undefined): string {
+  return c && c !== "required" ? ` (${c})` : "";
+}
+
+const opt = (v: IdsValue | undefined) => (v === undefined ? "" : ` ${idsValue(v)}`);
+
+/** One IDS facet list (an applicability or a requirements), one line per
+ *  facet, in IDS's facet order: entity, partOf, classification, attribute,
+ *  property, material; an applicability's minOccurs / maxOccurs last. */
+export function idsFacets(part: Applicability | Requirements | undefined): string[] {
+  if (!part) return [];
+  const out: string[] = [];
+  if (part.entity) out.push(entityText(part.entity));
+  for (const f of part.partOf ?? []) out.push(`partOf${f.relation ? ` ${f.relation}` : ""} ${entityText(f.entity)}${card(f.cardinality)}`);
+  for (const f of part.classification ?? []) out.push(`classification ${idsName(f.system)}${opt(f.value)}${card(f.cardinality)}`);
+  for (const f of part.attribute ?? []) out.push(`${idsName(f.name)}${opt(f.value)}${card(f.cardinality)}`);
+  for (const f of part.property ?? [])
+    out.push(`${idsName(f.propertySet)}.${idsName(f.baseName)}${f.dataType ? ` ${f.dataType}` : ""}${opt(f.value)}${card(f.cardinality)}`);
+  for (const f of part.material ?? []) out.push(`material${opt(f.value)}${card(f.cardinality)}`);
+  if ("minOccurs" in part && part.minOccurs !== undefined) out.push(`minOccurs ${part.minOccurs}`);
+  if ("maxOccurs" in part && part.maxOccurs !== undefined) out.push(`maxOccurs ${part.maxOccurs}`);
+  return out;
 }

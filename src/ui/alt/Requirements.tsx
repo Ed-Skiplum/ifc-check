@@ -1,6 +1,7 @@
-/** The report's requirements on the board. In use (2026-09-28): `ReqCard`,
- *  the Overview's KPI card, and `ReqBlock`, the report's own block (the
- *  narrow fallback's list and `Standardkrav.tsx`). `ReqRow`, `ReqPanel` and
+/** The report's requirements on the board. In use: `ReqCard`, the
+ *  Overview's KPI card (2026-09-28); `ReqBlock`, the report's own block (the
+ *  narrow fallback's list and `Standardkrav.tsx`); `ReportLine`, one row of
+ *  the IDS tab's report, a requirement and its result (2026-10-01). `ReqRow`, `ReqPanel` and
  *  `ReqSection` were designs a and c; no board mounts them now, they stay
  *  for the project tab to pick from. Every figure is a field of the requirement's report row
  *  (`requirements.ts`); nothing is computed here but a percentage of two of
@@ -481,5 +482,103 @@ export function ReqSection({ reqs, ...door }: DoorProps & { reqs: Requirement[] 
         );
       })}
     </div>
+  );
+}
+
+/* ── d: the report's line, the IDS tab (2026-10-01) ─────────────────────────
+ *
+ * edkjo: "IDS is a report. No nonsense … display requirement, result". One
+ * table row per requirement: the name with what it asks under it, then the
+ * result as Aktuelle · Bestått · Avvik · status. The row is the
+ * requirement's door, as the KPI card was: the click opens the derivation in
+ * Scope and isolates it in the viewer. */
+
+const NUM = "px-2 py-1.5 text-right align-top font-mono text-[11.5px] tabular-nums";
+
+/** A status as the report's badge: a verdict fill, a glyph, a word. */
+export interface LineLook {
+  verdict: Verdict;
+  glyph: string;
+  word: string;
+  state: string;
+}
+
+/** One labelled part of what a requirement asks: the label, then the data
+ *  in mono, wrapping. */
+export function AskPart({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="flex min-w-0 items-baseline gap-2 text-[11px] leading-snug">
+      <span className="alt-label shrink-0">{label}</span>
+      <span className="min-w-0 font-mono break-words text-ink">{children}</span>
+    </span>
+  );
+}
+
+export function ReportLine({
+  name,
+  ask,
+  counts,
+  look,
+  focus,
+  title,
+  lang,
+  selected,
+  onFocus,
+  data,
+}: {
+  name: string;
+  /** What the requirement asks, under its name. */
+  ask: ReactNode;
+  counts: { applicable: number | null; passed: number | null; failed: number | null };
+  look: LineLook;
+  /** What the click opens, or null where it opens nothing. */
+  focus: Focus | null;
+  title?: string;
+  lang: Lang;
+  selected: string | null;
+  onFocus: (focus: Focus) => void;
+  /** `data-*` attributes naming the row. */
+  data?: Record<string, string | number>;
+}) {
+  const marks = useSelectionMarks();
+  const open = focus !== null && selected === serialiseFocus(focus);
+  const n = (v: number | null) => (v === null ? "–" : formatCount(v, lang));
+  const go = focus ? () => onFocus(focus) : undefined;
+  return (
+    <tr
+      role={go ? "button" : undefined}
+      tabIndex={go ? 0 : undefined}
+      aria-current={open ? "true" : undefined}
+      title={title}
+      onClick={go}
+      onKeyDown={
+        go
+          ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              go();
+            }
+          : undefined
+      }
+      data-sel={focus && marks.focus(focus) ? "" : undefined}
+      data-state={look.state}
+      {...data}
+      className={"border-b border-line/60 " + (go ? "cursor-pointer hover:bg-ink/5 " : "") + (open ? "alt-chosen" : "")}
+    >
+      <td className="px-3 py-1.5 align-top">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-[12.5px] leading-snug font-semibold break-words text-ink">{name}</span>
+          {ask}
+        </div>
+      </td>
+      <td className={NUM}>{n(counts.applicable)}</td>
+      <td className={NUM}>{n(counts.passed)}</td>
+      <td className={`${NUM} ${counts.failed ? "font-semibold text-bad" : ""}`}>{n(counts.failed)}</td>
+      <td className="px-2 py-1.5 align-top">
+        <span data-verdict={look.verdict} data-state={look.state} className="alt-badge">
+          <span aria-hidden>{look.glyph}</span> {look.word}
+        </span>
+      </td>
+    </tr>
   );
 }

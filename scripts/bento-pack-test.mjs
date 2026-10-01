@@ -268,31 +268,33 @@ for (const [design, content] of Object.entries(contents)) {
 
 /* ── rule 9 on the Prosjekt and Rom tabs: every row, no holes ───────── */
 
-const projectContents = {
-  bare: { std: 5, trees: [] },
-  mapped: { std: 5, trees: ["ptree-system", "ptree-function"] },
-  few: { std: 3, trees: ["ptree-system"] },
-  noMmi: { std: 5, trees: [], mmi: false },
-};
-for (const [design, content] of Object.entries(projectContents)) {
+// The IDS tab (2026-10-01): the report, the model, Scope and Detail; a
+// function of the window alone.
+{
+  const design = "report";
   for (const [w, h] of windows) {
     const grid = mgGrid(w, h - 104);
     const at = `project ${design} ${w}×${h} (${grid.cols}×${grid.rows})`;
     let out;
     try {
-      out = layoutProject(grid, content);
+      out = layoutProject(grid);
     } catch (error) {
       check(false, `${at}: no layout (${error.message})`);
       continue;
     }
     count += 1;
     if (out.rowPx) taller += 1;
-    for (const [state, extra] of Object.entries(STATES))
-      check(JSON.stringify(layoutProject({ ...grid }, { ...content, ...extra })) === JSON.stringify(out), `stable: ${at} moves with ${state}`);
+    check(JSON.stringify(layoutProject({ ...grid })) === JSON.stringify(out), `rule 8: ${at} is not deterministic`);
+    // The report is a tile, the dominant one.
+    const report = out.tiles.find((t) => t.id === "report");
+    check(!!report, `${at}: the report is not a tile`);
+    if (report) check(out.tiles.every((t) => t.w * t.h <= report.w * report.h), `${at}: the report is not the largest tile`);
+    check(out.tiles.some((t) => t.id === "viewer"), `${at}: the model is not a tile`);
     // The docks: tiles from 12 columns up, never hosts; under that fixed tabs.
     if (grid.cols >= 12 && grid.rows >= 6) check(["scope", "detail"].every((id) => out.tiles.some((t) => t.id === id)), `${at}: Scope or Detail is not a tile`);
-    // Without MMI no MMI tile (it would be an empty tile).
-    if (content.mmi === false) check(!out.tiles.some((t) => t.id === "mmi" || t.tabs.includes("mmi")), `${at}: an MMI tile without MMI`);
+    else check(["scope", "detail"].every((id) => out.tiles.some((t) => t.id === id || t.tabs.includes(id))), `${at}: Scope or Detail is neither a tile nor a tab`);
+    if (REFERENCE.some(([a, b]) => a === w && b === h))
+      console.log(`  ${at}: ${out.band ?? "packed"} · ${out.tiles.map((t) => `${t.id} ${t.w}×${t.h}@${t.x},${t.y}`).join(" ")}${out.moved.length ? ` · tabs ${out.moved.join(",")}` : ""}`);
     const occ = new Set();
     for (const t of out.tiles) {
       const [bw, bh] = t.base ?? [t.w, t.h];
