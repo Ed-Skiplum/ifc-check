@@ -379,6 +379,10 @@ const STRINGS = {
   "action.previous": { nb: "Forrige", en: "Previous" },
   "action.next": { nb: "Neste", en: "Next" },
   "field.notInModel": { nb: "Egenskapen er ikke med", en: "Not in the model" },
+  "action.change": { nb: "Endre", en: "Change" },
+  "field.values": { nb: "Verdier", en: "Values" },
+  "field.example": { nb: "Eksempel", en: "Example" },
+  "action.apply": { nb: "Bruk", en: "Apply" },
 
   /* ------------------------------------------------- the .xlsx config file */
   // Column headers of src/ids/xlsx.ts. Where the rule builder has the label,

@@ -41,7 +41,7 @@ import { withTypeFacts } from "../ui/types/facts.ts";
 import { boardData } from "../ui/report-rows.ts";
 import { MeasureChannel, MeasureState, type MeasureBatch } from "../ui/measure-state.ts";
 import { psetInventory } from "../engine/pset-inventory.ts";
-import { psetChoices } from "../ui/pset-choices.ts";
+import { psetChoices, VALUE_CAP } from "../ui/pset-choices.ts";
 
 export type RestoreWorkerRequest =
   | {
@@ -198,7 +198,7 @@ function psetsHere() {
     return;
   }
   try {
-    post({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: 0 })) });
+    post({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: VALUE_CAP })) });
   } catch (err) {
     post({ kind: "psets-error", message: err instanceof Error ? err.message : String(err) });
   }

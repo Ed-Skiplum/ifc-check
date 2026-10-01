@@ -39,7 +39,7 @@ import type { Ruleset } from "../ids/types.ts";
 import type { ImportedIds } from "../ids/import.ts";
 import { evaluateIds, type IdsModelResult } from "../ids/ids-report.ts";
 import { psetInventory } from "../engine/pset-inventory.ts";
-import { psetChoices, type PsetChoice } from "./pset-choices";
+import { psetChoices, VALUE_CAP, type PsetChoice } from "./pset-choices";
 // The graph -> profile reduction is shared with the restore worker, which must
 // not import this module: it would pull the wasm parser into a worker whose
 // whole point is that it never parses anything.
@@ -388,7 +388,7 @@ function psetsHere() {
     return;
   }
   try {
-    send({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: 0 })) });
+    send({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: VALUE_CAP })) });
   } catch (err) {
     send({ kind: "psets-error", message: err instanceof Error ? err.message : String(err) });
   }

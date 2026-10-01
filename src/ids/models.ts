@@ -3,6 +3,7 @@
  *  lookups, shared by lint, the evaluator, the report and the UI, so they
  *  all resolve a file and a role the same way. */
 
+import type { CodeListId } from "../codelists/index.ts";
 import type {
   CopyObjectCheck,
   ExtendedRule,
@@ -47,6 +48,12 @@ export function roleRule(ruleset: Ruleset | null | undefined, role: MappingRole)
     if (rule.kind === "extended" && rule.enabled !== false && ruleRole(rule) === role) return rule;
   }
   return null;
+}
+
+/** The bundled list a new classification mapping starts on: NS 3451 holds
+ *  the system codes, NS 3457-8 the component codes. */
+export function defaultCodeList(role: "system-classification" | "component-classification"): CodeListId {
+  return role === "system-classification" ? "ns3451" : "ns3457-8";
 }
 
 /** The rule playing `role`, enabled or not, or null. */

@@ -1073,7 +1073,7 @@ function sourceLabel(source: CodeSource): string {
 
 /** What a code-lookup checks codes against: a bundled list, or the project's
  *  own `values`. One code path for both, so the findings read the same. */
-function resolveLookup(check: CodeLookupCheck): {
+export function resolveLookup(check: CodeLookupCheck): {
   label: string;
   has: (code: string) => boolean;
   reserved: (code: string) => boolean;

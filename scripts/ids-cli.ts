@@ -45,7 +45,11 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { validateXML } from "xmllint-wasm";
 
 import { CODE_LISTS } from "../src/codelists/index.ts";
-import { evaluateRuleset } from "../src/ids/evaluate.ts";
+import { compileExtract, evaluateRuleset } from "../src/ids/evaluate.ts";
+import { extractFromExample } from "../src/ids/extract-example.ts";
+import { previewExtract } from "../src/ui/extract-preview.ts";
+import { mergeChoices } from "../src/ui/pset-choices.ts";
+import { defaultCodeList } from "../src/ids/models.ts";
 import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
 import { evaluateIds, type IdsModelResult } from "../src/ids/ids-report.ts";
@@ -2695,6 +2699,7 @@ async function cmdSelftest(): Promise<number> {
   await xlsxSelftest(record);
   configSelftest(record);
   mottakskontrollSelftest(record);
+  setupWalkSelftest(record);
 
   const ok = assertions.every((a) => a.ok);
   emit({
@@ -2705,6 +2710,74 @@ async function cmdSelftest(): Promise<number> {
     includedRuleIds: result.includedRuleIds,
   });
   return ok ? 0 : 1;
+}
+
+/* ------------------------------------------------------- Oppsett's walk */
+
+/** The pure seams under Oppsett's property step: the extract generated from an
+ *  example, the extract preview over real values, the value cap's honesty,
+ *  and each classification role's default list. */
+function setupWalkSelftest(record: (name: string, expected: string, actual: string) => void): void {
+  const cases: { example: string; mark: [number, number]; want: string | null; code: string }[] = [
+    { example: "231 Bærevegger", mark: [0, 3], want: "^(\\d{3}).*", code: "231" },
+    { example: "AB-01", mark: [0, 5], want: "^([A-ZÆØÅ]{2}-\\d{2})", code: "AB-01" },
+    { example: "AB-01", mark: [0, 0], want: "^([A-ZÆØÅ]{2}-\\d{2})", code: "AB-01" },
+    { example: "AB-01", mark: [0, 2], want: "^([A-ZÆØÅ]{2})-\\d{2}", code: "AB" },
+    { example: "Bæ.21-x", mark: [3, 5], want: null, code: "21" },
+    { example: "KNM 432.11 Dør", mark: [4, 10], want: null, code: "432.11" },
+  ];
+  for (const c of cases) {
+    const pattern = extractFromExample(c.example, c.mark[0], c.mark[1]);
+    if (c.want !== null) record(`extract from example "${c.example}" [${c.mark}]`, c.want, pattern);
+    let captured: string;
+    try {
+      captured = compileExtract(pattern).exec(c.example)?.[1] ?? "(no match)";
+    } catch (err) {
+      captured = `(throws: ${err instanceof Error ? err.message : String(err)})`;
+    }
+    record(`extract from example "${c.example}" [${c.mark}] captures the mark`, c.code, captured);
+  }
+
+  const preview = previewExtract({ extract: "^(\\d{2})", codes: [{ code: "23", name: "x" }] }, [
+    { v: "231 Bærevegger", n: 5 },
+    { v: "24 Søyler", n: 2 },
+    { v: "Vegg", n: 1 },
+  ]);
+  record(
+    "extract preview: ok / no-match / not-in-list",
+    "23:ok 24:not-in-list -:no-match | 5 1 2",
+    `${preview.rows.map((r) => `${r.code ?? "-"}:${r.state}`).join(" ")} | ${preview.totals.ok} ${preview.totals["no-match"]} ${preview.totals["not-in-list"]}`,
+  );
+  let invalid = "no throw";
+  try {
+    previewExtract({ extract: "^(\\d", list: "ns3451" }, [{ v: "1", n: 1 }]);
+  } catch {
+    invalid = "throws";
+  }
+  record("extract preview: an invalid pattern throws, never a stale preview", "throws", invalid);
+
+  const capped = mergeChoices([
+    [{ set: "S", objects: 3, props: [{ name: "P", n: 3, valued: 3, values: [{ v: "a", n: 2 }], distinct: 2, exact: true }] }],
+  ])[0].props[0];
+  const twoCapped = mergeChoices([
+    [{ set: "S", objects: 3, props: [{ name: "P", n: 3, valued: 3, values: [{ v: "a", n: 2 }], distinct: 2, exact: true }] }],
+    [{ set: "S", objects: 3, props: [{ name: "P", n: 3, valued: 3, values: [{ v: "b", n: 2 }], distinct: 2, exact: true }] }],
+  ])[0].props[0];
+  const twoWhole = mergeChoices([
+    [{ set: "S", objects: 1, props: [{ name: "P", n: 1, valued: 1, values: [{ v: "a", n: 1 }], distinct: 1, exact: true }] }],
+    [{ set: "S", objects: 1, props: [{ name: "P", n: 1, valued: 1, values: [{ v: "a", n: 1 }], distinct: 1, exact: true }] }],
+  ])[0].props[0];
+  record(
+    "pset choices: a capped value list keeps its true distinct count",
+    "1/2 exact | 2/2 lower-bound | 1/1 exact",
+    [capped, twoCapped, twoWhole].map((p) => `${p.values.length}/${p.distinct} ${p.exact ? "exact" : "lower-bound"}`).join(" | "),
+  );
+
+  record(
+    "classification roles start on their own list",
+    "system-classification:ns3451 component-classification:ns3457-8",
+    `system-classification:${defaultCodeList("system-classification")} component-classification:${defaultCodeList("component-classification")}`,
+  );
 }
 
 /* ------------------------------------------------------------------ xlsx */

@@ -29,7 +29,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { MAPPING_ROLES, hasErrors, lintRuleset } from "../ids/lint.ts";
-import { anyRoleRule } from "../ids/models.ts";
+import { anyRoleRule, defaultCodeList } from "../ids/models.ts";
 import type {
   CodeEntry,
   CodeLookupCheck,
@@ -48,7 +48,11 @@ import { t } from "./i18n";
 import { Switch } from "./Switch";
 import { CONFIG_TEMPLATE_FILE } from "../ids/config-template.ts";
 import { formatCount } from "./format";
-import { mergeChoices, type PsetChoice } from "./pset-choices";
+import { mergeChoices, type PsetChoice, type PsetProp, type PsetValue } from "./pset-choices";
+import { previewExtract, type ExtractPreview, type ExtractState } from "./extract-preview";
+import { extractFromExample } from "../ids/extract-example.ts";
+import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
+import type { Verdict } from "../engine/types";
 import type { ModelEntry } from "./useModels";
 
 const SOURCE_KINDS = ["attribute", "property", "classification"] as const;
@@ -81,7 +85,7 @@ function blankCheck(role: MappingRole): MappingCheck {
   switch (role) {
     case "system-classification":
     case "component-classification":
-      return { ...base, list: CODE_LIST_IDS[0], target: "occurrence", extract: "^(.+)$" };
+      return { ...base, list: defaultCodeList(role), target: "occurrence", extract: "^(.+)$" };
     case "progress-code":
       return { ...base, codes: [], extract: "^(.+)$" };
     case "copy-object":
@@ -308,7 +312,14 @@ function parseValues(text: string): string[] {
  *  arrows and Enter to pick. «Egenskapen er ikke med» is always the last
  *  option and opens the two fields, so a property the model lacks can be
  *  typed as it should have been. The fields stay open once opened, and are
- *  the only input when no model is loaded. */
+ *  the only input when no model is loaded.
+ *
+ * A pick collapses the list into the picked card (2026-10-01, edkjo: "more
+ * tactile/intuitive feedback that this has been selected and will be mapped
+ * from"): the set, the property, its element count, and «Endre» to reopen
+ * the list. A step that opens on a source already set shows the card too, in
+ * the bad colour and without a count when the model lacks it. Enter on the
+ * card is the step's next. */
 function PropertyPicker({
   value,
   choices,
@@ -318,6 +329,8 @@ function PropertyPicker({
   invalidName,
   lang,
   onChange,
+  onNext,
+  children,
 }: {
   value: { propertySet: string; name: string };
   /** null: no model on the board, so nothing to pick from. */
@@ -328,18 +341,29 @@ function PropertyPicker({
   invalidName: boolean;
   lang: Lang;
   onChange: (next: { propertySet: string; name: string }) => void;
+  /** Enter on the picked card. */
+  onNext: () => void;
+  /** Under the card, once the picked property is found in the model. */
+  children?: React.ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(-1);
   const [manual, setManual] = useState(false);
+  const [editing, setEditing] = useState(false);
+  // Bumped on every pick: keys the card, so its arrival transition replays.
+  const [picks, setPicks] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const setRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
-  const found =
-    choices?.some((c) => c.set === value.propertySet && c.props.some((p) => p.name === value.name)) ?? false;
+  const prop = choices?.find((c) => c.set === value.propertySet)?.props.find((p) => p.name === value.name);
+  const found = prop !== undefined;
   const blank = value.propertySet === "" && value.name === "";
   // A value the model does not carry can only be shown in the fields.
   const fieldsOpen = manual || (choices === null && !reading) || (!found && !blank && !reading);
+  const listable = choices !== null || reading;
+  const showCard = listable && !blank && !editing && !manual;
 
   const q = query.trim().toLowerCase();
   const groups = (choices ?? [])
@@ -362,16 +386,28 @@ function PropertyPicker({
   const pick = (option: Option) => {
     if (option.kind === "prop") {
       setManual(false);
+      setEditing(false);
+      setQuery("");
+      setActive(-1);
+      setPicks((n) => n + 1);
       onChange({ propertySet: option.set, name: option.name });
+      requestAnimationFrame(() => cardRef.current?.focus());
     } else {
       setManual(true);
       requestAnimationFrame(() => setRef.current?.focus());
     }
   };
 
+  const change = () => {
+    setEditing(true);
+    setQuery("");
+    setActive(-1);
+    requestAnimationFrame(() => searchRef.current?.focus());
+  };
+
   // The keyboard's option, or on first show the picked one, scrolled into
   // view inside the list, never by scrolling the page.
-  const listed = choices !== null;
+  const listed = choices !== null && !showCard;
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
@@ -382,13 +418,65 @@ function PropertyPicker({
       list.scrollTop = el.offsetTop + el.offsetHeight - list.clientHeight;
   }, [at, baseId, listed]);
 
+  // Picked is the one green fill; the keyboard cursor and hover are a quiet
+  // neutral, so a cursor never reads as a pick.
   const row = (selected: boolean, i: number) =>
     "flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-[12px] " +
-    (selected ? "bg-green text-cream" : i === at ? "bg-palegreen text-ink" : "text-ink hover:bg-palegreen");
+    (selected ? "bg-green text-cream" : i === at ? "bg-panel text-ink" : "text-ink hover:bg-panel");
+
+  const cardState = found ? "found" : reading ? "reading" : "missing";
+  const cardFill =
+    cardState === "found" ? "bg-green text-cream" : cardState === "missing" ? "bg-bad text-cream" : "border border-line bg-input text-ink";
 
   return (
     <div className="flex flex-col gap-3">
-      {choices !== null || reading ? (
+      {showCard ? (
+        <div
+          key={picks}
+          ref={cardRef}
+          tabIndex={0}
+          data-picked={cardState}
+          aria-label={`${value.propertySet} ${value.name}`}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target === e.currentTarget) {
+              e.preventDefault();
+              onNext();
+            }
+          }}
+          className={
+            "flex items-center gap-4 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-panel " +
+            cardFill +
+            (picks > 0 ? " pick-in" : "")
+          }
+        >
+          {cardState === "found" ? (
+            <span aria-hidden="true" className="shrink-0 text-xl leading-none">
+              ✓
+            </span>
+          ) : null}
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="truncate font-mono text-[11px] opacity-70">{value.propertySet}</span>
+            <span className="truncate text-lg leading-tight font-medium">{value.name}</span>
+          </div>
+          {prop ? (
+            <span className="shrink-0 font-mono text-[13px] tabular-nums">{formatCount(prop.n, lang)}</span>
+          ) : reading ? (
+            <span className="shrink-0 text-[11px] text-muted">{t("file.parsing", lang)}</span>
+          ) : null}
+          <button
+            type="button"
+            onClick={change}
+            className={
+              "shrink-0 border px-3 py-1 text-[12px] " +
+              (cardState === "reading"
+                ? "border-line text-ink hover:border-green hover:text-green"
+                : "border-cream/50 text-cream hover:bg-cream hover:text-ink")
+            }
+          >
+            {t("action.change", lang)}
+          </button>
+        </div>
+      ) : listable ? (
         <div className="flex flex-col border border-line bg-input">
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
             <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-muted">
@@ -396,6 +484,7 @@ function PropertyPicker({
               <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
             <input
+              ref={searchRef}
               type="text"
               role="combobox"
               aria-label={t("field.source.property", lang)}
@@ -470,6 +559,7 @@ function PropertyPicker({
           </div>
         </div>
       ) : null}
+      {showCard && found ? children : null}
       {errors.length > 0 ? (
         <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
           {errors.join("\n")}
@@ -502,6 +592,184 @@ function PropertyPicker({
   );
 }
 
+/** Which elements a state covers, as the shared verdict fill and glyph:
+ *  a valid code, no match, a code not in the list, and (a capped list only)
+ *  the elements whose values are not listed. */
+const EXTRACT_VERDICT: Record<ExtractState | "rest", Verdict> = {
+  ok: "pass",
+  "no-match": "fail",
+  "not-in-list": "warn",
+  rest: "na",
+};
+
+function StateChip({ state, count, lang }: { state: ExtractState | "rest"; count?: number; lang: Lang }) {
+  const verdict = EXTRACT_VERDICT[state];
+  return (
+    <span
+      data-state={state}
+      className={
+        "inline-flex items-center justify-center gap-1.5 font-mono text-[12px] tabular-nums " +
+        VERDICT_FILL[verdict] +
+        (count === undefined ? " h-5 w-5" : " px-2 py-0.5")
+      }
+    >
+      <span aria-hidden="true">{VERDICT_GLYPH[verdict]}</span>
+      {count === undefined ? null : <span>{formatCount(count, lang)}</span>}
+    </span>
+  );
+}
+
+/** The picked property's distinct values, most frequent first, and on a
+ *  code-lookup what the current `extract` makes of each (`extract-preview.ts`).
+ *  A capped list says so in its count, «N / M». A click on a value is the
+ *  example's pick. */
+function ValuesPanel({
+  prop,
+  check,
+  lang,
+  onPick,
+}: {
+  prop: PsetProp;
+  check: MappingCheck;
+  lang: Lang;
+  onPick?: (value: string) => void;
+}) {
+  let preview: ExtractPreview | null = null;
+  let error: string | null = null;
+  if (check.type === "code-lookup") {
+    try {
+      preview = previewExtract(check, prop.values);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+  const listedRows = prop.values.reduce((n, v) => n + v.n, 0);
+  const rest = Math.max(0, prop.valued - listedRows);
+  const partial = prop.values.length < prop.distinct || !prop.exact;
+  const rows = preview?.rows ?? prop.values.map((v) => ({ ...v, code: null, state: null }));
+  const cols = preview
+    ? "[grid-template-columns:minmax(0,1fr)_minmax(0,8rem)_1.25rem_4rem]"
+    : "[grid-template-columns:minmax(0,1fr)_4rem]";
+  return (
+    <div className="flex flex-col gap-2" data-values-panel>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={LABEL}>{t("field.values", lang)}</span>
+        <span data-values-count className="font-mono text-[11px] tabular-nums text-muted">
+          {partial
+            ? `${formatCount(prop.values.length, lang)} / ${prop.exact ? "" : "≥"}${formatCount(prop.distinct, lang)}`
+            : formatCount(prop.distinct, lang)}
+        </span>
+        {preview ? (
+          <span data-totals className="ml-auto flex flex-wrap items-center gap-1.5">
+            <StateChip state="ok" count={preview.totals.ok} lang={lang} />
+            <StateChip state="no-match" count={preview.totals["no-match"]} lang={lang} />
+            <StateChip state="not-in-list" count={preview.totals["not-in-list"]} lang={lang} />
+            {rest > 0 ? <StateChip state="rest" count={rest} lang={lang} /> : null}
+          </span>
+        ) : null}
+      </div>
+      {error !== null ? (
+        <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">{error}</pre>
+      ) : null}
+      {rows.length > 0 ? (
+        <div className="flex max-h-56 flex-col overflow-auto border border-line bg-input py-1">
+          {rows.map((r) => {
+            const cells = (
+              <>
+                <span className="min-w-0 truncate font-mono">{r.v}</span>
+                {preview ? (
+                  <>
+                    <span className="min-w-0 truncate font-mono text-muted">{r.code ?? ""}</span>
+                    {r.state ? <StateChip state={r.state} lang={lang} /> : <span />}
+                  </>
+                ) : null}
+                <span className="text-right font-mono tabular-nums text-muted">{formatCount(r.n, lang)}</span>
+              </>
+            );
+            const rowClass = `grid w-full items-center gap-3 px-3 py-1 text-left text-[12px] text-ink ${cols}`;
+            return onPick ? (
+              <button key={r.v} type="button" data-value={r.v} onClick={() => onPick(r.v)} className={rowClass + " hover:bg-panel"}>
+                {cells}
+              </button>
+            ) : (
+              <div key={r.v} data-value={r.v} className={rowClass}>
+                {cells}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Uttrekk from an example: typed, or picked from the property's real values
+ *  (the suggestions under the field, or a click in the values list). The
+ *  selected part of the example is the code, no selection the whole value
+ *  (`extract-example.ts`). The pattern it would give shows beside «Bruk»;
+ *  nothing changes Uttrekk until «Bruk» is pressed. */
+function ExampleField({
+  example,
+  values,
+  current,
+  lang,
+  inputRef,
+  onExample,
+  onApply,
+}: {
+  example: string;
+  values: PsetValue[];
+  current: string;
+  lang: Lang;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onExample: (next: string) => void;
+  onApply: (pattern: string) => void;
+}) {
+  const listId = useId();
+  const [sel, setSel] = useState<[number, number]>([0, 0]);
+  // A new example, typed or picked, starts unmarked: the whole value.
+  const [seen, setSeen] = useState(example);
+  if (seen !== example) {
+    setSeen(example);
+    setSel([0, 0]);
+  }
+  const candidate = example === "" ? null : extractFromExample(example, sel[0], sel[1]);
+  const track = (el: HTMLInputElement) => setSel([el.selectionStart ?? 0, el.selectionEnd ?? 0]);
+  return (
+    <>
+      <Field label={t("field.example", lang)}>
+        <input
+          ref={inputRef}
+          type="text"
+          list={listId}
+          className={INPUT + " w-56"}
+          value={example}
+          onChange={(e) => onExample(e.target.value)}
+          onSelect={(e) => track(e.currentTarget)}
+        />
+        <datalist id={listId}>
+          {values.map((v) => (
+            <option key={v.v} value={v.v} />
+          ))}
+        </datalist>
+      </Field>
+      {candidate !== null ? (
+        <span data-candidate className="self-end py-1 font-mono text-[12px] text-muted">
+          {candidate}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        disabled={candidate === null || candidate === current}
+        onClick={() => candidate !== null && onApply(candidate)}
+        className={SECONDARY + " self-end disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line"}
+      >
+        {t("action.apply", lang)}
+      </button>
+    </>
+  );
+}
+
 function MappingCard({
   role,
   rule,
@@ -510,6 +778,7 @@ function MappingCard({
   onToggle,
   onCheck,
   onAskEnable,
+  onNext,
   picker,
 }: {
   role: MappingRole;
@@ -522,6 +791,8 @@ function MappingCard({
   onCheck: (next: MappingCheck) => void;
   /** Double-click on the card while it is off. */
   onAskEnable: () => void;
+  /** Enter on the picked property: the step's next. */
+  onNext: () => void;
 }) {
   const active = rule !== null && rule.enabled !== false;
   const check: MappingCheck =
@@ -530,6 +801,25 @@ function MappingCard({
   const kind = sourceKind(source);
   const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
   const classification = role === "system-classification" || role === "component-classification";
+  // The picked property as the model has it: its values feed the values
+  // list, the extract preview and the example's suggestions.
+  const prop =
+    "property" in source
+      ? picker.choices
+          ?.find((c) => c.set === source.property.propertySet)
+          ?.props.find((p) => p.name === source.property.name)
+      : undefined;
+  const [example, setExample] = useState("");
+  const exampleRef = useRef<HTMLInputElement>(null);
+  const pickExample = (value: string) => {
+    setExample(value);
+    requestAnimationFrame(() => {
+      const el = exampleRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
 
   // Never hijack a double-click meant for a live control.
   const onLive = (event: MouseEvent<HTMLElement>) =>
@@ -647,20 +937,41 @@ function MappingCard({
           invalidName={invalid("source.property.name")}
           lang={lang}
           onChange={(property) => onCheck({ ...check, source: { property } })}
-        />
+          onNext={onNext}
+        >
+          {prop ? (
+            <ValuesPanel
+              prop={prop}
+              check={check}
+              lang={lang}
+              onPick={check.type === "code-lookup" ? pickExample : undefined}
+            />
+          ) : null}
+        </PropertyPicker>
       ) : null}
 
       {check.type === "code-lookup" ? (
         <div className="flex flex-col gap-3">
-          <Field label={t("field.extract", lang)}>
-            <input
-              type="text"
-              className={INPUT}
-              aria-invalid={invalid("extract")}
-              value={check.extract}
-              onChange={(e) => onCheck({ ...check, extract: e.target.value })}
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label={t("field.extract", lang)}>
+              <input
+                type="text"
+                className={INPUT + " w-56"}
+                aria-invalid={invalid("extract")}
+                value={check.extract}
+                onChange={(e) => onCheck({ ...check, extract: e.target.value })}
+              />
+            </Field>
+            <ExampleField
+              example={example}
+              values={prop?.values ?? []}
+              current={check.extract}
+              lang={lang}
+              inputRef={exampleRef}
+              onExample={setExample}
+              onApply={(extract) => onCheck({ ...check, extract })}
             />
-          </Field>
+          </div>
           {role === "progress-code" ? (
             <CodesTable
               codes={check.codes ?? []}
@@ -927,11 +1238,11 @@ function stepLabel(step: SetupStep, lang: Lang): string {
   return t(`mapping.${step}`, lang);
 }
 
-const PRIMARY = "flex items-center gap-2 bg-green px-4 py-1.5 text-[12px] text-cream hover:bg-ink";
 const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
 
 /** The step rail: every step, freely clickable. The current one is filled,
- *  a configured one carries a check in place of its number. Above the step
+ *  a configured one (the current one too) carries a check in place of its
+ *  number. Above the step
  *  on a narrow screen, beside it from md up. */
 function StepRail({
   current,
@@ -949,7 +1260,8 @@ function StepRail({
       <ol className="m-0 flex list-none gap-1 overflow-x-auto p-0 md:flex-col md:overflow-visible">
         {STEPS.map((step, i) => {
           const here = step === current;
-          const ok = !here && done(step);
+          // Marked the moment the step is done, the current one included.
+          const ok = done(step);
           return (
             <li key={step} className="shrink-0">
               <button
@@ -1100,6 +1412,7 @@ export function SetupPage({
   // One primary per step: the choice tiles on the first, «Åpne IFC» while
   // no model is open, «Lagre oppsett» on the last, Neste otherwise.
   const nextPrimary = current !== "start" && !(current === "ifc" && models.length === 0);
+  const next = () => (last ? save() : onStep(STEPS[at + 1]));
 
   let body: React.ReactNode;
   if (current === "start") {
@@ -1210,12 +1523,13 @@ export function SetupPage({
         onToggle={() => toggle(role)}
         onCheck={(check) => setCheck(role, check)}
         onAskEnable={() => setAsking(role)}
+        onNext={next}
       />
     );
   }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-4">
+    <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-4 pb-10">
       {/* ONE bounded container for the header, the rail and the step, so
           their edges align at every width. */}
       <div className="mx-auto flex w-full max-w-[1136px] flex-1 flex-col gap-6">
@@ -1287,34 +1601,33 @@ export function SetupPage({
           <StepRail current={current} done={done} lang={lang} onStep={onStep} />
           <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-1 flex-col">
             {body}
-          </section>
-        </div>
-
-        {/* The way through and the way back, pinned to the bottom of the page
-            so it is in reach on every step. */}
-        <div className="sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-line bg-ground px-4 py-3">
-          <button
-            type="button"
-            disabled={at === 0}
-            onClick={() => onStep(STEPS[at - 1])}
-            className={SECONDARY + " disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line"}
-          >
-            {t("action.previous", lang)}
-          </button>
-          <div className="ml-auto flex items-center gap-3">
-            <button type="button" onClick={save} className={last ? PRIMARY : SECONDARY}>
-              {t("action.saveSetup", lang)}
-            </button>
-            {last || current === "start" ? null : (
-              <button
-                type="button"
-                onClick={() => onStep(STEPS[at + 1])}
-                className={nextPrimary ? PRIMARY : SECONDARY}
-              >
-                {t("action.next", lang)}
-              </button>
+            {/* The way on, at the end of the step: the next step by name, or
+                «Lagre oppsett» on the last. Back is the quiet one. */}
+            {current === "start" ? null : (
+              <div data-step-nav className="mt-6 flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => onStep(STEPS[at - 1])}
+                  className="px-1 py-2 text-[13px] text-muted hover:text-ink"
+                >
+                  {t("action.previous", lang)}
+                </button>
+                <button
+                  type="button"
+                  data-step-next
+                  onClick={next}
+                  className={
+                    "ml-auto flex min-h-12 items-center gap-3 px-6 text-[15px] font-medium " +
+                    (nextPrimary
+                      ? "bg-green text-cream hover:bg-ink"
+                      : "border border-line bg-panel text-ink hover:border-green hover:text-green")
+                  }
+                >
+                  {last ? t("action.saveSetup", lang) : `${t("action.next", lang)}: ${stepLabel(STEPS[at + 1], lang)} →`}
+                </button>
+              </div>
             )}
-          </div>
+          </section>
         </div>
       </div>
 
