@@ -373,6 +373,11 @@ const STRINGS = {
   "field.recommended": { nb: "Anbefalte", en: "Recommended" },
   "action.addRow": { nb: "Legg til", en: "Add" },
   "action.downloadTemplate": { nb: "Last ned mal", en: "Download template" },
+  "action.saveSetup": { nb: "Lagre oppsett", en: "Save setup" },
+  "action.guideMe": { nb: "Veiled meg", en: "Guide me through" },
+  "action.previous": { nb: "Forrige", en: "Previous" },
+  "action.next": { nb: "Neste", en: "Next" },
+  "field.notInModel": { nb: "Egenskapen er ikke med", en: "Not in the model" },
 
   /* ------------------------------------------------- the .xlsx config file */
   // Column headers of src/ids/xlsx.ts. Where the rule builder has the label,

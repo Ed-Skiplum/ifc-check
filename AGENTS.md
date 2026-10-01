@@ -2596,6 +2596,20 @@ card additionally carries a boolean/codes toggle (`isBooleanValues` decides
 which is shown as active) and, in codes mode, the same allowed-values input
 `progress-code` uses. Built and type-checked; **not exercised in a browser.**
 
+Since 2026-10-01 the page is a walk, one section at a time: a step rail
+(Oppsett, Åpne IFC, the four mapping cards, Etasjeoppsett; freely
+clickable, current filled, configured ✓) beside the step, Forrige / Neste
+and «Lagre oppsett» pinned at the bottom. With no ruleset it opens on the
+choice (Åpne regelsett + Last ned mal, or «Veiled meg»); with one, on Åpne
+IFC when no model is on the board, else on the first mapping. A property
+source is picked from the loaded models' sets and properties with element
+counts (`pset-choices.ts`, from `psetInventory` in the model or restore
+worker, asked for only once Oppsett opens), type-to-filter, arrows, Enter;
+«Egenskapen er ikke med» opens the propertySet / name fields. «Lagre oppsett»
+writes the ruleset to localStorage (`storage/saved-ruleset.ts`), restored on
+load, forgotten when the ruleset is removed, and returns to the board.
+Type-checked only; **not exercised in a browser.**
+
 Verified headlessly: `selftest` asserts each mapping lint refusal, the schema
 refusal of a code-lookup with neither list nor values, a values lookup on a
 synthetic model (in list passes, outside and empty fail), a property-sourced

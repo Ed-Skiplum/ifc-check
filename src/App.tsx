@@ -16,7 +16,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Ruleset } from "./ids/types.ts";
 import { AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
 import { t } from "./ui/i18n";
-import { SetupPage } from "./ui/SetupPage";
+import { FIRST_MAPPING_STEP, SetupPage, type SetupStep } from "./ui/SetupPage";
+import { forgetSavedRuleset, readSavedRuleset, writeSavedRuleset } from "./storage/saved-ruleset";
 import { kpiClaims } from "./ui/claims";
 import { chooseFocus, useCrossFilter } from "./ui/cross-filter";
 import { originOfFocus } from "./ui/origins";
@@ -42,13 +43,15 @@ const EMPTY_RULESET: Ruleset = {
 
 export default function App() {
   const [view, setView] = useHashView();
-  const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached } =
+  const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached, requestPsets } =
     useModels();
+  // The ruleset «Lagre oppsett» kept, read once, before the first render.
+  const [saved] = useState(readSavedRuleset);
   // The Prosjekt tab's `.ids`: run as written, apart from the ruleset.
   const [ids, setIds] = useState<IdsSession | null>(null);
   const [idsError, setIdsError] = useState<string | null>(null);
-  const [ruleset, setRuleset] = useState<Ruleset | null>(null);
-  const [rulesetName, setRulesetName] = useState<string | null>(null);
+  const [ruleset, setRuleset] = useState<Ruleset | null>(saved?.ruleset ?? null);
+  const [rulesetName, setRulesetName] = useState<string | null>(saved?.fileName ?? null);
   const [rulesetError, setRulesetError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(0);
   // Cross-filter and selection live HERE, above both the boards and the
@@ -91,14 +94,22 @@ export default function App() {
     } else delete root.dataset.design;
   }, [view.design]);
 
+  // The saved ruleset goes to the models as a loaded one would; the models
+  // restored from the cache are evaluated against it as they arrive.
+  useEffect(() => {
+    if (saved) applyRuleset(saved.ruleset);
+  }, [saved, applyRuleset]);
+
+  /** True once the file loaded. */
   const loadRuleset = useCallback(
-    async (file: File) => {
+    async (file: File): Promise<boolean> => {
       try {
         const loaded = await readRulesetFile(file);
         setRulesetError(null);
         setRulesetName(loaded.fileName);
         setRuleset(loaded.ruleset);
         applyRuleset(loaded.ruleset);
+        return true;
       } catch (error) {
         // Loudly, in full, named. A ruleset that half-loaded would report a
         // model clean against rules that were never applied.
@@ -106,6 +117,7 @@ export default function App() {
         setRuleset(null);
         setRulesetError(error instanceof Error ? error.message : String(error));
         applyRuleset(null);
+        return false;
       }
     },
     [applyRuleset],
@@ -163,6 +175,8 @@ export default function App() {
     setRuleset(null);
     setRulesetError(null);
     applyRuleset(null);
+    // A removed ruleset does not come back on the next load.
+    forgetSavedRuleset();
     for (const [id, v] of Object.entries(cross.views)) if (v.scope?.kind === "rule") cross.dispatch(id, { type: "clear" });
   }, [applyRuleset, cross]);
 
@@ -184,6 +198,26 @@ export default function App() {
     () => setView({ page: setupOpen ? null : "setup" }),
     [setView, setupOpen],
   );
+  // The step Oppsett is on, held here: the page remounts when the first
+  // model lands (the empty and the board layouts are two trees). null =
+  // the page picks its first step. Each opening starts afresh.
+  const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
+  const [setupWasOpen, setSetupWasOpen] = useState(setupOpen);
+  if (setupWasOpen !== setupOpen) {
+    setSetupWasOpen(setupOpen);
+    if (!setupOpen) setSetupStep(null);
+  }
+  // The picker's sets are computed only once Oppsett has been opened.
+  useEffect(() => {
+    if (setupOpen) requestPsets();
+  }, [setupOpen, requestPsets]);
+  // The IFC step done: the walk moves on to the first mapping.
+  const hadModels = useRef(models.length > 0);
+  useEffect(() => {
+    const has = models.length > 0;
+    if (has && !hadModels.current) setSetupStep((s) => (s === "ifc" ? FIRST_MAPPING_STEP : s));
+    hadModels.current = has;
+  }, [models.length]);
   const setupFileName = rulesetName && /\.json$/i.test(rulesetName)
     ? rulesetName
     : `${(rulesetName ?? ruleset?.name ?? "regelsett").replace(/\.(ids|xml|xlsx)$/i, "")}.ruleset.json`;
@@ -191,9 +225,23 @@ export default function App() {
     <SetupPage
       lang={view.lang}
       ruleset={ruleset ?? EMPTY_RULESET}
+      rulesetLoaded={ruleset !== null}
       fileName={setupFileName}
+      models={models}
+      step={setupStep}
+      onStep={setSetupStep}
       onChange={editRuleset}
-      onOpen={(file) => void loadRuleset(file)}
+      onOpen={loadRuleset}
+      onFiles={takeFiles}
+      onSave={() => {
+        try {
+          writeSavedRuleset(ruleset ? { fileName: setupFileName, ruleset } : null);
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error);
+        }
+        setView({ page: null });
+        return null;
+      }}
     />
   ) : null;
 

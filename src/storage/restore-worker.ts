@@ -40,6 +40,8 @@ import { profileOf } from "./rehydrate.ts";
 import { withTypeFacts } from "../ui/types/facts.ts";
 import { boardData } from "../ui/report-rows.ts";
 import { MeasureChannel, MeasureState, type MeasureBatch } from "../ui/measure-state.ts";
+import { psetInventory } from "../engine/pset-inventory.ts";
+import { psetChoices } from "../ui/pset-choices.ts";
 
 export type RestoreWorkerRequest =
   | {
@@ -61,7 +63,8 @@ export type RestoreWorkerRequest =
   | { kind: "evaluate"; ruleset: Ruleset }
   | { kind: "ids"; imported: ImportedIds }
   | { kind: "measure"; batch: MeasureBatch | null; total: number }
-  | { kind: "nomesh"; verification: NomeshVerification };
+  | { kind: "nomesh"; verification: NomeshVerification }
+  | { kind: "psets" };
 
 let heldGraph: IfcGraph | null = null;
 let heldSummary: IfcSummary | null = null;
@@ -188,9 +191,23 @@ function evaluateIdsHere(imported: ImportedIds) {
   }
 }
 
+/** Oppsett's property picker, as the parse worker answers it. */
+function psetsHere() {
+  if (heldGraph === null || heldSummary === null) {
+    post({ kind: "psets-error", message: "no restored model in this worker" });
+    return;
+  }
+  try {
+    post({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: 0 })) });
+  } catch (err) {
+    post({ kind: "psets-error", message: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 self.onmessage = (event: MessageEvent<RestoreWorkerRequest>) => {
   const message = event.data;
   if (message.kind === "restore") restore(message);
+  else if (message.kind === "psets") psetsHere();
   else if (message.kind === "ids") evaluateIdsHere(message.imported);
   else if (message.kind === "nomesh") nomesh(message.verification);
   else if (message.kind === "measure") {

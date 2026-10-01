@@ -38,6 +38,8 @@ import type { ModelGraph, ModelSummary } from "../ids/model.ts";
 import type { Ruleset } from "../ids/types.ts";
 import type { ImportedIds } from "../ids/import.ts";
 import { evaluateIds, type IdsModelResult } from "../ids/ids-report.ts";
+import { psetInventory } from "../engine/pset-inventory.ts";
+import { psetChoices, type PsetChoice } from "./pset-choices";
 // The graph -> profile reduction is shared with the restore worker, which must
 // not import this module: it would pull the wasm parser into a worker whose
 // whole point is that it never parses anything.
@@ -68,7 +70,9 @@ export type ModelWorkerRequest =
   | { kind: "measure"; batch: MeasureBatch | null; total: number }
   /** The second check has settled (`ifcos-verify.ts`): re-run the checks
    *  with it. */
-  | { kind: "nomesh"; verification: NomeshVerification };
+  | { kind: "nomesh"; verification: NomeshVerification }
+  /** Oppsett's property picker (`pset-choices.ts`), asked for on demand. */
+  | { kind: "psets" };
 
 export type ModelWorkerResponse =
   /** `graph` is the parse path handing the raw graph out ONCE, so the main
@@ -106,6 +110,8 @@ export type ModelWorkerResponse =
   | { kind: "evaluate-error"; message: string }
   | { kind: "ids-evaluated"; result: IdsModelResult }
   | { kind: "ids-error"; message: string }
+  | { kind: "psets"; choices: PsetChoice[] }
+  | { kind: "psets-error"; message: string }
   | MeasuredMessage;
 
 let ready: Promise<unknown> | null = null;
@@ -375,9 +381,23 @@ function evaluateIdsHere(imported: ImportedIds) {
   }
 }
 
+/** The picker's sets and properties, from the held graph. */
+function psetsHere() {
+  if (heldGraph === null || heldSummary === null) {
+    send({ kind: "psets-error", message: "no parsed model in this worker" });
+    return;
+  }
+  try {
+    send({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: 0 })) });
+  } catch (err) {
+    send({ kind: "psets-error", message: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 self.onmessage = (event: MessageEvent<ModelWorkerRequest>) => {
   const message = event.data;
   if (message.kind === "parse") void parse(message.fileName, message.bytes);
+  else if (message.kind === "psets") psetsHere();
   else if (message.kind === "ids") evaluateIdsHere(message.imported);
   else if (message.kind === "nomesh") nomesh(message.verification);
   else if (message.kind === "measure") {

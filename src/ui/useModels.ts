@@ -60,6 +60,7 @@ import type { ModelProfile } from "./profile";
 import type { ModelWorkerResponse } from "./model-worker";
 import { clearIfcosRun, fileIssues, verifyNomesh } from "./ifcos-verify";
 import type { ElementQuantity } from "../engine/quantities";
+import type { PsetChoice } from "./pset-choices";
 
 export type FileState = "queued" | "parsing" | "ready" | "failed";
 
@@ -116,6 +117,10 @@ export interface ModelEntry {
    *  a model restored from the cache, which this session never had the file
    *  for. */
   file?: File;
+  /** Oppsett's property picker: the model's sets and properties with their
+   *  element counts (`pset-choices.ts`). Absent until Oppsett asks. */
+  psets?: PsetChoice[];
+  psetsError?: string;
 }
 
 const MAX_CONCURRENT = Math.min(4, Math.max(1, (navigator.hardwareConcurrency ?? 4) - 1));
@@ -137,6 +142,7 @@ interface Controller {
   open: (cacheKey: string) => Promise<boolean>;
   setRuleset: (ruleset: Ruleset | null) => void;
   setIds: (ids: ImportedIds | null) => void;
+  requestPsets: () => void;
 }
 
 /** What a parse has produced so far, held until it is complete enough to cache.
@@ -201,6 +207,12 @@ function createController(setModels: SetModels): Controller {
   let ruleset: Ruleset | null = null;
   let ids: ImportedIds | null = null;
   let restored = false;
+  /** Oppsett has asked for the picker's sets: every model answers once,
+   *  including a model read after the ask. */
+  let wantPsets = false;
+  /** Models whose worker holds a graph, and those already asked for sets. */
+  const parsed = new Set<string>();
+  const askedPsets = new Set<string>();
 
   function patch(id: string, next: Partial<ModelEntry>) {
     setModels((current) => current.map((m) => (m.id === id ? { ...m, ...next } : m)));
@@ -251,6 +263,14 @@ function createController(setModels: SetModels): Controller {
     feeds.delete(id);
     fedAt.delete(id);
     clearIfcosRun(id);
+    parsed.delete(id);
+    askedPsets.delete(id);
+  }
+
+  function askPsets(id: string, worker: Worker) {
+    if (!wantPsets || askedPsets.has(id)) return;
+    askedPsets.add(id);
+    worker.postMessage({ kind: "psets" });
   }
 
   /** Hand the worker the next batch to measure, or the closing null. */
@@ -348,6 +368,8 @@ function createController(setModels: SetModels): Controller {
         }
         ask(id, worker);
         askIds(id, worker);
+        parsed.add(id);
+        askPsets(id, worker);
         // The board is on screen; the geometric measures follow behind it.
         feed(id, worker);
         // And the second check behind those: ifcopenshell on every element
@@ -456,6 +478,10 @@ function createController(setModels: SetModels): Controller {
           ),
         );
         fileIssues(id, message.issues);
+      } else if (message.kind === "psets") {
+        patch(id, { psets: message.choices, psetsError: undefined });
+      } else if (message.kind === "psets-error") {
+        patch(id, { psets: undefined, psetsError: message.message });
       } else if (message.kind === "ids-evaluated") {
         patch(id, { idsEvaluating: false, ids: message.result, idsError: undefined });
       } else if (message.kind === "ids-error") {
@@ -698,6 +724,8 @@ function createController(setModels: SetModels): Controller {
       feeds.clear();
       fedAt.clear();
       dropped.clear();
+      parsed.clear();
+      askedPsets.clear();
       order.length = 0;
       keys.clear();
       for (const id of [...workers.keys()]) dispose(id);
@@ -740,6 +768,11 @@ function createController(setModels: SetModels): Controller {
       }
       for (const [id, worker] of workers) askIds(id, worker);
     },
+
+    requestPsets() {
+      wantPsets = true;
+      for (const [id, worker] of workers) if (parsed.has(id)) askPsets(id, worker);
+    },
   };
 }
 
@@ -776,8 +809,11 @@ export function useModels() {
   const applyIds = useCallback((ids: ImportedIds | null) => {
     controller.current?.setIds(ids);
   }, []);
+  const requestPsets = useCallback(() => {
+    controller.current?.requestPsets();
+  }, []);
 
-  return { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached };
+  return { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached, requestPsets };
 }
 
 /** Per-element world boxes from cached mesh batches, the same fold the parse

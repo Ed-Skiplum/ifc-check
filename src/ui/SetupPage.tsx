@@ -10,9 +10,18 @@
  * button non-obvious and asked that double-clicking a card that is off asks
  * whether to enable it; a card that is on ignores double-click, and a
  * double-click inside a live field is the field's own.
+ *
+ * One section at a time (2026-10-01). edkjo: "the config is a bit hard, so we
+ * should have an onboarding, pull me through there". With no ruleset the page
+ * opens on a choice: a filled-in config file (or the template to fill), or
+ * «Veiled meg». The walk opens an IFC first, so a property source is picked
+ * from the sets and properties the model carries, with «Egenskapen er ikke
+ * med» for one it lacks. A rail names every step and jumps freely. «Lagre
+ * oppsett» keeps the ruleset in the browser (`storage/saved-ruleset.ts`) and
+ * returns to the board; "Last ned" stays the file export.
  */
 
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { MAPPING_ROLES, hasErrors, lintRuleset } from "../ids/lint.ts";
 import { anyRoleRule } from "../ids/models.ts";
@@ -33,6 +42,9 @@ import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
 import { Switch } from "./Switch";
 import { CONFIG_TEMPLATE_FILE } from "../ids/config-template.ts";
+import { formatCount } from "./format";
+import { mergeChoices, type PsetChoice } from "./pset-choices";
+import type { ModelEntry } from "./useModels";
 
 const SOURCE_KINDS = ["attribute", "property", "classification"] as const;
 type SourceKind = (typeof SOURCE_KINDS)[number];
@@ -297,6 +309,210 @@ function parseValues(text: string): string[] {
     .filter((v) => v !== "");
 }
 
+/** The property source, picked from the loaded models: every set with its
+ *  properties and element counts (`pset-choices.ts`), filtered as you type,
+ *  arrows and Enter to pick. «Egenskapen er ikke med» is always the last
+ *  option and opens the two fields, so a property the model lacks can be
+ *  typed as it should have been. The fields stay open once opened, and are
+ *  the only input when no model is loaded. */
+function PropertyPicker({
+  value,
+  choices,
+  reading,
+  errors,
+  disabled,
+  invalidSet,
+  invalidName,
+  lang,
+  onChange,
+}: {
+  value: { propertySet: string; name: string };
+  /** null: no model on the board, so nothing to pick from. */
+  choices: PsetChoice[] | null;
+  reading: boolean;
+  errors: string[];
+  disabled: boolean;
+  invalidSet: boolean;
+  invalidName: boolean;
+  lang: Lang;
+  onChange: (next: { propertySet: string; name: string }) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(-1);
+  const [manual, setManual] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const setRef = useRef<HTMLInputElement>(null);
+  const baseId = useId();
+  const found =
+    choices?.some((c) => c.set === value.propertySet && c.props.some((p) => p.name === value.name)) ?? false;
+  const blank = value.propertySet === "" && value.name === "";
+  // A value the model does not carry can only be shown in the fields.
+  const fieldsOpen = manual || (choices === null && !reading) || (!found && !blank && !reading);
+
+  const q = query.trim().toLowerCase();
+  const groups = (choices ?? [])
+    .map((c) =>
+      q === "" || c.set.toLowerCase().includes(q)
+        ? c
+        : { ...c, props: c.props.filter((p) => p.name.toLowerCase().includes(q)) },
+    )
+    .filter((c) => c.props.length > 0);
+  type Option = { kind: "prop"; set: string; name: string } | { kind: "manual" };
+  const options: Option[] = [
+    ...groups.flatMap((c) => c.props.map((p): Option => ({ kind: "prop", set: c.set, name: p.name }))),
+    { kind: "manual" },
+  ];
+  // Each group's first index in `options`.
+  const starts = groups.map((_, g) => groups.slice(0, g).reduce((n, c) => n + c.props.length, 0));
+  const optionId = (i: number) => `${baseId}-o${i}`;
+  const at = Math.min(active, options.length - 1);
+
+  const pick = (option: Option) => {
+    if (option.kind === "prop") {
+      setManual(false);
+      onChange({ propertySet: option.set, name: option.name });
+    } else {
+      setManual(true);
+      requestAnimationFrame(() => setRef.current?.focus());
+    }
+  };
+
+  // The keyboard's option, or on first show the picked one, scrolled into
+  // view inside the list, never by scrolling the page.
+  const listed = choices !== null;
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const el = at >= 0 ? document.getElementById(`${baseId}-o${at}`) : list.querySelector<HTMLElement>("[aria-selected=true]");
+    if (!el) return;
+    if (el.offsetTop < list.scrollTop) list.scrollTop = el.offsetTop;
+    else if (el.offsetTop + el.offsetHeight > list.scrollTop + list.clientHeight)
+      list.scrollTop = el.offsetTop + el.offsetHeight - list.clientHeight;
+  }, [at, baseId, listed]);
+
+  const row = (selected: boolean, i: number) =>
+    "flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-[12px] " +
+    (selected ? "bg-green text-cream" : i === at ? "bg-palegreen text-ink" : "text-ink hover:bg-palegreen");
+
+  return (
+    <div className="flex flex-col gap-3">
+      {choices !== null || reading ? (
+        <div className={"flex flex-col border border-line bg-input" + (disabled ? " opacity-60" : "")}>
+          <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-muted">
+              <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <input
+              type="text"
+              role="combobox"
+              aria-label={t("field.source.property", lang)}
+              aria-expanded="true"
+              aria-controls={`${baseId}-list`}
+              aria-activedescendant={at >= 0 ? optionId(at) : undefined}
+              disabled={disabled}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActive(-1);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActive(Math.min(at + 1, options.length - 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActive(Math.max(at - 1, 0));
+                } else if (e.key === "Enter" && at >= 0) {
+                  e.preventDefault();
+                  pick(options[at]);
+                } else if (e.key === "Escape" && query !== "") {
+                  e.preventDefault();
+                  setQuery("");
+                  setActive(-1);
+                }
+              }}
+              className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-ink outline-none"
+            />
+            {reading ? <span className="shrink-0 text-[11px] text-muted">{t("file.parsing", lang)}</span> : null}
+          </div>
+          <div ref={listRef} id={`${baseId}-list`} role="listbox" className="relative max-h-72 overflow-auto py-1">
+            {groups.map((c, g) => (
+              <div key={c.set} role="group" aria-label={c.set}>
+                <div className="flex items-baseline justify-between gap-3 px-3 pt-2 pb-1">
+                  <span className="min-w-0 truncate font-mono text-[11px] font-semibold text-muted">{c.set}</span>
+                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted">
+                    {formatCount(c.objects, lang)}
+                  </span>
+                </div>
+                {c.props.map((p, k) => {
+                  const i = starts[g] + k;
+                  const selected = value.propertySet === c.set && value.name === p.name;
+                  return (
+                    <div
+                      key={p.name}
+                      id={optionId(i)}
+                      role="option"
+                      aria-selected={selected}
+                      // Keeps focus in the search field.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => !disabled && pick({ kind: "prop", set: c.set, name: p.name })}
+                      className={row(selected, i) + " pl-6"}
+                    >
+                      <span className="min-w-0 truncate font-mono">{p.name}</span>
+                      <span className="shrink-0 font-mono tabular-nums">{formatCount(p.n, lang)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            <div
+              id={optionId(options.length - 1)}
+              role="option"
+              aria-selected={fieldsOpen && !found}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => !disabled && pick({ kind: "manual" })}
+              className={row(fieldsOpen && !found, options.length - 1) + (groups.length > 0 ? " mt-1 border-t border-line" : "")}
+            >
+              <span>{t("field.notInModel", lang)}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {errors.length > 0 ? (
+        <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+          {errors.join("\n")}
+        </pre>
+      ) : null}
+      {fieldsOpen ? (
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label={t("field.propertySet", lang)}>
+            <input
+              ref={setRef}
+              type="text"
+              className={INPUT}
+              disabled={disabled}
+              aria-invalid={invalidSet}
+              value={value.propertySet}
+              onChange={(e) => onChange({ ...value, propertySet: e.target.value })}
+            />
+          </Field>
+          <Field label={t("field.propertyName", lang)}>
+            <input
+              type="text"
+              className={INPUT}
+              disabled={disabled}
+              aria-invalid={invalidName}
+              value={value.name}
+              onChange={(e) => onChange({ ...value, name: e.target.value })}
+            />
+          </Field>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function MappingCard({
   role,
   rule,
@@ -305,11 +521,14 @@ function MappingCard({
   onToggle,
   onCheck,
   onAskEnable,
+  picker,
 }: {
   role: MappingRole;
   rule: ExtendedRule | null;
   issues: LintIssue[];
   lang: Lang;
+  /** What the property picker lists, from the loaded models. */
+  picker: { choices: PsetChoice[] | null; reading: boolean; errors: string[] };
   onToggle: () => void;
   onCheck: (next: MappingCheck) => void;
   /** Double-click on the card while it is off. */
@@ -342,7 +561,7 @@ function MappingCard({
       onMouseDown={(event) => {
         if (!active && event.detail > 1 && !onLive(event)) event.preventDefault();
       }}
-      className="flex flex-col gap-3 border border-line bg-panel p-3"
+      className="flex flex-col gap-4 border border-line bg-panel p-4"
     >
       <div className="flex items-center justify-between gap-3">
         <h2 className={"m-0 text-sm font-medium " + (active ? "text-ink" : "text-muted")}>
@@ -415,40 +634,6 @@ function MappingCard({
             />
           </Field>
         ) : null}
-        {"property" in source ? (
-          <>
-            <Field label={t("field.propertySet", lang)}>
-              <input
-                type="text"
-                className={INPUT}
-                disabled={off}
-                aria-invalid={invalid("source.property.propertySet")}
-                value={source.property.propertySet}
-                onChange={(e) =>
-                  onCheck({
-                    ...check,
-                    source: { property: { ...source.property, propertySet: e.target.value } },
-                  })
-                }
-              />
-            </Field>
-            <Field label={t("field.propertyName", lang)}>
-              <input
-                type="text"
-                className={INPUT}
-                disabled={off}
-                aria-invalid={invalid("source.property.name")}
-                value={source.property.name}
-                onChange={(e) =>
-                  onCheck({
-                    ...check,
-                    source: { property: { ...source.property, name: e.target.value } },
-                  })
-                }
-              />
-            </Field>
-          </>
-        ) : null}
         {"classification" in source ? (
           <Field label={t("field.system", lang)}>
             <input
@@ -468,6 +653,20 @@ function MappingCard({
           </Field>
         ) : null}
       </div>
+
+      {"property" in source ? (
+        <PropertyPicker
+          value={source.property}
+          choices={picker.choices}
+          reading={picker.reading}
+          errors={picker.errors}
+          disabled={off}
+          invalidSet={invalid("source.property.propertySet")}
+          invalidName={invalid("source.property.name")}
+          lang={lang}
+          onChange={(property) => onCheck({ ...check, source: { property } })}
+        />
+      ) : null}
 
       {check.type === "code-lookup" ? (
         <div className="flex flex-col gap-3">
@@ -733,19 +932,106 @@ function parseElevation(text: string): number {
   return clean === "" || !/^-?\d+(\.\d+)?$/.test(clean) ? Number.NaN : Number(clean);
 }
 
+/** Oppsett's steps, in order. `start` is the choice between a filled-in
+ *  config file and the guided walk; `ifc` opens a model, so the property
+ *  pickers have something to list. The names are the sections' own. */
+export type SetupStep = "start" | "ifc" | MappingRole | "storeys";
+
+const STEPS: SetupStep[] = ["start", "ifc", ...MAPPING_ROLES, "storeys"];
+
+/** Where the walk goes once a model is on the board. */
+export const FIRST_MAPPING_STEP: SetupStep = MAPPING_ROLES[0];
+
+function stepLabel(step: SetupStep, lang: Lang): string {
+  if (step === "start") return t("action.setup", lang);
+  if (step === "ifc") return t("action.openIfc", lang);
+  if (step === "storeys") return t("setup.storeys", lang);
+  return t(`mapping.${step}`, lang);
+}
+
+const PRIMARY = "flex items-center gap-2 bg-green px-4 py-1.5 text-[12px] text-cream hover:bg-ink";
+const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
+
+/** The step rail: every step, freely clickable. The current one is filled,
+ *  a configured one carries a check in place of its number. Above the step
+ *  on a narrow screen, beside it from md up. */
+function StepRail({
+  current,
+  done,
+  lang,
+  onStep,
+}: {
+  current: SetupStep;
+  done: (step: SetupStep) => boolean;
+  lang: Lang;
+  onStep: (step: SetupStep) => void;
+}) {
+  return (
+    <nav className="shrink-0 md:w-56">
+      <ol className="m-0 flex list-none gap-1 overflow-x-auto p-0 md:flex-col md:overflow-visible">
+        {STEPS.map((step, i) => {
+          const here = step === current;
+          const ok = !here && done(step);
+          return (
+            <li key={step} className="shrink-0">
+              <button
+                type="button"
+                aria-current={here ? "step" : undefined}
+                onClick={() => onStep(step)}
+                className={
+                  "flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] " +
+                  (here ? "bg-green text-cream" : "text-ink hover:bg-panel")
+                }
+              >
+                <span
+                  aria-hidden="true"
+                  className={
+                    "w-4 shrink-0 text-center font-mono text-[11px] tabular-nums " +
+                    (here ? "text-cream" : ok ? "text-green" : "text-muted")
+                  }
+                >
+                  {i === 0 ? "" : ok ? "✓" : i}
+                </span>
+                <span className="whitespace-nowrap">{stepLabel(step, lang)}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
 export function SetupPage({
   lang,
   ruleset,
+  rulesetLoaded,
   fileName,
+  models,
+  step,
+  onStep,
   onChange,
   onOpen,
+  onFiles,
+  onSave,
 }: {
   lang: Lang;
   ruleset: Ruleset;
+  /** A ruleset is loaded or being edited: the walk skips the choice. */
+  rulesetLoaded: boolean;
   fileName: string;
+  models: ModelEntry[];
+  /** The step on screen; null until one is chosen, then the default. */
+  step: SetupStep | null;
+  onStep: (step: SetupStep) => void;
   onChange: (next: Ruleset) => void;
-  /** A ruleset file picked here: .ruleset.json, .xlsx or .ids. */
-  onOpen: (file: File) => void;
+  /** A ruleset file picked here: .ruleset.json, .xlsx or .ids. True once it
+   *  loaded. */
+  onOpen: (file: File) => Promise<boolean>;
+  /** IFC files picked on the IFC step. */
+  onFiles: (files: File[]) => void;
+  /** «Lagre oppsett»: null once saved, else the storage's error. */
+  onSave: () => string | null;
 }) {
   const lint = lintRuleset(ruleset);
   const nameIssue = lint.some((i) => i.ruleId === null && i.path === "name");
@@ -756,11 +1042,38 @@ export function SetupPage({
   const [asking, setAsking] = useState<MappingRole | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
+  const ifcInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
   const hasIds = ruleset.rules.some((r) => r.kind === "ids" && r.enabled !== false);
-  const downloadClass =
-    "flex items-center gap-2 px-3 py-1.5 text-[12px] text-cream " +
-    (blocked ? "cursor-not-allowed bg-muted" : "bg-green hover:bg-ink");
+  const downloadClass = (off: boolean) => SECONDARY + (off ? " cursor-not-allowed text-muted hover:border-line hover:text-muted" : "");
+
+  const firstStep: SetupStep = models.length === 0 ? "ifc" : FIRST_MAPPING_STEP;
+  const current: SetupStep = step ?? (rulesetLoaded ? firstStep : "start");
+  const at = STEPS.indexOf(current);
+  const last = at === STEPS.length - 1;
+
+  // The picker's list: every model that has answered, merged. null while no
+  // model is on the board; reading while one is still being read or asked.
+  const picker = useMemo(() => {
+    const answered = models.filter((m) => m.psets !== undefined).map((m) => m.psets!);
+    const reading = models.some(
+      (m) => m.state === "queued" || m.state === "parsing" || (m.state === "ready" && !m.psets && !m.psetsError),
+    );
+    return {
+      choices: answered.length > 0 ? mergeChoices(answered) : models.length > 0 && reading ? [] : null,
+      reading,
+      errors: models.filter((m) => m.psetsError).map((m) => `${m.fileName}: ${m.psetsError}`),
+    };
+  }, [models]);
+
+  const done = (s: SetupStep): boolean => {
+    if (s === "start") return false;
+    if (s === "ifc") return models.some((m) => m.state === "ready");
+    if (s === "storeys")
+      return (ruleset.storeys?.levels.length ?? 0) > 0 && !hasErrors(lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys")));
+    const rule = mappingRule(ruleset, s);
+    return rule !== null && rule.enabled !== false && !hasErrors(lint.filter((i) => i.ruleId === rule.id));
+  };
 
   const toggle = (role: MappingRole) => {
     const rule = mappingRule(ruleset, role);
@@ -792,13 +1105,134 @@ export function SetupPage({
     });
   };
 
+  const save = () => {
+    setExportError(null);
+    const error = onSave();
+    if (error !== null) setExportError(error);
+  };
+
+  // One primary per step: the choice tiles on the first, «Åpne IFC» while
+  // no model is open, «Lagre oppsett» on the last, Neste otherwise.
+  const nextPrimary = current !== "start" && !(current === "ifc" && models.length === 0);
+
+  let body: React.ReactNode;
+  if (current === "start") {
+    body = (
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className={TILE + " gap-4 has-[button:hover]:border-green"}>
+          <button
+            type="button"
+            onClick={() => openInput.current?.click()}
+            className="flex flex-1 flex-col items-start justify-center gap-2 text-left"
+          >
+            <span className="text-lg font-medium text-ink">{t("action.openRuleset", lang)}</span>
+            <span className="font-mono text-[11px] tracking-wide text-muted">{t("accept.ruleset", lang)}</span>
+          </button>
+          <a
+            href={`${import.meta.env.BASE_URL}${CONFIG_TEMPLATE_FILE}`}
+            download={CONFIG_TEMPLATE_FILE}
+            className={SECONDARY + " w-fit"}
+          >
+            {t("action.downloadTemplate", lang)}
+          </a>
+          <input
+            ref={openInput}
+            type="file"
+            accept=".json,.xlsx,.ids,.xml"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void onOpen(file).then((ok) => ok && onStep(firstStep));
+              event.target.value = "";
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => onStep(firstStep)}
+          className={TILE + " items-start justify-center hover:border-green"}
+        >
+          <span className="text-lg font-medium text-ink">{t("action.guideMe", lang)}</span>
+        </button>
+      </div>
+    );
+  } else if (current === "ifc") {
+    body = (
+      <div className="flex flex-col gap-4">
+        <button
+          type="button"
+          onClick={() => ifcInput.current?.click()}
+          className={
+            "flex min-h-44 flex-col items-start justify-center gap-2 p-6 text-left " +
+            (models.length === 0
+              ? "bg-green text-cream hover:bg-ink"
+              : "border border-line bg-panel text-ink hover:border-green")
+          }
+        >
+          <span className="text-lg font-medium">{t("action.openIfc", lang)}</span>
+          <span className="font-mono text-[11px] tracking-wide opacity-75">{t("accept.ifc", lang)}</span>
+        </button>
+        <input
+          ref={ifcInput}
+          type="file"
+          multiple
+          accept=".ifc,.ifczip"
+          className="hidden"
+          onChange={(event) => {
+            onFiles(Array.from(event.target.files ?? []));
+            event.target.value = "";
+          }}
+        />
+        {models.length > 0 ? (
+          <ul className="m-0 flex list-none flex-col border border-line bg-panel p-0">
+            {models.map((m) => (
+              <li key={m.id} className="flex items-center justify-between gap-3 border-b border-line px-4 py-2 last:border-b-0">
+                <span className="min-w-0 truncate font-mono text-[12px] text-ink">{m.fileName}</span>
+                <span className={"shrink-0 text-[12px] " + (m.state === "failed" ? "text-bad" : "text-muted")}>
+                  {t(m.rejected ? "file.rejected" : `file.${m.state}`, lang)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    );
+  } else if (current === "storeys") {
+    body = (
+      <StoreyCard
+        setup={ruleset.storeys}
+        issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
+        lang={lang}
+        onChange={(storeys) => {
+          const next: Ruleset = { ...ruleset, storeys };
+          if (storeys === undefined) delete next.storeys;
+          onChange(next);
+        }}
+      />
+    );
+  } else {
+    const role = current;
+    const rule = mappingRule(ruleset, role);
+    body = (
+      <MappingCard
+        key={role}
+        role={role}
+        rule={rule}
+        issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
+        lang={lang}
+        picker={picker}
+        onToggle={() => toggle(role)}
+        onCheck={(check) => setCheck(role, check)}
+        onAskEnable={() => setAsking(role)}
+      />
+    );
+  }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-3">
-      {/* ONE bounded container for the header and the cards, so the title,
-          the name field and the download button align with the cards' edges
-          at every width. */}
-      <div className="mx-auto flex w-full max-w-[1136px] flex-col gap-4">
+    <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-4">
+      {/* ONE bounded container for the header, the rail and the step, so
+          their edges align at every width. */}
+      <div className="mx-auto flex w-full max-w-[1136px] flex-1 flex-col gap-6">
         <div className="flex flex-wrap items-end gap-3">
           <h1 className="m-0 mr-auto text-base font-medium text-ink">{t("action.setup", lang)}</h1>
           <Field label={t("label.ruleset", lang)}>
@@ -811,27 +1245,6 @@ export function SetupPage({
               onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
             />
           </Field>
-          <button type="button" onClick={() => openInput.current?.click()} className={SECONDARY}>
-            {t("action.openRuleset", lang)}
-          </button>
-          <input
-            ref={openInput}
-            type="file"
-            accept=".json,.xlsx,.ids,.xml"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) onOpen(file);
-              event.target.value = "";
-            }}
-          />
-          <a
-            href={`${import.meta.env.BASE_URL}${CONFIG_TEMPLATE_FILE}`}
-            download={CONFIG_TEMPLATE_FILE}
-            className={SECONDARY}
-          >
-            {t("action.downloadTemplate", lang)}
-          </a>
           <button
             type="button"
             aria-disabled={blocked}
@@ -839,7 +1252,7 @@ export function SetupPage({
               setAttempted(true);
               if (!blocked) downloadRuleset(ruleset, fileName);
             }}
-            className={downloadClass}
+            className={downloadClass(blocked)}
           >
             <span>{t("action.download", lang)}</span>
             <span className="font-mono text-[11px]">{fileName}</span>
@@ -855,7 +1268,7 @@ export function SetupPage({
                 setExportError(error instanceof Error ? error.message : String(error)),
               );
             }}
-            className={downloadClass}
+            className={downloadClass(blocked)}
           >
             <span>{t("action.download", lang)}</span>
             <span className="font-mono text-[11px]">{xlsxName(fileName)}</span>
@@ -871,7 +1284,7 @@ export function SetupPage({
                 setExportError(error instanceof Error ? error.message : String(error)),
               );
             }}
-            className={downloadClass + (hasIds ? "" : " cursor-not-allowed bg-muted")}
+            className={downloadClass(blocked || !hasIds)}
           >
             <span>{t("action.download", lang)}</span>
             <span className="font-mono text-[11px]">{idsName(fileName)}</span>
@@ -884,33 +1297,38 @@ export function SetupPage({
           </pre>
         ) : null}
 
-        <StoreyCard
-          setup={ruleset.storeys}
-          issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
-          lang={lang}
-          onChange={(storeys) => {
-            const next: Ruleset = { ...ruleset, storeys };
-            if (storeys === undefined) delete next.storeys;
-            onChange(next);
-          }}
-        />
+        <div className="flex flex-1 flex-col gap-6 md:flex-row md:items-start md:gap-8">
+          <StepRail current={current} done={done} lang={lang} onStep={onStep} />
+          <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-1 flex-col">
+            {body}
+          </section>
+        </div>
 
-        <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
-          {MAPPING_ROLES.map((role) => {
-            const rule = mappingRule(ruleset, role);
-            return (
-              <MappingCard
-                key={role}
-                role={role}
-                rule={rule}
-                issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
-                lang={lang}
-                onToggle={() => toggle(role)}
-                onCheck={(check) => setCheck(role, check)}
-                onAskEnable={() => setAsking(role)}
-              />
-            );
-          })}
+        {/* The way through and the way back, pinned to the bottom of the page
+            so it is in reach on every step. */}
+        <div className="sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-line bg-ground px-4 py-3">
+          <button
+            type="button"
+            disabled={at === 0}
+            onClick={() => onStep(STEPS[at - 1])}
+            className={SECONDARY + " disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line"}
+          >
+            {t("action.previous", lang)}
+          </button>
+          <div className="ml-auto flex items-center gap-3">
+            <button type="button" onClick={save} className={last ? PRIMARY : SECONDARY}>
+              {t("action.saveSetup", lang)}
+            </button>
+            {last || current === "start" ? null : (
+              <button
+                type="button"
+                onClick={() => onStep(STEPS[at + 1])}
+                className={nextPrimary ? PRIMARY : SECONDARY}
+              >
+                {t("action.next", lang)}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
