@@ -1121,6 +1121,21 @@ function layoutOverviewPacked(grid: MgGrid): MgLayout {
  *  status need about 680 px across, so 6 modules or more. */
 const REPORT_MIN = 6;
 
+/** The MMI bars' sizes: a small square-ish chart, or a one-row strip. */
+const MMI_SIZES: readonly Wh[] = [[3, 2], [2, 3], ...[8, 6, 5, 4, 3].map((k) => [k, 1] as const)];
+
+/** Rule 9 by composition: the board at canon sizes, filled (`mgFillRows`);
+ *  where that leaves fewer, taller rows, the board composed again with its
+ *  tiles free to grow down (`mgGrown`), and the one of the two that takes
+ *  the most rows, then the first. */
+function bestFilled(compose: (grow: boolean) => MgLayout | null): MgLayout {
+  const first = compose(false)!;
+  if (!first.rowPx) return first;
+  const second = compose(true);
+  if (!second) return first;
+  return second.rows > first.rows ? second : first;
+}
+
 /** The IDS tab (2026-10-01, edkjo: "IDS is a report. No nonsense"): the
  *  report the dominant tile, the board's full height on the left at about
  *  half the columns, or, where the window is too narrow for that, its full
