@@ -165,7 +165,7 @@ const STRINGS = {
 
   /* --------------------------------------------------------- object panel */
   "tile.object": { nb: "Objekt", en: "Object" },
-  "object.attributes": { nb: "Attributter", en: "Attributes" },
+  "object.attributes": { nb: "Grunnleggende", en: "Basic" },
   // The object panel's groups. Plain domain label first, the IFC term beside it
   // as a dim token (rendered by the panel, not baked into these strings): the
   // pairing is what teaches the standard over a hundred selections.

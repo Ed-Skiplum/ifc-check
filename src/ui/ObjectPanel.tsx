@@ -126,12 +126,6 @@ function distinct(
   return distinctOf(rows, read);
 }
 
-function bool(value: boolean | null | undefined): string | null {
-  // `true` / `false` is how this tool renders an IFC BOOLEAN everywhere else
-  // (the type ledger, the copy-object mapping, the xs:boolean lexical form).
-  return value === null || value === undefined ? null : String(value);
-}
-
 /** Metres, three decimals — the millimetre the source models are drawn in.
  *  Never rounded further, and the unrounded number rides in the row's title. */
 function metres(value: number): string {
@@ -159,20 +153,8 @@ function attributeSection(rows: ProductRowLite[], lang: Lang): Section {
         ifc: "PredefinedType",
         values: distinct(rows, (r) => r.predefinedType ?? null),
       },
-      // Flattened out of Pset_*Common by the parser, which is why they sit
-      // here rather than in a set of their own; the owning set still carries
-      // them in group 3, under its own name.
-      { label: "IsExternal", ifc: "Pset_*Common", values: distinct(rows, (r) => bool(r.isExternal)) },
-      {
-        label: "FireRating",
-        ifc: "Pset_*Common",
-        values: distinct(rows, (r) => r.fireRating ?? null),
-      },
-      {
-        label: "LoadBearing",
-        ifc: "Pset_*Common",
-        values: distinct(rows, (r) => bool(r.loadBearing)),
-      },
+      // IsExternal, FireRating and LoadBearing are Pset_*Common properties,
+      // not attributes (edkjo 2026-10-01): they show in group 3 under their set.
       // ifcfast carries no Description on a product row.
       { label: "Description", ifc: "Description", values: [], note: rows.length ? t("type.notSupplied", lang) : null },
     ],
