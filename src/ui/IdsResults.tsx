@@ -19,7 +19,7 @@
  * them in the viewer tile beside the report (the board's one scene, lent).
  */
 
-import type { ReactNode, RefObject } from "react";
+import { useState, type ReactNode, type RefObject } from "react";
 import type { ResultState } from "../ids/evaluate.ts";
 import type { IdsRule } from "../ids/types.ts";
 import type { Lang } from "./i18n";
@@ -112,29 +112,49 @@ export function IdsHead({
 }
 
 
-/** What one specification asks: «Gjelder for» its applicability, «Krav» its
- *  requirements, one facet per line, as the builder labels them. */
+/** Under a specification's title: the reason it could not be evaluated, and
+ *  a disclosure that opens what it asks, «Gjelder for» and «Krav», one facet
+ *  per line (edkjo 2026-10-01: "always only show the title" … "expand to see
+ *  details is an action"; listed in full by default they read as a phonebook). */
 function IdsAsk({ rule, reason, lang }: { rule: IdsRule | null; reason?: string; lang: Lang }) {
+  const [open, setOpen] = useState(false);
   const parts: [string, string[]][] = rule
     ? [
         [builderT("ids.applicability", lang), idsFacets(rule.applicability)],
         [builderT("ids.requirements", lang), idsFacets(rule.requirements)],
       ]
     : [];
+  const any = parts.some(([, lines]) => lines.length > 0);
   return (
     <>
-      {parts.map(([label, lines]) =>
-        lines.length ? (
-          <AskPart key={label} label={label}>
-            {lines.map((line, i) => (
-              <span key={i} className="block">
-                {line}
-              </span>
-            ))}
-          </AskPart>
-        ) : null,
-      )}
       {reason ? <span className="font-mono text-[11px] break-words text-muted">{reason}</span> : null}
+      {any ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={(event) => {
+            // The row's own click opens the derivation; this one only discloses.
+            event.stopPropagation();
+            setOpen((o) => !o);
+          }}
+          className="self-start px-1 font-mono text-[11px] text-muted hover:text-green"
+        >
+          {open ? "▾" : "▸"}
+        </button>
+      ) : null}
+      {open
+        ? parts.map(([label, lines]) =>
+            lines.length ? (
+              <AskPart key={label} label={label}>
+                {lines.map((line, i) => (
+                  <span key={i} className="block">
+                    {line}
+                  </span>
+                ))}
+              </AskPart>
+            ) : null,
+          )
+        : null}
     </>
   );
 }
