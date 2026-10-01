@@ -18,7 +18,7 @@
  */
 
 import type { IfcGraph } from "../../engine/types";
-import { elementMaterialNames } from "../../engine/fundamentals";
+import { elementMaterialNames } from "../../engine/fundamentals.ts";
 import type { ModelProfile, ProductRowLite } from "../profile";
 
 /**
