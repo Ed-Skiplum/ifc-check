@@ -25,7 +25,7 @@ import { ModelPanel } from "./ui/ModelPanel";
 import { TraceBand } from "./ui/TraceBand";
 import type { FloorPeer } from "./ui/FloorSetup";
 import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
-import type { IdsSession } from "./ui/IdsResults";
+import { isIdsFile, type IdsSession } from "./ui/IdsResults";
 import { importIds } from "./ids/import.ts";
 import { buildTrace, parseFocus, serialiseFocus } from "./ui/trace";
 import { loadDesignFonts } from "./design/fonts";
@@ -136,6 +136,13 @@ export default function App() {
     for (const [id, v] of Object.entries(cross.views)) if (v.scope?.kind === "ids") cross.dispatch(id, { type: "clear" });
   }, [applyIds, cross]);
 
+  // The main page's ruleset slot and drop: an `.ids` goes to the IDS view (the
+  // same loader as the IDS tile), a `.json`/`.xlsx` to the ruleset.
+  const takeRulesetFile = useCallback(
+    (file: File) => void (isIdsFile(file) ? loadIds(file) : loadRuleset(file)),
+    [loadIds, loadRuleset],
+  );
+
   const takeFiles = useCallback(
     (files: File[]) => {
       const rulesets: File[] = [];
@@ -146,9 +153,9 @@ export default function App() {
       }
       // Files this app does not take still land in the list, failed and named.
       if (rest.length > 0) addFiles(rest);
-      if (rulesets.length > 0) void loadRuleset(rulesets[0]);
+      if (rulesets.length > 0) takeRulesetFile(rulesets[0]);
     },
-    [addFiles, loadRuleset],
+    [addFiles, takeRulesetFile],
   );
 
   const clearRuleset = useCallback(() => {
@@ -304,7 +311,7 @@ export default function App() {
               ruleset={ruleset}
               rulesetName={rulesetName}
               rulesetError={rulesetError}
-              onRulesetFile={(file) => void loadRuleset(file)}
+              onRulesetFile={takeRulesetFile}
               onClearRuleset={clearRuleset}
               onSetup={toggleSetup}
               onOpenCached={openCached}
@@ -322,9 +329,7 @@ export default function App() {
             onClearAll={onClearAll}
             onClearCache={clearCache}
             rulesetName={rulesetName}
-            onRulesetFile={(file) => void loadRuleset(file)}
             onClearRuleset={clearRuleset}
-            draggingRuleset={dragging > 0}
             setupOpen={setupOpen}
             onSetup={toggleSetup}
           />

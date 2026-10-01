@@ -64,9 +64,7 @@ interface AppBarProps {
   onClearAll: () => void;
   onClearCache: () => void;
   rulesetName: string | null;
-  onRulesetFile: (file: File) => void;
   onClearRuleset: () => void;
-  draggingRuleset: boolean;
   setupOpen: boolean;
   onSetup: () => void;
 }
@@ -80,14 +78,11 @@ export function AppBar({
   onClearAll,
   onClearCache,
   rulesetName,
-  onRulesetFile,
   onClearRuleset,
-  draggingRuleset,
   setupOpen,
   onSetup,
 }: AppBarProps) {
   const ifcInput = useRef<HTMLInputElement>(null);
-  const rulesetInput = useRef<HTMLInputElement>(null);
 
   return (
     // Wraps at narrow widths so every control stays reachable (review
@@ -158,23 +153,7 @@ export function AppBar({
 
       <BcfExport lang={lang} models={models} />
 
-      {rulesetName === null ? (
-        <button
-          type="button"
-          onClick={() => rulesetInput.current?.click()}
-          className={
-            "flex items-center gap-2 border border-dashed px-3 py-1 text-[12px] " +
-            (draggingRuleset
-              ? "border-green bg-palegreen text-green"
-              : "border-line bg-input text-muted hover:border-green hover:text-green")
-          }
-        >
-          <span>{t("drop.ruleset", lang)}</span>
-          <span className="hidden font-mono text-[10px] tracking-wide sm:inline">
-            {t("accept.ruleset", lang)}
-          </span>
-        </button>
-      ) : (
+      {rulesetName === null ? null : (
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">
             {t("label.ruleset", lang)}
@@ -195,17 +174,6 @@ export function AppBar({
           </button>
         </div>
       )}
-      <input
-        ref={rulesetInput}
-        type="file"
-        accept=".ids,.xml,.json,.xlsx"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) onRulesetFile(file);
-          event.target.value = "";
-        }}
-      />
 
       <div className="ml-auto flex items-center gap-3">
         <SetupToggle lang={lang} open={setupOpen} onToggle={onSetup} />
