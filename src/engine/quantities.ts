@@ -42,7 +42,7 @@
  */
 
 import type { QuantityRow } from "./types.ts";
-import type { CodeTree, TreeNode } from "./code-tree.ts";
+import { treeLeaves, type CodeTree, type TreeNode } from "./code-tree.ts";
 
 /* ── units ──────────────────────────────────────────────────────────────── */
 
@@ -388,7 +388,7 @@ export function meshMeasure(
 
 /* ── the fold onto a tree ───────────────────────────────────────────────── */
 
-export type Measure = "count" | "volume" | "area";
+export type Measure = "count" | "volume" | "area" | "length";
 
 export interface SourceSplit {
   qto: number;
@@ -398,13 +398,16 @@ export interface SourceSplit {
   pending: number;
 }
 
-/** Per node: [volume, volume missing, area, area missing]. */
-export type NodeMeasure = [number, number, number, number];
+/** Per node: [volume, volume missing, area, area missing, length, length
+ *  missing]. */
+export type NodeMeasure = [number, number, number, number, number, number];
 
 export interface TreeMeasures {
   nodes: Record<string, NodeMeasure>;
   volume: SourceSplit;
   area: SourceSplit;
+  /** Qto or missing only: a length is never computed, so never pending. */
+  length: SourceSplit;
 }
 
 /** What the geometry pass has told so far. `complete` = every batch
@@ -450,17 +453,20 @@ export function elementQuantities(
   return out;
 }
 
-/** Every node's summed volume and area, the missing counts, and the tree's
- *  source split. Pending elements add nothing and count as neither. */
+/** Every node's summed volume, area and length, the missing counts, and the
+ *  tree's source split. Pending elements add nothing and count as neither.
+ *  The nodes include the flat map's own-object tiles (`treeLeaves`). */
 export function measureTree(
   tree: CodeTree,
   qto: ReadonlyMap<string, Authored>,
   computed: Computed,
+  lengths: ReadonlyMap<string, Picked> = new Map(),
 ): TreeMeasures {
   const per = new Map<string, Resolved>();
   const split = (): SourceSplit => ({ qto: 0, computed: 0, missing: 0, pending: 0 });
   const volume = split();
   const area = split();
+  const length = split();
   const bump = (s: SourceSplit, k: 0 | 1 | 2 | 3) => {
     if (k === 0) s.qto += 1;
     else if (k === 1) s.computed += 1;
@@ -468,26 +474,34 @@ export function measureTree(
     else s.pending += 1;
   };
   const nodes: Record<string, NodeMeasure> = {};
+  const fold = (node: TreeNode) => {
+    const acc: NodeMeasure = [0, 0, 0, 0, 0, 0];
+    for (const guid of node.guids) {
+      let r = per.get(guid);
+      if (!r) {
+        r = resolve(guid, qto, computed);
+        per.set(guid, r);
+        bump(volume, r.vs);
+        bump(area, r.as);
+        bump(length, lengths.has(guid) ? 0 : 2);
+      }
+      if (r.v !== null) acc[0] += r.v;
+      else if (r.vs === 2) acc[1] += 1;
+      if (r.a !== null) acc[2] += r.a;
+      else if (r.as === 2) acc[3] += 1;
+      const l = lengths.get(guid);
+      if (l) acc[4] += l.value;
+      else acc[5] += 1;
+    }
+    nodes[node.key] = acc;
+  };
   const walk = (list: readonly TreeNode[]) => {
     for (const node of list) {
-      const acc: NodeMeasure = [0, 0, 0, 0];
-      for (const guid of node.guids) {
-        let r = per.get(guid);
-        if (!r) {
-          r = resolve(guid, qto, computed);
-          per.set(guid, r);
-          bump(volume, r.vs);
-          bump(area, r.as);
-        }
-        if (r.v !== null) acc[0] += r.v;
-        else if (r.vs === 2) acc[1] += 1;
-        if (r.a !== null) acc[2] += r.a;
-        else if (r.as === 2) acc[3] += 1;
-      }
-      nodes[node.key] = acc;
+      fold(node);
       walk(node.children);
     }
   };
   walk(tree.root);
-  return { nodes, volume, area };
+  for (const { node } of treeLeaves(tree.root)) if (!nodes[node.key]) fold(node);
+  return { nodes, volume, area, length };
 }

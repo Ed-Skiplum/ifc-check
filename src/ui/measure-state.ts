@@ -1,4 +1,4 @@
-/** The treemaps' volume and area, held in the worker that holds the graph
+/** The treemaps' volume, area and length, held in the worker that holds the graph
  *  (the parse worker and the restore worker alike).
  *
  * The progressive rule (edkjo 2026-09-28: *"output the dash and then let the
@@ -17,6 +17,7 @@
  *
  * Volum / Areal are selectable when their tree has no `pending` element, so a
  * model whose every element carries the BaseQuantity is ready with the board.
+ * Lengde is always ready: it is the BaseQuantity `Length` only, never computed.
  */
 
 import type { CodeTree } from "../engine/code-tree.ts";
@@ -102,8 +103,8 @@ export class MeasureState {
   measures(trees: { system: CodeTree; function: CodeTree }): BoardMeasures {
     const computed = { byGuid: this.computed, complete: this.complete };
     return {
-      system: measureTree(trees.system, this.qto, computed),
-      function: measureTree(trees.function, this.qto, computed),
+      system: measureTree(trees.system, this.qto, computed, this.lengths),
+      function: measureTree(trees.function, this.qto, computed, this.lengths),
       progress: this.progress,
     };
   }
@@ -113,8 +114,8 @@ export class MeasureState {
  *  the geometry pass. Count always can. */
 export function measureReady(tree: CodeTree, measures: BoardMeasures | undefined, measure: Measure): boolean {
   if (measure === "count") return true;
-  const m = measures?.[tree.axis];
-  return !!m && m[measure].pending === 0;
+  const m = measures?.[tree.axis]?.[measure];
+  return !!m && m.pending === 0;
 }
 
 /** Measure one batch outside a `MeasureState` (the stream callback, before

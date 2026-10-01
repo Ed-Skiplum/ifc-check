@@ -14,7 +14,7 @@
  *    {projectTrees(model).map((tree) =>
  *      <CodeTreemap key={tree.axis} tree={tree} measures={model.board?.measures} {...door} />)}
  *
- *  `MeasureSwitch` (Antall / Volum / Areal) sits in a treemap's head, as
+ *  `MeasureSwitch` (Antall / Volum / Areal / Lengde) sits in a treemap's head, as
  *  `AltBoard.tsx` does it. The door behind every click is the same
  *  `onFocus`, so a click there fills the Scope dock wherever that is. */
 
