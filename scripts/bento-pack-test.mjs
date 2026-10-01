@@ -16,6 +16,7 @@ import {
   MG_TALL,
   SIZES,
   canonSize,
+  layoutContents,
   layoutOverview,
   layoutProject,
   mgAspect,
@@ -313,6 +314,51 @@ for (const [design, content] of Object.entries(projectContents)) {
     check(out.offset === 0 && out.used === grid.cols, `rule 9: ${at} the board takes ${out.used} of ${grid.cols} columns`);
     check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows`);
     check(Math.abs(out.rows * (out.rowPx ?? mgRow(grid)) + (out.rows - 1) * MG_GAP - (grid.rows * mgRow(grid) + (grid.rows - 1) * MG_GAP)) < 1e-6, `rule 9: ${at} rows are not the grid's height`);
+    const ins = insets(w, h - 104, out, grid);
+    check(inset12(ins), `margin: ${at} inset ${ins.map((v) => v.toFixed(1)).join("/")}, not 12 on every side`);
+  }
+}
+/* ── rule 9 on the Innhold tab: every row and column, no holes ────────── */
+
+for (const [design, content] of Object.entries({ plain: { mmi: false }, mmi: { mmi: true } })) {
+  for (const [w, h] of windows) {
+    const grid = mgGrid(w, h - 104);
+    const at = `contents ${design} ${w}×${h} (${grid.cols}×${grid.rows})`;
+    let out;
+    try {
+      out = layoutContents(grid, content);
+    } catch (error) {
+      check(false, `${at}: no layout (${error.message})`);
+      continue;
+    }
+    count += 1;
+    if (out.rowPx) taller += 1;
+    check(JSON.stringify(layoutContents({ ...grid }, { ...content })) === JSON.stringify(out), `stable: ${at}`);
+    check(out.tiles.some((t) => t.id === "qto") && out.tiles.some((t) => t.id === "census"), `${at}: the QTO table or Etasje × klasse is not a tile`);
+    if (!content.mmi) check(!out.tiles.some((t) => t.id === "mmi" || t.tabs.includes("mmi")), `${at}: an MMI tile without MMI`);
+    for (const id of out.moved) check(out.tiles.some((t) => t.tabs.includes(id)), `rule 8: ${at} moved ${id} has no host`);
+    // The hero is the largest tile (rule 2).
+    const qto = out.tiles.find((t) => t.id === "qto");
+    if (qto) check(out.tiles.every((t) => t.w * t.h <= qto.w * qto.h), `rule 2: ${at} a tile is larger than the QTO table`);
+    const occ = new Set();
+    for (const t of out.tiles) {
+      const [bw, bh] = t.base ?? [t.w, t.h];
+      check(canonSize(bw, bh, t.id in MG_STRIPS, t.id in MG_TALL) === t.size, `rule 7: ${at} ${t.id} ${bw}×${bh} is not its ${t.size}`);
+      if (t.size !== "tall" && t.size !== "strip") {
+        const a = mgAspect(t.kind, t.w, t.h, grid.u, out.rowPx ?? mgRow(grid));
+        check(a >= MG_ASPECT[t.kind].min - 1e-9 && a <= MG_ASPECT[t.kind].max + 1e-9, `rule 3: ${at} ${t.id} ${t.w}×${t.h} renders ${a.toFixed(2)}`);
+      }
+      for (let y = t.y; y < t.y + t.h; y += 1)
+        for (let x = t.x; x < t.x + t.w; x += 1) {
+          check(!occ.has(`${x},${y}`), `rule 9: ${at} ${t.id} overlaps`);
+          occ.add(`${x},${y}`);
+        }
+    }
+    let holes = 0;
+    for (let y = 0; y < out.rows; y += 1) for (let x = 0; x < grid.cols; x += 1) if (!occ.has(`${x},${y}`)) holes += 1;
+    check(holes === 0 && occ.size === grid.cols * out.rows, `rule 9: ${at} has ${holes} empty cells`);
+    check(out.offset === 0 && out.used === grid.cols, `rule 9: ${at} the board takes ${out.used} of ${grid.cols} columns`);
+    check(out.top === 0 && out.usedRows === out.rows, `rule 9: ${at} the board takes ${out.usedRows} of ${out.rows} rows`);
     const ins = insets(w, h - 104, out, grid);
     check(inset12(ins), `margin: ${at} inset ${ins.map((v) => v.toFixed(1)).join("/")}, not 12 on every side`);
   }

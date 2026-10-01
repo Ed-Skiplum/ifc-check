@@ -1311,6 +1311,64 @@ function layoutProjectNarrow(grid: MgGrid, content: MgProjectContent): MgLayout 
   return mgPackExact(grid, specs) ?? mgPack(grid, specs);
 }
 
+/* ── the Innhold tab: the rollup of what the model contains ──────────── */
+
+export interface MgContentsContent {
+  /** The MMI bars: only where an MMI mapping is configured. */
+  mmi: boolean;
+  /** The two code treemaps: false before the board data exists; absent
+   *  counts as there. */
+  trees?: boolean;
+}
+
+/** A tile's price on the Innhold tab: its share of the board (proportional,
+ *  rule 2: the hero the largest, the others stepped under it, at every
+ *  window) and its shape (the nearer square the cheaper). */
+function shareCost(grid: MgGrid, share: number) {
+  const r = mgRow(grid);
+  const want = share * grid.cols * grid.rows;
+  return (w: number, h: number) => 3 * Math.abs(Math.log((w * h) / want)) + 2 * Math.abs(Math.log(mgAspect("list", w, h, grid.u, r)));
+}
+
+/** The Innhold tab's tiles, in priority order, with their share of the
+ *  board: the QTO table (the hero, XL), Etasje × klasse and the Typer
+ *  ledger (L), the two code treemaps (L, else M landscape), the MMI bars
+ *  where configured (M or the named strip). Too little room moves the
+ *  lowest into a tab: the ledger into Etasje × klasse, the function treemap
+ *  into the system one, the MMI bars into a treemap. */
+function contentsSpecs(grid: MgGrid, content: MgContentsContent): MgTileSpec[] {
+  const { u, rows } = grid;
+  const r = mgRow(grid);
+  const maxW = Math.min(grid.cols, 12);
+  const flex = (spec: MgTileSpec, share: number) => mgFlex(spec, u, maxW, rows, shareCost(grid, share), r);
+  return [
+    flex({ id: "qto", kind: "list", sizes: [[8, 5], [6, 4]], required: true }, 0.34),
+    flex({ id: "census", kind: "list", sizes: SIZES.L, required: true }, 0.18),
+    ...(content.trees === false
+      ? []
+      : [
+          flex({ id: "tree-system", kind: "chart", sizes: LM, hosts: ["qto"] }, 0.14),
+          flex({ id: "tree-function", kind: "chart", sizes: LM, hosts: ["tree-system", "qto"] }, 0.14),
+        ]),
+    ...(content.mmi ? [{ id: "mmi", kind: "chart" as MgKind, sizes: MMI_SIZES, hosts: ["tree-system", "qto"] }] : []),
+    flex({ id: "ledger", kind: "list", sizes: LM, hosts: ["census", "qto"] }, 0.2),
+  ];
+}
+
+/** The Innhold tab (2026-10-01): one exact cover of the window's grid by
+ *  `contentsSpecs`, every column and row used (rule 9: the cover, then
+ *  `mgFillCols` and `mgFillRows`). Where no cover keeps every tile, the
+ *  lowest move into tabs; where none exists at all (a very small window),
+ *  the board shrinks (`mgPack`). A pure function of the grid and of whether
+ *  MMI is configured: never of selection or filter. */
+export function layoutContents(grid: MgGrid, content: MgContentsContent): MgLayout {
+  return bestFilled((grow) => {
+    const specs = contentsSpecs(grid, content);
+    const board = packBody(grid, grow ? mgGrown(specs, grid.rows, grid.u, mgRow(grid)) : specs) ?? (grow ? null : mgPack(grid, specs));
+    return board && mgFillRows(mgFillCols(board));
+  });
+}
+
 /* ── the Rom tab: the spaces and their schedule ────────────────────────── */
 
 /** The Rom tab on the same grid: the spatial view (3D or plan) and the
