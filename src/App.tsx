@@ -376,6 +376,7 @@ export default function App() {
             onFiles={takeFiles}
             onClearAll={onClearAll}
             onClearCache={clearCache}
+            ruleset={ruleset}
             rulesetName={rulesetName}
             onClearRuleset={clearRuleset}
             setupOpen={setupOpen}

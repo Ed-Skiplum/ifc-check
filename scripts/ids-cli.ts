@@ -128,6 +128,11 @@ import {
   type NomeshVerification,
 } from "../src/engine/body-mesh.ts";
 import { shapeOf } from "../src/ui/room-plan.ts";
+import { profileOf } from "../src/storage/rehydrate.ts";
+import { withTypeFacts } from "../src/ui/types/facts.ts";
+import { beregn, SENTINEL } from "../src/mottakskontroll/beregn.ts";
+import { htmlModell, htmlProsjekt } from "../src/mottakskontroll/html.ts";
+import { BLOKKER, ETIKETTER, KPI_TITLER, SEKSJONER, VERDIKT_ORD } from "../src/mottakskontroll/standard.ts";
 import { CACHE_SESSION_GRACE_MS, offered, purgeable } from "../src/storage/session.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
@@ -2689,6 +2694,7 @@ async function cmdSelftest(): Promise<number> {
 
   await xlsxSelftest(record);
   configSelftest(record);
+  mottakskontrollSelftest(record);
 
   const ok = assertions.every((a) => a.ok);
   emit({
@@ -2779,6 +2785,140 @@ async function cmdJson2xlsx(args: string[]): Promise<number> {
 }
 
 type Record_ = (name: string, expected: string, actual: string) => void;
+
+/** The PDF report (src/mottakskontroll/): the strings are standard.yaml's,
+ *  and both reports render from a small synthetic model with every block. */
+function mottakskontrollSelftest(record: Record_): void {
+  // Drift: every label, verdict word, title and requirement text the browser
+  // prints is standard.yaml's, verbatim.
+  const yaml = readFileSync(new URL("../mottakskontroll/standard/standard.yaml", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const has = (key: string, value: string) =>
+    // Block entries, or a flow mapping (`seksjoner`).
+    [`${key}: ${value}\n`, `${key}: '${value}'\n`, `${key}: ${value}}`].some((line) => yaml.includes(line));
+  const strings: [string, string][] = [
+    ...Object.entries(ETIKETTER),
+    ...Object.entries(VERDIKT_ORD),
+    ...Object.values(KPI_TITLER).map((v): [string, string] => ["tittel", v]),
+    ...SEKSJONER.map((x): [string, string] => ["tittel", x.tittel]),
+    ...BLOKKER.flatMap((b): [string, string][] => [["tittel", b.tittel], ["krav_tekst", b.krav_tekst]]),
+  ];
+  record(
+    "mottakskontroll: every string the browser report prints is in standard.yaml",
+    "none missing",
+    strings.filter(([k, v]) => !has(k, v)).map(([k, v]) => `${k}: ${v}`).join(" | ") || "none missing",
+  );
+
+  const row = (guid: string, entity: string, over: Record<string, unknown> = {}) => ({
+    guid, entity, name: guid, predefined_type: null, object_type: null, tag: null,
+    storey_guid: "s1", parent_guid: null, type_name: null, type_source: "none", typed: false,
+    type_guid: null, materials: [], layer_set: null, is_external: null, fire_rating: null, load_bearing: null,
+    ...over,
+  });
+  const typed = (name: string, typeGuid: string) => ({ typed: true, type_name: name, type_guid: typeGuid, type_source: "type" });
+  const graph = {
+    schema: "IFC4", project_name: null,
+    products: [
+      row("a", "IFCWALL", typed("Vegg 200", "t1")),
+      row("b", "IFCWALL", typed("Vegg 200", "t1")),
+      row("c", "IFCDOOR", { ...typed("", "t2"), storey_guid: "s2" }),
+      row("d", "IFCSLAB", { storey_guid: null }),
+      row("e", "IFCWALL"),
+      row("e", "IFCWALL"),
+    ],
+    storeys: [
+      { guid: "s1", name: "Plan 1", elevation: 0, building_guid: null },
+      { guid: "s2", name: "Plan 2", elevation: 3.002, building_guid: null },
+      { guid: "s3", name: "Plan 9", elevation: 9, building_guid: null },
+    ],
+    sites: [], buildings: [], projects: [], spaces: [],
+    contained_in: [{ product_guid: "a", storey_guid: "s1" }], aggregates: [], storey_building: [], voids: [],
+    psets: [
+      { guid: "a", pset_name: "P", prop_name: "MMI", value: "300", value_type: "IfcLabel", source: "instance" },
+      { guid: "b", pset_name: "P", prop_name: "MMI", value: "999", value_type: "IfcLabel", source: "instance" },
+    ],
+    classifications: [], quantities: [],
+    // A carried material: Materiale's Gyldig is then not measured.
+    materials: [{ guid: "a", role: "direct", layer_index: 0, material_name: "Betong", layer_thickness_mm: null, category: null, fraction: null, source: "instance" }],
+    type_objects: [
+      { guid: "t1", entity: "IfcWallType", name: "Vegg 200", step_id: 1 },
+      { guid: "t2", entity: "IfcDoorType", name: "", step_id: 2 },
+    ],
+  } as unknown as IfcGraph;
+  const summary = {
+    schema: "IFC4", length_unit: "METRE", unit_scale: 1, unit_resolved: true, authoring_app: null,
+    project_name: null, duplicate_step_ids: 0, products: 6, storeys: 3, path: "", size_bytes: 0,
+    parse_seconds: 0, warnings: [], tables: {},
+  } as unknown as IfcSummary;
+  const ruleset = {
+    ...SAMPLE_RULESET,
+    name: "Prosjekt X",
+    info: { title: "Prosjekt X" },
+    storeys: {
+      plane: "OKFG", tolerance: { aboveMm: 5, belowMm: 5 }, nameWindowMm: 1000, nearMm: 200,
+      levels: [{ name: "Plan 1", elevation: 0 }, { name: "Plan 2", elevation: 3 }, { name: "Plan 3", elevation: 6 }],
+    },
+    disciplines: [{ code: "ARK" }],
+    models: [{ label: "X_ARK", discipline: "ARK" }],
+    rules: [{
+      id: "progress-code", kind: "extended", mapping: "progress-code", name: "MMI",
+      check: { type: "code-lookup", extract: "^(\\d{3})$", source: { property: { propertySet: "P", name: "MMI" } }, codes: [{ code: "300", name: "Tre" }] },
+    }],
+  } as unknown as Ruleset;
+  const file = "X_ARK.ifc";
+  const evaluation = evaluateRuleset(ruleset, graph as unknown as ModelGraph, summary as unknown as ModelSummary, file);
+  const checks = [...runFundamentals(graph, summary), checkStoreyConfig(graph, summary, ruleset, file)];
+  const rows = reportRows({ model: { file, schema: "IFC4", sha256: "" }, graph, summary, checks, ruleset, evaluation });
+  const profile = withTypeFacts(profileOf(graph), graph);
+  const runde = beregn([{ fileName: file, rows, summary, profile }], ruleset, "2026-10-01");
+  const m = runde.modeller[0];
+  const assets = { tokens: "/* tokens */", css: "/* css */", merke: '<svg viewBox="0 0 1 1"></svg>' };
+
+  record(
+    "mottakskontroll: verdicts per block",
+    "typeobjekt:kan_brukes guid:ikke_oppfylt etasjedefinisjon:ikke_oppfylt etasjer:kan_brukes " +
+      "systemkode:ikke_konfigurert funksjonskode:ikke_konfigurert produkt:ikke_oppfylt materiale:ukjent " +
+      "kopiobjekt:ikke_konfigurert mmi:ikke_oppfylt fase:ikke_oppfylt",
+    m.blokker.map((b) => `${b.id}:${b.verdikt}`).join(" "),
+  );
+  record(
+    "mottakskontroll: GUID counts the extra occurrences; the etasjematrise has a mangler level and an extra storey",
+    "dup 1 | Plan 1:som_registeret Plan 2:som_registeret Plan 3:mangler :andre_nivaaer",
+    `dup ${m.guid.duplikater} | ` + m.etasjer.em.rader.map((r) => `${r.k_navn}:${r.kode}`).join(" "),
+  );
+  record(
+    "mottakskontroll: Nøkkeltall over every product row, types by class and name",
+    "2/ 6/IfcProduct 1,5/3 / 2 1/50 % 3/50 %",
+    m.kpi.map((k) => `${k.tekst}/${k.under}`).join(" ").replace(/ /g, " "),
+  );
+
+  const html = htmlModell(runde, m, assets);
+  const blokker = BLOKKER.filter((b) => b.id !== "guid" && b.id !== "etasjedefinisjon");
+  const mangler = [
+    ...blokker.filter((b) => !html.includes(`</span>${b.tittel}</div>`)).map((b) => b.tittel),
+    ...[ETIKETTER.duplikater_i_fila, ETIKETTER.etasjedefinisjon, ETIKETTER.seksjon_nokkeltall, ETIKETTER.seksjon_merknader, ...SEKSJONER.map((x) => x.tittel)]
+      .filter((x) => !html.includes(x)),
+  ];
+  record("mottakskontroll: the model report renders every block and component", "all present", mangler.join(", ") || "all present");
+  record(
+    "mottakskontroll: the model report numbers nine blocks and draws the floor component",
+    "9 1",
+    `${(html.match(/<section class="blokk krav"><div class="kvadrat/g) ?? []).length} ` +
+      `${(html.match(/<section class="blokk krav etg-komp">/g) ?? []).length}`,
+  );
+  const prosjekt = htmlProsjekt(runde, assets);
+  record(
+    "mottakskontroll: the project report has Leveransen and a Krav × modell row per block",
+    `${ETIKETTER.seksjon_leveransen} ${BLOKKER.length}`,
+    `${prosjekt.includes(ETIKETTER.seksjon_leveransen) ? ETIKETTER.seksjon_leveransen : "-"} ` +
+      String((prosjekt.match(/<td class="krav">/g) ?? []).length),
+  );
+  record(
+    "mottakskontroll: a verdict the browser cannot decide prints the sentinel, never a guess",
+    "1",
+    String(html.split(`<span class="kord">${SENTINEL}</span>`).length - 1),
+  );
+  record("mottakskontroll: no mojibake in either report", "clean", /Ã|â€|Â/.test(html + prosjekt) ? "mojibake" : "clean");
+}
 
 /** Private fixtures: `tests/fixtures/private/*.json` and `*.xlsx`, never
  *  committed. Absent is fine: the cases that need one are skipped. */

@@ -4,6 +4,8 @@ import { LANGS, t } from "./i18n";
 import { copyOnDoubleClick } from "./copy";
 import { formatCount } from "./format";
 import { BcfExport } from "./BcfExport";
+import { PdfExport } from "./PdfExport";
+import type { Ruleset } from "../ids/types.ts";
 import type { ModelEntry } from "./useModels";
 
 export function LangToggle({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void }) {
@@ -63,6 +65,7 @@ interface AppBarProps {
   onFiles: (files: File[]) => void;
   onClearAll: () => void;
   onClearCache: () => void;
+  ruleset: Ruleset | null;
   rulesetName: string | null;
   onClearRuleset: () => void;
   setupOpen: boolean;
@@ -77,6 +80,7 @@ export function AppBar({
   onFiles,
   onClearAll,
   onClearCache,
+  ruleset,
   rulesetName,
   onClearRuleset,
   setupOpen,
@@ -152,6 +156,7 @@ export function AppBar({
       </button>
 
       <BcfExport lang={lang} models={models} />
+      <PdfExport lang={lang} models={models} ruleset={ruleset} />
 
       {rulesetName === null ? null : (
         <div className="flex items-center gap-2">

@@ -486,6 +486,9 @@ const STRINGS = {
   "bcf.noSpaces": { nb: "Ingen rom", en: "No spaces" },
   "bcf.noCamera": { nb: "Uten kamera", en: "No camera" },
 
+  /* ------------------------------------------------------------------ PDF */
+  "action.pdf": { nb: "Eksporter PDF", en: "Export PDF" },
+
   /* ----------------------------------------------------------------- graph */
   "tab.graph": { nb: "Graf", en: "Graph" },
 
