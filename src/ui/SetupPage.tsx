@@ -19,6 +19,11 @@
  * med» for one it lacks. A rail names every step and jumps freely. «Lagre
  * oppsett» keeps the ruleset in the browser (`storage/saved-ruleset.ts`) and
  * returns to the board; "Last ned" stays the file export.
+ *
+ * Nothing is gated (2026-10-01). edkjo: "Having to activate the field to
+ * interact with it isnt working here." Every field is live on every step, and
+ * an edit turns its rule on; the switch remains the way to turn one off. A new
+ * mapping's source is a property, so the picker is what a step opens on.
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
@@ -71,7 +76,8 @@ function blankSource(kind: SourceKind): CodeSource {
 }
 
 function blankCheck(role: MappingRole): MappingCheck {
-  const base = { type: "code-lookup", source: { attribute: "Name" } } as const;
+  // A property by default: the walk's picker lists the loaded model's sets.
+  const base = { type: "code-lookup", source: blankSource("property") } as const;
   switch (role) {
     case "system-classification":
     case "component-classification":
@@ -79,7 +85,7 @@ function blankCheck(role: MappingRole): MappingCheck {
     case "progress-code":
       return { ...base, codes: [], extract: "^(.+)$" };
     case "copy-object":
-      return { type: "copy-object", source: { attribute: "Name" }, copy: [], own: [] };
+      return { type: "copy-object", source: blankSource("property"), copy: [], own: [] };
   }
 }
 
@@ -157,13 +163,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Seg<T extends string>({
   options,
   value,
-  disabled,
   label,
   onChange,
 }: {
   options: readonly T[];
   value: T;
-  disabled: boolean;
   label: (option: T) => string;
   onChange: (next: T) => void;
 }) {
@@ -173,13 +177,11 @@ function Seg<T extends string>({
         <button
           key={option}
           type="button"
-          disabled={disabled}
           aria-pressed={option === value}
           onClick={() => onChange(option)}
           className={
             "px-3 py-1 text-[12px] " +
-            (option === value ? "bg-green text-cream" : "bg-input text-muted hover:text-ink") +
-            " disabled:opacity-60"
+            (option === value ? "bg-green text-cream" : "bg-input text-muted hover:text-ink")
           }
         >
           {label(option)}
@@ -192,13 +194,11 @@ function Seg<T extends string>({
 /** The project's code list: code, name and, on MMI, the phase. */
 function CodesTable({
   codes,
-  disabled,
   issues,
   lang,
   onChange,
 }: {
   codes: CodeEntry[];
-  disabled: boolean;
   issues: LintIssue[];
   lang: Lang;
   onChange: (next: CodeEntry[]) => void;
@@ -222,15 +222,14 @@ function CodesTable({
           <span className={LABEL}>{t("field.phase", lang)}</span>
           <span />
           {codes.map((c, i) => (
-            <CodeRow key={i} entry={c} disabled={disabled} lang={lang} invalid={(f) => invalid(i, f)} onChange={(p) => set(i, p)} onRemove={() => onChange(codes.filter((_, j) => j !== i))} />
+            <CodeRow key={i} entry={c} lang={lang} invalid={(f) => invalid(i, f)} onChange={(p) => set(i, p)} onRemove={() => onChange(codes.filter((_, j) => j !== i))} />
           ))}
         </div>
       ) : null}
       <button
         type="button"
-        disabled={disabled}
         onClick={() => onChange([...codes, { code: "", name: "" }])}
-        className="w-fit border border-line bg-input px-2 py-0.5 text-[12px] text-muted hover:border-green hover:text-green disabled:opacity-60"
+        className="w-fit border border-line bg-input px-2 py-0.5 text-[12px] text-muted hover:border-green hover:text-green"
       >
         {t("action.addRow", lang)}
       </button>
@@ -240,14 +239,12 @@ function CodesTable({
 
 function CodeRow({
   entry,
-  disabled,
   lang,
   invalid,
   onChange,
   onRemove,
 }: {
   entry: CodeEntry;
-  disabled: boolean;
   lang: Lang;
   invalid: (field: string) => boolean;
   onChange: (patch: Partial<CodeEntry>) => void;
@@ -255,10 +252,10 @@ function CodeRow({
 }) {
   return (
     <>
-      <input type="text" className={INPUT} disabled={disabled} aria-invalid={invalid("code")} value={entry.code} onChange={(e) => onChange({ code: e.target.value })} />
-      <input type="text" className={INPUT} disabled={disabled} aria-invalid={invalid("name")} value={entry.name} onChange={(e) => onChange({ name: e.target.value })} />
-      <input type="text" className={INPUT} disabled={disabled} aria-invalid={invalid("phase")} value={entry.phase ?? ""} onChange={(e) => onChange({ phase: e.target.value })} />
-      <button type="button" disabled={disabled} onClick={onRemove} className="px-2 py-0.5 text-[12px] text-muted hover:text-bad disabled:opacity-60">
+      <input type="text" className={INPUT} aria-invalid={invalid("code")} value={entry.code} onChange={(e) => onChange({ code: e.target.value })} />
+      <input type="text" className={INPUT} aria-invalid={invalid("name")} value={entry.name} onChange={(e) => onChange({ name: e.target.value })} />
+      <input type="text" className={INPUT} aria-invalid={invalid("phase")} value={entry.phase ?? ""} onChange={(e) => onChange({ phase: e.target.value })} />
+      <button type="button" onClick={onRemove} className="px-2 py-0.5 text-[12px] text-muted hover:text-bad">
         {t("action.remove", lang)}
       </button>
     </>
@@ -269,12 +266,10 @@ function CodeRow({
  *  all; the rule gets the parsed list on every keystroke. */
 function ValuesInput({
   values,
-  disabled,
   invalid,
   onChange,
 }: {
   values: string[];
-  disabled: boolean;
   invalid: boolean;
   onChange: (next: string[]) => void;
 }) {
@@ -291,7 +286,6 @@ function ValuesInput({
     <input
       type="text"
       className={INPUT}
-      disabled={disabled}
       aria-invalid={invalid}
       value={draft}
       onChange={(e) => {
@@ -320,7 +314,6 @@ function PropertyPicker({
   choices,
   reading,
   errors,
-  disabled,
   invalidSet,
   invalidName,
   lang,
@@ -331,7 +324,6 @@ function PropertyPicker({
   choices: PsetChoice[] | null;
   reading: boolean;
   errors: string[];
-  disabled: boolean;
   invalidSet: boolean;
   invalidName: boolean;
   lang: Lang;
@@ -397,7 +389,7 @@ function PropertyPicker({
   return (
     <div className="flex flex-col gap-3">
       {choices !== null || reading ? (
-        <div className={"flex flex-col border border-line bg-input" + (disabled ? " opacity-60" : "")}>
+        <div className="flex flex-col border border-line bg-input">
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
             <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-muted">
               <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -410,7 +402,6 @@ function PropertyPicker({
               aria-expanded="true"
               aria-controls={`${baseId}-list`}
               aria-activedescendant={at >= 0 ? optionId(at) : undefined}
-              disabled={disabled}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -456,7 +447,7 @@ function PropertyPicker({
                       aria-selected={selected}
                       // Keeps focus in the search field.
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => !disabled && pick({ kind: "prop", set: c.set, name: p.name })}
+                      onClick={() => pick({ kind: "prop", set: c.set, name: p.name })}
                       className={row(selected, i) + " pl-6"}
                     >
                       <span className="min-w-0 truncate font-mono">{p.name}</span>
@@ -471,7 +462,7 @@ function PropertyPicker({
               role="option"
               aria-selected={fieldsOpen && !found}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => !disabled && pick({ kind: "manual" })}
+              onClick={() => pick({ kind: "manual" })}
               className={row(fieldsOpen && !found, options.length - 1) + (groups.length > 0 ? " mt-1 border-t border-line" : "")}
             >
               <span>{t("field.notInModel", lang)}</span>
@@ -491,7 +482,6 @@ function PropertyPicker({
               ref={setRef}
               type="text"
               className={INPUT}
-              disabled={disabled}
               aria-invalid={invalidSet}
               value={value.propertySet}
               onChange={(e) => onChange({ ...value, propertySet: e.target.value })}
@@ -501,7 +491,6 @@ function PropertyPicker({
             <input
               type="text"
               className={INPUT}
-              disabled={disabled}
               aria-invalid={invalidName}
               value={value.name}
               onChange={(e) => onChange({ ...value, name: e.target.value })}
@@ -539,7 +528,6 @@ function MappingCard({
     rule && (rule.check.type === "code-lookup" || rule.check.type === "copy-object") ? rule.check : blankCheck(role);
   const source = check.source;
   const kind = sourceKind(source);
-  const off = !active;
   const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
   const classification = role === "system-classification" || role === "component-classification";
 
@@ -575,7 +563,6 @@ function MappingCard({
           <Field label={t("field.list", lang)}>
             <select
               className={INPUT}
-              disabled={off}
               aria-invalid={invalid("list")}
               value={check.list ?? ""}
               onChange={(e) =>
@@ -599,7 +586,6 @@ function MappingCard({
             <Seg
               options={["occurrence", "type"] as const}
               value={check.target ?? "occurrence"}
-              disabled={off}
               label={(o) => t(`field.target.${o}`, lang)}
               onChange={(target) => onCheck({ ...check, target })}
             />
@@ -611,7 +597,6 @@ function MappingCard({
         <Field label={t("field.source", lang)}>
           <select
             className={INPUT}
-            disabled={off}
             value={kind}
             onChange={(e) => onCheck({ ...check, source: blankSource(e.target.value as SourceKind) })}
           >
@@ -627,7 +612,6 @@ function MappingCard({
             <input
               type="text"
               className={INPUT}
-              disabled={off}
               aria-invalid={invalid("source")}
               value={source.attribute}
               onChange={(e) => onCheck({ ...check, source: { attribute: e.target.value } })}
@@ -639,7 +623,6 @@ function MappingCard({
             <input
               type="text"
               className={INPUT}
-              disabled={off}
               value={source.classification.system ?? ""}
               onChange={(e) =>
                 onCheck({
@@ -660,7 +643,6 @@ function MappingCard({
           choices={picker.choices}
           reading={picker.reading}
           errors={picker.errors}
-          disabled={off}
           invalidSet={invalid("source.property.propertySet")}
           invalidName={invalid("source.property.name")}
           lang={lang}
@@ -674,7 +656,6 @@ function MappingCard({
             <input
               type="text"
               className={INPUT}
-              disabled={off}
               aria-invalid={invalid("extract")}
               value={check.extract}
               onChange={(e) => onCheck({ ...check, extract: e.target.value })}
@@ -683,7 +664,6 @@ function MappingCard({
           {role === "progress-code" ? (
             <CodesTable
               codes={check.codes ?? []}
-              disabled={off}
               issues={issues}
               lang={lang}
               onChange={(codes) => onCheck({ ...check, codes })}
@@ -695,7 +675,6 @@ function MappingCard({
           <Field label={t("field.copy", lang)}>
             <ValuesInput
               values={check.copy}
-              disabled={off}
               invalid={invalid("copy")}
               onChange={(copy) => onCheck({ ...check, copy })}
             />
@@ -703,7 +682,6 @@ function MappingCard({
           <Field label={t("field.own", lang)}>
             <ValuesInput
               values={check.own}
-              disabled={off}
               invalid={invalid("own")}
               onChange={(own) => onCheck({ ...check, own })}
             />
@@ -1075,19 +1053,20 @@ export function SetupPage({
     return rule !== null && rule.enabled !== false && !hasErrors(lint.filter((i) => i.ruleId === rule.id));
   };
 
+  const newRule = (role: MappingRole): ExtendedRule => ({
+    id: freshId(ruleset, role),
+    kind: "extended",
+    // The copy-object role is its check type; the others are a mapping.
+    ...(role === "copy-object" ? {} : { mapping: role }),
+    name: t(`mapping.${role}`, lang),
+    select: { entity: { group: "physicalElement" } },
+    check: blankCheck(role),
+  });
+
   const toggle = (role: MappingRole) => {
     const rule = mappingRule(ruleset, role);
     if (rule === null) {
-      const created: ExtendedRule = {
-        id: freshId(ruleset, role),
-        kind: "extended",
-        // The copy-object role is its check type; the others are a mapping.
-        ...(role === "copy-object" ? {} : { mapping: role }),
-        name: t(`mapping.${role}`, lang),
-        select: { entity: { group: "physicalElement" } },
-        check: blankCheck(role),
-      };
-      onChange({ ...ruleset, rules: [...ruleset.rules, created] });
+      onChange({ ...ruleset, rules: [...ruleset.rules, newRule(role)] });
       return;
     }
     const next: ExtendedRule = { ...rule };
@@ -1096,12 +1075,19 @@ export function SetupPage({
     onChange({ ...ruleset, rules: ruleset.rules.map((r) => (r === rule ? next : r)) });
   };
 
+  // An edit is a decision: it turns the rule on, creating it if need be.
   const setCheck = (role: MappingRole, check: MappingCheck) => {
     const rule = mappingRule(ruleset, role);
-    if (rule === null) return;
+    if (rule === null) {
+      const created: ExtendedRule = { ...newRule(role), check };
+      onChange({ ...ruleset, rules: [...ruleset.rules, created] });
+      return;
+    }
+    const next: ExtendedRule = { ...rule, check };
+    delete next.enabled;
     onChange({
       ...ruleset,
-      rules: ruleset.rules.map((r) => (r === rule ? { ...rule, check } : r)),
+      rules: ruleset.rules.map((r) => (r === rule ? next : r)),
     });
   };
 
