@@ -189,12 +189,56 @@ export function functionTree(
   return { axis: "function", by: "mapping", n: readings.length, root: finish(top) };
 }
 
-/** A node by its key, anywhere in the tree. */
+/** The key suffix of a node's own objects: those coded at its level and
+ *  at none under it (a "22" beside a "226"). */
+const OWN = "~";
+
+/** A node's objects that none of its children hold, as a node of its own
+ *  (same label, name and kind); null when its children hold them all. */
+function ownPart(node: TreeNode): TreeNode | null {
+  const under = new Set(node.children.flatMap((c) => c.guids));
+  const guids = node.guids.filter((g) => !under.has(g));
+  return guids.length > 0 ? { ...node, key: `${node.key}${OWN}`, n: guids.length, guids, children: [] } : null;
+}
+
+/** One tile of a flat treemap: a leaf, or a node's own objects, with the
+ *  nodes above it (outermost first). */
+export interface TreeLeaf {
+  node: TreeNode;
+  path: TreeNode[];
+}
+
+/** The tree as one level (edkjo 2026-10-01: *"I just want pure tiles"*):
+ *  every leaf, and every inner node's own objects as a tile of that code.
+ *  Every object is in exactly one tile. */
+export function treeLeaves(nodes: readonly TreeNode[], path: TreeNode[] = []): TreeLeaf[] {
+  const out: TreeLeaf[] = [];
+  for (const node of nodes) {
+    if (node.children.length === 0) {
+      out.push({ node, path });
+      continue;
+    }
+    const own = ownPart(node);
+    if (own) out.push({ node: own, path });
+    out.push(...treeLeaves(node.children, [...path, node]));
+  }
+  return out;
+}
+
+/** A node by its key, anywhere in the tree; a key ending in the own suffix
+ *  is that node's own objects (`treeLeaves`). */
 export function findNode(nodes: readonly TreeNode[], key: string): TreeNode | null {
+  const hit = findExact(nodes, key);
+  if (hit || !key.endsWith(OWN)) return hit;
+  const base = findExact(nodes, key.slice(0, -OWN.length));
+  return base && base.children.length > 0 ? ownPart(base) : null;
+}
+
+function findExact(nodes: readonly TreeNode[], key: string): TreeNode | null {
   for (const node of nodes) {
     if (node.key === key) return node;
     if (key.startsWith(node.key)) {
-      const hit = findNode(node.children, key);
+      const hit = findExact(node.children, key);
       if (hit) return hit;
     }
   }

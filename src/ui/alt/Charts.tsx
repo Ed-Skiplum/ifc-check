@@ -16,13 +16,19 @@
  *  volume and area are its elements in the set, a bar's height its elements
  *  in the set; cells and bars with none are not drawn. As the origin, a
  *  chart keeps everything and the tile dims all but the chosen item; `lit`
- *  marks the cells holding the chosen elements (a frame around the chosen
- *  cell, a cell inside a chosen frame). */
+ *  marks the cells holding the chosen elements.
+ *
+ *  The treemaps are flat (edkjo 2026-10-01: *"I dont like the treemap tiles
+ *  with nested tiles. I just want pure tiles by count, volume, m2, length"*):
+ *  one level, a tile per leaf code, class, PredefinedType or status value
+ *  (`treeLeaves`). A code's parents stay in its colour (the top level's hue)
+ *  and its tooltip, never as a frame. The measure is chosen per tile in its
+ *  head: Antall · Volum · Areal · Lengde. */
 
 import { useLayoutEffect, useState, type CSSProperties } from "react";
 import { VERDICT_GLYPH } from "../state-visuals";
-import { categorical, classColour, codeColour, css, frameColour, readableCell, type Rgb } from "../chart-colors";
-import type { CodeTree, TreeNode } from "../../engine/code-tree";
+import { categorical, classColour, codeColour, css, readableCell, type Rgb } from "../chart-colors";
+import { treeLeaves, type CodeTree, type TreeNode } from "../../engine/code-tree";
 import type { Requirement } from "../requirements";
 import type { DoorProps } from "./Requirements";
 import { locale, t, type Lang } from "../i18n";
@@ -30,7 +36,7 @@ import { serialiseFocus, type Focus } from "../trace";
 import { formatCount, formatQuantity } from "../format";
 import type { ElementQuantity, Measure, SourceSplit } from "../../engine/quantities";
 import { measureReady, type BoardMeasures } from "../measure-state";
-import { squarify, type Rect } from "./treemap";
+import { squarify } from "./treemap";
 import { StateBadge } from "./Requirements";
 import { barLook, mmiBars, mmiBarsWithin, valueFocus } from "./req-view";
 import { useSelectionMarks } from "../selection-context";
@@ -55,55 +61,19 @@ function useBox() {
 
 /* ── treemap ────────────────────────────────────────────────────────────── */
 
-const HEADER = 16;
-const PAD = 2;
-
-interface Placed {
-  node: TreeNode;
-  rect: Rect;
-  depth: number;
-  /** A frame with children drawn inside it; else a leaf cell. */
-  frame: boolean;
-}
-
-/** A single-child chain (2 → 24 → 243 with nothing beside it) shows as its
- *  deepest node, so a level adds a frame only where it groups something. */
-function collapse(node: TreeNode): TreeNode {
-  let n = node;
-  while (n.children.length === 1) n = n.children[0];
-  return n;
-}
-
-/** A node's size under the chosen measure. Count is `n`; volume and area
- *  are the node's summed known values (the worker's `measureTree`), so a
- *  node whose every element is missing has no area on screen and is told in
- *  the split under the map instead. */
+/** A tile's size under the chosen measure. Count is `n`; volume, area and
+ *  length are the tile's summed known values (the worker's `measureTree`),
+ *  so a tile whose every element is missing has no area on screen and is
+ *  told in the split under the map instead. */
 type ValueOf = (node: TreeNode) => number;
 
-function place(nodes: TreeNode[], rect: Rect, depth: number, out: Placed[], value: ValueOf) {
-  const shown = nodes
-    .map(collapse)
-    .filter((n) => value(n) > 0)
-    .sort((a, b) => value(b) - value(a));
-  const rects = squarify(shown.map(value), rect);
-  shown.forEach((node, i) => {
-    const r = rects[i];
-    const frame = node.children.filter((c) => value(c) > 0).length > 1 && depth < 3 && r.w > 70 && r.h > HEADER + 24;
-    out.push({ node, rect: r, depth, frame });
-    if (frame) {
-      place(
-        node.children,
-        { x: r.x + PAD, y: r.y + HEADER, w: Math.max(0, r.w - 2 * PAD), h: Math.max(0, r.h - HEADER - PAD) },
-        depth + 1,
-        out,
-        value,
-      );
-    }
-  });
-}
+/** Where a measure sits in a `NodeMeasure` / `ElementQuantity`. */
+const AT: Record<Exclude<Measure, "count">, number> = { volume: 0, area: 2, length: 4 };
+const UNIT: Record<Exclude<Measure, "count">, "m³" | "m²" | "m"> = { volume: "m³", area: "m²", length: "m" };
 
-/** Antall / Volum / Areal, in the tile head, with the geometry pass as a thin
- *  bar under it while a measure still waits. */
+/** Antall / Volum / Areal / Lengde, ears in the tile head (a segmented
+ *  control, as `Seg` and the language toggle), with the geometry pass as a
+ *  thin bar under it while a measure still waits. */
 export function MeasureSwitch({
   tree,
   measures,
@@ -123,12 +93,13 @@ export function MeasureSwitch({
     ["count", t("col.count", lang)],
     ["volume", t("measure.volume", lang)],
     ["area", t("measure.area", lang)],
+    ["length", t("inst.length", lang)],
   ];
   const waiting = !measureReady(tree, measures, "volume") || !measureReady(tree, measures, "area");
   const share = progress && progress.total > 0 ? progress.done / progress.total : 0;
   return (
     <>
-      <span className="ml-auto flex shrink-0 items-center gap-0.5" data-measure-switch={tree.axis}>
+      <span className="ml-auto flex shrink-0 items-center overflow-hidden border border-line" data-measure-switch={tree.axis}>
         {options.map(([m, label]) => {
           const ready = measureReady(tree, measures, m);
           return (
@@ -142,7 +113,10 @@ export function MeasureSwitch({
                 event.stopPropagation();
                 onMeasure(m);
               }}
-              className="alt-tab alt-measure shrink-0 px-1.5 py-0.5"
+              className={
+                "alt-measure shrink-0 px-1.5 py-0.5 text-[10px] " +
+                (measure === m ? "bg-green text-cream" : "bg-input text-muted hover:text-ink")
+              }
             >
               {label}
             </button>
@@ -180,13 +154,12 @@ function nodeVerdict(node: TreeNode): "warn" | "fail" | undefined {
 
 /** A cell's fill and label colour (`chart-colors.ts`); none on a status
  *  cell, which the CSS draws as an outline or hatching. */
-function cellStyle(node: TreeNode, frame: boolean): Record<string, string> {
+function cellStyle(node: TreeNode): Record<string, string> {
   let fill: Rgb;
   if (node.kind === "code") fill = codeColour(node.label ?? "");
   else if (node.kind === "class") fill = classColour(node.label ?? "");
   else if (node.kind === "type" || node.kind === "fallback") fill = categorical(node.label ?? "");
   else return {};
-  if (frame) fill = frameColour(fill);
   const cell = readableCell(fill);
   return { "--cell": css(cell.fill), "--cell-ink": css(cell.ink) };
 }
@@ -231,7 +204,7 @@ export function CodeTreemap({
   // own quantities; without them the chart honestly falls back to count.
   const m = ready && (!iso || quantities) ? measures?.[tree.axis] : undefined;
   const shown: Measure = m ? measure : "count";
-  const at = shown === "area" ? 2 : 0;
+  const at = shown === "count" ? 0 : AT[shown];
   const inIso = iso ? isoCounter(iso) : null;
   const count = (node: TreeNode) => (inIso ? inIso(node).length : node.n);
   const sum = (node: TreeNode, missing: boolean): number => {
@@ -252,12 +225,12 @@ export function CodeTreemap({
       : (node) => m.nodes[node.key]?.[at] ?? 0
     : count;
   const missingOf = (node: TreeNode) => (m ? (inIso ? sum(node, true) : (m.nodes[node.key]?.[at + 1] ?? 0)) : 0);
-  const unit = shown === "area" ? "m²" : "m³";
+  const unit = shown === "count" ? "m³" : UNIT[shown];
   const figure = (node: TreeNode) => (m ? formatQuantity(value(node), unit, lang) : formatCount(count(node), lang));
   // The source split under the map, over `iso` when there is one.
   const split = (): SourceSplit | null => {
     if (!m) return null;
-    if (!inIso) return m[shown as "volume" | "area"];
+    if (!inIso) return m[shown as Exclude<Measure, "count">];
     const out: SourceSplit = { qto: 0, computed: 0, missing: 0, pending: 0 };
     for (const node of tree.root)
       for (const g of inIso(node)) {
@@ -269,18 +242,26 @@ export function CodeTreemap({
       }
     return out;
   };
-  const placed: Placed[] = [];
-  if (box && box.w > 0 && box.h > 0) place(tree.root, { x: 0, y: 0, w: box.w, h: box.h }, 0, placed, value);
+  // One level: every leaf with a value under the measure, largest first.
+  const leaves = treeLeaves(tree.root)
+    .filter((leaf) => value(leaf.node) > 0)
+    .sort((a, b) => value(b.node) - value(a.node));
+  const rects =
+    box && box.w > 0 && box.h > 0 ? squarify(leaves.map((leaf) => value(leaf.node)), { x: 0, y: 0, w: box.w, h: box.h }) : [];
   const label = (node: TreeNode) =>
     node.kind === "missing" ? t("req.mangler", lang) : (node.label ?? "—");
   return (
     <>
     <div ref={ref} data-treemap={tree.axis} data-measure-shown={shown} className="relative min-h-0 flex-1 overflow-hidden">
-      {placed.map(({ node, rect, depth, frame }) => {
+      {rects.map((rect, i) => {
+        const { node, path } = leaves[i];
         const focus: Focus = { kind: "tree", axis: tree.axis, key: node.key };
         const chosen = selected === serialiseFocus(focus);
         const gone = missingOf(node);
+        // The parent codes the nesting showed, outermost first.
+        const parents = path.map((p) => [p.label, p.name].filter(Boolean).join(" ")).join(" › ");
         const title = [
+          parents || null,
           label(node),
           node.name,
           m ? figure(node) : null,
@@ -299,7 +280,6 @@ export function CodeTreemap({
             data-tree-cell={node.key}
             data-kind={node.kind}
             data-verdict={verdict}
-            data-depth={depth}
             data-xf-in={lit && node.guids.some((g) => lit.has(g)) ? "" : undefined}
             data-sel={marks.size > 0 && marks.any(node.guids) ? "ring" : undefined}
             title={title}
@@ -308,13 +288,11 @@ export function CodeTreemap({
               onFocus(focus);
             }}
             className={
-              "alt-cell absolute flex flex-col items-start overflow-hidden text-left " +
-              (frame ? "alt-cell-frame " : "") +
-              (chosen ? "alt-chosen" : "")
+              "alt-cell absolute flex flex-col items-start overflow-hidden text-left " + (chosen ? "alt-chosen" : "")
             }
             style={
               {
-                ...cellStyle(node, frame),
+                ...cellStyle(node),
                 left: rect.x,
                 top: rect.y,
                 width: Math.max(0, rect.w - 1),

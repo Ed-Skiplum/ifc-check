@@ -11,7 +11,7 @@
  *
  * and, beside them (2026-09-30, off the Overview: *"The Innhold page needs a
  * big overhaul, and thats where treemaps and content belongs"*), the two code
- * treemaps stacked in a column of 38.2 %, each with its Antall / Volum / Areal
+ * treemaps stacked in a column of 38.2 %, each with its Antall / Volum / Areal / Lengde
  * switch, where the model's trees are general (the IFC-class and
  * PredefinedType fallbacks; a treemap read through a project mapping is the
  * project tab's). The column is there or not by the loaded content only.
@@ -100,7 +100,7 @@ export function Contents({
   const censusXf = xfMark(xf, "census");
   const board = model.board;
   const trees = generalTrees(model);
-  // Antall / Volum / Areal per treemap. A measure still waiting on the
+  // Antall / Volum / Areal / Lengde per treemap. A measure still waiting on the
   // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
   const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
   const censusBands = (

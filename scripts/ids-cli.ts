@@ -92,7 +92,7 @@ import {
 import { checkStoreyConfig, matchStoreys } from "../src/engine/storey-config.ts";
 import { reportExitCode, reportRows, type ReportRow } from "../src/engine/report.ts";
 import { schemaFamily } from "../src/engine/standard-layer.ts";
-import { functionTree, systemTree, type TreeNode } from "../src/engine/code-tree.ts";
+import { findNode, functionTree, systemTree, treeLeaves, type TreeNode } from "../src/engine/code-tree.ts";
 import { measureTree, meshMeasure, qtoLengths, qtoQuantities, quantityUnits } from "../src/engine/quantities.ts";
 import { psetInventory, requiredSetRefs } from "../src/engine/pset-inventory.ts";
 import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../src/codelists/mengdetype-ifcklasse.ts";
@@ -1279,6 +1279,20 @@ async function cmdSelftest(): Promise<number> {
       fn.root.map((n) => `${describe([n])}:${n.kind}`).join(" "),
     );
     record("code tree: leaf counts sum to the objects handed in", "4,4,4", [leaves(sys.root), leaves(byClass.root), leaves(fn.root)].join(","));
+    // The flat treemap: a "22" beside a "226" is a tile of its own, and every
+    // object is in exactly one tile.
+    const mixed = systemTree(
+      [...objects, { guid: "e", entity: "IfcWall", typeName: null, predefinedType: null }],
+      [...readings, { guid: "e", value: "22", code: "22", state: "ok" as const }],
+      { "2": "Bygning", "22": "Bæresystemer" },
+    );
+    const flat = treeLeaves(mixed.root);
+    record(
+      "code tree: the flat treemap is one tile per leaf, a parent's own objects its own tile, the parents kept as the path",
+      "code:22~=1[code:2] code:226=1[code:2,code:22] code:227=1[code:2,code:22] dev:24-=1[] missing=1[] · 5 · e",
+      `${flat.map((l) => `${l.node.key}=${l.node.n}[${l.path.map((p) => p.key).join(",")}]`).join(" ")} · ` +
+        `${flat.reduce((sum, l) => sum + l.node.n, 0)} · ${findNode(mixed.root, "code:22~")?.guids.join(",")}`,
+    );
 
     // The Rom tab (src/engine/rooms.ts, src/ui/room-plan.ts): spaces are
     // out of both treemaps, with or without a mapping.
@@ -1424,13 +1438,15 @@ async function cmdSelftest(): Promise<number> {
       ["b", box],
       ["o", open],
     ]);
-    const running = measureTree(tree, qto, { byGuid: meshes, complete: false });
-    const done = measureTree(tree, qto, { byGuid: meshes, complete: true });
+    const lens = new Map([["w", { value: 5, name: "Length" }]]);
+    const running = measureTree(tree, qto, { byGuid: meshes, complete: false }, lens);
+    const done = measureTree(tree, qto, { byGuid: meshes, complete: true }, lens);
     record(
-      "quantities: the fold keeps Qto, computed, missing and pending apart; an element with no mesh is missing once complete",
-      "run v 1/1/1/1 · done v 1/1/2/0 · node 26,2,24,2",
+      "quantities: the fold keeps Qto, computed, missing and pending apart; an element with no mesh is missing once complete; length is Qto or missing, never pending",
+      "run v 1/1/1/1 · done v 1/1/2/0 · run l 1/0/3/0 · node 26,2,24,2,5,3",
       `run v ${running.volume.qto}/${running.volume.computed}/${running.volume.missing}/${running.volume.pending} · ` +
         `done v ${done.volume.qto}/${done.volume.computed}/${done.volume.missing}/${done.volume.pending} · ` +
+        `run l ${running.length.qto}/${running.length.computed}/${running.length.missing}/${running.length.pending} · ` +
         `node ${done.nodes["class:IfcWall"].map((x) => +x.toPrecision(6)).join(",")}`,
     );
   }
