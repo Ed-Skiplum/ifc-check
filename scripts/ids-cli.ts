@@ -75,11 +75,12 @@ import {
   type XlsxRuleset,
 } from "../src/ids/xlsx.ts";
 import { extractedCodes, levelsTemplate, modelLevels, templateFileName, withCodes } from "../src/ui/step-templates.ts";
+import { layerJudge, layerSources, previewLayer, withLayerSources } from "../src/ui/layer-steps.ts";
 import { MMI_PRESETS, matchingPreset, presetCodes } from "../src/codelists/mmi-presets.ts";
 import { defaultExtract } from "../src/ids/models.ts";
 import { exemptChecks } from "../src/engine/exempt.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
-import { REQUIREMENT_IDS, type IdsRule, type Ruleset } from "../src/ids/types.ts";
+import { REQUIREMENT_IDS, type IdsRule, type Rule, type Ruleset } from "../src/ids/types.ts";
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
 import { detailEn, line as detailLine, runFundamentals } from "../src/engine/fundamentals.ts";
 import { detailText } from "../src/ui/display.ts";
@@ -2750,6 +2751,7 @@ async function cmdSelftest(): Promise<number> {
   configSelftest(record);
   mottakskontrollSelftest(record);
   setupWalkSelftest(record);
+  layerStepSelftest(record);
   stepTemplateSelftest(record);
   const write = mmiPresetSelftest(record, (codes) =>
     lintCodes(withRules([mappingRule("progress-code", { codes, extract: defaultExtract("progress-code") })])),
@@ -2921,6 +2923,72 @@ function stepTemplateSelftest(record: (name: string, expected: string, actual: s
   })();
   record("step template Etasjer refuses: a Kote that is not a number", "Etasjer!B4", refused(() => readLevelsXlsx(textKote)));
   record("step template Etasjer refuses: a file without the sheet", "Etasjer", refused(() => readLevelsXlsx(codesFile)));
+}
+
+/** Oppsett's Fase, Materiale / Produkt and Mengdetype steps
+ *  (`src/ui/layer-steps.ts`): what each writes lints clean, emptied lists
+ *  leave nothing behind, and the live check judges as the standard layer. */
+function layerStepSelftest(record: (name: string, expected: string, actual: string) => void): void {
+  const errors = (r: Ruleset) => lintRuleset(r).filter((i) => i.severity === "error").map((i) => i.code).join(",") || "none";
+  const mmi = {
+    id: "mmi",
+    kind: "extended",
+    name: "MMI",
+    mapping: "progress-code",
+    check: {
+      type: "code-lookup",
+      source: { property: { propertySet: "Felles", name: "MMI" } },
+      extract: "^(\\d{3})$",
+      codes: [{ code: "300", name: "Detaljprosjektert", phase: "NY" }],
+    },
+  } as unknown as Rule;
+  const base: Ruleset = { ...SAMPLE_RULESET, rules: [...SAMPLE_RULESET.rules, mmi] };
+  const prop = (propertySet: string, name: string) => ({ property: { propertySet, name } });
+
+  const phase = withLayerSources(base, "phase", [prop("Felles", "Fase"), { progressCode: {} }]);
+  record(
+    "layer step Fase: a property and Via MMI, in order, lint clean",
+    '[{"property":{"propertySet":"Felles","name":"Fase"}},{"progressCode":{}}] none',
+    `${JSON.stringify(phase.projectLayer?.phase?.sources)} ${errors(phase)}`,
+  );
+  const materials = withLayerSources(
+    withLayerSources(base, "product", [prop("Produkt", "Varenummer")]),
+    "material",
+    [{ attribute: "ObjectType" }],
+  );
+  record(
+    "layer step Materiale / Produkt: product and material lists, lint clean",
+    '{"product":[{"property":{"propertySet":"Produkt","name":"Varenummer"}}],"material":[{"attribute":"ObjectType"}]} none',
+    `${JSON.stringify(materials.projectLayer?.["material-product"])} ${errors(materials)}`,
+  );
+  const qto = withLayerSources(base, "mengdetype", [prop("Mengde", "Mengdetype"), { classification: {} }]);
+  record(
+    "layer step Mengdetype: the mengdetype list, lint clean",
+    '[{"property":{"propertySet":"Mengde","name":"Mengdetype"}},{"classification":{}}] none',
+    `${JSON.stringify(qto.projectLayer?.["material-product"]?.mengdetype)} ${errors(qto)}`,
+  );
+  record(
+    "layer step: a material source is refused in material, as the standard reads it first",
+    "material-source-slot",
+    errors(withLayerSources(base, "material", [{ material: {} }])),
+  );
+
+  const emptied = withLayerSources(withLayerSources(materials, "product", []), "material", []);
+  record("layer step: emptying every list leaves no projectLayer", "absent none", `${emptied.projectLayer === undefined ? "absent" : JSON.stringify(emptied.projectLayer)} ${errors(emptied)}`);
+  const referenced: Ruleset = { ...base, projectLayer: { phase: { reference: "BEP §6", sources: [prop("A", "B")] } } };
+  const kept = withLayerSources(referenced, "phase", []);
+  record("layer step: emptying a list keeps the entry's reference", '{"phase":{"reference":"BEP §6"}} none', `${JSON.stringify(kept.projectLayer)} ${errors(kept)}`);
+  record("layer step: one branch emptied keeps the other", '[] [{"attribute":"ObjectType"}]', `${JSON.stringify(layerSources(withLayerSources(materials, "product", []), "product"))} ${JSON.stringify(layerSources(withLayerSources(materials, "product", []), "material"))}`);
+
+  const states = (slot: Parameters<typeof layerJudge>[0], ruleset: Ruleset, values: string[]) => {
+    const p = previewLayer(values.map((v) => ({ v, n: 2 })), layerJudge(slot, ruleset));
+    return `${p.rows.map((r) => r.state).join(" ")} | ${p.totals.ok} ${p.totals["not-in-list"]}`;
+  };
+  record("layer live check Fase: PEnum_ElementStatus, folded", "ok ok not-in-list | 4 2", states("phase", base, ["new", " EXISTING ", "NY"]));
+  record("layer live check Fase: the MMI table's phases once Via MMI is listed", "ok ok not-in-list | 4 2", states("phase", phase, ["new", "NY", "Ferdig"]));
+  record("layer live check Mengdetype: telleobjekt / mengdeobjekt decide", "ok ok not-in-list | 4 2", states("mengdetype", base, ["Telleobjekt", " mengdeobjekt", "avhenger"]));
+  record("layer live check Produkt: any value", "ok ok | 4 0", states("product", base, ["AB-123", "x"]));
+  record("layer live check Materiale: a usable name", "ok not-in-list not-in-list | 2 4", states("material", base, ["Betong B35", "RAL 9010", "Vegg"]));
 }
 
 function setupWalkSelftest(record: (name: string, expected: string, actual: string) => void): void {

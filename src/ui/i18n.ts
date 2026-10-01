@@ -355,6 +355,13 @@ const STRINGS = {
   "field.code": { nb: "Kode", en: "Code" },
   "field.phase": { nb: "Fase", en: "Phase" },
   "setup.storeys": { nb: "Etasjeoppsett", en: "Storey setup" },
+  // The project-layer steps: Fase and Materiale / Produkt are the board's
+  // Standardkrav names (req.*); the QTO step configures `mengdetype`.
+  "setup.qto": { nb: "Mengdetype", en: "Quantity type" },
+  "setup.standard": { nb: "Standard", en: "Standard" },
+  "setup.viaMmi": { nb: "Via MMI", en: "Via MMI" },
+  "field.product": { nb: "Produkt", en: "Product" },
+  "field.material": { nb: "Materiale", en: "Material" },
   "field.storeyName": { nb: "Navn", en: "Name" },
   "field.storeyElevation": { nb: "Kote (m)", en: "Elevation (m)" },
   "field.storeyElevation.OKFG": { nb: "Kote OKFG (m)", en: "Elevation OKFG (m)" },

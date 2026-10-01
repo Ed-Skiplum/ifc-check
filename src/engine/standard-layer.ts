@@ -26,6 +26,14 @@ import { MENGDETYPE_NS3457 } from "../codelists/mengdetype-ns3457.ts";
 import { DEFAULT_ACCEPTED_SCHEMAS } from "../ids/lint.ts";
 import { cascadeReader, compileExtract, SourceUnreachable, type CascadeSource } from "../ids/evaluate.ts";
 import { roleRule } from "../ids/models.ts";
+import {
+  NOT_A_MATERIAL,
+  PHASE_ACCEPTED,
+  STANDARD_SOURCES,
+  phaseAccepted,
+  projectMengdetype,
+  usableMaterial,
+} from "./standard-sources.ts";
 import type { ModelGraph, ModelProduct } from "../ids/model.ts";
 import type { CodeSource, PhaseSource, Ruleset } from "../ids/types.ts";
 import type {
@@ -89,9 +97,7 @@ function schemaRow(model: ReportModel, ruleset: Ruleset | null | undefined): Rep
 
 /* ---------------------------------------------------------------- phase */
 
-/** PEnum_ElementStatus, less the three that say nothing (OTHER, NOTKNOWN,
- *  UNSET), which are carried but are avvik. */
-export const PHASE_ACCEPTED = ["NEW", "EXISTING", "DEMOLISH", "TEMPORARY"] as const;
+export { NOT_A_MATERIAL, PHASE_ACCEPTED };
 
 interface NamedSource {
   navn: string;
@@ -130,7 +136,7 @@ function progressCodePhase(ruleset: Ruleset | null | undefined): NamedSource | n
 }
 
 const PHASE_STANDARD: NamedSource = {
-  navn: "Pset_*Common.Status",
+  navn: STANDARD_SOURCES.phase[0],
   lag: "standard",
   source: {
     propertyMatch: { propertySet: { restriction: { pattern: "Pset_\\w*Common" } }, name: "Status" },
@@ -290,40 +296,17 @@ function phaseRow(
       if (through) sources.push(through);
     } else sources.push({ navn: codeSourceName(source), lag: "prosjekt", source });
   }
-  const mmi = roleRule(ruleset, "progress-code")?.check;
-  const tablePhases =
-    mmi?.type === "code-lookup" && extra.some((s) => "progressCode" in s)
-      ? [...new Set((mmi.codes ?? []).flatMap((c) => (c.phase ? [c.phase] : [])))]
-      : [];
   return cascadeRow({
     id: "phase",
     model,
     graph,
     excluded,
     sources,
-    accepted: [...PHASE_ACCEPTED, ...tablePhases],
+    accepted: phaseAccepted(ruleset),
   });
 }
 
 /* ------------------------------------------------------ material-product */
-
-/** Not a material, though carried in the material field (HI90 standard.yaml
- *  `ikke_materiale`, begreper.md §4): a colour or finish, an element word, a
- *  bare number or dimension, a tool's placeholder. Carried but unusable is
- *  avvik, never mangler. Case-insensitive, searched anywhere in the name. */
-export const NOT_A_MATERIAL: readonly RegExp[] = [
-  /\bRAL\b/i,
-  /\bNCS\b/i,
-  /lakkert/i,
-  /^hvit$/i,
-  /^(dekke|innervegg|yttervegg|vegg|gulv|tak)$/i,
-  /^[\d\s.,x×]+$/i,
-  /^default(\(\d+\))?$/i,
-  /^MC_\d+_\d+_\d+/i,
-  /^<.*>$/i,
-];
-
-const usableMaterial = (name: string) => name.trim() !== "" && !NOT_A_MATERIAL.some((r) => r.test(name));
 
 const CLASS_ROWS = new Map(
   Object.entries(MENGDETYPE_IFCKLASSE.rows).map(([k, v]) => [k.toUpperCase(), v] as const),
@@ -393,9 +376,9 @@ function materialProductRow(
     (list ?? []).map((source) => ({ navn: codeSourceName(source), lag: "prosjekt", source }));
   const mengdetypeProject = project(layer?.mengdetype);
   const productSources: NamedSource[] = [
-    { navn: "Pset_ManufacturerTypeInformation.ModelReference", lag: "standard",
+    { navn: STANDARD_SOURCES.product[0], lag: "standard",
       source: { property: { propertySet: "Pset_ManufacturerTypeInformation", name: "ModelReference" } } },
-    { navn: "Pset_ManufacturerTypeInformation.ArticleNumber", lag: "standard",
+    { navn: STANDARD_SOURCES.product[1], lag: "standard",
       source: { property: { propertySet: "Pset_ManufacturerTypeInformation", name: "ArticleNumber" } } },
     ...project(layer?.product),
   ];
@@ -406,14 +389,14 @@ function materialProductRow(
     names: { navn: string; lag: ReportLayer }[],
   ): ReportSource[] => names.map((s, i) => ({ navn: s.navn, lag: s.lag, n: 0, foretrukket: i === 0, gren }));
   const kMengdetype = branch("mengdetype", [
-    { navn: "IFC-klasse", lag: "standard" },
-    { navn: "IfcClassificationReference NS 3457", lag: "standard" },
+    { navn: STANDARD_SOURCES.mengdetype[0], lag: "standard" },
+    { navn: STANDARD_SOURCES.mengdetype[1], lag: "standard" },
     ...mengdetypeProject,
   ]);
   const kProduct = branch("telleobjekt", productSources);
   const kMaterial = branch("mengdeobjekt", [
-    { navn: "IfcMaterial", lag: "standard" },
-    { navn: "IfcMaterialLayerSet", lag: "standard" },
+    { navn: STANDARD_SOURCES.material[0], lag: "standard" },
+    { navn: STANDARD_SOURCES.material[1], lag: "standard" },
     ...materialProject,
   ]);
   const kilder = [...kMengdetype, ...kProduct, ...kMaterial];
@@ -497,8 +480,8 @@ function materialProductRow(
         }
       }
       for (let i = 0; mt === null && i < mengdetypeProject.length; i++) {
-        const v = read(mengdetypeProject[i], p)?.trim().toLowerCase();
-        if (v === "telleobjekt" || v === "mengdeobjekt") {
+        const v = projectMengdetype(read(mengdetypeProject[i], p));
+        if (v !== null) {
           mt = v;
           decidedBy = 2 + i;
         }

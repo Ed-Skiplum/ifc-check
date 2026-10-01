@@ -37,12 +37,23 @@
  * `^(0|\d{3})$`, the format alone (edkjo: "our default is 0 or nnn"). The
  * three presets (`codelists/mmi-presets.ts`) are a choice above the table;
  * replacing a list that holds other codes asks first.
+ *
+ * Type leads (2026-10-01). edkjo: "System, Function, Copy, MMI, Phase,
+ * Materials, QTO: these are my main things … the onboarding needs to take
+ * you through them." The steps follow that order. Fase, Materiale / Produkt
+ * and Mengdetype edit the `projectLayer` cascades (`layer-steps.ts`): the
+ * standard's sources first, then the project's, picked as a mapping's
+ * source is. Gjelder defaults to Typer where the evaluator reads a type,
+ * which is an attribute source (the type's Name); a property is read per
+ * occurrence.
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
-import { MAPPING_ROLES, hasErrors, lintRuleset } from "../ids/lint.ts";
-import { anyRoleRule, defaultCodeList, defaultExtract } from "../ids/models.ts";
+import { hasErrors, lintRuleset } from "../ids/lint.ts";
+import { anyRoleRule, defaultCodeList, defaultExtract, roleRule } from "../ids/models.ts";
+import { STANDARD_SOURCES, type LayerSlot } from "../engine/standard-sources.ts";
+import { layerJudge, layerPath, layerSources, previewLayer, withLayerSources } from "./layer-steps";
 import { MMI_PRESETS, matchingPreset, presetCodes, type MmiPresetId } from "../codelists/mmi-presets.ts";
 import type {
   CodeEntry,
@@ -52,6 +63,7 @@ import type {
   ExtendedRule,
   LintIssue,
   MappingRole,
+  PhaseSource,
   Ruleset,
   StoreyLevel,
   StoreyPlane,
@@ -755,18 +767,21 @@ function StateChip({ state, count, lang }: { state: ExtractState | "rest"; count
 /** The picked property's distinct values, most frequent first, and on a
  *  code-lookup what the current `extract` makes of each (`extract-preview.ts`).
  *  A capped list says so in its count, «N / M». A click on a value is the
- *  example's pick. */
+ *  example's pick. On a project-layer source, `judge` is the live check
+ *  (`layer-steps.ts`), with no code column: the value is read whole. */
 function ValuesPanel({
   prop,
   check,
   role,
+  judge,
   lang,
   onPick,
   onAdd,
 }: {
   prop: PsetProp;
-  check: MappingCheck;
-  role: MappingRole;
+  check?: MappingCheck;
+  role?: MappingRole;
+  judge?: (value: string) => boolean;
   lang: Lang;
   onPick?: (value: string) => void;
   /** The project's own code list (MMI): «+» on a value adds the code it
@@ -775,7 +790,8 @@ function ValuesPanel({
 }) {
   let preview: ExtractPreview | null = null;
   let error: string | null = null;
-  if (check.type === "code-lookup") {
+  if (judge) preview = previewLayer(prop.values, judge);
+  else if (check?.type === "code-lookup") {
     try {
       preview = previewExtract(check, prop.values, role === "copy-object" ? null : role);
     } catch (err) {
@@ -787,12 +803,14 @@ function ValuesPanel({
   const partial = prop.values.length < prop.distinct || !prop.exact;
   const rows = preview?.rows ?? prop.values.map((v) => ({ ...v, code: null, state: null }));
   // The codes a click adds: extracted, and not in the project's list yet.
-  const listed = new Set(check.type === "code-lookup" ? (check.codes ?? []).map((c) => c.code) : []);
+  const listed = new Set(check?.type === "code-lookup" ? (check.codes ?? []).map((c) => c.code) : []);
   const addable = (code: string | null): code is string => onAdd !== undefined && code !== null && !listed.has(code);
   const missing = [...new Set(rows.map((r) => r.code).filter(addable))];
-  const cols = preview
-    ? "[grid-template-columns:minmax(0,1fr)_minmax(0,8rem)_1.25rem_4rem]"
-    : "[grid-template-columns:minmax(0,1fr)_4rem]";
+  const cols = judge
+    ? "[grid-template-columns:minmax(0,1fr)_1.25rem_4rem]"
+    : preview
+      ? "[grid-template-columns:minmax(0,1fr)_minmax(0,8rem)_1.25rem_4rem]"
+      : "[grid-template-columns:minmax(0,1fr)_4rem]";
   return (
     <div className="flex flex-col gap-2" data-values-panel>
       <div className="flex flex-wrap items-center gap-2">
@@ -833,7 +851,7 @@ function ValuesPanel({
                 <span className="min-w-0 truncate font-mono">{r.v}</span>
                 {preview ? (
                   <>
-                    <span className="min-w-0 truncate font-mono text-muted">{r.code ?? ""}</span>
+                    {judge ? null : <span className="min-w-0 truncate font-mono text-muted">{r.code ?? ""}</span>}
                     {r.state ? <StateChip state={r.state} lang={lang} /> : <span />}
                   </>
                 ) : null}
@@ -1034,7 +1052,7 @@ function MappingCard({
     >
       <div className="flex items-center justify-between gap-3">
         <h2 className={"m-0 text-sm font-medium " + (active ? "text-ink" : "text-muted")}>
-          {t(`mapping.${role}`, lang)}
+          {stepLabel(role, lang)}
         </h2>
         <Switch on={active} label={t("field.enabled", lang)} onChange={onToggle} />
       </div>
@@ -1080,7 +1098,18 @@ function MappingCard({
           <select
             className={INPUT}
             value={kind}
-            onChange={(e) => onCheck({ ...check, source: blankSource(e.target.value as SourceKind) })}
+            onChange={(e) => {
+              const next = e.target.value as SourceKind;
+              // Type leads: Typer wherever the evaluator can check a type,
+              // which is its Name, an attribute (`typeSubjects`). A property
+              // or classification is read per occurrence.
+              const target = next === "attribute" ? "type" : "occurrence";
+              onCheck(
+                check.type === "code-lookup" && classification
+                  ? { ...check, source: blankSource(next), target }
+                  : { ...check, source: blankSource(next) },
+              );
+            }}
           >
             {SOURCE_KINDS.map((k) => (
               <option key={k} value={k}>
@@ -1245,6 +1274,251 @@ function MappingCard({
 
       <IssueLines issues={at(null)} lang={lang} />
     </section>
+  );
+}
+
+type Picker = { choices: PsetChoice[] | null; reading: boolean; errors: string[] };
+
+/** The standard layer's sources for a cascade, read before any project
+ *  source (`standard-sources.ts`). A pick keeps the step at the standard:
+ *  what «configured» is for a step with no project source. */
+function StandardPick({
+  names,
+  picked,
+  lang,
+  onPick,
+}: {
+  names: readonly string[];
+  picked: boolean;
+  lang: Lang;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-standard
+      aria-pressed={picked}
+      onClick={onPick}
+      className={
+        "flex items-center gap-4 px-4 py-3 text-left " +
+        (picked ? "bg-green text-cream" : "border border-line bg-panel text-ink hover:border-green")
+      }
+    >
+      {picked ? (
+        <span aria-hidden="true" className="shrink-0 text-xl leading-none">
+          ✓
+        </span>
+      ) : null}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[10px] font-semibold tracking-[0.12em] uppercase opacity-70">
+          {t("setup.standard", lang)}
+        </span>
+        {names.map((name) => (
+          <span key={name} className="truncate font-mono text-[13px]">
+            {name}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+
+/** One project source of a cascade: its kind, then the property picker with
+ *  the values list and the slot's live check, as on the mapping steps.
+ *  `source` null is the next source, not in the list yet: a pick adds it. */
+function LayerSourceCard({
+  source,
+  picker,
+  issues,
+  judge,
+  lang,
+  onChange,
+  onRemove,
+  onNext,
+}: {
+  source: CodeSource | null;
+  picker: Picker;
+  issues: LintIssue[];
+  judge: (value: string) => boolean;
+  lang: Lang;
+  onChange: (next: CodeSource) => void;
+  onRemove?: () => void;
+  onNext: () => void;
+}) {
+  const shown = source ?? blankSource("property");
+  const kind = sourceKind(shown);
+  const invalid = (suffix: string) => issues.some((i) => i.path.endsWith(suffix));
+  const prop =
+    "property" in shown
+      ? picker.choices?.find((c) => c.set === shown.property.propertySet)?.props.find((p) => p.name === shown.property.name)
+      : undefined;
+  return (
+    <section data-layer-source className="flex flex-col gap-4 border border-line bg-panel p-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label={t("field.source", lang)}>
+          <select
+            className={INPUT}
+            value={kind}
+            onChange={(e) => {
+              const next = e.target.value as SourceKind;
+              // A blank property is no source yet: the pick adds it.
+              if (source === null && next === "property") return;
+              onChange(blankSource(next));
+            }}
+          >
+            {SOURCE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {t(`field.source.${k}` as StringKey, lang)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {"attribute" in shown ? (
+          <Field label={t("field.source.attribute", lang)}>
+            <input
+              type="text"
+              className={INPUT}
+              aria-invalid={invalid(".attribute")}
+              value={shown.attribute}
+              onChange={(e) => onChange({ attribute: e.target.value })}
+            />
+          </Field>
+        ) : null}
+        {"classification" in shown ? (
+          <Field label={t("field.system", lang)}>
+            <input
+              type="text"
+              className={INPUT}
+              value={shown.classification.system ?? ""}
+              onChange={(e) =>
+                onChange({ classification: e.target.value === "" ? {} : { system: e.target.value } })
+              }
+            />
+          </Field>
+        ) : null}
+        {onRemove ? (
+          <button type="button" onClick={onRemove} className="ml-auto px-2 py-1 text-[12px] text-muted hover:text-bad">
+            {t("action.remove", lang)}
+          </button>
+        ) : null}
+      </div>
+      {"property" in shown ? (
+        <PropertyPicker
+          value={shown.property}
+          choices={picker.choices}
+          reading={picker.reading}
+          errors={picker.errors}
+          invalidSet={invalid(".property.propertySet")}
+          invalidName={invalid(".property.name")}
+          lang={lang}
+          onChange={(property) => onChange({ property })}
+          onNext={onNext}
+        >
+          {prop ? <ValuesPanel prop={prop} judge={judge} lang={lang} /> : null}
+        </PropertyPicker>
+      ) : null}
+      <IssueLines issues={issues} lang={lang} />
+    </section>
+  );
+}
+
+/** One cascade: the standard's sources, then the project's in the order
+ *  they are read, then the next one. A cascade with no project source opens
+ *  on the picker; «Legg til» opens it again. On Fase, «Via MMI» adds the
+ *  phase the MMI code implies, once the MMI step's codes carry phases. */
+function LayerList({
+  slot,
+  label,
+  sources,
+  kept,
+  picker,
+  issues,
+  judge,
+  viaMmi,
+  lang,
+  onChange,
+  onKeep,
+  onNext,
+}: {
+  slot: LayerSlot;
+  /** The list's own heading, where a step has more than one. */
+  label?: string;
+  sources: PhaseSource[];
+  kept: boolean;
+  picker: Picker;
+  issues: LintIssue[];
+  judge: (value: string) => boolean;
+  /** Offer «Via MMI»: the MMI step has phases and the list lacks it. */
+  viaMmi: boolean;
+  lang: Lang;
+  onChange: (next: PhaseSource[]) => void;
+  onKeep: () => void;
+  onNext: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const open = adding || sources.length === 0;
+  const path = layerPath(slot);
+  const issuesAt = (i: number) => issues.filter((issue) => issue.path.startsWith(`${path}[${i}]`));
+  const rest = issues.filter((issue) => !/^\[\d+\]/.test(issue.path.slice(path.length)));
+  // The next source sits at the index it will take, so a pick keeps its card.
+  const items: (PhaseSource | null)[] = open ? [...sources, null] : sources;
+  return (
+    <div className="flex flex-col gap-3" data-layer={slot}>
+      {label ? <h2 className="m-0 text-sm font-medium text-ink">{label}</h2> : null}
+      <StandardPick names={STANDARD_SOURCES[slot]} picked={kept || sources.length > 0} lang={lang} onPick={onKeep} />
+      {items.map((source, i) =>
+        source !== null && "progressCode" in source ? (
+          <section key={i} data-layer-source className="flex flex-col gap-2 border border-line bg-panel p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-ink">{t("setup.viaMmi", lang)}</span>
+              <button
+                type="button"
+                onClick={() => onChange(sources.filter((_, j) => j !== i))}
+                className="px-2 py-1 text-[12px] text-muted hover:text-bad"
+              >
+                {t("action.remove", lang)}
+              </button>
+            </div>
+            <IssueLines issues={issuesAt(i)} lang={lang} />
+          </section>
+        ) : (
+          <LayerSourceCard
+            key={i}
+            source={source}
+            picker={picker}
+            issues={issuesAt(i)}
+            judge={judge}
+            lang={lang}
+            onChange={(next) => {
+              if (source === null) {
+                setAdding(false);
+                onChange([...sources, next]);
+              } else onChange(sources.map((s, j) => (j === i ? next : s)));
+            }}
+            onRemove={source === null ? undefined : () => onChange(sources.filter((_, j) => j !== i))}
+            onNext={onNext}
+          />
+        ),
+      )}
+      <IssueLines issues={rest} lang={lang} />
+      <div className="flex flex-wrap gap-2">
+        {open ? null : (
+          <button type="button" data-layer-add onClick={() => setAdding(true)} className={SECONDARY + " w-fit"}>
+            {t("action.addRow", lang)}
+          </button>
+        )}
+        {viaMmi ? (
+          <button
+            type="button"
+            data-via-mmi
+            onClick={() => onChange([...sources, { progressCode: {} }])}
+            className={SECONDARY + " w-fit"}
+          >
+            {t("setup.viaMmi", lang)}
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -1539,21 +1813,57 @@ function parseElevation(text: string): number {
   return clean === "" || !/^-?\d+(\.\d+)?$/.test(clean) ? Number.NaN : Number(clean);
 }
 
+/** The project-layer steps, and the cascades each one edits. */
+type LayerStep = "phase" | "materials" | "qto";
+
+const LAYER_SLOTS: Record<LayerStep, readonly LayerSlot[]> = {
+  phase: ["phase"],
+  materials: ["product", "material"],
+  qto: ["mengdetype"],
+};
+
 /** Oppsett's steps, in order. `start` is the choice between a filled-in
  *  config file and the guided walk; `ifc` opens a model, so the property
- *  pickers have something to list. The names are the sections' own. */
-export type SetupStep = "start" | "ifc" | MappingRole | "storeys";
+ *  pickers have something to list. Then edkjo's Type-first order (2026-10-01:
+ *  "System, Function, Copy, MMI, Phase, Materials, QTO: these are my main
+ *  things"), and Etasjeoppsett last. */
+export type SetupStep = "start" | "ifc" | MappingRole | LayerStep | "storeys";
 
-const STEPS: SetupStep[] = ["start", "ifc", ...MAPPING_ROLES, "storeys"];
+const STEPS: SetupStep[] = [
+  "start",
+  "ifc",
+  "system-classification",
+  "component-classification",
+  "copy-object",
+  "progress-code",
+  "phase",
+  "materials",
+  "qto",
+  "storeys",
+];
 
 /** Where the walk goes once a model is on the board. */
-export const FIRST_MAPPING_STEP: SetupStep = MAPPING_ROLES[0];
+export const FIRST_MAPPING_STEP: SetupStep = STEPS[2];
+
+/** A step's name. Where the board has a Standardkrav row for it, the
+ *  board's name, so the walk and the board say the same. */
+const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
+  start: "action.setup",
+  ifc: "action.uploadIfc",
+  "component-classification": "req.funksjonskode",
+  phase: "req.fase",
+  materials: "req.materiale-produkt",
+  qto: "setup.qto",
+  storeys: "setup.storeys",
+};
 
 function stepLabel(step: SetupStep, lang: Lang): string {
-  if (step === "start") return t("action.setup", lang);
-  if (step === "ifc") return t("action.uploadIfc", lang);
-  if (step === "storeys") return t("setup.storeys", lang);
-  return t(`mapping.${step}`, lang);
+  const key = STEP_LABEL[step];
+  return key ? t(key, lang) : t(`mapping.${step as MappingRole}`, lang);
+}
+
+function isLayerStep(step: SetupStep): step is LayerStep {
+  return step in LAYER_SLOTS;
 }
 
 const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
@@ -1648,6 +1958,10 @@ export function SetupPage({
   const [nameTouched, setNameTouched] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [asking, setAsking] = useState<MappingRole | null>(null);
+  // The cascades explicitly left at the standard: no project source, and
+  // the standard picked. Not in the ruleset (an empty entry is refused by
+  // the workbook), so it holds for this Oppsett.
+  const [kept, setKept] = useState<ReadonlySet<LayerSlot>>(new Set());
   const [exportError, setExportError] = useState<string | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const ifcInput = useRef<HTMLInputElement>(null);
@@ -1687,8 +2001,13 @@ export function SetupPage({
     [models],
   );
 
+  const layerIssues = (slot: LayerSlot) => lint.filter((i) => i.ruleId === null && i.path.startsWith(layerPath(slot)));
   const done = (s: SetupStep): boolean => {
     if (s === "start") return false;
+    if (isLayerStep(s))
+      return LAYER_SLOTS[s].every(
+        (slot) => (kept.has(slot) || layerSources(ruleset, slot).length > 0) && !hasErrors(layerIssues(slot)),
+      );
     if (s === "ifc") return models.some((m) => m.state === "ready");
     if (s === "storeys")
       return (ruleset.storeys?.levels.length ?? 0) > 0 && !hasErrors(lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys")));
@@ -1825,6 +2144,41 @@ export function SetupPage({
             ))}
           </ul>
         ) : null}
+      </div>
+    );
+  } else if (isLayerStep(current)) {
+    const slots = LAYER_SLOTS[current];
+    const mmi = roleRule(ruleset, "progress-code")?.check;
+    const mmiPhases = mmi?.type === "code-lookup" && (mmi.codes ?? []).some((c) => c.phase);
+    body = (
+      <div key={current} className="flex flex-col gap-6">
+        {slots.map((slot) => {
+          const sources = layerSources(ruleset, slot);
+          return (
+            <LayerList
+              key={slot}
+              slot={slot}
+              label={slots.length > 1 ? t(slot === "product" ? "field.product" : "field.material", lang) : undefined}
+              sources={sources}
+              kept={kept.has(slot)}
+              picker={picker}
+              issues={layerIssues(slot)}
+              judge={layerJudge(slot, ruleset)}
+              viaMmi={slot === "phase" && mmiPhases && !sources.some((s) => "progressCode" in s)}
+              lang={lang}
+              onChange={(next) => onChange(withLayerSources(ruleset, slot, next))}
+              onKeep={() =>
+                setKept((was) => {
+                  const now = new Set(was);
+                  if (now.has(slot) && sources.length === 0) now.delete(slot);
+                  else now.add(slot);
+                  return now;
+                })
+              }
+              onNext={next}
+            />
+          );
+        })}
       </div>
     );
   } else if (current === "storeys") {
@@ -1989,7 +2343,7 @@ export function SetupPage({
 
       {asking ? (
         <EnableDialog
-          title={t(`mapping.${asking}`, lang)}
+          title={stepLabel(asking, lang)}
           lang={lang}
           onCancel={() => setAsking(null)}
           onConfirm={() => {
