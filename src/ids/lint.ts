@@ -741,8 +741,11 @@ function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck, role: C
   }
   if (hasCodes) {
     const codes = check.codes;
-    if (!Array.isArray(codes) || codes.length === 0) {
+    if (!Array.isArray(codes)) {
       add(ctx, "error", `${path}.check.codes`, "code-values-empty", "codes lists no code");
+    } else if (codes.length === 0) {
+      // On MMI an empty list checks the format alone: the Uttrekk decides.
+      if (role !== "progress-code") add(ctx, "error", `${path}.check.codes`, "code-values-empty", "codes lists no code");
     } else {
       const seen = new Set<string>();
       codes.forEach((entry, i) => {

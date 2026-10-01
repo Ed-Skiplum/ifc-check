@@ -161,12 +161,19 @@ export interface Bar {
 
 /** The bars: the values outside the project's list, flagged, and the objects
  *  with no value; then every level the list declares, in numeric order, 0
- *  included. All from the MMI row: its `godtatte` and its fordeling. */
+ *  included. All from the MMI row: its `godtatte` and its fordeling. With no
+ *  codes listed the rule checks the format alone, so the scale is the values
+ *  that passed it and the outside ones are those it flagged. */
 export function mmiBars(req: Requirement): Bar[] {
   const row = req.row;
   if (!row || !row.fordeling) return [];
   const counts = new Map(row.fordeling.map((v) => [v.verdi, v.n]));
-  const allowed = [...(row.godtatte ?? [])].sort((a, b) => {
+  const listed = row.godtatte ?? [];
+  const scale =
+    listed.length > 0
+      ? listed
+      : row.fordeling.flatMap((v) => (v.verdi !== null && v.flagg !== "avvik" ? [v.verdi] : []));
+  const allowed = [...scale].sort((a, b) => {
     const x = Number(a);
     const y = Number(b);
     return Number.isFinite(x) && Number.isFinite(y) ? x - y : a.localeCompare(b);

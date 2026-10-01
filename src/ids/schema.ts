@@ -697,7 +697,9 @@ export const RULESET_JSON_SCHEMA = {
             list: { enum: [...CODE_LIST_IDS] },
             codes: {
               type: "array",
-              minItems: 1,
+              description:
+                "The project's own codes. Empty only on the progress-code rule, where it checks the " +
+                "format alone (extract); lint refuses an empty list on any other rule.",
               items: { $ref: "#/$defs/codeEntry" },
             },
             target: { enum: ["occurrence", "type"], default: "occurrence" },

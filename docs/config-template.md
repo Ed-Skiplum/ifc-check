@@ -139,6 +139,12 @@ IDS rules (`IdsRule`, the six facets, `IdsValue`) are unchanged.
 - `phase`: a `progressCode` source gives the code's phase (accepted) or, for a
   code without one, the raw value (avvik). `godtatte` adds the table's phases.
 - `progress-code` row carries `koder` (code, name, phase).
+- `progress-code` with `codes: []` checks the format alone: a value the
+  `extract` matches passes, one it does not match fails, blank is missing.
+  The schema allows the empty list on every code-lookup; lint refuses it
+  (`code-values-empty`) on any other rule. A new MMI rule starts so, with
+  extract `^(0|\d{3})$` (`defaultExtract`). Presets for the list:
+  `src/codelists/mmi-presets.ts`.
 - `ReportModel` carries `label`, `discipline`, `group`, `report`.
 - An exempt requirement is `not_applicable` in `run`, the checks
   (`src/engine/exempt.ts`) and `report`.

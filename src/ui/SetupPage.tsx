@@ -32,12 +32,18 @@
  * Etasjeoppsett: the models' own storeys, «+» and «Legg til alle» the same.
  * Each of the two steps downloads and uploads its own sheet
  * (`step-templates.ts`, `xlsx.ts`). Lint shows at the field, as a label.
+ *
+ * MMI presets (2026-10-01). A new MMI rule has no codes and Uttrekk
+ * `^(0|\d{3})$`, the format alone (edkjo: "our default is 0 or nnn"). The
+ * three presets (`codelists/mmi-presets.ts`) are a choice above the table;
+ * replacing a list that holds other codes asks first.
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { MAPPING_ROLES, hasErrors, lintRuleset } from "../ids/lint.ts";
-import { anyRoleRule, defaultCodeList } from "../ids/models.ts";
+import { anyRoleRule, defaultCodeList, defaultExtract } from "../ids/models.ts";
+import { MMI_PRESETS, matchingPreset, presetCodes, type MmiPresetId } from "../codelists/mmi-presets.ts";
 import type {
   CodeEntry,
   CodeLookupCheck,
@@ -102,12 +108,18 @@ function blankCheck(role: MappingRole): MappingCheck {
   switch (role) {
     case "system-classification":
     case "component-classification":
-      return { ...base, list: defaultCodeList(role), target: "occurrence", extract: "^(.+)$" };
+      return { ...base, list: defaultCodeList(role), target: "occurrence", extract: defaultExtract(role) };
     case "progress-code":
-      return { ...base, codes: [], extract: "^(.+)$" };
+      // No codes: the format alone (`defaultExtract`). A preset is a choice.
+      return { ...base, codes: [], extract: defaultExtract(role) };
     case "copy-object":
       return { type: "copy-object", source: blankSource("property"), copy: [], own: [] };
   }
+}
+
+/** An MMI preset's name: a proper name, the same in nb and en. */
+function presetName(id: MmiPresetId): string {
+  return MMI_PRESETS.find((p) => p.id === id)?.name ?? id;
 }
 
 function freshId(ruleset: Ruleset, stem: string): string {
@@ -291,7 +303,8 @@ function Seg<T extends string>({
   onChange,
 }: {
   options: readonly T[];
-  value: T;
+  /** null: none of the options is the current value. */
+  value: T | null;
   label: (option: T) => string;
   onChange: (next: T) => void;
 }) {
@@ -746,12 +759,14 @@ function StateChip({ state, count, lang }: { state: ExtractState | "rest"; count
 function ValuesPanel({
   prop,
   check,
+  role,
   lang,
   onPick,
   onAdd,
 }: {
   prop: PsetProp;
   check: MappingCheck;
+  role: MappingRole;
   lang: Lang;
   onPick?: (value: string) => void;
   /** The project's own code list (MMI): «+» on a value adds the code it
@@ -762,7 +777,7 @@ function ValuesPanel({
   let error: string | null = null;
   if (check.type === "code-lookup") {
     try {
-      preview = previewExtract(check, prop.values);
+      preview = previewExtract(check, prop.values, role === "copy-object" ? null : role);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -982,6 +997,8 @@ function MappingCard({
   // always shows; a typed or picked one replaces it until the property changes.
   const propKey = "property" in source ? `${source.property.propertySet}\u0000${source.property.name}` : "";
   const [typed, setTyped] = useState<{ key: string; value: string } | null>(null);
+  // The MMI preset waiting on the replace ask.
+  const [replacing, setReplacing] = useState<MmiPresetId | null>(null);
   const example = typed !== null && typed.key === propKey ? typed.value : (prop?.values[0]?.v ?? "");
   const setExample = (value: string) => setTyped({ key: propKey, value });
   const exampleRef = useRef<HTMLInputElement>(null);
@@ -1118,6 +1135,7 @@ function MappingCard({
             <ValuesPanel
               prop={prop}
               check={check}
+              role={role}
               lang={lang}
               onPick={check.type === "code-lookup" ? pickExample : undefined}
               onAdd={
@@ -1156,6 +1174,30 @@ function MappingCard({
           <IssueLines issues={at("extract")} lang={lang} />
           {role === "progress-code" ? (
             <>
+              <Seg
+                options={MMI_PRESETS.map((p) => p.id)}
+                value={matchingPreset(check.codes ?? [])}
+                label={(id) => presetName(id)}
+                onChange={(id) => {
+                  const codes = check.codes ?? [];
+                  // Never replace a list silently: one that holds other codes asks.
+                  if (codes.length === 0 || matchingPreset(codes) === id) onCheck({ ...check, codes: presetCodes(id) });
+                  else setReplacing(id);
+                }}
+              />
+              {replacing !== null ? (
+                <EnableDialog
+                  title={presetName(replacing)}
+                  confirm="action.apply"
+                  lang={lang}
+                  onCancel={() => setReplacing(null)}
+                  onConfirm={() => {
+                    const id = replacing;
+                    setReplacing(null);
+                    onCheck({ ...check, codes: presetCodes(id) });
+                  }}
+                />
+              ) : null}
               <CodesTable
                 codes={check.codes ?? []}
                 issues={issues}
@@ -1377,14 +1419,17 @@ function ModelStoreys({
   );
 }
 
-/** Enable a card that is off: its name, and the two answers. Nothing else. */
+/** Enable a card that is off: its name, and the two answers. Nothing else.
+ *  The same ask confirms replacing the MMI codes with a preset (`confirm`). */
 function EnableDialog({
   title,
+  confirm = "action.enable",
   lang,
   onConfirm,
   onCancel,
 }: {
   title: string;
+  confirm?: StringKey;
   lang: Lang;
   onConfirm: () => void;
   onCancel: () => void;
@@ -1424,7 +1469,7 @@ function EnableDialog({
             onClick={onConfirm}
             className="bg-green px-3 py-1 text-[12px] text-cream hover:bg-ink"
           >
-            {t("action.enable", lang)}
+            {t(confirm, lang)}
           </button>
         </div>
       </div>

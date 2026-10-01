@@ -37,6 +37,7 @@ import type {
 import type {
   AttributeFacet,
   CodeLookupCheck,
+  CodeLookupRole,
   ClassificationFacet,
   CodeSource,
   CopyObjectCheck,
@@ -1072,12 +1073,17 @@ function sourceLabel(source: CodeSource): string {
 }
 
 /** What a code-lookup checks codes against: a bundled list, or the project's
- *  own `values`. One code path for both, so the findings read the same. */
-export function resolveLookup(check: CodeLookupCheck): {
+ *  own `values`. One code path for both, so the findings read the same.
+ *  On the progress-code (MMI) rule an empty project list checks the format
+ *  alone: every code the Uttrekk takes out is in it. */
+export function resolveLookup(check: CodeLookupCheck, role?: CodeLookupRole | null): {
   label: string;
   has: (code: string) => boolean;
   reserved: (code: string) => boolean;
 } {
+  if (role === "progress-code" && check.codes !== undefined && check.codes.length === 0) {
+    return { label: `the format ${check.extract} (no codes listed)`, has: () => true, reserved: () => false };
+  }
   if (check.codes !== undefined) {
     const allowed = new Set(check.codes.map((c) => c.code));
     return {
@@ -1101,6 +1107,7 @@ export function resolveLookup(check: CodeLookupCheck): {
 
 function codeLookup(
   check: CodeLookupCheck,
+  role: CodeLookupRole | undefined,
   select: Selector,
   products: ModelProduct[],
   summary: ModelSummary,
@@ -1110,7 +1117,7 @@ function codeLookup(
   notes: string[],
   maxFindings: number,
 ): Omit<RuleResult, "ruleId" | "ruleName" | "kind"> {
-  const lookup = resolveLookup(check);
+  const lookup = resolveLookup(check, role);
   const source = check.source;
   const label = sourceLabel(source);
   const regex = compileExtract(check.extract);
@@ -1438,7 +1445,7 @@ export function codeLookupSubjects(
   const filter = copyObjectFilter(ruleset, allProducts, byGuid, index, modelName);
   const products =
     filter && filter.excluded.size > 0 ? allProducts.filter((p) => !filter.excluded.has(p.guid)) : allProducts;
-  const lookup = resolveLookup(check);
+  const lookup = resolveLookup(check, rule.mapping);
   const judge = (value: string | null): { code: string | null; state: ValueCount["state"] } => {
     if (value === null || value === "") return { code: null, state: "missing" };
     const code = regex.exec(value)?.[1];
@@ -1538,6 +1545,7 @@ function evaluateRule(
         ...base,
         ...codeLookup(
           rule.check,
+          rule.mapping,
           rule.select ?? {},
           products,
           summary,

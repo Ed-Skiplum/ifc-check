@@ -56,6 +56,14 @@ export function defaultCodeList(role: "system-classification" | "component-class
   return role === "system-classification" ? "ns3451" : "ns3457-8";
 }
 
+/** The Uttrekk a new code-lookup mapping starts on. MMI: a three-digit code
+ *  or 0, the format the veileder sets (edkjo 2026-10-01: "our default is 0 or
+ *  nnn"); with no codes listed, that format is the whole check. Others: the
+ *  whole value. */
+export function defaultExtract(role: "system-classification" | "component-classification" | "progress-code"): string {
+  return role === "progress-code" ? "^(0|\\d{3})$" : "^(.+)$";
+}
+
 /** The rule playing `role`, enabled or not, or null. */
 export function anyRoleRule(ruleset: Ruleset | null | undefined, role: MappingRole): ExtendedRule | null {
   for (const rule of ruleset?.rules ?? []) {

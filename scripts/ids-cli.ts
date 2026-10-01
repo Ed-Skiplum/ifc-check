@@ -75,6 +75,8 @@ import {
   type XlsxRuleset,
 } from "../src/ids/xlsx.ts";
 import { extractedCodes, levelsTemplate, modelLevels, templateFileName, withCodes } from "../src/ui/step-templates.ts";
+import { MMI_PRESETS, matchingPreset, presetCodes } from "../src/codelists/mmi-presets.ts";
+import { defaultExtract } from "../src/ids/models.ts";
 import { exemptChecks } from "../src/engine/exempt.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
 import { REQUIREMENT_IDS, type IdsRule, type Ruleset } from "../src/ids/types.ts";
@@ -735,7 +737,9 @@ async function cmdSelftest(): Promise<number> {
     ["a code-lookup with both list and codes", withRules([
       mappingRule("progress-code", { codes: codesOf("300"), list: "ns3457-8" }),
     ]), "code-list-shape"],
-    ["an empty codes list", withRules([mappingRule("progress-code", { codes: [] })]), "code-values-empty"],
+    ["an empty codes list off the progress-code rule", withRules([
+      { id: "x", kind: "extended", name: "x", check: { type: "code-lookup", codes: [], source: { attribute: "Name" }, extract: "^(.+)$" } },
+    ]), "code-values-empty"],
     ["a code with no name", withRules([mappingRule("progress-code", { codes: [{ code: "300", name: "" }] })]), "code-name-empty"],
     ["a phase on a classification's codes", withRules([
       mappingRule("system-classification", { list: "ns3451" }),
@@ -755,6 +759,11 @@ async function cmdSelftest(): Promise<number> {
     lintRuleset(withRules([
       mappingRule("progress-code", { codes: codesOf("300"), source: { property: { propertySet: "<FROM PROJECT>", name: "MMI" } } }),
     ])).filter((i) => i.code === "from-project").map((i) => `${i.path} ${i.ruleId}`).join(" | "),
+  );
+  record(
+    "lint accepts: progress-code with no codes (format only)",
+    "none",
+    lintCodes(withRules([mappingRule("progress-code", { codes: [], extract: defaultExtract("progress-code") })])),
   );
   for (const [name, ruleset, code] of mappingNegatives) {
     record(`lint rejects: ${name}`, code, lintCodes(ruleset));
@@ -813,6 +822,26 @@ async function cmdSelftest(): Promise<number> {
     copyRule({ copy: ["true"], own: ["false"], source: { property: { propertySet: "P", name: "B" } } }),
   ]), graph, summary, "synthetic");
   const [progress, copy] = synthetic.results;
+  // MMI with no codes listed: the format alone, `^(0|\d{3})$`.
+  const formatOnly = evaluateRuleset(withRules([
+    mappingRule("progress-code", { codes: [], extract: defaultExtract("progress-code") }),
+  ]), { ...graph, products: [wall("f1", "300"), wall("f2", "0"), wall("f3", "30"), wall("f4", "3000")] }, { ...summary, products: 4 }, "format").results[0];
+  record(
+    "progress-code with no codes: 300 and 0 pass, 30 and 3000 fail",
+    "fail 4/2 [f3 no-match, f4 no-match]",
+    `${formatOnly.state} ${formatOnly.applicable}/${formatOnly.failed} [` +
+      formatOnly.findings.map((f) => `${f.guid} ${f.code}`).join(", ") + "]",
+  );
+  const formatPreview = previewExtract(
+    { extract: defaultExtract("progress-code"), codes: [] },
+    [{ v: "300", n: 1 }, { v: "0", n: 1 }, { v: "30", n: 1 }, { v: "3000", n: 1 }],
+    "progress-code",
+  );
+  record(
+    "extract preview follows: progress-code with no codes",
+    "ok ok no-match no-match",
+    formatPreview.rows.map((r) => r.state).join(" "),
+  );
   record(
     "codes lookup: in list passes, outside list and empty fail",
     "fail 3/2 [not in codes, empty]",
@@ -2706,16 +2735,87 @@ async function cmdSelftest(): Promise<number> {
   mottakskontrollSelftest(record);
   setupWalkSelftest(record);
   stepTemplateSelftest(record);
+  const write = mmiPresetSelftest(record, (codes) =>
+    lintCodes(withRules([mappingRule("progress-code", { codes, extract: defaultExtract("progress-code") })])),
+  );
 
   const ok = assertions.every((a) => a.ok);
   emit({
     command: "selftest",
     ok,
     assertions,
+    write,
     excluded: result.excluded,
     includedRuleIds: result.includedRuleIds,
   });
   return ok ? 0 : 1;
+}
+
+/* ------------------------------------------------------- MMI presets */
+
+/** The MMI code-list presets (`src/codelists/mmi-presets.ts`): each lints as
+ *  a progress-code rule's codes, the Standard names are the veileder's, and
+ *  the open `[WRITE]` sentinels are counted and printed, never hidden.
+ *  Returns the sentinel lines for the selftest's output. */
+function mmiPresetSelftest(
+  record: (name: string, expected: string, actual: string) => void,
+  lintProgress: (codes: unknown[]) => string,
+): string[] {
+  for (const preset of MMI_PRESETS) {
+    record(`mmi preset ${preset.name}: lints as progress-code codes`, "none", lintProgress(presetCodes(preset.id)));
+    record(`mmi preset ${preset.name}: matches itself`, preset.id, String(matchingPreset([...presetCodes(preset.id)].reverse())));
+  }
+  record("mmi preset: an empty list matches none", "null", String(matchingPreset([])));
+
+  // Copied from MMI-veileder 2.0, Tabell 1 (resources/standards/mmi), the
+  // «Reservert» codes left out, footnote asterisks dropped.
+  const veileder = [
+    "000 Tidligfase", "100 Grunnlagsinformasjon", "125 Etablert konsept", "150 Tverrfaglig kontrollert konsept",
+    "175 Valgt konsept", "200 Ferdig konsept", "225 Etablert prinsipielle løsninger",
+    "250 Tverrfaglig kontrollert prinsipielle løsninger", "275 Valgt prinsipielle løsninger",
+    "300 Underlag for detaljering", "325 Etablert detaljerte løsninger",
+    "350 Tverrfaglig kontrollert detaljerte løsninger",
+    "375 Detaljerte løsninger som grunnlag for anbud / bestilling / prefabrikasjon", "400 Arbeidsgrunnlag",
+    "425 Etablert / utført", "450 Kontrollert utførelse", "475 Godkjent utførelse", "500 Som bygget", "600 I drift",
+  ];
+  const standard = presetCodes("standard");
+  record("mmi preset Standard: the veileder's names, no phase", veileder.join("|"),
+    standard.map((c) => `${c.code} ${c.name}${c.phase ? ` ${c.phase}` : ""}`).join("|"));
+  // And against the .txt itself, where this checkout sits in the workspace.
+  const txt = new URL("../../../resources/standards/mmi/MMI-veileder-2.0.txt", import.meta.url);
+  if (existsSync(txt)) {
+    const text = readFileSync(txt, "utf8");
+    const table = text.slice(text.indexOf("Tabell 1"), text.indexOf("Tabell 2"));
+    record("mmi preset Standard: every code and name stands in the .txt's Tabell 1", "all",
+      standard.filter((c) => !table.includes(`${c.code} ${c.name}`)).map((c) => c.code).join(",") || "all");
+    const reserved = [...table.matchAll(/(\d{3}) Reservert/g)].map((m) => m[1]);
+    record("mmi preset Standard: no «Reservert» code", "none",
+      standard.filter((c) => reserved.includes(c.code)).map((c) => c.code).join(",") || "none");
+  }
+
+  record("mmi preset Forenklet: 350 is edkjo's name",
+    "100 200 300 350 400 500 600 | Klar for siste kontroll før arbeidstegning",
+    `${presetCodes("forenklet").map((c) => c.code).join(" ")} | ${presetCodes("forenklet").find((c) => c.code === "350")?.name}`);
+  record("mmi preset Forenklet: the veileder's names otherwise, no phase", "true",
+    String(presetCodes("forenklet").every((c) => c.phase === undefined &&
+      (c.code === "350" || standard.find((s) => s.code === c.code)?.name === c.name))));
+
+  const gjenbruk = presetCodes("gjenbruk");
+  record("mmi preset gjenbruk: 000-600 the standard as Ny", "true",
+    String(standard.every((s) => gjenbruk.some((g) => g.code === s.code && g.name === s.name && g.phase === "Ny"))));
+  record("mmi preset gjenbruk: 7xx-9xx phases",
+    "700 Bevares Bevares|800 MMI 800 MMI 800|900 Gjenvinning/avfall Gjenvinning/avfall",
+    gjenbruk.filter((g) => Number(g.code) >= 700).map((g) => `${g.code} ${g.name} ${g.phase}`).join("|"));
+
+  // Open sentinels: counted and printed every run, so a placeholder never
+  // passes for content.
+  const file = new URL("../src/codelists/mmi-presets.ts", import.meta.url);
+  const write = readFileSync(file, "utf8").split(/\r?\n/)
+    .map((line, i) => ({ line, i }))
+    .filter(({ line }) => line.includes("[WRITE]"))
+    .map(({ line, i }) => `src/codelists/mmi-presets.ts:${i + 1} ${line.trim()}`);
+  process.stderr.write(`[WRITE] open: ${write.length}${write.map((w) => `\n  ${w}`).join("")}\n`);
+  return write;
 }
 
 /* ------------------------------------------------------- Oppsett's walk */
