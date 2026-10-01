@@ -1714,6 +1714,88 @@ export function readRulesetXlsx(bytes: Uint8Array): XlsxRuleset {
   return sheetsToRuleset(readWorkbook(bytes));
 }
 
+/* ------------------------------------------------- one step, one sheet */
+
+/** Oppsett's per-step templates (2026-10-01, edkjo: "for MMI and floors, we
+ *  should have local templates you can download and fill out rather than
+ *  clicking"): a workbook holding ONLY the MMI-koder or the Etasjer sheet, in
+ *  the full workbook's own layout, columns and codec. The reader takes that
+ *  file or a full config workbook, and reads the matching sheet only. */
+
+/** The cells written equal the cells read, so the file says what was handed
+ *  in. Required cells are not enforced here: a template may go out half
+ *  filled; the reader refuses it until it is filled. */
+function stepSheetBytes(sheet: SheetData): Uint8Array {
+  const bytes = workbookBytes([sheet]);
+  const back = readWorkbook(bytes).find((s) => s.name === sheet.name);
+  const trim = (rows: Cell[][]) => rows.map((row) => {
+    const out = [...row];
+    while (out.length > 0 && out[out.length - 1] === null) out.pop();
+    return out;
+  }).filter((row, i, all) => row.length > 0 || all.slice(i).some((r) => r.length > 0));
+  const diff = back ? rulesetDiff(trim(back.rows), trim(sheet.rows)) : "(the sheet)";
+  if (diff !== null) throw new Error(`the ${sheet.name} template does not read back: ${diff} differs`);
+  return bytes;
+}
+
+/** The step's sheet out of a single-sheet file or a full workbook; its
+ *  declared rows, or every problem at its Sheet!Cell. */
+function stepRows(bytes: Uint8Array, name: string, cols: Col[], problems: Problems): Row[] {
+  const sheet = readWorkbook(bytes).find((s) => s.name === name);
+  if (!sheet) throw new XlsxRulesetError([`${name}: no such sheet in the file`]);
+  return keyedRows(sheet, cols, problems);
+}
+
+/** The MMI-koder sheet alone. A code row with neither code nor name is not
+ *  written. */
+export function writeCodesXlsx(codes: readonly { code: string; name: string; phase?: string }[]): Uint8Array {
+  const rows = codes
+    .filter((c) => c.code !== "" || c.name !== "" || (c.phase ?? "") !== "")
+    .map((c) => encodeItem(c, CODE_COLS, "rules[].check.codes[]"));
+  return stepSheetBytes(tableSheet(SHEET.mmiCodes, CODE_COLS, rows));
+}
+
+/** The MMI-koder sheet's codes, in its order. Throws XlsxRulesetError naming
+ *  every problem at its cell; nothing is returned half read. */
+export function readCodesXlsx(bytes: Uint8Array): { code: string; name: string; phase?: string }[] {
+  const problems = new Problems();
+  const rows = stepRows(bytes, SHEET.mmiCodes, CODE_COLS, problems);
+  const codes = rows.map(
+    (row) => orderKeys(decodeItem(row, CODE_COLS, "rules[].check.codes[]", problems, "", new Map()), ["code", "name", "phase"]) as { code: string; name: string; phase?: string },
+  );
+  if (problems.list.length > 0) throw new XlsxRulesetError(problems.list);
+  return codes;
+}
+
+/** The Etasjer sheet alone; the Kote header names `plane` when it is OKFG or
+ *  OKBD. An elevation that is not a finite number is a blank cell, and a row
+ *  with neither name nor elevation is not written. */
+export function writeLevelsXlsx(levels: readonly { name: string; elevation: number }[], plane?: string): Uint8Array {
+  const rows = levels
+    .filter((l) => l.name !== "" || Number.isFinite(l.elevation))
+    .map((l) => encodeItem({ name: l.name, elevation: Number.isFinite(l.elevation) ? l.elevation : undefined }, LEVEL_COLS, "storeys.levels[]"));
+  const labels = new Map<string, string>();
+  if (plane === "OKFG" || plane === "OKBD") labels.set("storeys.levels[].elevation", t(`field.storeyElevation.${plane}`, "nb"));
+  return stepSheetBytes(tableSheet(SHEET.storeys, LEVEL_COLS, rows, labels));
+}
+
+/** The Etasjer sheet's levels, in its order. A Kote that is not a number is
+ *  refused at its cell, beside the reader's own refusals. */
+export function readLevelsXlsx(bytes: Uint8Array): { name: string; elevation: number }[] {
+  const problems = new Problems();
+  const rows = stepRows(bytes, SHEET.storeys, LEVEL_COLS, problems);
+  const levels = rows.map((row) => {
+    const level = decodeItem(row, LEVEL_COLS, "storeys.levels[]", problems, "", new Map());
+    const elevation = level.elevation;
+    if (elevation !== undefined && (typeof elevation !== "number" || !Number.isFinite(elevation))) {
+      problems.add(refOf(row, "storeys.levels[].elevation"), `${t("field.storeyElevation", "nb")} is a number in metres, found ${String(elevation)}`);
+    }
+    return orderKeys(level, ["name", "elevation"]) as { name: string; elevation: number };
+  });
+  if (problems.list.length > 0) throw new XlsxRulesetError(problems.list);
+  return levels;
+}
+
 /** Write a workbook, read it back and deep-compare with the ruleset in its
  *  canonical order. Throws on any difference rather than hand over a file
  *  that says something else. */

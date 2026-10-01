@@ -24,6 +24,14 @@
  * interact with it isnt working here." Every field is live on every step, and
  * an edit turns its rule on; the switch remains the way to turn one off. A new
  * mapping's source is a property, so the picker is what a step opens on.
+ *
+ * Click and template, both (2026-10-01). edkjo: "we should have an mmi code
+ * builder" and "for MMI and floors, we should have local templates you can
+ * download and fill out", then "both though". MMI: «+» on a value adds the
+ * code the Uttrekk takes out of it, «Legg til alle» every one the list lacks.
+ * Etasjeoppsett: the models' own storeys, «+» and «Legg til alle» the same.
+ * Each of the two steps downloads and uploads its own sheet
+ * (`step-templates.ts`, `xlsx.ts`). Lint shows at the field, as a label.
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
@@ -44,7 +52,7 @@ import type {
   StoreySetup,
 } from "../ids/types.ts";
 import type { Lang, StringKey } from "./i18n";
-import { t } from "./i18n";
+import { hasString, locale, t } from "./i18n";
 import { Switch } from "./Switch";
 import { CONFIG_TEMPLATE_FILE } from "../ids/config-template.ts";
 import { formatCount } from "./format";
@@ -54,6 +62,15 @@ import { extractFromExample } from "../ids/extract-example.ts";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 import type { Verdict } from "../engine/types";
 import type { ModelEntry } from "./useModels";
+import {
+  extractedCodes,
+  hasLevel,
+  levelsTemplate,
+  modelLevels,
+  templateFileName,
+  withCodes,
+  withLevels,
+} from "./step-templates";
 
 const SOURCE_KINDS = ["attribute", "property", "classification"] as const;
 type SourceKind = (typeof SOURCE_KINDS)[number];
@@ -146,6 +163,109 @@ function downloadBlob(blob: Blob, fileName: string): void {
   a.download = fileName;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** A lint issue as the UI says it: its `lint.<code>` label, or the issue's
+ *  own message for a code with no label. Never the ruleset path. */
+function issueText(issue: LintIssue, lang: Lang): string {
+  const key = `lint.${issue.code}`;
+  return hasString(key) ? t(key, lang) : issue.message;
+}
+
+/** The issues of one field, under it. `subject` names the row an issue is
+ *  on (a code, a storey), when it is on one. */
+function IssueLines({
+  issues,
+  lang,
+  subject,
+}: {
+  issues: LintIssue[];
+  lang: Lang;
+  subject?: (issue: LintIssue) => string | null;
+}) {
+  if (issues.length === 0) return null;
+  const lines = [
+    ...new Set(
+      issues.map((issue) => {
+        const who = subject?.(issue) ?? null;
+        const text = issueText(issue, lang);
+        return who === null ? text : `${who}: ${text}`;
+      }),
+    ),
+  ];
+  return (
+    <div data-issues className="flex flex-col bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug text-cream">
+      {lines.map((line) => (
+        <span key={line}>{line}</span>
+      ))}
+    </div>
+  );
+}
+
+/** A step's own template: «Last ned mal» writes the step's sheet with its
+ *  defaults, «Last opp» reads one back into the step. A refused file names
+ *  every problem at its Sheet!Cell and changes nothing. */
+function TemplateButtons({
+  fileName,
+  lang,
+  onDownload,
+  onUpload,
+}: {
+  fileName: string;
+  lang: Lang;
+  onDownload: () => Promise<Uint8Array>;
+  onUpload: (bytes: Uint8Array) => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const fail = (err: unknown) => {
+    const problems = (err as { problems?: unknown }).problems;
+    setError(Array.isArray(problems) ? problems.join("\n") : err instanceof Error ? err.message : String(err));
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          data-template-download
+          onClick={() => {
+            setError(null);
+            onDownload()
+              .then((bytes) => downloadBlob(new Blob([bytes as BlobPart], { type: XLSX_TYPE }), fileName))
+              .catch(fail);
+          }}
+          className={SECONDARY}
+        >
+          <span>{t("action.downloadTemplate", lang)}</span>
+          <span className="font-mono text-[11px]">{fileName}</span>
+        </button>
+        <button type="button" data-template-upload onClick={() => input.current?.click()} className={SECONDARY}>
+          {t("action.upload", lang)}
+        </button>
+        <input
+          ref={input}
+          type="file"
+          accept=".xlsx"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (!file) return;
+            setError(null);
+            file
+              .arrayBuffer()
+              .then((buffer) => onUpload(new Uint8Array(buffer)))
+              .catch(fail);
+          }}
+        />
+      </div>
+      {error !== null ? (
+        <pre data-template-error className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+          {error}
+        </pre>
+      ) : null}
+    </div>
+  );
 }
 
 const LABEL = "text-[10px] font-semibold tracking-[0.12em] text-gold uppercase";
@@ -628,11 +748,15 @@ function ValuesPanel({
   check,
   lang,
   onPick,
+  onAdd,
 }: {
   prop: PsetProp;
   check: MappingCheck;
   lang: Lang;
   onPick?: (value: string) => void;
+  /** The project's own code list (MMI): «+» on a value adds the code it
+   *  extracts, «Legg til alle» every one the list lacks. */
+  onAdd?: (codes: string[]) => void;
 }) {
   let preview: ExtractPreview | null = null;
   let error: string | null = null;
@@ -647,6 +771,10 @@ function ValuesPanel({
   const rest = Math.max(0, prop.valued - listedRows);
   const partial = prop.values.length < prop.distinct || !prop.exact;
   const rows = preview?.rows ?? prop.values.map((v) => ({ ...v, code: null, state: null }));
+  // The codes a click adds: extracted, and not in the project's list yet.
+  const listed = new Set(check.type === "code-lookup" ? (check.codes ?? []).map((c) => c.code) : []);
+  const addable = (code: string | null): code is string => onAdd !== undefined && code !== null && !listed.has(code);
+  const missing = [...new Set(rows.map((r) => r.code).filter(addable))];
   const cols = preview
     ? "[grid-template-columns:minmax(0,1fr)_minmax(0,8rem)_1.25rem_4rem]"
     : "[grid-template-columns:minmax(0,1fr)_4rem]";
@@ -659,6 +787,17 @@ function ValuesPanel({
             ? `${formatCount(prop.values.length, lang)} / ${prop.exact ? "" : "≥"}${formatCount(prop.distinct, lang)}`
             : formatCount(prop.distinct, lang)}
         </span>
+        {onAdd && preview ? (
+          <button
+            type="button"
+            data-add-all
+            disabled={missing.length === 0}
+            onClick={() => onAdd(missing)}
+            className="border border-line bg-input px-2 py-0.5 text-[12px] text-ink hover:border-green hover:text-green disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line"
+          >
+            {t("action.addAll", lang)}
+          </button>
+        ) : null}
         {preview ? (
           <span data-totals className="ml-auto flex flex-wrap items-center gap-1.5">
             <StateChip state="ok" count={preview.totals.ok} lang={lang} />
@@ -687,13 +826,31 @@ function ValuesPanel({
               </>
             );
             const rowClass = `grid w-full items-center gap-3 px-3 py-1 text-left text-[12px] text-ink ${cols}`;
-            return onPick ? (
-              <button key={r.v} type="button" data-value={r.v} onClick={() => onPick(r.v)} className={rowClass + " hover:bg-panel"}>
+            const main = onPick ? (
+              <button type="button" onClick={() => onPick(r.v)} className={rowClass + " min-w-0 flex-1 hover:bg-panel"}>
                 {cells}
               </button>
             ) : (
-              <div key={r.v} data-value={r.v} className={rowClass}>
-                {cells}
+              <div className={rowClass + " min-w-0 flex-1"}>{cells}</div>
+            );
+            return (
+              <div key={r.v} data-value={r.v} className="flex items-center">
+                {main}
+                {onAdd ? (
+                  addable(r.code) ? (
+                    <button
+                      type="button"
+                      data-add={r.code}
+                      aria-label={`${t("action.addRow", lang)} ${r.code}`}
+                      onClick={() => onAdd([r.code as string])}
+                      className="w-7 shrink-0 py-1 text-center font-mono text-[14px] leading-none text-muted hover:text-green"
+                    >
+                      +
+                    </button>
+                  ) : (
+                    <span className="w-7 shrink-0" />
+                  )
+                ) : null}
               </div>
             );
           })}
@@ -775,6 +932,7 @@ function MappingCard({
   rule,
   issues,
   lang,
+  rulesetName,
   onToggle,
   onCheck,
   onAskEnable,
@@ -785,6 +943,8 @@ function MappingCard({
   rule: ExtendedRule | null;
   issues: LintIssue[];
   lang: Lang;
+  /** Names the step's template file. */
+  rulesetName: string;
   /** What the property picker lists, from the loaded models. */
   picker: { choices: PsetChoice[] | null; reading: boolean; errors: string[] };
   onToggle: () => void;
@@ -800,6 +960,15 @@ function MappingCard({
   const source = check.source;
   const kind = sourceKind(source);
   const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
+  // Each issue at the field it concerns; the rest at the card's foot.
+  const fieldOf = (issue: LintIssue) => /\.check\.(source|extract|codes|list|copy|own)(?=[.[]|$)/.exec(issue.path)?.[1] ?? null;
+  const at = (field: string | null) => (active ? issues.filter((i) => fieldOf(i) === field) : []);
+  const codeSubject = (issue: LintIssue) => {
+    const m = /\.check\.codes\[(\d+)\]/.exec(issue.path);
+    if (!m || check.type !== "code-lookup") return null;
+    const i = Number(m[1]);
+    return check.codes?.[i]?.code || `#${i + 1}`;
+  };
   const classification = role === "system-classification" || role === "component-classification";
   // The picked property as the model has it: its values feed the values
   // list, the extract preview and the example's suggestions.
@@ -875,6 +1044,7 @@ function MappingCard({
                 </option>
               ))}
             </select>
+            <IssueLines issues={at("list")} lang={lang} />
           </Field>
           <div className="flex flex-col gap-1">
             <span className={LABEL}>{t("field.target", lang)}</span>
@@ -950,10 +1120,16 @@ function MappingCard({
               check={check}
               lang={lang}
               onPick={check.type === "code-lookup" ? pickExample : undefined}
+              onAdd={
+                role === "progress-code" && check.type === "code-lookup"
+                  ? (codes) => onCheck({ ...check, codes: withCodes(check.codes ?? [], codes) })
+                  : undefined
+              }
             />
           ) : null}
         </PropertyPicker>
       ) : null}
+      <IssueLines issues={at("source")} lang={lang} />
 
       {check.type === "code-lookup" ? (
         <div className="flex flex-col gap-3">
@@ -977,13 +1153,30 @@ function MappingCard({
               onApply={(extract) => onCheck({ ...check, extract })}
             />
           </div>
+          <IssueLines issues={at("extract")} lang={lang} />
           {role === "progress-code" ? (
-            <CodesTable
-              codes={check.codes ?? []}
-              issues={issues}
-              lang={lang}
-              onChange={(codes) => onCheck({ ...check, codes })}
-            />
+            <>
+              <CodesTable
+                codes={check.codes ?? []}
+                issues={issues}
+                lang={lang}
+                onChange={(codes) => onCheck({ ...check, codes })}
+              />
+              <IssueLines issues={at("codes")} lang={lang} subject={codeSubject} />
+              <TemplateButtons
+                fileName={templateFileName(rulesetName, "mmi")}
+                lang={lang}
+                onDownload={async () => {
+                  const { writeCodesXlsx } = await import("../ids/xlsx.ts");
+                  const extracted = prop ? extractedCodes(check.extract, prop.values) : [];
+                  return writeCodesXlsx(withCodes(check.codes ?? [], extracted));
+                }}
+                onUpload={async (bytes) => {
+                  const { readCodesXlsx } = await import("../ids/xlsx.ts");
+                  onCheck({ ...check, codes: readCodesXlsx(bytes) });
+                }}
+              />
+            </>
           ) : null}
         </div>
       ) : (
@@ -1002,14 +1195,13 @@ function MappingCard({
               onChange={(own) => onCheck({ ...check, own })}
             />
           </Field>
+          <div className="basis-full">
+            <IssueLines issues={[...at("copy"), ...at("own")]} lang={lang} />
+          </div>
         </div>
       )}
 
-      {active && issues.length > 0 ? (
-        <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
-          {issues.map((i) => `${i.path}: ${i.message}`).join("\n")}
-        </pre>
-      ) : null}
+      <IssueLines issues={at(null)} lang={lang} />
     </section>
   );
 }
@@ -1034,20 +1226,15 @@ function StoreyCard({
   const invalid = (i: number, field: string) =>
     issues.some((issue) => issue.path === `storeys.levels[${i}].${field}` && issue.severity === "error");
   const planeInvalid = issues.some((issue) => issue.path === "storeys.plane");
-  const setLevels = (levels: StoreyLevel[]) => {
-    if (levels.length === 0) return onChange(undefined);
-    onChange(
-      setup
-        ? { ...setup, levels }
-        : {
-            // No plane is chosen for the user: lint refuses the blank until one is.
-            plane: "" as StoreyPlane,
-            tolerance: { aboveMm: 0, belowMm: 0 },
-            nameWindowMm: null,
-            nearMm: 0,
-            levels,
-          },
-    );
+  const setLevels = (levels: StoreyLevel[]) => onChange(setupWithLevels(setup, levels));
+  const planeIssues = issues.filter((i) => i.path === "storeys.plane");
+  const levelIssues = issues.filter((i) => i.path.startsWith("storeys.levels"));
+  const otherIssues = issues.filter((i) => !planeIssues.includes(i) && !levelIssues.includes(i));
+  const levelSubject = (issue: LintIssue) => {
+    const m = /^storeys\.levels\[(\d+)\]/.exec(issue.path);
+    if (!m) return null;
+    const i = Number(m[1]);
+    return storeys[i]?.name || `#${i + 1}`;
   };
   const set = (i: number, patch: Partial<StoreyLevel>) =>
     setLevels(storeys.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -1101,11 +1288,92 @@ function StoreyCard({
         {t("action.addRow", lang)}
       </button>
       {issues.length > 0 ? (
-        <pre className="m-0 max-h-24 shrink-0 overflow-auto bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
-          {issues.map((i) => `${i.path}: ${i.message}`).join("\n")}
-        </pre>
+        <div className="flex max-h-24 shrink-0 flex-col gap-1 overflow-auto">
+          <IssueLines issues={planeIssues} lang={lang} />
+          <IssueLines issues={levelIssues} lang={lang} subject={levelSubject} />
+          <IssueLines issues={otherIssues} lang={lang} />
+        </div>
       ) : null}
     </section>
+  );
+}
+
+/** `setup` with these levels. No levels is no config; a first level starts
+ *  one that matches exactly and has no plane, which lint refuses until one
+ *  is chosen. */
+function setupWithLevels(setup: StoreySetup | undefined, levels: StoreyLevel[]): StoreySetup | undefined {
+  if (levels.length === 0) return undefined;
+  return setup
+    ? { ...setup, levels }
+    : {
+        plane: "" as StoreyPlane,
+        tolerance: { aboveMm: 0, belowMm: 0 },
+        nameWindowMm: null,
+        nearMm: 0,
+        levels,
+      };
+}
+
+/** The loaded models' own storeys (`step-templates.ts` `modelLevels`): «+» on
+ *  one adds it as a level, «Legg til alle» every one the table lacks. */
+function ModelStoreys({
+  fromModels,
+  levels,
+  lang,
+  onAdd,
+}: {
+  fromModels: StoreyLevel[];
+  levels: StoreyLevel[];
+  lang: Lang;
+  onAdd: (levels: StoreyLevel[]) => void;
+}) {
+  const missing = fromModels.filter((l) => !hasLevel(levels, l));
+  const metres = (m: number) =>
+    m.toLocaleString(locale(lang), { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  return (
+    <div className="flex flex-col gap-2" data-model-storeys>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={LABEL}>{t("kpi.storeys", lang)}</span>
+        <span className="font-mono text-[11px] tabular-nums text-muted">{formatCount(fromModels.length, lang)}</span>
+        <button
+          type="button"
+          data-add-all
+          disabled={missing.length === 0}
+          onClick={() => onAdd(missing)}
+          className="border border-line bg-input px-2 py-0.5 text-[12px] text-ink hover:border-green hover:text-green disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line"
+        >
+          {t("action.addAll", lang)}
+        </button>
+      </div>
+      <div className="flex max-h-56 flex-col overflow-auto border border-line bg-input py-1">
+        {fromModels.map((level) => {
+          const added = hasLevel(levels, level);
+          return (
+            <div
+              key={`${level.name}\u0000${level.elevation}`}
+              data-storey={level.name}
+              className="grid items-center gap-3 px-3 py-1 text-[12px] text-ink [grid-template-columns:minmax(0,1fr)_7rem_1.75rem]"
+            >
+              <span className="min-w-0 truncate font-mono">{level.name}</span>
+              <span className="text-right font-mono tabular-nums text-muted">{metres(level.elevation)}</span>
+              {added ? (
+                <StateChip state="ok" lang={lang} />
+              ) : (
+                <button
+                  type="button"
+                  data-add={level.name}
+                  aria-label={`${t("action.addRow", lang)} ${level.name}`}
+                  onClick={() => onAdd([level])}
+                  className="text-center font-mono text-[14px] leading-none text-muted hover:text-green"
+                >
+                  +
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1361,6 +1629,19 @@ export function SetupPage({
     };
   }, [models]);
 
+  // The models' own storeys, for the Etasjeoppsett step.
+  const fromModels = useMemo(
+    () =>
+      modelLevels(
+        models.flatMap((m) =>
+          m.profile && m.report
+            ? [{ storeys: m.profile.storeys, unitScale: m.report.summary.unit_scale, unitResolved: m.report.summary.unit_resolved }]
+            : [],
+        ),
+      ),
+    [models],
+  );
+
   const done = (s: SetupStep): boolean => {
     if (s === "start") return false;
     if (s === "ifc") return models.some((m) => m.state === "ready");
@@ -1502,17 +1783,41 @@ export function SetupPage({
       </div>
     );
   } else if (current === "storeys") {
+    const setStoreys = (storeys: StoreySetup | undefined) => {
+      const next: Ruleset = { ...ruleset, storeys };
+      if (storeys === undefined) delete next.storeys;
+      onChange(next);
+    };
+    const levels = ruleset.storeys?.levels ?? [];
     body = (
-      <StoreyCard
-        setup={ruleset.storeys}
-        issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
-        lang={lang}
-        onChange={(storeys) => {
-          const next: Ruleset = { ...ruleset, storeys };
-          if (storeys === undefined) delete next.storeys;
-          onChange(next);
-        }}
-      />
+      <div className="flex flex-col gap-4">
+        <StoreyCard
+          setup={ruleset.storeys}
+          issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
+          lang={lang}
+          onChange={setStoreys}
+        />
+        <TemplateButtons
+          fileName={templateFileName(ruleset.name, "etasjer")}
+          lang={lang}
+          onDownload={async () => {
+            const { writeLevelsXlsx } = await import("../ids/xlsx.ts");
+            return writeLevelsXlsx(levelsTemplate(levels, fromModels), ruleset.storeys?.plane);
+          }}
+          onUpload={async (bytes) => {
+            const { readLevelsXlsx } = await import("../ids/xlsx.ts");
+            setStoreys(setupWithLevels(ruleset.storeys, readLevelsXlsx(bytes)));
+          }}
+        />
+        {fromModels.length > 0 ? (
+          <ModelStoreys
+            fromModels={fromModels}
+            levels={levels}
+            lang={lang}
+            onAdd={(extra) => setStoreys(setupWithLevels(ruleset.storeys, withLevels(levels, extra)))}
+          />
+        ) : null}
+      </div>
     );
   } else {
     const role = current;
@@ -1524,6 +1829,7 @@ export function SetupPage({
         rule={rule}
         issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
         lang={lang}
+        rulesetName={ruleset.name}
         picker={picker}
         onToggle={() => toggle(role)}
         onCheck={(check) => setCheck(role, check)}

@@ -383,6 +383,31 @@ const STRINGS = {
   "field.values": { nb: "Verdier", en: "Values" },
   "field.example": { nb: "Eksempel", en: "Example" },
   "action.apply": { nb: "Bruk", en: "Apply" },
+  "action.addAll": { nb: "Legg til alle", en: "Add all" },
+  "action.upload": { nb: "Last opp", en: "Upload" },
+
+  /* ------------------------------------- lint, at the field on Oppsett */
+  // Keyed `lint.<issue code>` (src/ids/lint.ts). A code with no entry shows
+  // the issue's own message.
+  "lint.code-values-empty": { nb: "Ingen koder", en: "No codes" },
+  "lint.mapping-codes": { nb: "Ingen koder", en: "No codes" },
+  "lint.code-value-empty": { nb: "Kode mangler", en: "Code missing" },
+  "lint.code-value-duplicate": { nb: "Koden står to ganger", en: "Code listed twice" },
+  "lint.code-name-empty": { nb: "Navn mangler", en: "Name missing" },
+  "lint.code-phase-empty": { nb: "Fase er tom", en: "Phase is empty" },
+  "lint.code-source-empty": { nb: "Kilde mangler", en: "Source missing" },
+  "lint.mapping-list": { nb: "Kodeliste mangler", en: "Code list missing" },
+  "lint.extract-invalid": { nb: "Ugyldig uttrekk", en: "Invalid extract" },
+  "lint.extract-groups": { nb: "Uttrekk trenger én gruppe", en: "Extract needs one group" },
+  "lint.copy-value-empty": { nb: "Tom verdi", en: "Empty value" },
+  "lint.copy-own-overlap": { nb: "Både kopi og egen", en: "Both copy and own" },
+  "lint.from-project": { nb: "<FROM PROJECT> gjenstår", en: "<FROM PROJECT> remains" },
+  "lint.storey-plane": { nb: "Referanseplan mangler", en: "Reference plane missing" },
+  "lint.storey-name-empty": { nb: "Navn mangler", en: "Name missing" },
+  "lint.storey-name-duplicate": { nb: "Navnet står to ganger", en: "Name listed twice" },
+  "lint.storey-name-whitespace": { nb: "Mellomrom i navnet", en: "Whitespace in name" },
+  "lint.storey-elevation-invalid": { nb: "Ugyldig kote", en: "Invalid elevation" },
+  "lint.storey-elevation-duplicate": { nb: "Koten står to ganger", en: "Elevation listed twice" },
 
   /* ------------------------------------------------- the .xlsx config file */
   // Column headers of src/ids/xlsx.ts. Where the rule builder has the label,

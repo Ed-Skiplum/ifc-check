@@ -64,12 +64,17 @@ import {
   XlsxRulesetError,
   canonicalRuleset,
   locate,
+  readCodesXlsx,
+  readLevelsXlsx,
   readRulesetXlsx,
   rulesetDiff,
   withIdsRules,
+  writeCodesXlsx,
+  writeLevelsXlsx,
   writeRulesetXlsx,
   type XlsxRuleset,
 } from "../src/ids/xlsx.ts";
+import { extractedCodes, levelsTemplate, modelLevels, templateFileName, withCodes } from "../src/ui/step-templates.ts";
 import { exemptChecks } from "../src/engine/exempt.ts";
 import { createIdsValidator, type SchemaSources } from "../src/ids/validate.ts";
 import { REQUIREMENT_IDS, type IdsRule, type Ruleset } from "../src/ids/types.ts";
@@ -2700,6 +2705,7 @@ async function cmdSelftest(): Promise<number> {
   configSelftest(record);
   mottakskontrollSelftest(record);
   setupWalkSelftest(record);
+  stepTemplateSelftest(record);
 
   const ok = assertions.every((a) => a.ok);
   emit({
@@ -2717,6 +2723,90 @@ async function cmdSelftest(): Promise<number> {
 /** The pure seams under Oppsett's property step: the extract generated from an
  *  example, the extract preview over real values, the value cap's honesty,
  *  and each classification role's default list. */
+/** Oppsett's per-step templates: the MMI-koder and Etasjer sheets alone
+ *  (`src/ids/xlsx.ts`), and their defaults (`src/ui/step-templates.ts`). */
+function stepTemplateSelftest(record: (name: string, expected: string, actual: string) => void): void {
+  const refused = (read: () => unknown): string => {
+    try {
+      read();
+      return "accepted";
+    } catch (error) {
+      return error instanceof XlsxRulesetError
+        ? error.problems.map((p) => p.split(": ")[0]).join(" ")
+        : (error as Error).message;
+    }
+  };
+  const sheetNames = (bytes: Uint8Array) =>
+    [...strFromU8(unzipSync(bytes)["xl/workbook.xml"]).matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]).join(",");
+
+  const codes = [
+    { code: "100", name: "MMI 100" },
+    { code: "300", name: "Detaljprosjektert", phase: "NY" },
+  ];
+  const codesFile = writeCodesXlsx(codes);
+  record("step template MMI: the one sheet", "MMI-koder", sheetNames(codesFile));
+  record("step template MMI: round trip", JSON.stringify(codes), JSON.stringify(readCodesXlsx(codesFile)));
+
+  const levels = [
+    { name: "Kjeller", elevation: -3.2 },
+    { name: "Plan 01", elevation: 0 },
+    { name: "Plan 02", elevation: 3.6 },
+  ];
+  const levelsFile = writeLevelsXlsx(levels, "OKFG");
+  record("step template Etasjer: the one sheet", "Etasjer", sheetNames(levelsFile));
+  record("step template Etasjer: round trip", JSON.stringify(levels), JSON.stringify(readLevelsXlsx(levelsFile)));
+  record(
+    "step template Etasjer: the Kote header names the plane",
+    "true",
+    String(strFromU8(unzipSync(levelsFile)["xl/worksheets/sheet1.xml"]).includes(">Kote OKFG (m)<")),
+  );
+
+  // A full config workbook: the matching sheet, nothing else read.
+  const eks = JSON.parse(readFileSync(new URL("../examples/eks-project-layer.test.ruleset.json", import.meta.url), "utf8")) as Ruleset;
+  const full = writeRulesetXlsx(eks);
+  const eksMmi = eks.rules.find((r) => r.kind === "extended" && r.mapping === "progress-code");
+  const eksCodes = eksMmi && eksMmi.kind === "extended" && eksMmi.check.type === "code-lookup" ? eksMmi.check.codes : undefined;
+  record("step template MMI: from the full workbook", JSON.stringify(eksCodes), JSON.stringify(readCodesXlsx(full)));
+  record("step template Etasjer: from the full workbook", JSON.stringify(eks.storeys?.levels), JSON.stringify(readLevelsXlsx(full)));
+
+  // Defaults.
+  const values = [
+    { v: "100", n: 574 },
+    { v: "300", n: 12 },
+    { v: "Skisse", n: 3 },
+    { v: "100", n: 1 },
+  ];
+  record(
+    "step template MMI defaults: the list, then each extracted code it lacks as MMI <code>",
+    '[{"code":"100","name":"Skisse"},{"code":"300","name":"MMI 300"}]',
+    JSON.stringify(withCodes([{ code: "100", name: "Skisse" }], extractedCodes("^(\\d{3})$", values))),
+  );
+  const fromModels = modelLevels([
+    { unitScale: 0.001, unitResolved: true, storeys: [{ name: "Plan 01", elevation: 0 }, { name: "Plan 02", elevation: 3600 }, { name: null, elevation: 7200 }] },
+    { unitScale: 1, unitResolved: true, storeys: [{ name: "Plan 02", elevation: 3.6 }, { name: "Kjeller", elevation: -3.2 }, { name: "Tak", elevation: null }] },
+    { unitScale: 1, unitResolved: false, storeys: [{ name: "Loft", elevation: 9 }] },
+  ]);
+  record("step template Etasjer defaults: the models' storeys, merged, deduplicated, lowest first", JSON.stringify(levels), JSON.stringify(fromModels));
+  record("step template Etasjer defaults: no levels takes the models'", "3", String(levelsTemplate([], fromModels).length));
+  record(
+    "step template Etasjer defaults: levels set keep them",
+    "Plan 09",
+    levelsTemplate([{ name: "Plan 09", elevation: 30 }], fromModels).map((l) => l.name).join(","),
+  );
+  record("step template file names", "regelsett.mmi.xlsx EKS.etasjer.xlsx", `${templateFileName(" ", "mmi")} ${templateFileName("EKS", "etasjer")}`);
+
+  // Refusals, at the cell, nothing half read.
+  record("step template MMI refuses: a code with no name", "MMI-koder!B4", refused(() => readCodesXlsx(writeCodesXlsx([...codes.slice(0, 1), { code: "200", name: "" }]))));
+  const textKote = (() => {
+    const files = unzipSync(levelsFile);
+    const part = "xl/worksheets/sheet1.xml";
+    files[part] = strToU8(strFromU8(files[part]).replace(/<c r="B4"><v>0<\/v><\/c>/, '<c r="B4" t="inlineStr"><is><t>null</t></is></c>'));
+    return zipSync(files);
+  })();
+  record("step template Etasjer refuses: a Kote that is not a number", "Etasjer!B4", refused(() => readLevelsXlsx(textKote)));
+  record("step template Etasjer refuses: a file without the sheet", "Etasjer", refused(() => readLevelsXlsx(codesFile)));
+}
+
 function setupWalkSelftest(record: (name: string, expected: string, actual: string) => void): void {
   const cases: { example: string; mark: [number, number]; want: string | null; code: string }[] = [
     { example: "231 Bærevegger", mark: [0, 3], want: "^(\\d{3}).*", code: "231" },

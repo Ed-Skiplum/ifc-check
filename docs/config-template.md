@@ -183,6 +183,12 @@ Reader rules:
 - Lists are comma-separated. A blank tolerance or window cell = no limit.
 - Rule order out of a workbook: IDS, Klassifikasjon, MMI, Kopiobjekt, Andre regler.
 
+Step templates (Oppsett, MMI and Etasjeoppsett): `writeCodesXlsx` /
+`writeLevelsXlsx` write a workbook holding only the MMI-koder or Etasjer
+sheet, same layout and codec; `readCodesXlsx` / `readLevelsXlsx` read that
+sheet from such a file or from a full config workbook, and replace that
+table only. Files: `<name>.mmi.xlsx`, `<name>.etasjer.xlsx`.
+
 ## 3. .ids
 
 `emit --ids` (CLI) and **Last ned** `<name>.ids` (Oppsett) write the enabled
