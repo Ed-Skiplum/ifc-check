@@ -19,10 +19,11 @@ import { t } from "./ui/i18n";
 import { FIRST_MAPPING_STEP, SetupPage, type SetupStep } from "./ui/SetupPage";
 import { forgetSavedRuleset, readSavedRuleset, writeSavedRuleset } from "./storage/saved-ruleset";
 import { kpiClaims } from "./ui/claims";
-import { chooseFocus, useCrossFilter } from "./ui/cross-filter";
+import { chooseFocus, useCrossFilter, type ModelView } from "./ui/cross-filter";
 import { originOfFocus } from "./ui/origins";
 import { Landing } from "./ui/Landing";
 import { ModelPanel } from "./ui/ModelPanel";
+import { ModelTabs } from "./ui/ModelTabs";
 import { TraceBand } from "./ui/TraceBand";
 import type { FloorPeer } from "./ui/FloorSetup";
 import { isRulesetFile, readRulesetFile } from "./ui/ruleset-file";
@@ -30,9 +31,21 @@ import { isIdsFile, type IdsSession } from "./ui/IdsResults";
 import { importIds } from "./ids/import.ts";
 import { buildTrace, parseFocus, serialiseFocus } from "./ui/trace";
 import { loadDesignFonts } from "./design/fonts";
-import { useHashView } from "./ui/useHashView";
+import { useHashView, type ViewState } from "./ui/useHashView";
 import { escapeTarget } from "./ui/keys";
 import { isAcceptedFile, useModels } from "./ui/useModels";
+
+/** The hash's `focus` for a model's filter. An element scope of more than
+ *  eight guids is not written; it would make the link unreadable. */
+function focusKey(scope: ModelView["scope"] | undefined): string | null {
+  return scope && !(scope.kind === "element" && scope.guids.length > 8) ? serialiseFocus(scope) : null;
+}
+
+/** A model's panel tab, kept while another model's tab is open. */
+interface PanelTab {
+  tab: ViewState["tab"];
+  type: string | null;
+}
 
 const EMPTY_RULESET: Ruleset = {
   formatVersion: 2,
@@ -60,19 +73,47 @@ export default function App() {
   // share a filter.
   const cross = useCrossFilter();
 
+  /* ── One model on the board at a time ───────────────────────────────────
+   *
+   * The open tab is the hash's `model`, so a link names it and Back walks
+   * model tabs as it walks panel tabs. A hash naming no loaded model falls
+   * back to the newest. The panel tab and the type page are each model's
+   * own: the hash carries the open model's, `panelTabs` keeps the rest. */
+  const activeId = models.find((m) => m.id === view.model)?.id ?? models.at(-1)?.id ?? null;
+  const [panelTabs, setPanelTabs] = useState<Record<string, PanelTab>>({});
+  useEffect(() => {
+    if (!activeId) return;
+    setPanelTabs((p) =>
+      p[activeId]?.tab === view.tab && p[activeId]?.type === view.type
+        ? p
+        : { ...p, [activeId]: { tab: view.tab, type: view.type } },
+    );
+  }, [activeId, view.tab, view.type]);
+  const activate = useCallback(
+    (id: string, replace = false) => {
+      const own = panelTabs[id];
+      setView(
+        { model: id, focus: focusKey(cross.views[id]?.scope), tab: own?.tab ?? null, type: own?.type ?? null },
+        replace,
+      );
+    },
+    [cross.views, panelTabs, setView],
+  );
+
   // Esc escalates from anywhere in the app (2026-09-30): the selection first,
   // then the filter, the same as the chip's ✕. ONE window-level path, so the
   // focus can be in a list, on a row, on the canvas or nowhere; a text field,
   // an open dialog, or a component that handled the key keeps it
-  // (`escapeTarget`).
+  // (`escapeTarget`). It acts on the open model only: a hidden one's
+  // selection is not cleared by a key pressed on another.
   const escape = cross.escape;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (escapeTarget(event)) escape();
+      if (activeId && escapeTarget(event)) escape(activeId);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [escape]);
+  }, [escape, activeId]);
 
   // Keep the document language in step with the toggle, for screen readers and
   // for the browser's own hyphenation.
@@ -262,27 +303,28 @@ export default function App() {
   /* ── The hash mirrors the filter ─────────────────────────────────────────
    *
    * The one filter lives in `cross` (per model) and Scope lists its
-   * `scope`. The hash carries that focus so a view is a link: restored once
-   * on load, as a click from the view the focus belongs to, and written back
-   * with `replace` on every change. Back/Forward walk tabs and the type page,
-   * not filters: a filter the hash could step back into would be a second
-   * source of truth. An element scope of more than eight guids is not
-   * written; it would make the link unreadable. */
+   * `scope`. The hash carries the open model and its focus so a view is a
+   * link: restored once on load, as a click from the view the focus belongs
+   * to, and written back with `replace` on every change. Back/Forward walk
+   * tabs and the type page, not filters: a filter the hash could step back
+   * into would be a second source of truth. */
   const restored = useRef(false);
   useEffect(() => {
     if (restored.current) return;
-    const focus = parseFocus(view.focus);
-    if (!view.model || !focus) {
+    if (!view.model) {
       restored.current = true;
       return;
     }
+    // The link's model is the open tab as soon as it is loaded (`activeId`).
     const target = models.find((m) => m.id === view.model);
+    const focus = parseFocus(view.focus);
     // Wait for the model the link names to be read.
-    if (!target || target.state !== "ready") {
+    if (!target || (focus && target.state !== "ready")) {
       if (models.length > 0 && !target) restored.current = true;
       return;
     }
     restored.current = true;
+    if (!focus) return;
     if (focus.kind === "element") {
       for (const [i, guid] of focus.guids.entries())
         cross.dispatch(target.id, { type: "element", origin: "viewer", guid, label: null, additive: i > 0 });
@@ -291,19 +333,33 @@ export default function App() {
 
   useEffect(() => {
     if (!restored.current) return;
-    const open = models.find((m) => cross.views[m.id]?.scope);
-    const scope = open ? cross.views[open.id].scope : null;
-    const key = scope && !(scope.kind === "element" && scope.guids.length > 8) ? serialiseFocus(scope) : null;
-    const model = key && open ? open.id : null;
-    if (view.model !== model || view.focus !== key) setView({ model, focus: key }, true);
-  }, [cross.views, models, setView, view.model, view.focus]);
+    const key = activeId ? focusKey(cross.views[activeId]?.scope) : null;
+    if (view.model !== activeId || view.focus !== key) setView({ model: activeId, focus: key }, true);
+  }, [activeId, cross.views, setView, view.model, view.focus]);
+
+  // A model that arrives becomes the open tab, unless the link names it (it
+  // is then open already). Several at once: the last of them.
+  const knownIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const fresh = models.filter((m) => !knownIds.current.has(m.id)).map((m) => m.id);
+    knownIds.current = new Set(models.map((m) => m.id));
+    if (fresh.length === 0 || (view.model && fresh.includes(view.model))) return;
+    activate(fresh[fresh.length - 1], true);
+  }, [models, view.model, activate]);
 
   const onRemove = useCallback(
     (id: string) => {
+      // The open tab removed: its neighbour opens, the next one, else the one
+      // before.
+      if (id === activeId) {
+        const at = models.findIndex((m) => m.id === id);
+        const next = models[at + 1] ?? models[at - 1];
+        if (next) activate(next.id, true);
+      }
       cross.dispatch(id, { type: "clear" });
       removeModel(id);
     },
-    [cross, removeModel],
+    [activate, activeId, cross, models, removeModel],
   );
 
   const onClearAll = useCallback(() => {
@@ -383,6 +439,10 @@ export default function App() {
             onSetup={toggleSetup}
           />
 
+          {setupPage ? null : (
+            <ModelTabs lang={view.lang} models={models} active={activeId} onActivate={(id) => activate(id)} />
+          )}
+
           {rulesetError ? (
             <pre className="m-0 shrink-0 bg-bad px-4 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
               {rulesetError}
@@ -391,9 +451,16 @@ export default function App() {
 
           {setupPage ?? (
           <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
-            {models.map((model) => (
+            {models.map((model) => {
+              // Inactive panels stay mounted and hidden: their scene, tabs and
+              // filter are there when their tab opens again.
+              const active = model.id === activeId;
+              const own: PanelTab = active
+                ? { tab: view.tab, type: view.type }
+                : (panelTabs[model.id] ?? { tab: null, type: null });
+              return (
+              <div key={model.id} className={active ? "contents" : "hidden"}>
               <ModelPanel
-                key={model.id}
                 lang={view.lang}
                 design={view.design}
                 model={model}
@@ -407,9 +474,9 @@ export default function App() {
                 onHover={(guid) => cross.setHover(model.id, guid)}
                 floors={ruleset?.storeys?.levels.length ? ruleset.storeys.levels : null}
                 peers={peers}
-                tab={view.tab ?? "checks"}
+                tab={own.tab ?? "checks"}
                 onTab={(tab) => setView({ tab: tab === "checks" ? null : tab, type: null })}
-                typePage={view.type}
+                typePage={own.type}
                 onTypePage={(type, replace) => setView({ tab: "types", type }, replace)}
                 ids={ids}
                 idsError={idsError}
@@ -447,7 +514,9 @@ export default function App() {
                   ) : null;
                 })()}
               />
-            ))}
+              </div>
+              );
+            })}
           </main>
           )}
 

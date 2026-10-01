@@ -172,8 +172,9 @@ export interface CrossFilterApi {
   view: (modelId: string) => ModelView;
   views: Record<string, ModelView>;
   dispatch: (modelId: string, action: FilterAction) => void;
-  /** Esc from anywhere: every model's selection, else every filter. */
-  escape: () => void;
+  /** Esc from anywhere, on the model whose tab is open: its selection, else
+   *  its filter. */
+  escape: (modelId: string) => void;
   setMode: (modelId: string, mode: Mode) => void;
   setHover: (modelId: string, guid: string | null) => void;
 }
@@ -198,7 +199,16 @@ export function useCrossFilter(): CrossFilterApi {
         }),
       [patch],
     ),
-    escape: useCallback(() => setViews((current) => escapeAll(current)), []),
+    escape: useCallback(
+      (modelId: string) =>
+        setViews((current) => {
+          const v = current[modelId];
+          if (!v) return current;
+          const next = escapeAll({ [modelId]: v })[modelId];
+          return next === v ? current : { ...current, [modelId]: next };
+        }),
+      [],
+    ),
     setMode: useCallback((modelId, mode) => patch(modelId, (v) => ({ ...v, mode })), [patch]),
     setHover: useCallback(
       (modelId, guid) => patch(modelId, (v) => (v.hover === guid ? v : { ...v, hover: guid })),
