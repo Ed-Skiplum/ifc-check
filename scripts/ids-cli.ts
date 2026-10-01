@@ -103,12 +103,13 @@ import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
 import { catalogue as typeCatalogue, typeCodes, typeObjectClass } from "../src/ui/type-links.ts";
 import { elementFacets, elementItems, facetCounts, narrow, NONE, typeItems, type FacetSelection } from "../src/ui/facets.ts";
 import { typePage } from "../src/ui/type-page.ts";
+import { qtoKeyOf, qtoPending, qtoTable, sortQto } from "../src/ui/qto-table.ts";
 import { EMPTY_FILTER, escapeAll, reduceFilter } from "../src/ui/filter-state.ts";
 import { selectionMarks } from "../src/ui/selection-marks.ts";
 import { classificationCodes, codeGuids } from "../src/ui/class-codes.ts";
 import type { BoardData } from "../src/ui/report-rows.ts";
 import type { ElementQuantity } from "../src/engine/quantities.ts";
-import type { ModelProfile } from "../src/ui/profile.ts";
+import type { ModelProfile, ProductRowLite } from "../src/ui/profile.ts";
 import {
   CATEGORICAL,
   censusCell,
@@ -2751,6 +2752,7 @@ async function cmdSelftest(): Promise<number> {
   mottakskontrollSelftest(record);
   setupWalkSelftest(record);
   stepTemplateSelftest(record);
+  qtoSelftest(record);
   const write = mmiPresetSelftest(record, (codes) =>
     lintCodes(withRules([mappingRule("progress-code", { codes, extract: defaultExtract("progress-code") })])),
   );
@@ -2765,6 +2767,116 @@ async function cmdSelftest(): Promise<number> {
     includedRuleIds: result.includedRuleIds,
   });
   return ok ? 0 : 1;
+}
+
+/* ------------------------------------------------------- the QTO table */
+
+/** The Innhold tab's QTO grouping (`src/ui/qto-table.ts`): group sums, the
+ *  totals row, missing and pending counts, the ears without their source. */
+function qtoSelftest(record: (name: string, expected: string, actual: string) => void): void {
+  const row = (guid: string, entity: string, extra: Partial<ProductRowLite> = {}): ProductRowLite => ({
+    guid,
+    entity,
+    name: null,
+    storeyGuid: "S1",
+    ...extra,
+  });
+  const rows: ProductRowLite[] = [
+    row("w1", "IfcWall", { typeName: "V1", materials: ["Betong"] }),
+    row("w2", "IfcWall", { typeName: "V1", materials: ["Gips", "Stål"] }),
+    row("w3", "IfcWall", { typeName: null, storeyGuid: null, materials: ["Stål", "Gips"] }),
+    row("s1", "IfcSlab", { typeName: "D1", materials: [] }),
+    row("sp", "IfcSpace", { typeName: null }),
+  ];
+  // [volume, src, area, src, length, src]: 0 Qto, 1 computed, 2 missing, 3 pending.
+  const byGuid: Record<string, ElementQuantity> = {
+    w1: [2, 0, 10, 0, 5, 0],
+    w2: [1.5, 1, 6, 1, null, 2],
+    w3: [null, 2, 4, 0, 3, 0],
+    s1: [8, 0, 40, 0, null, 2],
+    sp: [30, 0, 12, 0, null, 2],
+  };
+  const done = { byGuid, complete: true };
+  const storeys = [{ guid: "S1", name: "01", elevation: 0 }];
+  const fmt = (r: { label: string | null; count: number; volume: { sum: number; missing: number }; area: { sum: number }; length: { sum: number; missing: number } }) =>
+    `${r.label ?? "none"} ${r.count} v${r.volume.sum}/-${r.volume.missing} a${r.area.sum} l${r.length.sum}/-${r.length.missing}`;
+
+  const byClass = qtoTable(rows, qtoKeyOf("class", { storeys, materials: true })!, done);
+  record(
+    "qto: by class, sums per group, an element with no value counts toward none of its column",
+    "IfcWall 3 v3.5/-1 a20 l8/-1 | IfcSlab 1 v8/-0 a40 l0/-1 | IfcSpace 1 v30/-0 a12 l0/-1",
+    byClass.rows.map(fmt).join(" | "),
+  );
+  record("qto: the totals row is every grouped element", "none 5 v41.5/-1 a72 l8/-3", fmt(byClass.total));
+  record(
+    "qto: default sort is Antall descending, ties by label",
+    "IfcWall,IfcSlab,IfcSpace",
+    sortQto(byClass.rows, "count").map((r) => r.label).join(","),
+  );
+  record(
+    "qto: sort by a measure, ascending on request",
+    "IfcWall,IfcSlab,IfcSpace | IfcSlab,IfcWall,IfcSpace",
+    `${sortQto(byClass.rows, "volume", true).map((r) => r.label).join(",")} | ${sortQto(byClass.rows, "area").map((r) => r.label).join(",")}`,
+  );
+  record(
+    "qto: sort by the group column, A to Z then Z to A, the none group last both ways",
+    "IfcSlab,IfcSpace,IfcWall | IfcWall,IfcSpace,IfcSlab",
+    `${sortQto(byClass.rows, "label").map((r) => r.label).join(",")} | ${sortQto(byClass.rows, "label", false).map((r) => r.label).join(",")}`,
+  );
+  const byType = qtoTable(rows, qtoKeyOf("type", { storeys, materials: true })!, done);
+  record("qto: by type, the untyped remainder its own group", "V1 2 | none 2 | D1 1", sortQto(byType.rows, "count").map((r) => `${r.label ?? "none"} ${r.count}`).join(" | "));
+  const byStorey = qtoTable(rows, qtoKeyOf("storey", { storeys, materials: true })!, done);
+  record("qto: by storey, no storey its own group", "01 4 | none 1", sortQto(byStorey.rows, "count").map((r) => `${r.label ?? "none"} ${r.count}`).join(" | "));
+  record("qto: the none group sorts last by label, either way", "01,none | 01,none", `${sortQto(byStorey.rows, "label").map((r) => r.label ?? "none").join(",")} | ${sortQto(byStorey.rows, "label", false).map((r) => r.label ?? "none").join(",")}`);
+  const byMaterial = qtoTable(rows, qtoKeyOf("material", { storeys, materials: true })!, done);
+  record(
+    "qto: by material, an element's materials are one group (order-free), never double counted",
+    "Gips · Stål 2 v1.5 | none 2 v38 | Betong 1 v2 | total 5",
+    `${sortQto(byMaterial.rows, "count").map((r) => `${r.label ?? "none"} ${r.count} v${r.volume.sum}`).join(" | ")} | total ${byMaterial.total.count}`,
+  );
+  record(
+    "qto: Materiale without the material table, the code ears without a mapping: no grouping",
+    "null null null",
+    [qtoKeyOf("material", { storeys, materials: false }), qtoKeyOf("system", { storeys, materials: true }), qtoKeyOf("function", { storeys, materials: true })]
+      .map((k) => (k === null ? "null" : "fn"))
+      .join(" "),
+  );
+  // A mapped system tree: 2 › 22 (w1, w2) with 2's own w3; s1 missing; the space in no tree.
+  const node = (key: string, label: string | null, kind: TreeNode["kind"], guids: string[], children: TreeNode[] = []): TreeNode => ({
+    key,
+    label,
+    name: label === "22" ? "Bæresystemer" : null,
+    kind,
+    n: guids.length,
+    guids,
+    children,
+  });
+  const system = {
+    axis: "system" as const,
+    by: "mapping" as const,
+    n: 4,
+    root: [node("2", "2", "code", ["w1", "w2", "w3"], [node("2/22", "22", "code", ["w1", "w2"])]), node("!missing", null, "missing", ["s1"])],
+  };
+  const fn = { ...system, axis: "function" as const, by: "predefined-type" as const };
+  const bySystem = qtoTable(rows, qtoKeyOf("system", { storeys, materials: true, trees: { system, function: fn } })!, done);
+  record(
+    "qto: by system code, one row per tile (own objects of a parent code their own), the space ungrouped and out of the totals",
+    "22 Bæresystemer 2 | 2 1 | none 1 | total 4 ungrouped 1",
+    `${sortQto(bySystem.rows, "count").map((r) => `${r.label ?? "none"}${r.name ? ` ${r.name}` : ""} ${r.count}`).join(" | ")} | total ${bySystem.total.count} ungrouped ${bySystem.ungrouped}`,
+  );
+  record("qto: the function ear stays off on a fallback tree", "null", String(qtoKeyOf("function", { storeys, materials: true, trees: { system, function: fn } })));
+  // Pending: the pass is still running.
+  const running = { byGuid: { ...byGuid, w2: [null, 3, null, 3, null, 2] as ElementQuantity }, complete: false };
+  const pend = qtoTable(rows, qtoKeyOf("class", { storeys, materials: true })!, running);
+  record(
+    "qto: a measure with an element still pending is pending; count and length are not",
+    "count:false volume:true area:true length:false",
+    (["count", "volume", "area", "length"] as const).map((m) => `${m}:${qtoPending(pend, m)}`).join(" "),
+  );
+  const none = qtoTable(rows, qtoKeyOf("class", { storeys, materials: true })!, undefined);
+  record("qto: no quantities received, every measure pending", "true true true", (["volume", "area", "length"] as const).map((m) => String(qtoPending(none, m))).join(" "));
+  const within = qtoTable(rows, qtoKeyOf("class", { storeys, materials: true })!, done, new Set(["w1", "s1"]));
+  record("qto: within a filter, only its elements", "IfcWall 1 v2 | IfcSlab 1 v8 | total 2", `${within.rows.map((r) => `${r.label} ${r.count} v${r.volume.sum}`).join(" | ")} | total ${within.total.count}`);
 }
 
 /* ------------------------------------------------------- MMI presets */

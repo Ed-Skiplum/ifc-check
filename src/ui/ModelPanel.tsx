@@ -467,6 +467,7 @@ export function ModelPanel({
                 selected={selected}
                 xf={xf}
                 onFocus={focus}
+                onDispatch={onDispatch}
               />
             </div>
             {/* Same mounted-and-hidden pattern as the other two: the 3D scene

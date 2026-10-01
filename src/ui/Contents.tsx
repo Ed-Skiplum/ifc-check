@@ -1,82 +1,55 @@
-/** The Innhold tab: what the file carries, in detail.
+/** The Innhold tab: the rollup of what the model contains (2026-10-01, edkjo:
+ * *"Innhold is a rollup of content, like the treemaps, QTO, etc."*).
  *
- * A flow surface, not a bento (sprucelab ModelWorkspace: one bento overview
- * tab, then working tabs). Two bands that share the tab panel's height
- * 40 : 55, the derivation band's room already taken out of it, so a long
- * class list or ledger costs rows inside its card and never page height
- * (DESIGN.md §1, TableViewport). Each card is the one scroller of its list:
+ * On the module grid and tile frame of the Overview and the project tab
+ * (`layoutContents` in `alt/module-grid.ts`, the LAYOUT SYSTEM canon), tiles
+ * by priority, each sized by its share of the board:
  *
- *   band 1   Klasser (38.2 %) | Etasje × klasse (61.8 %)
- *   band 2   Typer, full width
+ *   qto            the QTO table, the hero (`QtoTable.tsx`, data
+ *                  `qto-table.ts`): grouped by the ear in its head, Klasse ·
+ *                  Type · Systemkode · Komponentkode · Etasje · Materiale;
+ *                  Antall · Volum · Areal · Lengde and a totals row, sortable
+ *                  by any column, Antall descending first. It replaced the
+ *                  Klasser card: grouped by Klasse it is that list, with the
+ *                  quantities beside it.
+ *   census         Etasje × klasse (`StoreyClassCensus`).
+ *   tree-system    the two code treemaps (`CodeTreemap`, Antall · Volum ·
+ *   tree-function  Areal · Lengde in the head): read through the project
+ *                  mapping where one exists, else the general ones (IFC
+ *                  class, PredefinedType). The board's trees are already
+ *                  whichever applies, per axis.
+ *   mmi            the MMI bars (`MmiChart`), only where an MMI mapping is
+ *                  configured.
+ *   ledger         the Typer ledger (`TypeLedgerTile`); the Typer tab is the
+ *                  gallery and the type page, this is the ledger's table.
  *
- * and, beside them (2026-09-30, off the Overview: *"The Innhold page needs a
- * big overhaul, and thats where treemaps and content belongs"*), the two code
- * treemaps stacked in a column of 38.2 %, each with its Antall / Volum / Areal / Lengde
- * switch, where the model's trees are general (the IFC-class and
- * PredefinedType fallbacks; a treemap read through a project mapping is the
- * project tab's). The column is there or not by the loaded content only.
- *
- * Every click cross-filters exactly as it did on the board: a chip, and the
- * derivation band under the tab. The census cards are one view (`census`),
- * each treemap its own (`tree-system`, `tree-function`): the origin dims all
- * but the chosen item, the others isolate.
+ * Every click is a door, as everywhere: it makes its elements the one filter
+ * and opens Scope. Each tile is its own view (origins `qto`, `census`,
+ * `tree-system`, `tree-function`, `mmi`): the origin keeps its items and
+ * marks the chosen one, the others isolate to the filter. A material row has
+ * no board focus, so it is a filter of its own elements, as the Materialer
+ * tab's cards are. The layout is a pure function of the window and the
+ * loaded content (MMI configured or not), never of selection or filter.
  */
 
-import { useState, type CSSProperties, type ReactNode } from "react";
-import type { Lang } from "./i18n";
+import { useMemo, useState } from "react";
+import type { Lang, StringKey } from "./i18n";
 import { t } from "./i18n";
 import type { Census } from "./profile";
-import type { Focus } from "./trace";
+import { serialiseFocus, type Focus } from "./trace";
 import type { ModelEntry } from "./useModels";
-import type { Origin } from "./filter-state";
+import type { FilterAction, Origin } from "./filter-state";
 import { isoOf, xfMark, type Xf } from "./origins";
 import type { Measure } from "../engine/quantities";
-import { CodeTreemap, MeasureSwitch } from "./alt/Charts";
-import { generalTrees, treeTitle } from "./alt/req-view";
+import { CodeTreemap, MeasureSwitch, MmiChart } from "./alt/Charts";
+import { mmiRequirement, treeTitle } from "./alt/req-view";
 import { formatCount } from "./format";
-import { MicroLabel } from "./BentoGrid";
-import { ClassDistribution } from "./forms";
 import { StoreyClassCensus } from "./StoreyClassCensus";
 import { TypeLedgerTile, type TypeLedger } from "./types";
-
-/** The type scale the board derives from its track, fixed here: the ledger
- *  and the tables read the same custom properties on both tabs. */
-const SCALE = {
-  "--bento-pad": "8px",
-  "--bento-label": "10px",
-  "--bento-text": "12px",
-} as CSSProperties;
-
-function Card({
-  label,
-  sub,
-  head,
-  xf,
-  className,
-  children,
-}: {
-  label: string;
-  sub?: string;
-  /** Controls at the head's end, in place of `sub`. */
-  head?: ReactNode;
-  /** The cross-filter mark of the view this card is (`xfMark`). */
-  xf?: "origin" | "whole";
-  className: string;
-  children: ReactNode;
-}) {
-  return (
-    <section data-xf={xf} className={`flex min-h-0 min-w-0 flex-col overflow-hidden border border-line bg-panel ${className}`}>
-      <div className="relative flex shrink-0 items-baseline gap-2 px-2 pt-1.5 pb-1">
-        <MicroLabel>{label}</MicroLabel>
-        {head ?? null}
-        {!head && sub ? (
-          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted">{sub}</span>
-        ) : null}
-      </div>
-      {children}
-    </section>
-  );
-}
+import { MG_GAP, layoutContents, mgRow, type MgLayout } from "./alt/module-grid";
+import { Tile, VARS, useModuleGrid, type Bodies } from "./alt/AltBoard";
+import { QtoEars, QtoTable } from "./QtoTable";
+import { QTO_BY, qtoKeyOf, qtoTable, sortQto, type QtoBy, type QtoRow, type QtoSort } from "./qto-table";
 
 export function Contents({
   lang,
@@ -86,6 +59,7 @@ export function Contents({
   selected,
   xf,
   onFocus: onFocusFrom,
+  onDispatch,
 }: {
   lang: Lang;
   model: ModelEntry;
@@ -95,36 +69,113 @@ export function Contents({
   xf: Xf;
   /** A click, and the view it came from. */
   onFocus: (focus: Focus, origin: Origin) => void;
+  /** For a material row: a filter of its own elements (no board focus). */
+  onDispatch: (action: FilterAction) => void;
 }) {
-  const onFocus = (focus: Focus) => onFocusFrom(focus, "census");
-  const censusXf = xfMark(xf, "census");
+  const { ref, grid } = useModuleGrid();
   const board = model.board;
-  const trees = generalTrees(model);
-  // Antall / Volum / Areal / Lengde per treemap. A measure still waiting on the
-  // geometry pass draws as count (`CodeTreemap`), so the choice survives it.
+  const profile = model.profile;
+  const mmi = useMemo(() => mmiRequirement(model), [model]);
+  const mmiOn = !!mmi?.row && mmi.state !== "not_configured";
+  const layout = useMemo<MgLayout | null>(
+    () => (grid ? layoutContents(grid, { mmi: mmiOn, trees: !!board }) : null),
+    [grid, mmiOn, board],
+  );
+
+  // Antall / Volum / Areal / Lengde per treemap. A measure still waiting on
+  // the geometry pass draws as count (`CodeTreemap`), so the choice survives.
   const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
-  const censusBands = (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-      <div className="grid min-h-0 flex-[40_1_0] gap-3 [grid-template-columns:minmax(0,38.2fr)_minmax(0,61.8fr)] [grid-template-rows:minmax(0,1fr)]">
-        <Card
-          label={t("tile.classes", lang)}
-          sub={formatCount(census.classes.length, lang)}
-          xf={censusXf}
-          className="h-full"
-        >
-          <ClassDistribution
+
+  // The QTO table: its ear, and its sort (Antall descending first).
+  const [qtoBy, setQtoBy] = useState<QtoBy>("class");
+  const [sort, setSort] = useState<{ by: QtoSort; asc: boolean }>({ by: "count", asc: false });
+  const keyInput = useMemo(
+    () => ({ storeys: profile?.storeys ?? [], trees: board?.trees, materials: profile?.materialRows !== undefined }),
+    [profile, board],
+  );
+  const off = useMemo(() => {
+    const out: Partial<Record<QtoBy, StringKey>> = {};
+    for (const ear of QTO_BY) {
+      if (qtoKeyOf(ear, keyInput)) continue;
+      out[ear] = ear === "material" ? "type.notSupplied" : "req.state.not_configured";
+    }
+    return out;
+  }, [keyInput]);
+  // An ear that went off (a ruleset cleared) falls back to Klasse.
+  const by: QtoBy = off[qtoBy] ? "class" : qtoBy;
+  const keyOf = useMemo(() => qtoKeyOf(by, keyInput), [by, keyInput]);
+  const qtoIso = isoOf(xf, "qto");
+  const table = useMemo(() => {
+    if (!profile || !keyOf) return null;
+    const out = qtoTable(profile.rows, keyOf, model.elementQuantities, qtoIso);
+    return { ...out, rows: sortQto(out.rows, sort.by, sort.asc) };
+  }, [profile, keyOf, model.elementQuantities, qtoIso, sort]);
+
+  /** A row's door: the board focus of its group, or for a material its
+   *  elements (the whole model's, as every focus resolves). */
+  const rowFocus = (row: QtoRow): Focus | null => {
+    if (by === "class") return { kind: "class", entity: row.key };
+    if (by === "type") return { kind: "type", typeName: row.label };
+    if (by === "storey") return { kind: "storey", storeyGuids: [row.key === "" ? null : row.key] };
+    if (by === "system" || by === "function") return { kind: "tree", axis: by, key: row.key };
+    return null;
+  };
+  const materialGuids = (row: QtoRow): string[] =>
+    !profile || !keyOf ? row.guids : profile.rows.filter((r) => keyOf(r)?.key === row.key).map((r) => r.guid);
+  const chosen = (row: QtoRow) => {
+    if (xfMark(xf, "qto") !== "origin") return false;
+    const focus = rowFocus(row);
+    return selected === (focus ? serialiseFocus(focus) : serialiseFocus({ kind: "element", guids: materialGuids(row) }));
+  };
+  const onRow = (row: QtoRow) => {
+    const focus = rowFocus(row);
+    if (focus) {
+      onFocusFrom(focus, "qto");
+      return;
+    }
+    const guids = materialGuids(row);
+    const label = row.label ?? "—";
+    onDispatch({
+      type: "choose",
+      origin: "qto",
+      key: `material:${row.key}`,
+      filter: { kind: "material", label, guids },
+      scope: { kind: "element", guids },
+    });
+  };
+
+  const door = (origin: Origin) => ({ lang, model, selected, onFocus: (focus: Focus) => onFocusFrom(focus, origin) });
+
+  const bodies: Bodies = (id) => {
+    if (id === "qto") {
+      return {
+        xf: xfMark(xf, "qto"),
+        head: <QtoEars lang={lang} by={by} off={off} onBy={setQtoBy} />,
+        body: table ? (
+          <QtoTable
             lang={lang}
-            classes={census.classes}
-            selected={selected}
-            onFocus={onFocus}
+            by={by}
+            table={table}
+            sort={sort.by}
+            asc={sort.asc}
+            onSort={(next) =>
+              setSort((prev) => (prev.by === next ? { by: next, asc: !prev.asc } : { by: next, asc: next === "label" }))
+            }
+            progress={model.measureProgress}
+            chosen={chosen}
+            onRow={onRow}
           />
-        </Card>
-        <Card
-          label={t("tile.census", lang)}
-          sub={`${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`}
-          xf={censusXf}
-          className="h-full"
-        >
+        ) : (
+          <div className="min-h-0 flex-1" />
+        ),
+      };
+    }
+    if (id === "census") {
+      return {
+        xf: xfMark(xf, "census"),
+        label: t("tile.census", lang),
+        sub: `${formatCount(census.storeys.length, lang)} × ${formatCount(census.classes.length, lang)}`,
+        body: (
           <StoreyClassCensus
             lang={lang}
             classes={census.classes}
@@ -132,80 +183,88 @@ export function Contents({
             storeys={census.storeys}
             peak={census.matrixPeak}
             selected={selected}
-            onOpen={(storeyGuid, entity) => onFocus({ kind: "cell", storeyGuid, entity })}
-            onStorey={(storeyGuid) => onFocus({ kind: "storey", storeyGuids: [storeyGuid] })}
+            onOpen={(storeyGuid, entity) => onFocusFrom({ kind: "cell", storeyGuid, entity }, "census")}
+            onStorey={(storeyGuid) => onFocusFrom({ kind: "storey", storeyGuids: [storeyGuid] }, "census")}
           />
-        </Card>
-      </div>
-
-      <Card
-        label={t("tile.types", lang)}
-        sub={`${formatCount(ledger.singles, lang)} / ${formatCount(ledger.types, lang)}`}
-        xf={censusXf}
-        className="flex-[55_1_0]"
-      >
-        {ledger.factsPresent ? (
-          <TypeLedgerTile lang={lang} ledger={ledger} selected={selected} onFocus={onFocus} />
+        ),
+      };
+    }
+    if (id === "ledger") {
+      return {
+        xf: xfMark(xf, "census"),
+        label: t("tile.types", lang),
+        sub: `${formatCount(ledger.singles, lang)} / ${formatCount(ledger.types, lang)}`,
+        body: ledger.factsPresent ? (
+          <TypeLedgerTile lang={lang} ledger={ledger} selected={selected} onFocus={(focus) => onFocusFrom(focus, "census")} />
         ) : (
           // A profile that never carried the type facts says so in its own
           // slot: "no types" and "nobody supplied the type facts" differ.
           <div className="flex flex-1 items-center px-2 font-mono text-[11px] text-muted">
             {`${t("type.facts", lang)} · ${t("type.unavailable", lang)}`}
           </div>
-        )}
-      </Card>
-    </div>
-  );
-  if (!board || trees.length === 0) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col" style={SCALE}>
-        {censusBands}
-      </div>
-    );
-  }
+        ),
+      };
+    }
+    if (id === "mmi") {
+      return mmi && mmiOn
+        ? { xf: xfMark(xf, "mmi"), label: t("req.mmi", lang), body: <MmiChart req={mmi} iso={isoOf(xf, "mmi")} {...door("mmi")} /> }
+        : null;
+    }
+    if ((id === "tree-system" || id === "tree-function") && board) {
+      const axis = id === "tree-system" ? "system" : "function";
+      const tree = board.trees[axis];
+      return {
+        xf: xfMark(xf, id),
+        label: t(treeTitle(tree), lang),
+        head: (
+          <MeasureSwitch
+            tree={tree}
+            measures={board.measures}
+            progress={model.measureProgress}
+            measure={measure[axis]}
+            onMeasure={(m) => setMeasure((prev) => ({ ...prev, [axis]: m }))}
+            lang={lang}
+          />
+        ),
+        body: (
+          <CodeTreemap
+            tree={tree}
+            measure={measure[axis]}
+            measures={board.measures}
+            iso={isoOf(xf, id)}
+            lit={xfMark(xf, id) === "origin" ? xf.matched : null}
+            quantities={model.elementQuantities?.byGuid}
+            {...door(id)}
+          />
+        ),
+      };
+    }
+    return null;
+  };
+
   return (
-    <div
-      className="grid min-h-0 flex-1 gap-3 [grid-template-columns:minmax(0,61.8fr)_minmax(0,38.2fr)] [grid-template-rows:minmax(0,1fr)]"
-      style={SCALE}
-    >
-      {censusBands}
-      <div className="flex min-h-0 min-w-0 flex-col gap-3" data-contents-trees>
-        {trees.map((id) => {
-          const axis = id === "tree-system" ? "system" : "function";
-          const tree = board.trees[axis];
-          return (
-            <Card
-              key={id}
-              label={t(treeTitle(tree), lang)}
-              xf={xfMark(xf, id)}
-              className="flex-1 basis-0"
-              head={
-                <MeasureSwitch
-                  tree={tree}
-                  measures={board.measures}
-                  progress={model.measureProgress}
-                  measure={measure[axis]}
-                  onMeasure={(m) => setMeasure((prev) => ({ ...prev, [axis]: m }))}
-                  lang={lang}
-                />
-              }
-            >
-              <CodeTreemap
-                tree={tree}
-                measure={measure[axis]}
-                measures={board.measures}
-                iso={isoOf(xf, id)}
-                lit={xfMark(xf, id) === "origin" ? xf.matched : null}
-                quantities={model.elementQuantities?.byGuid}
-                lang={lang}
-                model={model}
-                selected={selected}
-                onFocus={(focus) => onFocusFrom(focus, id)}
-              />
-            </Card>
-          );
-        })}
-      </div>
+    <div ref={ref} className="w-full min-w-0" style={VARS}>
+      {grid && layout ? (
+        <div
+          data-mg-grid
+          data-mg-design="contents"
+          data-mg-cols={grid.cols}
+          data-mg-rows={layout.rows}
+          data-mg-u={grid.u.toFixed(4)}
+          data-mg-used={`${layout.offset},${layout.top},${layout.used},${layout.usedRows}`}
+          className="alt-board mx-auto grid"
+          style={{
+            width: grid.cols * grid.u + (grid.cols - 1) * MG_GAP,
+            gridTemplateColumns: `repeat(${grid.cols}, ${grid.u}px)`,
+            gridTemplateRows: `repeat(${layout.rows}, ${layout.rowPx ?? mgRow(grid)}px)`,
+            gap: MG_GAP,
+          }}
+        >
+          {layout.tiles.map((place) => (
+            <Tile key={place.id} place={place} bodies={bodies} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
