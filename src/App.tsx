@@ -168,7 +168,14 @@ export default function App() {
     async (file: File) => {
       try {
         const imported = importIds(await file.text(), file.name);
-        setIds({ fileName: imported.fileName, title: imported.title });
+        setIds({
+          fileName: imported.fileName,
+          title: imported.title,
+          rules: imported.specs.map((spec) => {
+            const rule = imported.ruleset.rules.find((r) => r.id === spec.ruleId);
+            return rule?.kind === "ids" ? rule : null;
+          }),
+        });
         setIdsError(null);
         applyIds(imported);
       } catch (error) {

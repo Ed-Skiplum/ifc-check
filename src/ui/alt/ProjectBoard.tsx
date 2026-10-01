@@ -1,47 +1,57 @@
-/** The project tab («Prosjekt»): project specifics and the IDS (2026-09-28,
- * the owner: *"We have a dash for general model health and a separate tab
- * for project specifics and IDS"*). The Overview is `AltBoard.tsx`.
+/** The IDS tab («IDS», `tab.project`): the project's requirements as one
+ *  report (2026-10-01, edkjo: *"IDS is a report. No nonsense … Most
+ *  important thing about the IDS page is to display requirement, result …
+ *  and to be able to understand it by seeing the model and information"*).
+ *  The Overview is `AltBoard.tsx`.
  *
  * On the same module grid and tile frame as the Overview (`layoutProject` in
  * `module-grid.ts`):
  *
- *   the KPI row   one S card per Standardkrav requirement (Systemkode,
- *                 Funksjonskode, Materiale/Produkt, Kopiobjekt, MMI, Fase),
- *                 in the report's order, never a list, never a scroll
- *   the body      the IDS table, the model (the board's one scene, lent),
- *                 Scope, Detail, the treemaps read through a project mapping
- *                 and the MMI bars
+ *   the report    the dominant tile: one row per requirement, the
+ *                 requirement (what it asks) and the result (Aktuelle ·
+ *                 Bestått · Avvik · status), in two groups:
+ *                   Standardkrav  Systemkode, Funksjonskode,
+ *                                 Materiale/Produkt, Kopiobjekt, MMI, Fase,
+ *                                 read from the report contract and the
+ *                                 ruleset (`Standardkrav.tsx`)
+ *                   IDS           one row per specification of the loaded
+ *                                 `.ids`, in file order (`IdsResults.tsx`)
+ *   the model     the board's one scene, lent
+ *   Scope         the rows behind the last click
+ *   Detail        everything about the selected element
  *
- * A click is the Overview's: `onFocus` replaces the one filter and fills
- * Scope (2026-09-28, one origin). The tile clicked keeps its items and dims
- * all but the chosen one; the lent viewer, the treemaps and the MMI bars
- * isolate to the filter; the KPI cards and the IDS table keep the whole
- * model's figures, marked «Hele modellen». With no ruleset every card reads
- * `not_configured`, the MMI tile «Statuskode ikke konfigurert», and no mapped
- * treemap exists to draw; with no `.ids`, the table is the open button.
+ * A click on a row is the Overview's: `onFocus` replaces the one filter,
+ * fills Scope and isolates the derivation in the viewer; the row stays
+ * marked chosen. A click on an element in Scope fills Detail. The report
+ * keeps the whole model's figures under a filter from elsewhere, marked
+ * «Hele modellen». With no ruleset every Standardkrav row reads
+ * `not_configured` (MMI «Statuskode ikke konfigurert»); with no `.ids`, the
+ * IDS group is the open button.
  */
 
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useMemo, useRef, type DragEvent, type ReactNode, type RefObject } from "react";
 import type { ModelEntry } from "../useModels";
 import type { Focus } from "../trace";
 import type { Lang } from "../i18n";
-import type { Measure } from "../../engine/quantities";
-import type { CodeTree } from "../../engine/code-tree";
+import type { Requirement } from "../requirements";
+import type { Ruleset } from "../../ids/types.ts";
 import { t } from "../i18n";
 import type { Origin } from "../cross-filter";
-import { isoOf, xfMark, type Xf } from "../origins";
+import { xfMark, type Xf } from "../origins";
 import { formatCount } from "../format";
 import { LentViewer } from "../BoardViewer";
-import { IdsHead, IdsResults, isIdsFile, type IdsSession } from "../IdsResults";
-import { ReqCard } from "./Requirements";
-import { CodeTreemap, MeasureSwitch, MmiChart, StandardkravList } from "./Standardkrav";
-import { mmiRequirement, projectTrees, standardRequirements, treeTitle } from "./req-view";
+import { IdsHead, IdsRows, isIdsFile, type IdsSession } from "../IdsResults";
+import { StandardkravRows } from "./Standardkrav";
+import { standardRequirements } from "./req-view";
 import { MG_GAP, layoutProject, mgRow, type MgLayout } from "./module-grid";
-import { Tile, VARS, useModuleGrid, type Bodies, type TileBody } from "./AltBoard";
+import { Tile, VARS, useModuleGrid, type Bodies } from "./AltBoard";
 
 export interface ProjectBoardProps {
   lang: Lang;
   model: ModelEntry;
+  /** The loaded ruleset: what a Standardkrav requirement asks (the code
+   *  list, the Uttrekk). */
+  ruleset: Ruleset | null;
   selected: string | null;
   /** A click on a board number, and the view it came from. */
   onFocus: (focus: Focus, origin: Origin) => void;
@@ -61,23 +71,81 @@ export interface ProjectBoardProps {
   onClearIds: () => void;
 }
 
-const treeId = (tree: CodeTree) => `ptree-${tree.axis}`;
+/** The report's columns: the requirement, Aktuelle, Bestått, Avvik, the
+ *  status. */
+const COLS = 5;
+
+function Report({
+  props,
+  reqs,
+  input,
+}: {
+  props: ProjectBoardProps;
+  reqs: Requirement[];
+  input: RefObject<HTMLInputElement | null>;
+}) {
+  const { lang, model, selected, onFocus } = props;
+  const group = (label: string) => (
+    <tr className="border-b border-line">
+      <th colSpan={COLS} className="alt-label px-3 pt-3 pb-1 text-left font-medium">
+        {label}
+      </th>
+    </tr>
+  );
+  const num = "w-20 px-2 py-1.5 text-right font-medium";
+  return (
+    <div className="min-h-0 flex-1 overflow-auto" data-report>
+      <table className="w-full table-fixed border-collapse text-[12px]">
+        <colgroup>
+          <col />
+          <col className="w-20" />
+          <col className="w-20" />
+          <col className="w-20" />
+          <col className="w-[8.5rem]" />
+        </colgroup>
+        <thead className="sticky top-0 z-10 bg-panel">
+          <tr className="border-b border-line text-[11px] text-muted">
+            <th className="px-3 py-1.5 text-left font-medium">{t("field.requirement", lang)}</th>
+            <th className={num}>{t("trace.applicable", lang)}</th>
+            <th className={num}>{t("trace.passed", lang)}</th>
+            <th className={num}>{t("trace.failed", lang)}</th>
+            <th className="px-3 py-1.5" />
+          </tr>
+        </thead>
+        <tbody data-report-group="std">
+          {group(t("req.group.std", lang))}
+          <StandardkravRows
+            reqs={reqs}
+            ruleset={props.ruleset}
+            lang={lang}
+            model={model}
+            selected={selected}
+            onFocus={(focus) => onFocus(focus, "reqs")}
+          />
+        </tbody>
+        <tbody data-report-group="ids" data-ids-tab>
+          {group(t("ids.heading", lang))}
+          <IdsRows
+            lang={lang}
+            model={model}
+            session={props.ids}
+            error={props.idsError}
+            selected={selected}
+            onFocus={(focus) => onFocus(focus, "ids")}
+            input={input}
+            cols={COLS}
+          />
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function ProjectBoard(props: ProjectBoardProps) {
-  const { model, lang, selected, onFocus, xf } = props;
+  const { model, lang, xf } = props;
   const { ref, grid } = useModuleGrid();
   const reqs = useMemo(() => standardRequirements(model), [model]);
-  const mmi = useMemo(() => mmiRequirement(model), [model]);
-  const trees = useMemo(() => projectTrees(model), [model]);
-  const treeKey = trees.map(treeId).join(",");
-  const layout = useMemo<MgLayout | null>(
-    () => (grid ? layoutProject(grid, { std: reqs.length, trees: trees.map(treeId), mmi: !!mmi }) : null),
-    // `trees` is keyed by its ids; the layout is a pure function of them.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grid, reqs.length, treeKey, !!mmi],
-  );
-
-  const [measure, setMeasure] = useState<{ system: Measure; function: Measure }>({ system: "count", function: "count" });
+  const layout = useMemo<MgLayout | null>(() => (grid ? layoutProject(grid) : null), [grid]);
   const input = useRef<HTMLInputElement>(null);
 
   // An `.ids` dropped anywhere on the tab is the tab's own: marked handled so
@@ -89,34 +157,22 @@ export function ProjectBoard(props: ProjectBoardProps) {
     props.onIdsFile(file);
   };
 
-  const door = (origin: Origin) => ({ lang, model, selected, onFocus: (focus: Focus) => onFocus(focus, origin) });
-  const whole = (self: Origin) => ({ xf: xfMark(xf, self, true), wholeText: t("filter.wholeModel", lang) });
-  const board = model.board;
-
   const bodies: Bodies = (id) => {
+    if (id === "report") {
+      return {
+        // The report keeps whole-model figures under a filter from elsewhere.
+        xf: xfMark(xf, ["reqs", "ids"], true),
+        wholeText: t("filter.wholeModel", lang),
+        label: t("tab.project", lang),
+        head: <IdsHead lang={lang} session={props.ids} input={input} onFile={props.onIdsFile} onClear={props.onClearIds} />,
+        body: <Report props={props} reqs={reqs} input={input} />,
+      };
+    }
     if (id === "viewer") {
       return {
         label: t("tile.viewer", lang),
         sub: model.meshBudget ? `${formatCount(model.meshBudget.triangles, lang)} tri` : undefined,
         body: <LentViewer meshBatches={model.meshBatches} active={props.active} className="flex-1" />,
-      };
-    }
-    if (id === "ids") {
-      return {
-        ...whole("ids"),
-        label: t("ids.heading", lang),
-        head: <IdsHead lang={lang} session={props.ids} input={input} onFile={props.onIdsFile} onClear={props.onClearIds} />,
-        body: (
-          <IdsResults
-            lang={lang}
-            model={model}
-            session={props.ids}
-            error={props.idsError}
-            selected={selected}
-            onFocus={door("ids").onFocus}
-            input={input}
-          />
-        ),
       };
     }
     if (id === "scope")
@@ -133,47 +189,6 @@ export function ProjectBoard(props: ProjectBoardProps) {
         label: t("tile.detail", lang),
         body: <div className="alt-dock flex min-h-0 flex-1 flex-col" data-dock="detail">{props.detail}</div>,
       };
-    if (id === "mmi") {
-      return mmi
-        ? { xf: xfMark(xf, "mmi"), label: t("req.mmi", lang), body: <MmiChart req={mmi} iso={isoOf(xf, "mmi")} {...door("mmi")} /> }
-        : null;
-    }
-    const tree = trees.find((tr) => treeId(tr) === id);
-    if (tree) {
-      const axis = tree.axis;
-      return {
-        xf: xfMark(xf, id),
-        label: t(treeTitle(tree), lang),
-        head: (
-          <MeasureSwitch
-            tree={tree}
-            measures={board?.measures}
-            progress={model.measureProgress}
-            measure={measure[axis]}
-            onMeasure={(m) => setMeasure((prev) => ({ ...prev, [axis]: m }))}
-            lang={lang}
-          />
-        ),
-        body: (
-          <CodeTreemap
-            tree={tree}
-            measure={measure[axis]}
-            measures={board?.measures}
-            iso={isoOf(xf, id)}
-            lit={xfMark(xf, id) === "origin" ? xf.matched : null}
-            quantities={model.elementQuantities?.byGuid}
-            {...door(id)}
-          />
-        ),
-      };
-    }
-    const kpi = /^std(\d+)$/.exec(id);
-    if (kpi) {
-      const req = reqs[Number(kpi[1])];
-      return req ? { ...whole("reqs"), bare: true, label: t(req.label, lang), body: <ReqCard req={req} {...door("reqs")} /> } : null;
-    }
-    // The narrow fallback: the Standardkrav requirements as one list.
-    if (id === "reqs") return { ...whole("reqs"), label: t("req.group.std", lang), body: <StandardkravList reqs={reqs} {...door("reqs")} /> } satisfies TileBody;
     return null;
   };
 
