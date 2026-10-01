@@ -507,9 +507,14 @@ export default function App() {
                       model={model}
                       selection={v.selection}
                       hover={v.hover}
-                      // A Scope row selects its element; the filter and the
-                      // list stay (`filter-state.ts`, 2026-09-29).
-                      onPick={(guid, _name, additive) => cross.dispatch(model.id, { type: "select", guid, additive })}
+                      // A Scope row ISOLATES its element and frames it; Scope's
+                      // list stays (the pick keeps its `base`), and the same
+                      // row again steps back to the list's filter. edkjo
+                      // 2026-10-01: "Always isolate and focus on the object
+                      // in question" (a highlight in full context is lost).
+                      onPick={(guid, name, additive) =>
+                        cross.dispatch(model.id, { type: "element", origin: "scope", guid, label: name, additive })
+                      }
                       onHover={(guid) => cross.setHover(model.id, guid)}
                       // Scope is the filter's derivation: closing it clears
                       // the filter and the selection it was showing.

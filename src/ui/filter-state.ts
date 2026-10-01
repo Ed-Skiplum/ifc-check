@@ -23,7 +23,7 @@
  * edkjo: *"We isolate something, but then when trying to highlight and see
  * info on an object in the filter, it just resets or changes the filter."*
  * The canon (spatial-workspace.md): scene selection never isolates. So a
- * click on ONE object, in the 3D, a Scope row or a room, is `select`: it
+ * click on ONE object, in the 3D or a room, is `select`: it
  * sets `selection` (highlighted, framed, its info in ObjectPanel) and leaves
  * the filter, its origin and Scope's list alone. Shift or Ctrl toggles it in
  * the selection. The same object again keeps it (a double-click is two
@@ -31,6 +31,11 @@
  * clears the selection, and with none left, the filter (`escape`). Clearing
  * the filter (Tøm, the chosen item again) keeps the selection. Isolating
  * stays a deliberate click on a set (a card, a row of a board number).
+ *
+ * A Scope row is the exception (2026-10-01, edkjo: *"Always isolate and focus
+ * on the object in question"*): it is an `element` pick from `scope`, so the
+ * object is isolated and framed while Scope keeps its list (`base`), and the
+ * same row again steps back to that list's filter.
  *
  * Pure and free of React so the selftest can drive it (`ids-cli.ts`).
  */
