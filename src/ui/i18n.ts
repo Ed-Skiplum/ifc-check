@@ -25,6 +25,7 @@ const STRINGS = {
 
   /* ------------------------------------------------------------- app bar */
   "action.openIfc": { nb: "Åpne IFC", en: "Open IFC" },
+  "action.uploadIfc": { nb: "Last opp IFC", en: "Upload IFC" },
   "action.openRuleset": { nb: "Åpne regelsett", en: "Open ruleset" },
   "action.remove": { nb: "Fjern", en: "Remove" },
   "action.derivation": { nb: "Grunnlag", en: "Derivation" },

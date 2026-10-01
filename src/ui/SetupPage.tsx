@@ -1551,7 +1551,7 @@ export const FIRST_MAPPING_STEP: SetupStep = MAPPING_ROLES[0];
 
 function stepLabel(step: SetupStep, lang: Lang): string {
   if (step === "start") return t("action.setup", lang);
-  if (step === "ifc") return t("action.openIfc", lang);
+  if (step === "ifc") return t("action.uploadIfc", lang);
   if (step === "storeys") return t("setup.storeys", lang);
   return t(`mapping.${step}`, lang);
 }
@@ -1799,7 +1799,7 @@ export function SetupPage({
               : "border border-line bg-panel text-ink hover:border-green")
           }
         >
-          <span className="text-lg font-medium">{t("action.openIfc", lang)}</span>
+          <span className="text-lg font-medium">{t("action.uploadIfc", lang)}</span>
           <span className="font-mono text-[11px] tracking-wide opacity-75">{t("accept.ifc", lang)}</span>
         </button>
         <input
