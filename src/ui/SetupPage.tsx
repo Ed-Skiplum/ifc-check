@@ -125,11 +125,12 @@ import { StateChip, TotalChips } from "./setup/chips";
 import { INPUT, ValuesInput } from "./setup/ValuesInput";
 import { previewTfm, rankPartBindings, rankTfmCandidates, segmentState, type Candidate } from "./setup/candidates";
 import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
-import { TypeNameStep } from "./setup/TypeNameStep";
-import { partName } from "../engine/type-name.ts";
+import { TypeNameStep, partLabel } from "./setup/TypeNameStep";
 import { stateLook } from "./alt/req-view";
 import {
   CONFIRM,
+  CONFIRM_QUIET,
+  confirmClass,
   Door,
   IfcDrop,
   Landed,
@@ -142,7 +143,7 @@ import {
   WalkProgress,
   type CurrentSource,
 } from "./setup/Walk";
-import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, ToZone, Valid, type MapOption } from "./setup/Mapping";
+import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, STEP_TITLE, ToZone, Valid, type MapOption } from "./setup/Mapping";
 import { PILL } from "./setup/ChipRow";
 import type { Requirement } from "./requirements";
 import {
@@ -361,7 +362,7 @@ function TemplateButtons({
   );
 }
 
-const LABEL = "text-[10px] font-semibold tracking-[0.12em] text-gold uppercase";
+const LABEL = "text-[12px] font-semibold tracking-[0.1em] text-gold uppercase";
 const SECONDARY =
   "flex items-center gap-2 border border-line bg-cream px-3 py-1.5 text-[12px] text-ink hover:border-green hover:text-green";
 
@@ -2215,13 +2216,17 @@ interface TfmDraft {
   lokasjon: CodeSource | null;
 }
 
-const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
-const H1 = "m-0 text-2xl font-medium text-ink";
+/** A choice tile. No background here: each tile sets its own (a shared
+ *  `bg-panel` beat the POFIN tile's `bg-green` in the cascade and left its
+ *  cream text on a pale tile, unreadable; seen rendered 2026-10-05). */
+const TILE = "flex min-h-36 flex-col border-2 p-8 text-left";
+const H1 = STEP_TITLE;
 /** The walk's frame, by viewport class: 64rem (the mapping row's width, to a
- *  1535 px laptop), 80rem from 1536 px, 100rem from 2200 px, so a wide
- *  screen gives its width to the step's zones instead of leaving 60 % of it
- *  empty. The bar and the step share it. */
-const FRAME = "max-w-5xl 2xl:max-w-7xl min-[2200px]:max-w-[100rem]";
+ *  1535 px laptop), 80rem from 1536 px, 100rem from 2200 px (137.5rem: in
+ *  rem, as the named breakpoints are, or Tailwind orders it before `2xl:`
+ *  and it never wins; measured 1280 px wide at 2560 before), so a wide
+ *  screen gives its width to the step's zones. The bar and the step share it. */
+const FRAME = "max-w-5xl 2xl:max-w-7xl min-[137.5rem]:max-w-[100rem]";
 const PLANES: readonly StoreyPlane[] = ["OKFG", "OKBD"];
 
 export function SetupPage({
@@ -2521,7 +2526,7 @@ export function SetupPage({
         .join(" · ");
     if (s === "type-name") {
       const r = mappingRule(ruleset, "type-name");
-      return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map(partName).join(" ") : "–";
+      return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map((p) => partLabel(p, lang)).join("  ") : "–";
     }
     if (s === "tfm") {
       return tfmRule && tfmRule.enabled !== false && tfmSaved
@@ -2539,7 +2544,7 @@ export function SetupPage({
   const stepRow = (s: SetupStep, from: SetupStep | null) => (
     <SummaryRow
       key={s}
-      done={done(s)}
+      done={from === "pofin" ? null : done(s)}
       label={stepLabel(s, lang)}
       text={setText(s)}
       results={resultOf(s)}
@@ -2556,7 +2561,7 @@ export function SetupPage({
   const schemaRow = schema ? (
     <SummaryRow
       key="ifc-schema"
-      done={(schema.accepted?.length ?? 0) > 0}
+      done={current === "pofin" ? null : (schema.accepted?.length ?? 0) > 0}
       label={t("req.ifc-schema", lang)}
       text={schema.accepted?.join(", ") ?? "–"}
       results={resultsFor("ifc-schema")}
@@ -2585,9 +2590,9 @@ export function SetupPage({
             autoFocus
             data-choice="pofin"
             onClick={takePofin}
-            className={TILE + " items-start justify-center bg-green text-cream hover:bg-ink"}
+            className={TILE + " items-start justify-center border-green bg-green text-cream hover:border-ink hover:bg-ink"}
           >
-            <span className="text-lg font-medium">{t("setup.pofin", lang)} →</span>
+            <span className="text-[28px] leading-tight font-semibold tracking-tight">{t("setup.pofin", lang)} →</span>
           </button>
           <button
             type="button"
@@ -2596,9 +2601,9 @@ export function SetupPage({
               onPofin(false);
               onStep(firstStep);
             }}
-            className={TILE + " items-start justify-center text-ink hover:border-green"}
+            className={TILE + " items-start justify-center border-line bg-panel text-ink hover:border-green"}
           >
-            <span className="text-lg font-medium">{t("setup.custom", lang)} →</span>
+            <span className="text-[28px] leading-tight font-semibold tracking-tight">{t("setup.custom", lang)} →</span>
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -2629,7 +2634,12 @@ export function SetupPage({
       </>
     );
   } else if (current === "pofin") {
-    // What «POFIN» assigned, each row its step, then the two ways on.
+    // What «POFIN» assigned, each row its step, then the two ways on. The
+    // filled one follows the result: a POFIN item failing on the loaded
+    // models puts «Gjennomgå» first, else «Aksepter oppsett».
+    const failing = POFIN_ROLES.some((role) =>
+      resultOf(role).some(({ req }) => req !== null && stateLook(req.state, lang).verdict === "fail"),
+    );
     body = (
       <div className="flex flex-col gap-6">
         <ol data-pofin className="m-0 flex list-none flex-col border border-line bg-panel p-0">
@@ -2639,13 +2649,22 @@ export function SetupPage({
         <div className="flex flex-wrap gap-2 sm:self-end">
           <button
             type="button"
+            autoFocus={failing}
             data-pofin-review
+            data-lead={failing}
             onClick={() => onStep(firstStep)}
-            className="flex min-h-12 items-center justify-center gap-3 border-2 border-green bg-panel px-8 text-[15px] font-medium text-ink hover:bg-green hover:text-cream"
+            className={failing ? CONFIRM : CONFIRM_QUIET}
           >
             {t("action.review", lang)} →
           </button>
-          <button type="button" autoFocus data-pofin-accept onClick={() => onStep("end")} className={CONFIRM}>
+          <button
+            type="button"
+            autoFocus={!failing}
+            data-pofin-accept
+            data-lead={!failing}
+            onClick={() => onStep("end")}
+            className={failing ? CONFIRM_QUIET : CONFIRM}
+          >
             {t("action.acceptSetup", lang)} →
           </button>
         </div>
@@ -2691,6 +2710,9 @@ export function SetupPage({
     const mmi = roleRule(ruleset, "progress-code")?.check;
     const mmiPhases = mmi?.type === "code-lookup" && (mmi.codes ?? []).some((c) => c.phase);
     const result = resultOf(current);
+    // «Bruk» filled once any branch's sources answer for an element on the
+    // loaded models (MAPPED), or no report is read to say otherwise.
+    const layerLead = result.every(({ req }) => req === null) || slots.some((slot) => layerSplit(slot, result).some((s) => s.mapped > 0));
     // «Bruk»: every cascade of the step at the standard, with the project's
     // sources, if any, after it.
     const keep = () => {
@@ -2734,7 +2756,7 @@ export function SetupPage({
             onNext={keep}
           />
         ))}
-        <button type="button" autoFocus data-step-confirm onClick={keep} className={CONFIRM + " sm:self-end"}>
+        <button type="button" autoFocus data-step-confirm data-lead={layerLead} onClick={keep} className={confirmClass(layerLead) + " sm:self-end"}>
           {t("action.apply", lang)} →
         </button>
         {nav}
@@ -2953,6 +2975,12 @@ export function SetupPage({
     ];
     // Nothing to propose: the picker is open from the start.
     const tfmOpen = tfmEditing || (draft.source === null && picker.choices !== null);
+    // «Bruk» filled once the property's values take the sequence on the
+    // loaded models, or none are read to say otherwise.
+    const tfmPreview = prop ? previewTfm(clean, prop.values) : null;
+    const tfmLead =
+      draft.source !== null &&
+      (picker.choices === null || picker.reading || (tfmPreview !== null && tfmPreview.rows.some((r) => r.state === "ok")));
     body = (
       <div className="flex flex-col gap-5">
         <MappingLayout
@@ -2961,27 +2989,29 @@ export function SetupPage({
           fromState={draft.source === null ? "empty" : missing ? "missing" : "found"}
           fromKey={property ? `${property.propertySet}\u0000${property.name}` : "tfm"}
           from={
-            <FromSource
-              tag={property ? savedTag(property.propertySet, property.name) : null}
-              title={property ? `${property.propertySet}.${property.name}` : draft.source ? sourceText(draft.source, lang) : null}
-              mapped={prop ? <Mapped n={prop.n} total={picker.total} lang={lang} /> : missing ? <Mapped n={0} total={picker.total} lang={lang} /> : null}
-            />
+            draft.source === null && picker.choices !== null && !picker.reading ? (
+              // Nothing to propose: FROM says so itself, rather than a dash
+              // with the verdict over in OPTIONS.
+              <div data-no-candidate className="flex items-center gap-3">
+                <StateChip state="no-match" lang={lang} />
+                <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
+              </div>
+            ) : (
+              <FromSource
+                tag={property ? savedTag(property.propertySet, property.name) : null}
+                title={property ? `${property.propertySet}.${property.name}` : draft.source ? sourceText(draft.source, lang) : null}
+                mapped={prop ? <Mapped n={prop.n} total={picker.total} lang={lang} /> : missing ? <Mapped n={0} total={picker.total} lang={lang} /> : null}
+              />
+            )
           }
           options={
             <OptionList
               options={tfmOptions}
               label={stepLabel("tfm", lang)}
               lang={lang}
-              more={{ open: tfmOpen, onToggle: () => setTfmEditing(!tfmOpen) }}
+              more={{ open: tfmOpen, onToggle: () => setTfmEditing(!tfmOpen), lead: !tfmOpen && !tfmLead }}
             >
-              {picker.reading ? (
-                <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span>
-              ) : picker.choices !== null && draft.source === null ? (
-                <div data-no-candidate className="flex items-center gap-3">
-                  <StateChip state="no-match" lang={lang} />
-                  <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
-                </div>
-              ) : null}
+              {picker.reading ? <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span> : null}
             </OptionList>
           }
           editor={
@@ -3038,7 +3068,7 @@ export function SetupPage({
                 onLokasjon={(b) => update({ lokasjon: b ? { property: { propertySet: b.set, name: b.name } } : null })}
               />
               {/* VALID: the values off the sequence are the chip row's own. */}
-              {prop ? <Valid prop={prop} preview={previewTfm(clean, prop.values)} failing={false} lang={lang} /> : null}
+              {prop && tfmPreview ? <Valid prop={prop} preview={tfmPreview} failing={false} lang={lang} /> : null}
             </>
           }
           confirm={
@@ -3046,9 +3076,10 @@ export function SetupPage({
               type="button"
               autoFocus
               data-step-confirm
+              data-lead={tfmLead}
               disabled={!ready}
               onClick={confirmTfm}
-              className={CONFIRM + " disabled:cursor-not-allowed disabled:opacity-40 sm:self-end"}
+              className={confirmClass(tfmLead) + " disabled:cursor-not-allowed disabled:opacity-40 sm:self-end"}
             >
               {t("action.apply", lang)} →
             </button>
@@ -3095,7 +3126,6 @@ export function SetupPage({
           name={stepLabel("type-name", lang)}
           saved={saved}
           typeNames={typeNames}
-          total={picker.total}
           typed={<ReqResult results={typedResults} lang={lang} />}
           lang={lang}
           onConfirm={confirmName}
@@ -3316,7 +3346,7 @@ export function SetupPage({
       <div data-walk className="min-h-0 flex-1 overflow-auto px-3 pb-3 [container-type:size]">
         <div className={"mx-auto flex min-h-full w-full flex-col " + FRAME}>
           <div aria-hidden="true" className="min-h-6 flex-[2_1_0%]" />
-          <div className="flex min-w-0 flex-col gap-6">
+          <div data-walk-content className="flex min-w-0 flex-col gap-6">
             {exportError !== null ? (
               <pre className="m-0 bg-bad px-3 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
                 {exportError}

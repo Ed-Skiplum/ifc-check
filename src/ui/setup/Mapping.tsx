@@ -32,7 +32,19 @@ import type { ExtractPreview } from "../extract-preview";
 import type { PsetProp } from "../pset-choices";
 import { StateChip, TotalChips } from "./chips";
 
-export const LABEL = "text-[10px] font-semibold tracking-[0.12em] text-gold uppercase";
+/** A zone's or a figure's label: small caps, but read at arm's length (it
+ *  was 10 px and went unread, 2026-10-05). */
+export const LABEL = "text-[12px] font-semibold tracking-[0.1em] text-gold uppercase";
+
+/** A step's name: the decision on screen, the screen's lead. */
+export const STEP_TITLE = "m-0 text-[34px] leading-[1.1] font-semibold tracking-tight [overflow-wrap:anywhere] text-ink";
+
+/** The entry to fixing the answer («Endre»): quiet beside an answer that
+ *  works, the screen's lead when it gives nothing on the loaded models. */
+export const fixClass = (lead: boolean) =>
+  lead
+    ? "w-fit border-2 border-green bg-green px-4 py-2 text-[14px] font-medium text-cream hover:bg-ink"
+    : "w-fit border border-line px-3 py-1 text-[12px] text-ink hover:border-green hover:text-green";
 
 export function Figure({ label, value, bad = false }: { label: string; value: string; bad?: boolean }) {
   return (
@@ -73,7 +85,8 @@ export function MappingLayout({
   fromState: FromState;
   /** Changes with the source FROM shows, so a new one lands as one. */
   fromKey?: string;
-  options: ReactNode;
+  /** Absent: the zone is not drawn (a step with nothing to choose from). */
+  options?: ReactNode;
   /** The full picker, opened from OPTIONS: under the mapping, full width. */
   editor?: ReactNode;
   requirement: ReactNode;
@@ -88,7 +101,9 @@ export function MappingLayout({
         className={
           compact
             ? "flex flex-col gap-2"
-            : "grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,0.8fr)_auto_minmax(0,1fr)_minmax(0,1.3fr)]"
+            : options
+              ? "grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,0.8fr)_auto_minmax(0,1fr)_minmax(0,1.3fr)]"
+              : "grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,0.8fr)_auto_minmax(0,1fr)]"
         }
       >
         <div data-zone="to" className="flex min-w-0 flex-col justify-center gap-1">
@@ -116,9 +131,11 @@ export function MappingLayout({
         >
           {from}
         </div>
-        <div data-zone="options" className="flex min-w-0 flex-col gap-2">
-          {options}
-        </div>
+        {options ? (
+          <div data-zone="options" className="flex min-w-0 flex-col gap-2">
+            {options}
+          </div>
+        ) : null}
       </div>
       {editor}
       <div data-zone="requirement" className={"flex flex-col gap-3 border border-line bg-input " + (compact ? "p-3" : "p-4")}>
@@ -149,11 +166,11 @@ export function ToZone({
       {compact ? (
         <span className="text-[15px] font-medium text-ink">{name}</span>
       ) : as === "h2" ? (
-        <h2 className="m-0 text-lg leading-tight font-medium [overflow-wrap:anywhere] text-ink">{name}</h2>
+        <h2 className="m-0 text-2xl leading-tight font-semibold tracking-tight [overflow-wrap:anywhere] text-ink">{name}</h2>
       ) : (
-        <h1 className="m-0 text-2xl leading-tight font-medium [overflow-wrap:anywhere] text-ink">{name}</h1>
+        <h1 className={STEP_TITLE}>{name}</h1>
       )}
-      {form ? <span data-to-form className="font-mono text-[13px] text-muted">{form}</span> : null}
+      {form ? <span data-to-form className={"font-mono text-muted " + (compact ? "text-[13px]" : "text-[16px]")}>{form}</span> : null}
     </>
   );
 }
@@ -222,7 +239,8 @@ export function OptionList({
 }: {
   options: readonly MapOption[];
   label: string;
-  more?: { open: boolean; onToggle: () => void };
+  /** `lead`: the answer gives nothing, so «Endre» leads the screen. */
+  more?: { open: boolean; onToggle: () => void; lead?: boolean };
   lang: Lang;
   /** Above the list: reading, «Ingen treff». */
   children?: ReactNode;
@@ -272,18 +290,14 @@ export function OptionList({
             </button>
           ))}
         </div>
-      ) : (
-        <span aria-hidden="true" className="px-3 py-2 font-mono text-[13px] text-muted">
-          –
-        </span>
-      )}
+      ) : null}
       {more ? (
         <button
           type="button"
           data-source-edit
           aria-expanded={more.open}
           onClick={more.onToggle}
-          className="w-fit border border-line px-3 py-1 text-[12px] text-ink hover:border-green hover:text-green"
+          className={fixClass(more.lead === true)}
         >
           {t("action.change", lang)}
         </button>

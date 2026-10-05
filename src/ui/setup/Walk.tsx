@@ -34,7 +34,7 @@ import {
   type StandardOption,
 } from "./candidates";
 
-export { Figure } from "./Mapping";
+export { Figure, STEP_TITLE, fixClass } from "./Mapping";
 
 /** A segment's look: green done (`segmentState`), the current one dark, a
  *  saved answer not yet checked against a model hatched, an open one the
@@ -42,8 +42,8 @@ export { Figure } from "./Mapping";
 const SEGMENT: Record<SegmentState | "here", string> = {
   done: "bg-green",
   here: "bg-ink",
-  saved: "bg-[image:repeating-linear-gradient(135deg,var(--color-muted)_0_3px,var(--color-line)_3px_6px)] group-hover:bg-muted",
-  open: "bg-line group-hover:bg-muted",
+  saved: "bg-[image:repeating-linear-gradient(135deg,var(--color-muted)_0_3px,transparent_3px_6px)] group-hover:bg-muted",
+  open: "bg-muted/25 group-hover:bg-muted",
 };
 
 /** The bar: one segment per step in its `segmentState`, the current one dark
@@ -79,11 +79,14 @@ export function WalkProgress<S extends string>({
                 aria-current={here ? "step" : undefined}
                 data-segment={s}
                 onClick={() => onStep(step)}
-                className="group block w-full py-2"
+                className="group flex h-6 w-full items-center"
               >
+                {/* Where the walk is: taller than the rest, whatever its
+                    state, so it is told apart by shape as well as colour. */}
                 <span
                   className={
-                    "block h-1.5 w-full transition-colors duration-500 motion-reduce:transition-none " +
+                    "block w-full transition-colors duration-500 motion-reduce:transition-none " +
+                    (here ? "h-3 " : "h-1.5 ") +
                     SEGMENT[s === "done" || !here ? s : "here"]
                   }
                 />
@@ -251,6 +254,16 @@ export function ProposalCard({
 export const CONFIRM =
   "flex min-h-12 items-center justify-center gap-3 bg-green px-8 text-[15px] font-medium text-cream hover:bg-ink";
 
+/** The same action while the answer on screen gives nothing on the loaded
+ *  models (2026-10-05, edkjo on «Bruk» leading at 0 / 91): still there, still
+ *  the way on, but outlined, so the screen leads with fixing the answer. */
+export const CONFIRM_QUIET =
+  "flex min-h-12 items-center justify-center gap-3 border-2 border-line bg-panel px-8 text-[15px] font-medium text-ink hover:border-green hover:text-green";
+
+/** The primary's weight follows the state: `lead` when the answer has a real
+ *  result on the loaded models (or none is loaded to say otherwise). */
+export const confirmClass = (lead: boolean) => (lead ? CONFIRM : CONFIRM_QUIET);
+
 /** Back, and the way on without an answer. */
 export function StepNav({
   lang,
@@ -337,7 +350,8 @@ export function SummaryRow({
   lang,
   onClick,
 }: {
-  done: boolean;
+  /** Set or not; null: no mark (the POFIN prompt, where every row is set). */
+  done: boolean | null;
   label: string;
   text: string;
   results: readonly { model: string; req: Requirement | null }[];
@@ -346,9 +360,11 @@ export function SummaryRow({
 }) {
   const cells = (
     <>
-      <span aria-hidden="true" className={"w-4 shrink-0 text-center font-mono text-[12px] " + (done ? "text-green" : "text-muted")}>
-        {done ? "✓" : "–"}
-      </span>
+      {done === null ? null : (
+        <span aria-hidden="true" className={"w-4 shrink-0 text-center font-mono text-[12px] " + (done ? "text-green" : "text-muted")}>
+          {done ? "✓" : "–"}
+        </span>
+      )}
       <span className="w-48 shrink-0 text-[14px] text-ink">{label}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{text}</span>
       <ReqResult results={results} lang={lang} />
@@ -526,6 +542,9 @@ export function MappingStep({
   const nothing = !known && answers.every((a) => a.hits === 0);
   const count = (a: Answer) => (a.prop ? a.prop.n : !known && a.hits === 0 ? 0 : null);
   const fromCount = count(from);
+  // The answer gives nothing on the loaded models: «Endre» leads, «Bruk»
+  // steps back (mapping is the infrastructure: VALID does not decide this).
+  const lead = known || from.hits !== 0;
 
   return (
     <MappingLayout
@@ -545,7 +564,13 @@ export function MappingStep({
         <OptionList
           label={name}
           lang={lang}
-          more={{ open: editing, onToggle: () => setEditing((was) => !was) }}
+          // «Endre» leads only when no listed answer has hits: else the fix
+          // is a pick in the list, which is already in view.
+          more={{
+            open: editing,
+            onToggle: () => setEditing((was) => !was),
+            lead: !lead && !editing && !answers.some((a) => (a.hits ?? 0) > 0),
+          }}
           options={answers.map((a): MapOption => {
             const n = count(a);
             return {
@@ -579,7 +604,14 @@ export function MappingStep({
         </>
       }
       confirm={
-        <button type="button" autoFocus data-step-confirm onClick={from.onConfirm} className={CONFIRM + " sm:self-end"}>
+        <button
+          type="button"
+          autoFocus
+          data-step-confirm
+          data-lead={lead}
+          onClick={from.onConfirm}
+          className={confirmClass(lead) + " sm:self-end"}
+        >
           {t("action.apply", lang)} →
         </button>
       }
