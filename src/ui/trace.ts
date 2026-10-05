@@ -18,7 +18,7 @@ import type { ModelEntry } from "./useModels";
 import { cellRows, storeyNames, storeyRows } from "./profile";
 import { typeGuids } from "./types/aggregate";
 import { reqDoor, treeDoor } from "./board-doors";
-import { labelOfFocus, labelOfRow } from "./requirements";
+import { labelOfFocus, labelOfRow, shownFinding } from "./requirements";
 import { findNode } from "../engine/code-tree";
 import { classificationCodes, codeGuids } from "./class-codes";
 
@@ -366,13 +366,16 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
     const names = new Map(profile.rows.map((r) => [r.guid, r]));
     const label = labelOfRow(door.row);
     const rows: TraceRow[] = door.funn
-      ? door.funn.map((f) => ({
-          guid: f.guid,
-          entity: f.klasse,
-          name: names.get(f.guid)?.name ?? null,
+      ? door.funn.map((f) => {
           // The contract's own code, and the value it found: data, not prose.
-          reason: f.verdi === null ? f.grunn : `${f.grunn} · ${f.verdi}`,
-        }))
+          const shown = shownFinding(f);
+          return {
+            guid: f.guid,
+            entity: f.klasse,
+            name: names.get(f.guid)?.name ?? null,
+            reason: shown.verdi === null ? shown.grunn : `${shown.grunn} · ${shown.verdi}`,
+          };
+        })
       : door.guids.map((g) => {
           const r = names.get(g);
           return { guid: g, entity: r?.entity ?? "", name: r?.name ?? null };

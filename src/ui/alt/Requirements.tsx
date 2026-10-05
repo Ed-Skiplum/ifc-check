@@ -18,7 +18,7 @@ import type { Verdict } from "../../engine/types";
 import type { Focus } from "../trace";
 import type { Lang } from "../i18n";
 import type { ModelEntry } from "../useModels";
-import type { Requirement } from "../requirements";
+import { shownSources, type Requirement } from "../requirements";
 import { t } from "../i18n";
 import { serialiseFocus } from "../trace";
 import { formatCount } from "../format";
@@ -48,7 +48,7 @@ export function StateBadge({ state, lang }: { state: ReportState; lang: Lang }) 
 /* ── the «fra» line ─────────────────────────────────────────────────────── */
 
 export function Sources({ row, lang }: { row: ReportRow; lang: Lang }) {
-  const kilder = row.dekning.kilder;
+  const kilder = shownSources(row);
   if (kilder.length === 0) return null;
   return (
     <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px]">
@@ -298,7 +298,7 @@ export function ReqBlock({ req, index, ...door }: DoorProps & { req: Requirement
                   </span>,
                 )
               : null}
-            {row.dekning.kilder.length > 0 ? <Sources row={row} lang={lang} /> : null}
+            <Sources row={row} lang={lang} />
             <Open row={row} lang={lang} />
             {row.fordeling && row.fordeling.length > 0
               ? line(

@@ -42,7 +42,7 @@ import type { ResultState } from "../ids/evaluate";
 import type { ElementQuantity } from "../engine/quantities";
 import type { Focus } from "./trace";
 import type { StringKey } from "./i18n";
-import { focusOfRow, requirements } from "./requirements.ts";
+import { focusOfRow, requirements, shownFinding } from "./requirements.ts";
 import { nameMatches } from "../engine/pset-inventory.ts";
 import { CODE_LISTS } from "../codelists/index.ts";
 import { ruleRole } from "../ids/models.ts";
@@ -543,7 +543,7 @@ export function typePage(input: TypePageInput): TypePage {
       for (const f of funn) {
         if (!inType.has(f.guid) || g.has(f.guid)) continue;
         g.add(f.guid);
-        codes.push(f.grunn);
+        codes.push(shownFinding(f).grunn);
       }
       return { failed: g.size, grunn: tally(codes) };
     };

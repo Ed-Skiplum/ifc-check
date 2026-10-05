@@ -198,15 +198,13 @@ function htmlBlokk(i: number, b: Blokk, terskler: Parameters<typeof htmlRad>[2])
         `<span class="st na">∅ ${esc(VERDIKT_ORD.ikke_konfigurert)}</span></div>`,
     );
   }
-  if (b.bryter) {
-    const br = b.bryter;
-    const gruppe = E(br.gren === "telleobjekt" ? "telleobjekter" : "mengdeobjekter");
-    const aapne = b.aapne.length
-      ? ` · <span class="tag">${esc(E("aapen"))}</span> ` + b.aapne.map(esc).join(" · ")
-      : "";
+  // The Python report's «Mengdetype» line (the switch's branch count) is not
+  // printed: mengdetype is assessed, not reported (2026-10-05). The open
+  // rulings it carried stay, on a line of their own.
+  if (b.aapne.length) {
     kropp.push(
-      `<div class="rad-l"><span class="lab">${esc(E("mengdetype"))}</span><span>${n_(br.antall)} ${esc(gruppe)} ` +
-        `${esc(E("av"))} ${br.n === null ? "–" : n_(br.n)} ${esc(E("objekter"))}${aapne}</span></div>`,
+      `<div class="rad-l"><span class="lab">${esc(E("aapen"))}</span><span>` +
+        `${b.aapne.map(esc).join(" · ")}</span></div>`,
     );
   }
   if (rad) kropp.push(htmlRad(rad, Boolean(b.krav_tekst), terskler));
