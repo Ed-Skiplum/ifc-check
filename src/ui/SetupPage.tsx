@@ -126,7 +126,7 @@ import { StateChip } from "./setup/chips";
 import { INPUT, ValuesInput } from "./setup/ValuesInput";
 import { previewTfm, rankPartBindings, rankTfmCandidates, segmentState, type Candidate } from "./setup/candidates";
 import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
-import { TypeNameStep, partLabel } from "./setup/TypeNameStep";
+import { TypeNameStep, partLabel, type TypeNameSource } from "./setup/TypeNameStep";
 import { isWalkSelected } from "../engine/walk-selection.ts";
 import { partShape } from "../engine/type-name.ts";
 import { stateLook } from "./alt/req-view";
@@ -146,7 +146,7 @@ import {
   WalkProgress,
   type CurrentSource,
 } from "./setup/Walk";
-import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, STEP_TITLE, ToZone, Valid, type MapOption } from "./setup/Mapping";
+import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, PANEL, STEP_TITLE, ToZone, Valid, type MapOption } from "./setup/Mapping";
 import { PILL } from "./setup/ChipRow";
 import type { Requirement } from "./requirements";
 import {
@@ -1789,7 +1789,7 @@ function LayerBranch({
       options={<OptionList options={options} label={t(`field.${slot}` as StringKey, lang)} lang={lang} more={{ open: editing, onToggle: () => setEditing((was) => !was) }} />}
       editor={
         editing ? (
-          <div data-source-editor className="border border-line bg-panel p-4">
+          <div data-source-editor data-panel className={PANEL}>
             <LayerList
               slot={slot}
               sources={sources}
@@ -2418,6 +2418,34 @@ export function SetupPage({
     return [...counts].map(([v, n]) => ({ v, n })).sort((a, b) => b.n - a.n || a.v.localeCompare(b.v));
   }, [models]);
 
+  // Where Typenavn reads: the Name of each selected element's type object,
+  // by the type classes found (ifcfast spells them `IfcWalltype`), and how
+  // many selected elements have a type with a Name.
+  const typeSource = useMemo((): TypeNameSource | null => {
+    const profiled = models.filter((m) => m.profile);
+    if (profiled.length === 0) return null;
+    const classes = new Map<string, number>();
+    let named = 0;
+    let total = 0;
+    for (const m of profiled) {
+      const typeClass = new Map((m.profile!.typeObjects ?? []).map((t) => [t.guid, t.entity]));
+      for (const row of m.profile!.rows) {
+        if (!isWalkSelected(row.entity)) continue;
+        total += 1;
+        if (!row.typed || !row.typeName) continue;
+        named += 1;
+        const raw = row.typeEntity ?? (row.typeGuid ? typeClass.get(row.typeGuid) : undefined) ?? null;
+        const cls = raw ? raw.replace(/type$/i, "Type") : null;
+        if (cls) classes.set(cls, (classes.get(cls) ?? 0) + 1);
+      }
+    }
+    return {
+      classes: [...classes].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)),
+      named,
+      total,
+    };
+  }, [models]);
+
   // The TFM step: the saved rule's check, and the properties whose values
   // are strings of its sequence (the standard's when none is saved).
   const tfmRule = mappingRule(ruleset, "tfm");
@@ -2716,11 +2744,13 @@ export function SetupPage({
       resultOf(role).some(({ req }) => req !== null && stateLook(req.state, lang).verdict === "fail"),
     );
     body = (
-      <div className="flex flex-col gap-6">
-        <ol data-pofin className="m-0 flex list-none flex-col border border-line bg-panel p-0">
-          {POFIN_ROLES.map((role) => stepRow(role, "pofin"))}
-          {schemaRow}
-        </ol>
+      <div className="flex flex-col gap-4">
+        <div data-panel className="border border-line bg-panel">
+          <ol data-pofin className="m-0 flex list-none flex-col p-0">
+            {POFIN_ROLES.map((role) => stepRow(role, "pofin"))}
+            {schemaRow}
+          </ol>
+        </div>
         {/* The two ways on sit where every step's «Bruk» sits. */}
         {slot
           ? createPortal(
@@ -2799,7 +2829,7 @@ export function SetupPage({
     // project's sources, once under «Avansert», are its OPTIONS' «Endre»;
     // nothing else was behind that door, so the step has none.
     body = (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         {slots.map((slot) => (
           <LayerBranch
             key={`${current}\u0000${slot}`}
@@ -2835,7 +2865,7 @@ export function SetupPage({
         {/* The step's result as the report row has it: the figures the
             landed strip and the summary print. */}
         {result.some(({ req }) => req !== null) ? (
-          <div data-result className="flex flex-wrap items-center gap-3 border border-line bg-panel px-4 py-3">
+          <div data-result data-panel className={"flex flex-wrap items-center gap-3 " + PANEL}>
             <span className={LABEL}>{stepLabel(current, lang)}</span>
             <ReqResult results={result} lang={lang} />
           </div>
@@ -2884,11 +2914,11 @@ export function SetupPage({
       advanceLive();
     };
     body = (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <h1 className={H1}>{stepLabel("storeys", lang)}</h1>
         {levels.length > 0 ? (
-          <div data-storeys className="grid grid-cols-1 items-start gap-x-10 gap-y-5 lg:grid-cols-[minmax(0,1.618fr)_minmax(16rem,1fr)]">
-            <div className="flex min-w-0 flex-col gap-3 border border-line bg-panel p-4">
+          <div data-storeys className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1.618fr)_minmax(16rem,1fr)]">
+            <div data-panel className={"flex min-w-0 flex-col gap-3 " + PANEL}>
               {figure}
               <div className="flex max-h-[38vh] flex-col overflow-auto border border-line bg-input py-1">
                 {levels.map((level, i) => (
@@ -2903,7 +2933,7 @@ export function SetupPage({
                 ))}
               </div>
             </div>
-            <div role="radiogroup" aria-label={t("field.plane", lang)} className="flex flex-col gap-2">
+            <div role="radiogroup" aria-label={t("field.plane", lang)} data-panel className={"flex flex-col gap-3 " + PANEL}>
               <span className={LABEL}>{t("field.plane", lang)}</span>
               <div className="flex flex-wrap gap-2">
                 {PLANES.map((p) => (
@@ -3089,14 +3119,14 @@ export function SetupPage({
     // earlier steps answered marked with what they read; the property that
     // carries the string is the mapping row under it.
     body = (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <h1 className={H1}>{stepLabel("tfm", lang)}</h1>
           <span data-to-form className="font-mono text-[16px] text-muted">
             {STATSBYGG_SEQUENCE.map(exampleText).join("")}
           </span>
         </div>
-        <div data-tfm-panel className="flex flex-col gap-4 border border-line bg-panel p-4">
+        <div data-tfm-panel data-panel className={"flex flex-col gap-4 " + PANEL}>
           <TfmBuilder
             sequence={draft.sequence}
             values={prop?.values ?? []}
@@ -3162,7 +3192,7 @@ export function SetupPage({
           }
           editor={
             tfmOpen ? (
-              <div data-source-editor className="border border-line bg-panel p-4">
+              <div data-source-editor data-panel className={PANEL}>
                 <PropertyPicker
                   value={property ?? blankProperty}
                   choices={picker.choices}
@@ -3185,7 +3215,7 @@ export function SetupPage({
         />
         <StepConfirm lead={tfmLead} disabled={!ready} label={t("action.apply", lang)} onClick={confirmTfm} />
         <Door label={t("setup.advanced", lang)}>
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <span className={LABEL}>{t("field.pattern", lang)}</span>
               <code data-tfm-regex className="block bg-input px-2 py-1 font-mono text-[12px] break-all text-ink">
@@ -3199,7 +3229,6 @@ export function SetupPage({
   } else if (current === "type-name") {
     const rule = mappingRule(ruleset, "type-name");
     const saved = rule && rule.check.type === "type-name" ? rule.check.sequence : null;
-    const typedResults = results.map(({ model, reqs }) => ({ model, req: reqs.find((r) => r.key === "typeobjekt") ?? null }));
     const confirmName = (sequence: NamePart[]) => {
       const check: TypeNameCheck = { type: "type-name", sequence };
       const written: ExtendedRule = rule
@@ -3218,14 +3247,14 @@ export function SetupPage({
       onStep(next);
     };
     body = (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <TypeNameStep
           key={saved ? JSON.stringify(saved) : "pofin"}
           name={stepLabel("type-name", lang)}
           saved={saved}
           typeNames={typeNames}
           written={rule && rule.enabled !== false ? resultOf("type-name") : null}
-          typed={<ReqResult results={typedResults} lang={lang} />}
+          source={typeSource}
           lang={lang}
           onConfirm={confirmName}
         />
@@ -3243,8 +3272,9 @@ export function SetupPage({
       }
     }
     body = (
-      <div className="flex flex-col gap-6">
-        <ol data-summary className="m-0 flex list-none flex-col border border-line bg-panel p-0">
+      <div className="flex flex-col gap-4">
+        <div data-panel className="border border-line bg-panel">
+        <ol data-summary className="m-0 flex list-none flex-col p-0">
           {pofin ? (
             // The prompt's rows first, the same set and order, then the rest
             // of the walk under a heavier rule.
@@ -3258,6 +3288,7 @@ export function SetupPage({
             WALK.map((s) => stepRow(s, null))
           )}
         </ol>
+        </div>
         {results.length > 0 ? (
           <div data-overall className="flex flex-wrap items-center gap-2">
             {(["pass", "warn", "fail", "na"] as const).map((v) =>
@@ -3303,7 +3334,7 @@ export function SetupPage({
       advanceLive();
     };
     body = (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <MappingStep
           key={r}
           role={r}
@@ -3461,21 +3492,24 @@ export function SetupPage({
         </div>
       )}
 
-      {/* The step's panel: one frame sized to the viewport (`FRAME`), the
-          step's name at its top, scrolling inside when the step is taller.
-          The IFC stage alone is centred (2 : 3 above and below), and sizes to
-          the walk's height (`STAGE_WIDTH`: a size container). */}
-      <div data-walk className="min-h-0 flex-1 overflow-auto px-3 pb-3 [container-type:size]">
+      {/* The step: one group in the frame (`FRAME`), its name at the top,
+          its zones, and its actions right under them (2026-10-05, edkjo,
+          live: "Still large distance between UI elements and navigation").
+          The actions stick to the walk's foot only when the step is taller
+          than the screen, so they stay in view while it scrolls. One gap
+          (16 px) between every block. The IFC stage alone is centred (2 : 3
+          above and below) and sizes to the walk's height (`STAGE_WIDTH`). */}
+      <div data-walk className="min-h-0 flex-1 overflow-auto px-3 pb-3 [container-type:size] [scrollbar-gutter:stable_both-edges]">
         <div className={"mx-auto flex min-h-full w-full flex-col " + FRAME}>
           <div aria-hidden="true" className={stage ? "min-h-6 flex-[2_1_0%]" : "h-4 shrink-0"} />
-          <div data-walk-content className="flex min-w-0 flex-col gap-6">
+          <div data-walk-content className="flex min-w-0 flex-col gap-4">
             {exportError !== null ? (
               <pre className="m-0 bg-bad px-3 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
                 {exportError}
               </pre>
             ) : null}
 
-            <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-col gap-5">
+            <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-col gap-4">
               {/* A step in the mapping layout carries its name in TO; the
                   IFC step's is in its target. */}
               {current === "start" || current === "ifc" || current === "storeys" || inTo ? null : (
@@ -3483,31 +3517,41 @@ export function SetupPage({
               )}
               {body}
             </section>
+
+            {/* The step's actions: back on the left; «Hopp over» beside
+                «Bruk» on the right, as a button of its own (the owner did
+                not find it as grey text at the screen's foot). «Bruk» is the
+                step's own (`StepConfirm`, portalled into `slot`). */}
+            {stage || current === "start" ? null : (
+              <div
+                data-walk-actions
+                // A panel like the step's own boxes (one treatment), so it
+                // also covers what scrolls under it when it sticks.
+                className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 border border-line bg-panel px-4 py-3"
+              >
+                {footBack ? (
+                  <button type="button" onClick={footBack} className="min-h-12 px-1 text-[15px] text-muted hover:text-ink">
+                    ← {t("action.previous", lang)}
+                  </button>
+                ) : null}
+                <span className="flex-1" />
+                {footForward ? (
+                  <button
+                    type="button"
+                    data-step-skip
+                    onClick={skip}
+                    className="flex min-h-12 items-center border border-line bg-panel px-6 text-[15px] text-ink hover:border-green hover:text-green"
+                  >
+                    {footForward}
+                  </button>
+                ) : null}
+                <div ref={setSlot} data-confirm-slot className="flex flex-wrap items-center gap-3" />
+              </div>
+            )}
           </div>
           {stage ? <div aria-hidden="true" className="min-h-6 flex-[3_1_0%]" /> : null}
         </div>
       </div>
-
-      {/* The walk's foot, pinned: back, «Hopp over», and the step's «Bruk»
-          (`StepConfirm` portals into `slot`), in one place for every step. */}
-      {stage ? null : (
-        <footer data-walk-foot className="shrink-0 border-t border-line px-3 py-3">
-          <div className={"mx-auto flex w-full flex-wrap items-center gap-4 " + FRAME}>
-            {footBack ? (
-              <button type="button" onClick={footBack} className="px-1 py-2 text-[14px] text-muted hover:text-ink">
-                ← {t("action.previous", lang)}
-              </button>
-            ) : null}
-            <span className="flex-1" />
-            {footForward ? (
-              <button type="button" data-step-skip onClick={skip} className="px-2 py-2 text-[14px] text-muted hover:text-ink">
-                {footForward}
-              </button>
-            ) : null}
-            <div ref={setSlot} data-confirm-slot className="flex flex-wrap items-center gap-2" />
-          </div>
-        </footer>
-      )}
 
       {asking ? (
         <EnableDialog

@@ -58,13 +58,20 @@ export function Figure({ label, value, bad = false }: { label: string; value: st
 export const of = (part: number, whole: number | null, lang: Lang) =>
   whole === null ? formatCount(part, lang) : `${formatCount(part, lang)} / ${formatCount(whole, lang)}`;
 
-/** FROM's look: a source the models carry, one they lack (`0 / N`), none. */
+/** Every box on a step, one treatment (2026-10-05, edkjo: "misaligned
+ *  boxes"): one border, one ground, one padding; the design's card rule
+ *  (`directions.css`, `div.border.border-line.bg-panel`) gives every one the
+ *  same radius and shadow. `data-panel` is what `walk-shots.mjs` measures. */
+export const PANEL = "border border-line bg-panel p-4";
+
+/** FROM's look: a source the models carry, one they lack (`0 / N`), none.
+ *  The state is a ring inside the panel, so the panel's shape stays. */
 export type FromState = "found" | "missing" | "empty";
 
 const FROM_LOOK: Record<FromState, string> = {
-  found: "border-line",
-  missing: "border-bad",
-  empty: "border-dashed border-line",
+  found: "",
+  missing: "outline-2 -outline-offset-2 outline-bad",
+  empty: "outline-1 -outline-offset-2 outline-dashed outline-muted",
 };
 
 export function MappingLayout({
@@ -102,9 +109,10 @@ export function MappingLayout({
             ? "flex flex-col gap-2"
             : options
               ? // TO is never narrower than its longest word: «Prosesstatuskode»
-                // broke mid-word at 1440 (rendered 2026-10-05).
-                "grid grid-cols-1 items-start gap-3 md:grid-cols-[minmax(min-content,0.8fr)_auto_minmax(0,1fr)_minmax(0,1.3fr)]"
-              : "grid grid-cols-1 items-start gap-3 md:grid-cols-[minmax(min-content,0.8fr)_auto_minmax(0,1fr)]"
+                // broke mid-word at 1440 (rendered 2026-10-05). FROM and
+                // OPTIONS are one row of panels: same top, same bottom.
+                "grid grid-cols-1 items-stretch gap-4 md:grid-cols-[minmax(min-content,0.8fr)_auto_minmax(0,1fr)_minmax(0,1.3fr)]"
+              : "grid grid-cols-1 items-stretch gap-4 md:grid-cols-[minmax(min-content,0.8fr)_auto_minmax(0,1fr)]"
         }
       >
         {/* Top-aligned: the step's name sits at the same place on every
@@ -112,7 +120,7 @@ export function MappingLayout({
         <div data-zone="to" className="flex min-w-0 flex-col gap-1">
           {to}
         </div>
-        <div aria-hidden="true" className={"flex items-center justify-center text-2xl leading-none text-muted " + (compact ? "" : "md:pt-5")}>
+        <div aria-hidden="true" className={"flex justify-center text-2xl leading-none text-muted " + (compact ? "items-center" : "items-start md:pt-5")}>
           {compact ? (
             "↑"
           ) : (
@@ -126,23 +134,20 @@ export function MappingLayout({
           key={fromKey}
           data-zone="from"
           data-from={fromState}
-          className={
-            "pick-in flex min-w-0 flex-col gap-2 border-2 bg-panel " +
-            (compact ? "p-3 " : "p-4 ") +
-            FROM_LOOK[fromState]
-          }
+          data-panel
+          className={"pick-in flex min-w-0 flex-col gap-2 " + PANEL + " " + FROM_LOOK[fromState]}
         >
           {from}
         </div>
         {options ? (
-          <div data-zone="options" className="flex min-w-0 flex-col gap-2">
+          <div data-zone="options" data-panel className={"flex min-w-0 flex-col gap-2 " + PANEL}>
             {options}
           </div>
         ) : null}
       </div>
       {editor}
       {requirement !== undefined ? (
-        <div data-zone="requirement" className={"flex flex-col gap-3 border border-line bg-input " + (compact ? "p-3" : "p-4")}>
+        <div data-zone="requirement" data-panel className={"flex flex-col gap-3 " + PANEL}>
           <span className={LABEL}>{t("field.requirement", lang)}</span>
           {requirement}
         </div>

@@ -27,7 +27,7 @@
  * shows as three digits.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
 import { formatCount } from "../format";
@@ -49,7 +49,7 @@ import {
 import { ChipRow, PILL, type ChipFace, type ChipParse } from "./ChipRow";
 import { ReqResult, StepConfirm } from "./Walk";
 import type { Requirement } from "../requirements";
-import { LABEL, STEP_TITLE } from "./Mapping";
+import { FromSource, LABEL, MappingLayout, Mapped, ToZone } from "./Mapping";
 import { INPUT, ValuesInput } from "./ValuesInput";
 
 /** The order the parts are offered in: lists, digits, letters, text,
@@ -209,11 +209,28 @@ function PartEditor({
   );
 }
 
+/** Where the type name is read: the Name attribute of the element's type
+ *  object, per IFC type class found (IfcWallType.Name), the elements whose
+ *  type carries one of the elements the rule selects. */
+export interface TypeNameSource {
+  classes: readonly { name: string; n: number }[];
+  /** Selected elements whose type object carries a Name. */
+  named: number;
+  /** The elements the rule selects (`walk-selection.ts`). */
+  total: number | null;
+}
+
+/** In the one mapping layout, as its siblings (2026-10-05, edkjo, live:
+ *  "Doesnt say where they're looking for type name"): TO Typenavn with the
+ *  standard's example; FROM the type object's Name, by the IFC type classes
+ *  found, with real names; no OPTIONS, because the `type-name` check reads
+ *  the type's Name and nothing else (`TypeNameCheck` has no source); the
+ *  requirement is the scheme, with «Typer» n / N heading the names off it. */
 export function TypeNameStep({
   name,
   saved,
   typeNames,
-  typed,
+  source,
   written = null,
   lang,
   onConfirm,
@@ -227,9 +244,8 @@ export function TypeNameStep({
   /** The loaded models' type Names, with the elements using each; null with
    *  no model read. */
   typeNames: readonly PsetValue[] | null;
-  /** The Typeobjekt row's result, per model: context, apart from the
-   *  scheme's own result. */
-  typed: ReactNode;
+  /** Where the name is read; null with no model read. */
+  source: TypeNameSource | null;
   lang: Lang;
   onConfirm: (sequence: NamePart[]) => void;
 }) {
@@ -270,75 +286,83 @@ export function TypeNameStep({
   const ready = parse !== null && sequence.length > 0 && sequence.every((p) => !("values" in p) || p.values.length > 0);
   // The scheme works on the loaded models, or there are none to say so.
   const lead = typeNames === null || values.length === 0 || matching > 0;
+  const shownClasses = source ? source.classes.slice(0, 4) : [];
+  const moreClasses = source ? source.classes.length - shownClasses.length : 0;
 
   return (
-    <div data-type-name className="grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-[minmax(0,1.618fr)_minmax(16rem,1fr)]">
-      <div className="flex min-w-0 flex-col gap-5">
-        <div className="flex flex-col gap-1.5">
-          <h1 className={STEP_TITLE}>{name}</h1>
-          <span className="flex flex-wrap items-baseline gap-x-3 font-mono text-[16px] text-muted">
-            <span data-to-form>{POFIN_TYPE_NAME_EXAMPLE}</span>
-            <span aria-hidden="true">←</span>
-            <span data-from>
-              {t("field.source.attribute", lang)} Name
-            </span>
-          </span>
-        </div>
-        <div
-          data-scheme={lead ? "found" : "missing"}
-          className={"flex flex-col gap-4 border-2 bg-panel p-4 " + (lead ? "border-line" : "border-bad")}
-        >
-          {tag ? <span className={LABEL}>{tag}</span> : null}
-          <ChipRow
-            sequence={sequence}
-            values={values}
-            parse={parse}
-            exampleOf={partExample}
-            face={face}
-            name={(part) => partLabel(part, lang)}
-            editor={(part, change, remove) => <PartEditor part={part} lang={lang} onChange={change} onRemove={remove} />}
-            palette={(pick) => <Kinds current={null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />}
-            typed={(part) =>
-              "text" in part ? { empty: part.text === "" } : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
+    <>
+      <MappingLayout
+        lang={lang}
+        to={<ToZone name={name} form={POFIN_TYPE_NAME_EXAMPLE} />}
+        fromState={source && source.named === 0 ? "missing" : "found"}
+        from={
+          <FromSource
+            head={t("field.source.attribute", lang)}
+            title={
+              shownClasses.length > 0 ? (
+                <>
+                  {shownClasses.map((c) => (
+                    <span key={c.name}>{c.name}.Name</span>
+                  ))}
+                  {moreClasses > 0 ? <span className="text-muted">+{formatCount(moreClasses, lang)}</span> : null}
+                </>
+              ) : (
+                "Name"
+              )
             }
-            standard={POFIN_TYPE_NAME}
-            same={sameScheme}
-            lang={lang}
-            onSequence={setSequence}
+            samples={values.map((v) => v.v)}
+            mapped={source ? <Mapped n={source.named} total={source.total} lang={lang} /> : null}
           />
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-col gap-4 lg:pt-2">
-        {/* The scheme's result: the distinct type Names on it, of all. */}
-        {typeNames ? (
-          <div data-valid className="flex flex-col gap-1 border border-line bg-panel px-5 py-4">
-            <span className={LABEL}>{t("field.target.type", lang)}</span>
-            <span
-              className={
-                "w-fit px-1.5 font-mono text-[40px] leading-tight tabular-nums " +
-                (values.length > 0 && matching === 0 ? VERDICT_FILL.fail : "text-ink")
+        }
+        requirement={
+          <div data-scheme={lead ? "found" : "missing"} className="flex flex-col gap-4">
+            {tag ? <span className={LABEL}>{tag}</span> : null}
+            <ChipRow
+              sequence={sequence}
+              values={values}
+              parse={parse}
+              exampleOf={partExample}
+              face={face}
+              name={(part) => partLabel(part, lang)}
+              editor={(part, change, remove) => <PartEditor part={part} lang={lang} onChange={change} onRemove={remove} />}
+              palette={(pick) => <Kinds current={null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />}
+              typed={(part) =>
+                "text" in part ? { empty: part.text === "" } : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
               }
-            >
-              {formatCount(matching, lang)}
-              <span className={values.length > 0 && matching === 0 ? "" : "text-muted"}> / {formatCount(values.length, lang)}</span>
-            </span>
+              standard={POFIN_TYPE_NAME}
+              same={sameScheme}
+              lang={lang}
+              onSequence={setSequence}
+              // The rows are type Names off the scheme, headed by the count of
+              // Names on it; each row's number is the elements of that type.
+              offHead={
+                typeNames ? (
+                  <span data-valid className="flex items-baseline gap-2">
+                    <span className={LABEL}>{t("field.target.type", lang)}</span>
+                    <span
+                      className={
+                        "px-1 font-mono text-[20px] leading-tight tabular-nums " +
+                        (values.length > 0 && matching === 0 ? VERDICT_FILL.fail : "text-ink")
+                      }
+                    >
+                      {formatCount(matching, lang)} / {formatCount(values.length, lang)}
+                    </span>
+                  </span>
+                ) : undefined
+              }
+              countLabel={t("walk.selected", lang)}
+            />
+            {/* The scheme as the ruleset holds it: its report row, the figures
+                the landed strip and the summary print. */}
+            {written && saved && sameScheme(sequence, saved) ? (
+              <span data-result className="flex flex-wrap items-center gap-3">
+                <ReqResult results={written} lang={lang} />
+              </span>
+            ) : null}
           </div>
-        ) : null}
-        {/* The scheme as the ruleset holds it: its report row, the figures
-            the landed strip and the summary print. */}
-        {written && saved && sameScheme(sequence, saved) ? (
-          <div data-result className="flex flex-col gap-2 px-1">
-            <span className={LABEL}>{name}</span>
-            <ReqResult results={written} lang={lang} />
-          </div>
-        ) : null}
-        {/* Context, apart: are the elements typed at all (the board's row). */}
-        <div data-typed className="flex flex-col gap-2 px-1">
-          <span className={LABEL}>{t("req.typeobjekt", lang)}</span>
-          {typed}
-        </div>
-        <StepConfirm lead={lead} disabled={!ready} label={t("action.apply", lang)} onClick={() => onConfirm(sequence)} />
-      </div>
-    </div>
+        }
+      />
+      <StepConfirm lead={lead} disabled={!ready} label={t("action.apply", lang)} onClick={() => onConfirm(sequence)} />
+    </>
   );
 }

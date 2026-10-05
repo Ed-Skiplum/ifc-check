@@ -2928,6 +2928,37 @@ rendered screens).** What changed, and why:
 - Systemkode's and Funksjonskode's requirement show their own list; every
   list is a switch in «Avansert» (`MappingCard`, «Kodeliste»).
 
+**The third pass (2026-10-05, edkjo live at 2092×1165: "Doesnt say where
+they're looking for type name, and doesnt allow skipping. Still large
+distance between UI elements and navigation" · "also, misaligned boxes").**
+
+- Typenavn is in the mapping layout again, with a real FROM: «Attributt»,
+  the IFC type classes the model's selected elements are typed by
+  (`IfcWallType.Name` …, up to four, `+n`), five real type Names, and the
+  selected elements whose type carries a Name («Fysiske elementer»). No
+  OPTIONS: `TypeNameCheck` has no source, it reads the type's Name only, so
+  an alternative (ObjectType, a property) would need a new check shape.
+  «Typer» n / N heads the names off the scheme; their counts are headed
+  «Fysiske elementer» (`ChipRow` `offHead`, `countLabel`).
+- The actions (← Forrige · «Hopp over» as a button · «Bruk») are one row
+  right under the step's content (`data-walk-actions`, 16 px), in the frame's
+  width, and stick to the walk's foot only when the step is taller than the
+  screen. No action row on the choice. The counter is the position again
+  (n / N; none on the summary).
+- One box treatment (`PANEL`, `Mapping.tsx`): FROM, OPTIONS, Krav, the
+  editor, the TFM builder, the storey boxes, the result rows, the summary
+  and the action row are all `border border-line bg-panel` (+ p-4), which
+  the design's card rule rounds and shades alike; FROM's state is a ring
+  inside it. FROM and OPTIONS stretch to one row. One gap, 16 px, between
+  every block. The walk scrolls with a symmetric gutter, so the frame keeps
+  the bar's edges when a scrollbar appears.
+- `walk-shots.mjs` now renders 2092×1165 too, measures the box grid (rows
+  by top edge: equal bottoms and gaps, right edge = frame, left edge = frame
+  or the step's name; bar and action row on the frame's edges; equal row
+  gaps; 1 px), the gap above the action row, and checks skip on Typenavn
+  (state `s`: fresh, skip; summary ○ and «–»; state `c` the same on a saved
+  ruleset; state `b` under POFIN the template's rule stays, ●).
+
 ### `scripts/walk-shots.mjs`
 
 ```bash

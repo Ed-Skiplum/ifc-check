@@ -126,7 +126,13 @@ export function ChipRow<T>({
   same,
   lang,
   onSequence,
+  offHead,
+  countLabel,
 }: {
+  /** Over the values off the sequence, on the left: what the rows are. */
+  offHead?: ReactNode;
+  /** Over their counts, on the right: what the count counts. */
+  countLabel: string;
   sequence: readonly T[];
   /** The property's listed values, most frequent first. */
   values: readonly PsetValue[];
@@ -451,15 +457,19 @@ export function ChipRow<T>({
           </button>
         )}
       </div>
-      {off.length > 0 ? (
+      {off.length > 0 || offHead ? (
         // A value off the sequence in human terms (2026-10-05, edkjo on one
         // unmarked letter, the rest in red and a stray `"."`): the value as
         // it is, the piece the sequence wanted where it leaves it set into
-        // it as that piece's own chip, and what did not fit underlined. The
-        // count is the elements carrying the value, under its column's name.
+        // it as that piece's own chip. Headed as a table: on the left what
+        // the rows are (`offHead`, the caller's: Typenavn puts its «Typer»
+        // n / N there), on the right what the count counts (`countLabel`).
         <div data-tfm-off className="flex flex-col gap-1.5">
-          <div aria-hidden="true" className="flex justify-end">
-            <span className="text-[12px] font-semibold tracking-[0.1em] text-gold uppercase">{t("kpi.products", lang)}</span>
+          <div className="flex items-end justify-between gap-4 border-b border-line pb-1.5">
+            <span className="min-w-0">{offHead ?? null}</span>
+            {off.length > 0 ? (
+              <span className="shrink-0 text-[12px] font-semibold tracking-[0.1em] text-gold uppercase">{countLabel}</span>
+            ) : null}
           </div>
           <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
             {off.map((o) => {
