@@ -303,6 +303,48 @@ export function ReqResult({
   );
 }
 
+/** One row of the end summary, and of the POFIN prompt: done or not, the
+ *  item's name, what it is set to, and its result on each model. A click
+ *  opens the item's step; a row with no step has no click. */
+export function SummaryRow({
+  done,
+  label,
+  text,
+  results,
+  lang,
+  onClick,
+}: {
+  done: boolean;
+  label: string;
+  text: string;
+  results: readonly { model: string; req: Requirement | null }[];
+  lang: Lang;
+  onClick?: () => void;
+}) {
+  const cells = (
+    <>
+      <span aria-hidden="true" className={"w-4 shrink-0 text-center font-mono text-[12px] " + (done ? "text-green" : "text-muted")}>
+        {done ? "✓" : "–"}
+      </span>
+      <span className="w-48 shrink-0 text-[14px] text-ink">{label}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{text}</span>
+      <ReqResult results={results} lang={lang} />
+    </>
+  );
+  const row = "flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left";
+  return (
+    <li className="border-b border-line last:border-b-0">
+      {onClick ? (
+        <button type="button" onClick={onClick} className={row + " hover:bg-input"}>
+          {cells}
+        </button>
+      ) : (
+        <div className={row}>{cells}</div>
+      )}
+    </li>
+  );
+}
+
 /** The source a mapping rule holds now, as the step shows it: a property
  *  (found in the models or not), or an attribute or classification. */
 export type CurrentSource =
@@ -345,6 +387,7 @@ export function MappingStep({
   onCurrent,
   onStandard,
   editor,
+  pinned = false,
 }: {
   role: CardRole;
   check: MappingCheck;
@@ -361,6 +404,9 @@ export function MappingStep({
   onStandard: (option: StandardOption) => void;
   /** The source editor: kind, property picker, a property not in the model. */
   editor: ReactNode;
+  /** The saved source is the answer whatever the models carry: a POFIN
+   *  template being reviewed opens every step on POFIN's. */
+  pinned?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   // The source the step opened on: a different one now was set here.
@@ -426,7 +472,7 @@ export function MappingStep({
     onConfirm: () => onCandidate(c),
   }));
   const showSaved = saved !== null && !savedIsStandard ? saved : null;
-  const chosen = current !== null && opened !== sourceKey(current);
+  const chosen = current !== null && (pinned || opened !== sourceKey(current));
   let pick = prePick(standard.hits, saved ? { hits: saved.hits, chosen } : null, cands.length);
   if (pick === "saved" && savedIsStandard) pick = "standard";
   const picked = pick === "saved" ? showSaved : pick === "candidate" ? cands[0] : std;

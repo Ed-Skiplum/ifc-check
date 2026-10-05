@@ -58,6 +58,18 @@
  * its result lands on the next step and the bar fills; the summary at the
  * end saves and opens the IDS tab. The cards below are unchanged and sit
  * behind each step's «Avansert» door; the file actions behind «Last ned».
+ *
+ * POFIN or Egendefinert (2026-10-05). edkjo: "We could also add "POFIN" as a
+ * template … POFIN vs egendefinert … even if you pick POFIN, you should be
+ * prompted: Gjennomgå/Aksepter oppsett" · "because you might want to seed
+ * POFIN, but edit one or two things". The choice leads with the two;
+ * «Egendefinert» is the walk as it was («Veiled meg»). «POFIN» lays
+ * `withPofin` (`engine/pofin-ruleset.ts`) on the working copy, nothing saved,
+ * and opens the `pofin` prompt: what was assigned, with each model's result,
+ * then «Gjennomgå» (the walk, every step pinned to its POFIN answer) or
+ * «Aksepter oppsett» (the summary). A row of the prompt, or of the summary
+ * after POFIN, opens its step, and the step's answer returns to the row's
+ * screen (`detour`), not onward.
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
@@ -66,6 +78,7 @@ import { hasErrors, lintRuleset } from "../ids/lint.ts";
 import { anyRoleRule, defaultCodeList, defaultExtract, everyOwnerName, roleRule } from "../ids/models.ts";
 import { STANDARD_SOURCES, type LayerSlot } from "../engine/standard-sources.ts";
 import { POFIN_SOURCES } from "../engine/pofin-standard.ts";
+import { POFIN_ROLES, withPofin } from "../engine/pofin-ruleset.ts";
 import { layerJudge, layerPath, layerSources, previewLayer, withLayerSources } from "./layer-steps";
 import { MMI_PRESETS, matchingPreset, presetCodes, type MmiPresetId } from "../codelists/mmi-presets.ts";
 import type {
@@ -117,6 +130,7 @@ import {
   ProposalCard,
   ReqResult,
   StepNav,
+  SummaryRow,
   WalkProgress,
   type CurrentSource,
 } from "./setup/Walk";
@@ -1852,8 +1866,9 @@ const LAYER_SLOTS: Record<LayerStep, readonly LayerSlot[]> = {
  *  pickers have something to list. Then edkjo's Type-first order (2026-10-01:
  *  "System, Function, Copy, MMI, Phase, Materials, QTO: these are my main
  *  things"; QTO's Mengdetype left the walk 2026-10-05), Etasjeoppsett, and
- *  `end`: what was set, what it gives, Save. */
-export type SetupStep = "start" | "ifc" | MappingRole | LayerStep | "storeys" | "end";
+ *  `end`: what was set, what it gives, Save. `pofin` is the prompt after
+ *  «POFIN» on the choice, outside the order. */
+export type SetupStep = "start" | "pofin" | "ifc" | MappingRole | LayerStep | "storeys" | "end";
 
 const STEPS: SetupStep[] = [
   "start",
@@ -1880,6 +1895,7 @@ export const FIRST_MAPPING_STEP: SetupStep = STEPS[2];
  *  board's name, so the walk and the board say the same. */
 const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
   start: "action.setup",
+  pofin: "setup.pofin",
   ifc: "action.uploadIfc",
   "type-name": "check.type-name-placeholder",
   "component-classification": "req.funksjonskode",
@@ -1983,6 +1999,8 @@ export function SetupPage({
   onOpen,
   onFiles,
   onSave,
+  pofin,
+  onPofin,
 }: {
   lang: Lang;
   ruleset: Ruleset;
@@ -2001,6 +2019,10 @@ export function SetupPage({
   onFiles: (files: File[]) => void;
   /** «Lagre oppsett»: null once saved, else the storage's error. */
   onSave: () => string | null;
+  /** «POFIN» was the choice: held by the caller, as the step is, so it
+   *  outlives the remount when the first model lands. */
+  pofin: boolean;
+  onPofin: (on: boolean) => void;
 }) {
   const lint = lintRuleset(ruleset);
   const nameIssue = lint.some((i) => i.ruleId === null && i.path === "name");
@@ -2024,6 +2046,9 @@ export function SetupPage({
   const [tfmDraft, setTfmDraft] = useState<TfmDraft | null>(null);
   // The TFM step's source editor, open by «Endre».
   const [tfmEditing, setTfmEditing] = useState(false);
+  // A step opened from a row of the POFIN prompt or the summary: its answer
+  // goes back to that screen, not on. Dropped once the step is left.
+  const [detour, setDetour] = useState<{ step: SetupStep; back: SetupStep } | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const ifcInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
@@ -2090,16 +2115,17 @@ export function SetupPage({
   );
   if (current !== "tfm" && tfmDraft !== null) setTfmDraft(null);
   if (current !== "tfm" && tfmEditing) setTfmEditing(false);
+  const away = detour !== null && detour.step === current ? detour : null;
+  if (detour !== null && away === null) setDetour(null);
 
   // Each model's requirements as the IDS tab reads them: a step's result.
   const results = useMemo(
     () => models.filter((m) => m.board).map((m) => ({ model: m.fileName, reqs: requirements(m.board!.rows) })),
     [models],
   );
-  const resultOf = (s: SetupStep) => {
-    const key = STEP_REQ[s];
-    return key ? results.map(({ model, reqs }) => ({ model, req: reqs.find((r) => r.key === key) ?? null })) : [];
-  };
+  const resultsFor = (key: string | undefined) =>
+    key ? results.map(({ model, reqs }) => ({ model, req: reqs.find((r) => r.key === key) ?? null })) : [];
+  const resultOf = (s: SetupStep) => resultsFor(STEP_REQ[s]);
 
   // The mapping step's rule and check, held still across renders so the
   // candidates are ranked once per answer, not once per keystroke elsewhere.
@@ -2109,7 +2135,7 @@ export function SetupPage({
 
   const layerIssues = (slot: LayerSlot) => lint.filter((i) => i.ruleId === null && i.path.startsWith(layerPath(slot)));
   const done = (s: SetupStep): boolean => {
-    if (s === "start" || s === "end") return false;
+    if (s === "start" || s === "pofin" || s === "end") return false;
     if (isLayerStep(s))
       return LAYER_SLOTS[s].every(
         (slot) => (kept.has(slot) || layerSources(ruleset, slot).length > 0) && !hasErrors(layerIssues(slot)),
@@ -2173,8 +2199,9 @@ export function SetupPage({
 
   // The way on. An answer moves on by itself and its result lands on the
   // next step; «Hopp over» moves on and changes nothing.
-  const next = STEPS[at + 1] ?? current;
-  const back = at > 0 ? () => onStep(STEPS[at - 1]) : undefined;
+  // In a detour both lead back to the screen the step was opened from.
+  const next = away?.back ?? STEPS[at + 1] ?? current;
+  const back = away ? () => onStep(away.back) : at > 0 ? () => onStep(STEPS[at - 1]) : undefined;
   const advance = (result: React.ReactNode) => {
     setLanded({ from: current, to: next, result });
     onStep(next);
@@ -2182,50 +2209,147 @@ export function SetupPage({
   const skip = () => onStep(next);
   const nav = <StepNav lang={lang} onBack={back} forward={t("action.skip", lang)} onForward={skip} />;
 
+  // What each step set, as the summary and the POFIN prompt name it.
+  const setText = (s: SetupStep): string => {
+    if (s === "ifc") return models.map((m) => m.fileName).join(", ");
+    if (s === "storeys") {
+      const n = ruleset.storeys?.levels.length ?? 0;
+      return n > 0 ? `${formatCount(n, lang)} ${t("kpi.storeys", lang)} · ${ruleset.storeys?.plane ?? ""}` : "–";
+    }
+    if (isLayerStep(s))
+      return LAYER_SLOTS[s]
+        .map((slot) =>
+          [t("setup.standard", lang), ...layerSources(ruleset, slot).map((source) => sourceText(source, lang))].join(" + "),
+        )
+        .join(" · ");
+    if (s === "type-name") {
+      const r = mappingRule(ruleset, "type-name");
+      return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map(partName).join(" ") : "–";
+    }
+    if (s === "tfm") {
+      return tfmRule && tfmRule.enabled !== false && tfmSaved
+        ? `${sourceText(tfmSaved.source, lang)} · ${formatSequence(tfmSaved.sequence)}`
+        : "–";
+    }
+    if (isMappingStep(s)) {
+      const r = mappingRule(ruleset, s);
+      return r && r.enabled !== false ? sourceText(checkOf(r, s).source, lang) : "–";
+    }
+    return "";
+  };
+  // A row of the summary or the prompt; `from` set, a click opens the step
+  // as a detour back to `from`.
+  const stepRow = (s: SetupStep, from: SetupStep | null) => (
+    <SummaryRow
+      key={s}
+      done={done(s)}
+      label={stepLabel(s, lang)}
+      text={setText(s)}
+      results={resultOf(s)}
+      lang={lang}
+      onClick={() => {
+        if (from !== null) setDetour({ step: s, back: from });
+        onStep(s);
+      }}
+    />
+  );
+  // The IFC schema POFIN sets: a project-layer part with no step, so a row
+  // with no click.
+  const schema = ruleset.projectLayer?.["ifc-schema"];
+  const schemaRow = schema ? (
+    <SummaryRow
+      key="ifc-schema"
+      done={(schema.accepted?.length ?? 0) > 0}
+      label={t("req.ifc-schema", lang)}
+      text={schema.accepted?.join(", ") ?? "–"}
+      results={resultsFor("ifc-schema")}
+      lang={lang}
+    />
+  ) : null;
+
   let body: React.ReactNode;
   if (current === "start") {
+    // «POFIN»: the template on the working copy, nothing saved.
+    const takePofin = () => {
+      onChange(withPofin(ruleset));
+      onPofin(true);
+      onStep("pofin");
+    };
     body = (
       <>
         <h1 className={H1}>{t("action.setup", lang)}</h1>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className={TILE + " gap-4 has-[button:hover]:border-green"}>
-            <button
-              type="button"
-              onClick={() => openInput.current?.click()}
-              className="flex flex-1 flex-col items-start justify-center gap-2 text-left"
-            >
-              <span className="text-lg font-medium text-ink">{t("action.openRuleset", lang)}</span>
-              <span className="font-mono text-[11px] tracking-wide text-muted">{t("accept.ruleset", lang)}</span>
-            </button>
-            <a
-              href={`${import.meta.env.BASE_URL}${CONFIG_TEMPLATE_FILE}`}
-              download={CONFIG_TEMPLATE_FILE}
-              className={SECONDARY + " w-fit"}
-            >
-              {t("action.downloadTemplate", lang)}
-            </a>
-            <input
-              ref={openInput}
-              type="file"
-              accept=".json,.xlsx,.ids,.xml"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void onOpen(file).then((ok) => ok && onStep(firstStep));
-                event.target.value = "";
-              }}
-            />
-          </div>
           <button
             type="button"
             autoFocus
-            onClick={() => onStep(firstStep)}
+            data-choice="pofin"
+            onClick={takePofin}
             className={TILE + " items-start justify-center bg-green text-cream hover:bg-ink"}
           >
-            <span className="text-lg font-medium">{t("action.guideMe", lang)} →</span>
+            <span className="text-lg font-medium">{t("setup.pofin", lang)} →</span>
+          </button>
+          <button
+            type="button"
+            data-choice="custom"
+            onClick={() => {
+              onPofin(false);
+              onStep(firstStep);
+            }}
+            className={TILE + " items-start justify-center text-ink hover:border-green"}
+          >
+            <span className="text-lg font-medium">{t("setup.custom", lang)} →</span>
           </button>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => openInput.current?.click()} className={SECONDARY}>
+            <span>{t("action.openRuleset", lang)}</span>
+            <span className="font-mono text-[11px] tracking-wide text-muted">{t("accept.ruleset", lang)}</span>
+          </button>
+          <a href={`${import.meta.env.BASE_URL}${CONFIG_TEMPLATE_FILE}`} download={CONFIG_TEMPLATE_FILE} className={SECONDARY}>
+            {t("action.downloadTemplate", lang)}
+          </a>
+          <input
+            ref={openInput}
+            type="file"
+            accept=".json,.xlsx,.ids,.xml"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file)
+                void onOpen(file).then((ok) => {
+                  if (!ok) return;
+                  onPofin(false);
+                  onStep(firstStep);
+                });
+              event.target.value = "";
+            }}
+          />
+        </div>
       </>
+    );
+  } else if (current === "pofin") {
+    // What «POFIN» assigned, each row its step, then the two ways on.
+    body = (
+      <div className="flex flex-col gap-6">
+        <ol data-pofin className="m-0 flex list-none flex-col border border-line bg-panel p-0">
+          {POFIN_ROLES.map((role) => stepRow(role, "pofin"))}
+          {schemaRow}
+        </ol>
+        <div className="flex flex-wrap gap-2 sm:self-end">
+          <button
+            type="button"
+            data-pofin-review
+            onClick={() => onStep(firstStep)}
+            className="flex min-h-12 items-center justify-center gap-3 border-2 border-green bg-panel px-8 text-[15px] font-medium text-ink hover:bg-green hover:text-cream"
+          >
+            {t("action.review", lang)} →
+          </button>
+          <button type="button" autoFocus data-pofin-accept onClick={() => onStep("end")} className={CONFIRM}>
+            {t("action.acceptSetup", lang)} →
+          </button>
+        </div>
+        <StepNav lang={lang} onBack={() => onStep("start")} />
+      </div>
     );
   } else if (current === "ifc") {
     body = (
@@ -2687,37 +2811,11 @@ export function SetupPage({
       </div>
     );
   } else if (current === "end") {
-    // What each step set, as the summary names it.
-    const setText = (s: SetupStep): string => {
-      if (s === "ifc") return models.map((m) => m.fileName).join(", ");
-      if (s === "storeys") {
-        const n = ruleset.storeys?.levels.length ?? 0;
-        return n > 0 ? `${formatCount(n, lang)} ${t("kpi.storeys", lang)} · ${ruleset.storeys?.plane ?? ""}` : "–";
-      }
-      if (isLayerStep(s))
-        return LAYER_SLOTS[s]
-          .map((slot) =>
-            [t("setup.standard", lang), ...layerSources(ruleset, slot).map((source) => sourceText(source, lang))].join(" + "),
-          )
-          .join(" · ");
-      if (s === "type-name") {
-        const r = mappingRule(ruleset, "type-name");
-        return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map(partName).join(" ") : "–";
-      }
-      if (s === "tfm") {
-        return tfmRule && tfmRule.enabled !== false && tfmSaved
-          ? `${sourceText(tfmSaved.source, lang)} · ${formatSequence(tfmSaved.sequence)}`
-          : "–";
-      }
-      if (isMappingStep(s)) {
-        const r = mappingRule(ruleset, s);
-        return r && r.enabled !== false ? sourceText(checkOf(r, s).source, lang) : "–";
-      }
-      return "";
-    };
-    // The outcome: every requirement the walk set, once, on every model.
+    // The outcome: every requirement the walk set, once, on every model;
+    // after «POFIN», its IFC schema too.
     const tally: Record<Verdict, number> = { pass: 0, warn: 0, fail: 0, na: 0 };
-    for (const key of new Set(WALK.map((s) => STEP_REQ[s]).filter((k) => k !== undefined))) {
+    const keys = WALK.map((s) => STEP_REQ[s]).filter((k) => k !== undefined);
+    for (const key of new Set(pofin && schema ? [...keys, "ifc-schema"] : keys)) {
       for (const { reqs } of results) {
         const req = reqs.find((r) => r.key === key);
         if (req) tally[stateLook(req.state, lang).verdict] += 1;
@@ -2726,25 +2824,8 @@ export function SetupPage({
     body = (
       <div className="flex flex-col gap-6">
         <ol data-summary className="m-0 flex list-none flex-col border border-line bg-panel p-0">
-          {WALK.map((s) => (
-            <li key={s} className="border-b border-line last:border-b-0">
-              <button
-                type="button"
-                onClick={() => onStep(s)}
-                className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-input"
-              >
-                <span
-                  aria-hidden="true"
-                  className={"w-4 shrink-0 text-center font-mono text-[12px] " + (done(s) ? "text-green" : "text-muted")}
-                >
-                  {done(s) ? "✓" : "–"}
-                </span>
-                <span className="w-48 shrink-0 text-[14px] text-ink">{stepLabel(s, lang)}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{setText(s)}</span>
-                <ReqResult results={resultOf(s)} lang={lang} />
-              </button>
-            </li>
-          ))}
+          {WALK.map((s) => stepRow(s, pofin ? "end" : null))}
+          {pofin ? schemaRow : null}
         </ol>
         {results.length > 0 ? (
           <div data-overall className="flex flex-wrap items-center gap-2">
@@ -2804,6 +2885,7 @@ export function SetupPage({
           total={picker.total}
           ownerNames={ownerNames}
           lang={lang}
+          pinned={pofin}
           onCandidate={confirmCandidate}
           onCurrent={confirmCurrent}
           onStandard={(option) => {
@@ -2846,7 +2928,7 @@ export function SetupPage({
       {/* ONE bounded column: the bar, what just landed, the question. */}
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <div className="flex items-center gap-4">
-          {current === "start" ? (
+          {current === "start" || current === "pofin" ? (
             <div className="flex-1" />
           ) : (
             <WalkProgress

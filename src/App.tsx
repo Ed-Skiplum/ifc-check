@@ -250,10 +250,16 @@ export default function App() {
   // model lands (the empty and the board layouts are two trees). null =
   // the page picks its first step. Each opening starts afresh.
   const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
+  // «POFIN» was picked on the choice: held here with the step, for the same
+  // remount, and dropped with it.
+  const [setupPofin, setSetupPofin] = useState(false);
   const [setupWasOpen, setSetupWasOpen] = useState(setupOpen);
   if (setupWasOpen !== setupOpen) {
     setSetupWasOpen(setupOpen);
-    if (!setupOpen) setSetupStep(null);
+    if (!setupOpen) {
+      setSetupStep(null);
+      setSetupPofin(false);
+    }
   }
   // The picker's sets are computed only once Oppsett has been opened.
   useEffect(() => {
@@ -281,6 +287,8 @@ export default function App() {
       onChange={editRuleset}
       onOpen={loadRuleset}
       onFiles={takeFiles}
+      pofin={setupPofin}
+      onPofin={setSetupPofin}
       onSave={() => {
         try {
           writeSavedRuleset(ruleset ? { fileName: setupFileName, ruleset } : null);
