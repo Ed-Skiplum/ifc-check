@@ -60,7 +60,8 @@ import {
 import { extractFromExample } from "../src/ids/extract-example.ts";
 import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
-import { rankCandidates, rankPartBindings, rankTfmCandidates } from "../src/ui/setup/candidates.ts";
+import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, standardOption } from "../src/ui/setup/candidates.ts";
+import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList } from "../src/ids/models.ts";
 import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
@@ -3379,6 +3380,56 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
     }),
   );
   record("walk candidates: no property passing is no proposal", "none", ranked([choice("Dim", "Text", [["Vegg", 40]])], "system-classification", sys));
+
+  // The standard (src/engine/pofin-standard.ts): POFIN 2.1's sources, each
+  // Uttrekk one group, the standard's own examples read to their codes.
+  record(
+    "pofin standard: every source is a set and a name, or the type's Name",
+    "systemkode:NONS_Reference.RefPriSysOcc forekomst:NONS_Reference.RefCompOcc objekttypenavn:type.Name lokasjon-system:NONS_Reference.RefPriSysLoc prosesstatuskode:NONS_Process.ProcessStatus duplikat-objekt:NONS_Process.DuplicateOwnedBy",
+    Object.values(POFIN_SOURCES)
+      .map((s) => `${s.key}:${"property" in s.source ? `${s.source.property.propertySet}.${s.source.property.name}` : "attribute" in s.source ? `${s.target}.${s.source.attribute}` : "?"}`)
+      .join(" "),
+  );
+  const pofinCodes = (extract: string, list: "ns3451" | "ns3457-8", values: string[]) =>
+    previewExtract({ extract, list }, values.map((v) => ({ v, n: 1 })))
+      .rows.map((r) => `${r.v}>${r.code ?? "-"}:${r.state}`)
+      .join(" ");
+  record(
+    "pofin Systemkode: NS 3451 class, then .running number (and .sub number); the class is checked",
+    "2341.001>2341:ok 3622.002>3622:ok 2341.001.2>2341:ok 9999.001>9999:not-in-list 2341>-:no-match",
+    pofinCodes(POFIN_SOURCES.systemkode.extract!, "ns3451", ["2341.001", "3622.002", "2341.001.2", "9999.001", "2341"]),
+  );
+  record(
+    "pofin Forekomst: NS 3457-8 class, then the running number with no separator; the class is the component code",
+    "DUZ007>DUZ:ok AB12>AB:ok ZZZ007>ZZZ:not-in-list DUZ.001>-:no-match",
+    pofinCodes(POFIN_SOURCES.forekomst.extract!, "ns3457-8", ["DUZ007", "AB12", "ZZZ007", "DUZ.001"]),
+  );
+  record(
+    "pofin Objekttypenavn: NS 3457-8 class + . + type number",
+    "DUZ.001>DUZ:ok DUZ001>-:no-match",
+    pofinCodes(POFIN_SOURCES.objekttypenavn.extract!, "ns3457-8", ["DUZ.001", "DUZ001"]),
+  );
+  const fun: CodeLookupCheck = { type: "code-lookup", source: blankProp, list: "ns3457-8", target: "occurrence", extract: defaultExtract("component-classification") };
+  const funStd = standardOption("component-classification", fun, [choice("NONS_Reference", "RefCompOcc", [["DUZ007", 4], ["ZZZ1", 1]])], []);
+  const sysStd = standardOption("system-classification", sys, [choice("Klass", "NS3451", [["231", 9]])], []);
+  record(
+    "walk standard: Funksjonskode reads RefCompOcc with the standard's Uttrekk; a model without it counts 0",
+    `NONS_Reference.RefCompOcc hits=5 ok=4 extract=${POFIN_SOURCES.forekomst.extract} | NONS_Reference.RefPriSysOcc hits=0 preview=null`,
+    `${funStd.set}.${funStd.name} hits=${funStd.hits} ok=${funStd.preview?.totals.ok} extract=${(funStd.check as CodeLookupCheck).extract} | ${sysStd.set}.${sysStd.name} hits=${sysStd.hits} preview=${sysStd.preview}`,
+  );
+  record(
+    "walk pre-pick: a saved source the models lack never wins over the standard or a candidate with hits",
+    "standard candidate saved saved saved standard saved",
+    [
+      prePick(5, { hits: 0, chosen: false }, 2),
+      prePick(0, { hits: 0, chosen: false }, 2),
+      prePick(0, { hits: 0, chosen: false }, 0),
+      prePick(5, { hits: 3, chosen: false }, 2),
+      prePick(5, { hits: null, chosen: false }, 0),
+      prePick(0, null, 0),
+      prePick(5, { hits: 0, chosen: true }, 2),
+    ].join(" "),
+  );
 }
 
 /* -------------------------------------------------------------------- TFM */

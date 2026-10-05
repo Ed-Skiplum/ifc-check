@@ -11,7 +11,7 @@
  * step bodies (`SetupPage.tsx`) are the «Avansert» door's contents, whole.
  */
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
 import { formatCount } from "../format";
@@ -21,7 +21,16 @@ import type { ExtractPreview } from "../extract-preview";
 import type { Requirement } from "../requirements";
 import { figures, stateLook } from "../alt/req-view";
 import { StateChip, TotalChips } from "./chips";
-import { evidence, rankCandidates, type Candidate, type CardRole, type MappingCheck } from "./candidates";
+import {
+  evidence,
+  prePick,
+  rankCandidates,
+  standardOption,
+  type Candidate,
+  type CardRole,
+  type MappingCheck,
+  type StandardOption,
+} from "./candidates";
 
 /** The bar: one segment per step, filled once the step is done, the current
  *  one dark; a segment is the jump to its step. Beside it, where the walk is,
@@ -170,7 +179,7 @@ export function ProposalCard({
       {head || title ? (
         <div className="flex min-w-0 flex-col gap-1">
           {head ? <span className="truncate font-mono text-[12px] text-muted">{head}</span> : null}
-          {title ? <span className="truncate text-2xl leading-tight font-medium text-ink">{title}</span> : null}
+          {title ? <span className="text-2xl leading-tight font-medium [overflow-wrap:anywhere] text-ink">{title}</span> : null}
         </div>
       ) : null}
       {children}
@@ -208,9 +217,8 @@ export function Alternatives({
             onClick={() => onPick(c)}
             className="flex w-full items-center gap-3 border border-line bg-panel px-4 py-2 text-left hover:border-green"
           >
-            <span className="flex min-w-0 flex-1 items-baseline gap-2">
-              <span className="truncate font-mono text-[11px] text-muted">{c.set}</span>
-              <span className="truncate text-[14px] text-ink">{c.name}</span>
+            <span className="min-w-0 flex-1 font-mono text-[13px] [overflow-wrap:anywhere] text-ink">
+              {c.set}.{c.name}
             </span>
             <TotalChips preview={c.preview} lang={lang} />
           </button>
@@ -301,9 +309,29 @@ export type CurrentSource =
   | { kind: "property"; set: string; name: string }
   | { kind: "other"; head: string; title: string };
 
-/** A mapping step's question: the saved source, else the best candidate,
- *  pre-picked; the next ones beside it; with none, the plain fact and the
- *  picker (`fallback`). */
+/** One answer of a mapping step, in the order the step lists them. */
+type Answer = {
+  key: string;
+  /** «Standard», «Regelsett», or none (a model candidate). */
+  tag: string | null;
+  head: string;
+  title: string;
+  prop: PsetProp | undefined;
+  preview: ExtractPreview | null;
+  /** Elements carrying a value; null when it cannot be counted here. */
+  hits: number | null;
+  error: string | null;
+  onConfirm: () => void;
+};
+
+const sourceKey = (s: CurrentSource) => (s.kind === "property" ? `p\u0000${s.set}\u0000${s.name}` : `o\u0000${s.head}\u0000${s.title}`);
+
+/** A mapping step's question (2026-10-05, edkjo: "You're assuming that all
+ *  projects use RefClass_NS3451 etc as in KNM … suggest the standard as in
+ *  POFIN"). Listed in one order: the standard, the ruleset's saved source,
+ *  the model's candidates. The pre-picked one (`prePick`) is the card with
+ *  «Bruk»; every other is one click from being the answer. The source itself
+ *  is changed here too, by «Endre» (`editor`), never behind «Avansert». */
 export function MappingStep({
   role,
   check,
@@ -315,7 +343,8 @@ export function MappingStep({
   lang,
   onCandidate,
   onCurrent,
-  fallback,
+  onStandard,
+  editor,
 }: {
   role: CardRole;
   check: MappingCheck;
@@ -328,81 +357,150 @@ export function MappingStep({
   onCandidate: (candidate: Candidate) => void;
   /** «Bruk» on the saved source, with its preview when it has one. */
   onCurrent: (preview: ExtractPreview | null) => void;
-  fallback: ReactNode;
+  /** «Bruk» on the standard: writes its source (and Uttrekk). */
+  onStandard: (option: StandardOption) => void;
+  /** The source editor: kind, property picker, a property not in the model. */
+  editor: ReactNode;
 }) {
+  const [editing, setEditing] = useState(false);
+  // The source the step opened on: a different one now was set here.
+  const [opened] = useState(() => (current ? sourceKey(current) : null));
   const candidates = useMemo(
     () => (choices ? rankCandidates(choices, role, check, ownerNames) : []),
     [choices, role, check, ownerNames],
   );
+  const standard = useMemo(() => standardOption(role, check, choices, ownerNames), [role, check, choices, ownerNames]);
+  const known = reading || choices === null;
+
+  let saved: Answer | null = null;
+  const savedIsStandard = current?.kind === "property" && current.set === standard.set && current.name === standard.name;
+  if (current !== null) {
+    const prop =
+      current.kind === "property" ? choices?.find((c) => c.set === current.set)?.props.find((p) => p.name === current.name) : undefined;
+    let preview: ExtractPreview | null = null;
+    let error: string | null = null;
+    if (prop) {
+      try {
+        preview = evidence(check, role, prop, ownerNames);
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+    }
+    saved = {
+      key: "saved",
+      tag: t("label.ruleset", lang),
+      head: current.kind === "property" ? "" : current.head,
+      title: current.kind === "property" ? `${current.set}.${current.name}` : current.title,
+      prop,
+      preview,
+      hits: current.kind === "property" ? (prop?.valued ?? 0) : null,
+      error,
+      onConfirm: () => onCurrent(preview),
+    };
+  }
+  const std: Answer = {
+    key: "standard",
+    tag: t("setup.standard", lang),
+    head: "",
+    title: `${standard.set}.${standard.name}`,
+    prop: standard.prop,
+    preview: savedIsStandard && saved ? saved.preview : standard.preview,
+    hits: standard.hits,
+    error: savedIsStandard && saved ? saved.error : null,
+    // The saved rule reading the standard keeps its own Uttrekk and values.
+    onConfirm: savedIsStandard && saved ? saved.onConfirm : () => onStandard(standard),
+  };
+  const same = (c: Candidate) =>
+    (c.set === standard.set && c.name === standard.name) ||
+    (current?.kind === "property" && c.set === current.set && c.name === current.name);
+  const others = candidates.filter((c) => !same(c)).slice(0, 3);
+  const cands: Answer[] = others.map((c) => ({
+    key: `c\u0000${c.set}\u0000${c.name}`,
+    tag: null,
+    head: "",
+    title: `${c.set}.${c.name}`,
+    prop: c.prop,
+    preview: c.preview,
+    hits: c.prop.valued,
+    error: null,
+    onConfirm: () => onCandidate(c),
+  }));
+  const showSaved = saved !== null && !savedIsStandard ? saved : null;
+  const chosen = current !== null && opened !== sourceKey(current);
+  let pick = prePick(standard.hits, saved ? { hits: saved.hits, chosen } : null, cands.length);
+  if (pick === "saved" && savedIsStandard) pick = "standard";
+  const picked = pick === "saved" ? showSaved : pick === "candidate" ? cands[0] : std;
+  const answers = [std, ...(showSaved ? [showSaved] : []), ...cands];
+  const nothing = !known && answers.every((a) => a.hits === 0);
   const confirm = t("action.apply", lang);
 
-  if (current !== null) {
-    const others = candidates
-      .filter((c) => !(current.kind === "property" && c.set === current.set && c.name === current.name))
-      .slice(0, 3);
-    let card: ReactNode;
-    if (current.kind === "other") {
-      card = <ProposalCard head={current.head} title={current.title} confirm={confirm} onConfirm={() => onCurrent(null)} />;
-    } else {
-      const prop = choices?.find((c) => c.set === current.set)?.props.find((p) => p.name === current.name);
-      let preview: ExtractPreview | null = null;
-      let error: string | null = null;
-      if (prop) {
-        try {
-          preview = evidence(check, role, prop, ownerNames);
-        } catch (err) {
-          error = err instanceof Error ? err.message : String(err);
-        }
-      }
-      const missing = !prop && !reading && choices !== null;
-      card = (
-        <ProposalCard
-          head={current.set}
-          title={current.name}
-          missing={missing}
-          confirm={confirm}
-          onConfirm={() => onCurrent(preview)}
-        >
-          {prop && preview ? <Evidence prop={prop} preview={preview} total={total} lang={lang} /> : null}
-          {missing ? <Figure label={t("kpi.products", lang)} value={of(0, total, lang)} bad /> : null}
-          {reading && !prop ? <span className="text-[12px] text-muted">{t("file.parsing", lang)}</span> : null}
-          {error !== null ? (
-            <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">{error}</pre>
-          ) : null}
-        </ProposalCard>
-      );
-    }
-    return (
-      <div className="flex flex-col gap-3">
-        {card}
-        <Alternatives candidates={others} lang={lang} onPick={onCandidate} />
-      </div>
-    );
-  }
-
-  const top = candidates[0];
-  if (top) {
-    return (
-      <div className="flex flex-col gap-3">
-        <ProposalCard key={`${top.set}\u0000${top.name}`} head={top.set} title={top.name} confirm={confirm} onConfirm={() => onCandidate(top)}>
-          <Evidence prop={top.prop} preview={top.preview} total={total} lang={lang} />
-        </ProposalCard>
-        <Alternatives candidates={candidates.slice(1)} lang={lang} onPick={onCandidate} />
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-4">
-      {reading ? (
-        <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span>
-      ) : choices !== null ? (
+    <div className="flex flex-col gap-3">
+      {reading ? <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span> : null}
+      {nothing ? (
         <div data-no-candidate className="flex items-center gap-3">
           <StateChip state="no-match" lang={lang} />
           <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
         </div>
       ) : null}
-      {fallback}
+      {answers.map((a) =>
+        a === picked ? (
+          <ProposalCard
+            key={a.key + a.title}
+            head={[a.tag, a.head].filter(Boolean).join(" · ") || undefined}
+            title={a.title}
+            missing={!known && a.hits === 0}
+            confirm={confirm}
+            onConfirm={a.onConfirm}
+          >
+            {a.prop && a.preview ? <Evidence prop={a.prop} preview={a.preview} total={total} lang={lang} /> : null}
+            {!known && a.hits === 0 && !a.prop ? <Figure label={t("kpi.products", lang)} value={of(0, total, lang)} bad /> : null}
+            {a.error !== null ? (
+              <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">{a.error}</pre>
+            ) : null}
+            <button
+              type="button"
+              data-source-edit
+              aria-expanded={editing}
+              onClick={() => setEditing((was) => !was)}
+              className="w-fit border border-line px-3 py-1 text-[12px] text-ink hover:border-green hover:text-green"
+            >
+              {t("action.change", lang)}
+            </button>
+          </ProposalCard>
+        ) : (
+          <AnswerRow key={a.key + a.title} answer={a} total={total} known={known} lang={lang} />
+        ),
+      )}
+      {editing ? <div data-source-editor className="border border-line bg-panel p-4">{editor}</div> : null}
     </div>
+  );
+}
+
+/** An answer not pre-picked: its tag, `Pset.Name`, its count; a click takes
+ *  it and moves on. */
+function AnswerRow({ answer: a, total, known, lang }: { answer: Answer; total: number | null; known: boolean; lang: Lang }) {
+  const zero = !known && a.hits === 0;
+  return (
+    <button
+      type="button"
+      data-alternative
+      data-answer={a.tag === null ? "candidate" : a.key}
+      onClick={a.onConfirm}
+      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 border border-line bg-panel px-4 py-2 text-left hover:border-green"
+    >
+      {a.tag ? <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">{a.tag}</span> : null}
+      <span className="min-w-0 flex-1 font-mono text-[13px] [overflow-wrap:anywhere] text-ink">
+        {a.head ? <span className="text-muted">{a.head} </span> : null}
+        {a.title}
+      </span>
+      {a.preview ? (
+        <TotalChips preview={a.preview} lang={lang} />
+      ) : a.hits !== null && !known ? (
+        <span className={"px-1 font-mono text-[12px] tabular-nums " + (zero ? VERDICT_FILL.fail : "text-muted")}>
+          {of(a.hits, total, lang)}
+        </span>
+      ) : null}
+    </button>
   );
 }

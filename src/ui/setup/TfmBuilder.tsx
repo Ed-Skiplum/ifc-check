@@ -55,6 +55,9 @@ export interface BindingChoice {
   set: string;
   name: string;
   n: number;
+  /** The standard's source (POFIN: `NONS_Reference.RefPriSysLoc`), listed
+   *  first with its count, 0 included. */
+  standard?: boolean;
 }
 
 const sepGlyph = (sep: TfmSeparator) => (sep === " " ? "␣" : sep);
@@ -231,10 +234,17 @@ function ChipEditor({
                 type="button"
                 aria-pressed={on}
                 onClick={() => onBind({ set: b.set, name: b.name })}
+                data-standard={b.standard ? true : undefined}
                 className={PILL + " flex items-baseline gap-2 text-left"}
               >
-                <span className="truncate text-[11px] opacity-75">{b.set}</span>
-                <span className="truncate">{b.name}</span>
+                {b.standard ? (
+                  <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] uppercase opacity-75">
+                    {t("setup.standard", lang)}
+                  </span>
+                ) : null}
+                <span className="min-w-0 [overflow-wrap:anywhere]">
+                  {b.set}.{b.name}
+                </span>
                 {b.n >= 0 ? <span className="ml-auto pl-3 text-[11px] tabular-nums opacity-75">{formatCount(b.n, lang)}</span> : null}
               </button>
             );
