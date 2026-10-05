@@ -3413,6 +3413,15 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
     "DUZ.001>DUZ:ok DUZ001>-:no-match",
     pofinCodes(POFIN_SOURCES.objekttypenavn.extract!, "ns3457-8", ["DUZ.001", "DUZ001"]),
   );
+  // The example each step's TO shows (the walk's mapping layout) is a value
+  // of the standard's own form: its Uttrekk, where it has one, reads it.
+  record(
+    "pofin examples: the form TO shows passes the standard's own Uttrekk",
+    "systemkode:2341.001:ok forekomst:DUZ007:ok objekttypenavn:DUZ.001:ok lokasjon-system:ByggA prosesstatuskode:400 duplikat-objekt:RIV",
+    Object.values(POFIN_SOURCES)
+      .map((s) => `${s.key}:${s.example}${s.extract ? `:${new RegExp(s.extract).test(s.example) ? "ok" : "no-match"}` : ""}`)
+      .join(" "),
+  );
   const fun: CodeLookupCheck = { type: "code-lookup", source: blankProp, list: "ns3457-8", target: "occurrence", extract: defaultExtract("component-classification") };
   const funStd = standardOption("component-classification", fun, [choice("NONS_Reference", "RefCompOcc", [["DUZ007", 4], ["ZZZ1", 1]])], []);
   const sysStd = standardOption("system-classification", sys, [choice("Klass", "NS3451", [["231", 9]])], []);
