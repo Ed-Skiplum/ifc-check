@@ -340,6 +340,7 @@ export function TfmBuilder({
         typed={(token) => ("text" in token ? { empty: token.text === "" } : null)}
         standard={STATSBYGG_SEQUENCE}
         same={sameSequence}
+        countLabel={t("walk.selected", lang)}
         lang={lang}
         onSequence={onSequence}
       />

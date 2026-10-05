@@ -22,7 +22,7 @@ import type { ExtractPreview } from "../extract-preview";
 import type { Requirement } from "../requirements";
 import { figures, stateLook } from "../alt/req-view";
 import { StateChip } from "./chips";
-import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, ToZone, Valid, type MapOption } from "./Mapping";
+import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, PANEL, ToZone, Valid, type MapOption } from "./Mapping";
 import {
   evidence,
   prePick,
@@ -64,10 +64,9 @@ export function WalkProgress<S extends string>({
   label: (step: S) => string;
   onStep: (step: S) => void;
 }) {
-  // The count is what the bar's colour says, the steps done of all; where
-  // the walk is, the bar says by the tall segment (2026-10-05, review: «1 /
-  // 10» beside nine green segments, TFM and the summary both «10 / 10»).
-  const doneCount = steps.filter((s) => state(s) === "done").length;
+  // Where the walk is, step n of N (2026-10-05, edkjo, live: «1 / 10» on
+  // the second step read as a position); what is done the segments say.
+  const at = current === null ? steps.length : steps.indexOf(current) + 1;
   return (
     <nav data-walk-progress className="flex min-w-0 flex-1 items-center gap-3">
       <ol className="m-0 flex min-w-0 flex-1 list-none gap-1 p-0">
@@ -99,9 +98,13 @@ export function WalkProgress<S extends string>({
           );
         })}
       </ol>
-      <span data-walk-count className="shrink-0 font-mono text-[13px] tabular-nums text-ink">
-        {doneCount} / {steps.length}
-      </span>
+      {/* Past the last step (the summary) there is no position to give: a
+          «10 / 10» there read the same as on TFM. */}
+      {current === null ? null : (
+        <span data-walk-count className="shrink-0 font-mono text-[13px] tabular-nums text-ink">
+          {at} / {steps.length}
+        </span>
+      )}
     </nav>
   );
 }
@@ -295,7 +298,7 @@ export function StepConfirm({
       data-lead={lead}
       disabled={disabled}
       onClick={onClick}
-      className={confirmClass(lead) + " disabled:cursor-not-allowed disabled:border-line disabled:bg-panel disabled:text-muted"}
+      className={confirmClass(lead) + " disabled:cursor-not-allowed disabled:border-muted/50 disabled:bg-panel disabled:text-muted"}
     >
       {label} →
     </button>
@@ -415,7 +418,7 @@ export function SummaryRow({
   );
   const row = "flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left";
   return (
-    <li className="border-b border-line last:border-b-0">
+    <li data-row={label} data-done={done === null ? undefined : String(done)} className="border-b border-line last:border-b-0">
       {onClick ? (
         <button type="button" onClick={onClick} className={row + " hover:bg-input"}>
           {cells}
@@ -653,7 +656,7 @@ export function MappingStep({
             ) : null}
           </OptionList>
         }
-        editor={editing ? <div data-source-editor className="border border-line bg-panel p-4">{editor}</div> : null}
+        editor={editing ? <div data-source-editor data-panel className={PANEL}>{editor}</div> : null}
         requirement={
           <>
             {requirement}
