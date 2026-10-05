@@ -1240,6 +1240,82 @@ async function cmdSelftest(): Promise<number> {
     bare.find((r) => r.id === "phase")?.state ?? "absent",
   );
 
+  // The IDS tab's report line, its badge and the derivation it opens are one
+  // reading. Live on OBF_400520_03_6_ARK (2026-10-05) Kopiobjekt read Bestått 0,
+  // Avvik 80 in red under a Bestått badge, the band Bestått 80, Avvik 0: the
+  // line took the contract's mangler (a blank, which is the file's own object)
+  // as Avvik. The UI modules import extensionless, as Vite resolves them.
+  {
+    await import("./ts-resolve.mjs");
+    const { stdCounts } = await import("../src/ui/alt/req-view.ts");
+    const { buildTrace } = await import("../src/ui/trace.ts");
+    const rows3: [string | null, string | null][] = [["300", "false"], ["999", "true"], ["300", null]];
+    const ruleset = withRules([
+      mappingRule("progress-code", { source: { attribute: "Name" }, codes: codesOf("300") }),
+      copyRule({ copy: ["true"], own: ["false"] }),
+    ]);
+    const evaluation = evaluateRuleset(ruleset, referenceGraph(rows3), summary, "board-line.ifc");
+    const rows = reportRows({
+      model: { file: "board-line.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+      graph: { ...(referenceGraph(rows3) as unknown as IfcGraph), storeys: [], projects: [], storey_building: [] },
+      summary: summary as unknown as IfcSummary,
+      checks: [],
+      ruleset,
+      evaluation,
+    });
+    const entry = { id: "m", fileName: "board-line.ifc", evaluation, board: { rows } } as unknown as Parameters<typeof stdCounts>[1];
+    const line = (key: string) => {
+      const req = requirements(rows).find((r) => r.key === key)!;
+      const c = stdCounts(req, entry);
+      const band = req.focus ? buildTrace(entry, req.focus)?.stats.map((s) => s.value).slice(0, 3).join("/") : "none";
+      return `${req.state} ${c.applicable}/${c.passed}/${c.failed} band ${band}`;
+    };
+    record(
+      "IDS tab: Kopiobjekt's line counts are its badge's and its band's (a blank is the file's own object, not Avvik)",
+      "pass 3/3/0 band 3/3/0",
+      line("kopiobjekt"),
+    );
+    record(
+      "IDS tab: a code-lookup line reads the same counts as before (avvik + mangler = failed)",
+      "pass 2/2/0 band 2/2/0",
+      line("mmi"),
+    );
+
+    // The Etasjedefinisjon card's figure is what its verdict is about. Live on
+    // the same model it read 100 %, 1 of 1 on a red Avvik card whose band said
+    // 0 of 1 storeys match: the figure was presence, which a storey always has.
+    const { figures } = await import("../src/ui/alt/req-view.ts");
+    const storeyGraph = {
+      schema: "IFC4", project_name: null, products: [], sites: [], buildings: [], projects: [], spaces: [],
+      contained_in: [], aggregates: [], storey_building: [], voids: [], psets: [], classifications: [], quantities: [],
+      materials: [], type_objects: [],
+      storeys: [{ guid: "s1", name: "1. etg", elevation: 0, building_guid: null }],
+    } as unknown as IfcGraph;
+    const storeySummary = {
+      schema: "IFC4", length_unit: "METRE", unit_scale: 1, unit_resolved: true,
+      authoring_app: null, project_name: null, duplicate_step_ids: 0, products: 0,
+    } as unknown as IfcSummary;
+    const floors = {
+      ...SAMPLE_RULESET,
+      rules: [],
+      storeys: { plane: "OKFG", tolerance: { aboveMm: 0, belowMm: 0 }, nameWindowMm: null, nearMm: 0, levels: [{ name: "Plan 01", elevation: 122.5 }] },
+    } as unknown as Ruleset;
+    const storeyRows = reportRows({
+      model: { file: "floors.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+      graph: storeyGraph,
+      summary: storeySummary,
+      checks: [checkStoreyConfig(storeyGraph, storeySummary, floors, "floors.ifc")],
+      ruleset: floors,
+    });
+    const storeyReq = requirements(storeyRows).find((r) => r.key === "etasjedefinisjon")!;
+    const storeyFigure = figures(storeyReq, "en");
+    record(
+      "Etasjedefinisjon: the card's figure is the storeys that match, the verdict's quantity, not presence",
+      "fail 0% | 0 of 1 IfcBuildingStorey",
+      `${storeyReq.state} ${storeyFigure?.figure} | ${storeyFigure?.of}`,
+    );
+  }
+
   // The Overview's classification codes (src/ui/class-codes.ts): presence
   // per system, sorted by code, the bundled list's name for NS 3451, an
   // unknown code marked, absent kept apart from none.

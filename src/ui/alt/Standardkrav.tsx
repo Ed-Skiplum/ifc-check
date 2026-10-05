@@ -84,7 +84,7 @@ export function StandardkravRows({ reqs, ruleset, ...door }: DoorProps & { reqs:
           key={req.key}
           name={t(req.label, lang)}
           ask={<StdAsk req={req} ruleset={ruleset} lang={lang} />}
-          counts={stdCounts(req)}
+          counts={stdCounts(req, door.model)}
           look={{ ...stateLook(req.state, lang), state: req.state }}
           focus={req.focus}
           title={req.row?.grunn}
