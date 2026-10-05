@@ -2640,13 +2640,14 @@ Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
 - Evidence on a proposal: Produkter `carrying / models' products`, Verdier
   `passing / distinct`, the state chips. A saved property the models lack is
   red with `0 / N`, on the card and in the picker's card.
-- The bar: one segment per step (filled when done, a click jumps), `n / N`
-  beside it. On confirm, the next step opens under a strip naming the
+- The bar: one segment per step in its `segmentState` (see "The first
+  screen" below; a click jumps), `n / N` beside it. On confirm, the next step opens under a strip naming the
   confirmed step with its result: the chips on a mapping step, the report
   row's state and figure (`requirements.ts`, as the IDS tab) on a layer step,
   `matched / model storeys` on Etasjeoppsett. `pick-in` animation, off under
   prefers-reduced-motion.
-- «Hopp over» moves on and changes nothing; Forrige goes back.
+- «Hopp over» moves on and changes nothing; Forrige goes back. Neither on
+  the IFC stage (below).
 - End (`Oppsummering`): per step what was set and each model's report-row
   result; the outcome as a count per verdict over those rows; «Lagre
   oppsett», which saves and opens the IDS tab (`tab=project`).
@@ -2750,6 +2751,55 @@ mapping steps' are the pset inventory's, as before.
 Verified: `tsc` (app, node), selftest (458, the examples pass the
 standard's Uttrekk). **Not exercised in a browser**: no pick, keyboard
 move, Enter, popover or stacked width has been seen.
+
+**The first screen (2026-10-05).** edkjo, live at 2560×1278 in the
+skiplum.com frame, on «Last opp IFC» with a saved ruleset: "is this great
+UI?". It was not: a bar six-tenths green before any model, «Last opp IFC»
+twice (heading and a flat green banner 800 × 137), Forrige, Hopp over and
+Last ned around it, all in a column pinned to the top with ~80 % of the
+screen empty, and «ifc-check» in the app bar under the host frame's own.
+
+- The IFC stage (`current === "ifc"` with no model `ready`): one drop
+  target, `IfcDrop` (`setup/Walk.tsx`), dashed at rest with an upload glyph
+  in SVG, the step's name once and `accept.ifc`; hover outlines it green,
+  a file held over the page fills it pale green (`dragging`, `App`'s drag
+  depth). A drop anywhere lands through `App`'s root drop, which fills the
+  window. Click and Enter open the file dialog. Sized by `STAGE_WIDTH`:
+  16:10, `min(frame, 72cqh × 1.6)`, so 72 % of the walk's height at most.
+  No heading, no bar, no `n / N`, no Last ned, no Hopp over (hidden rather
+  than shown empty: nothing on the screen but the target). Forrige only
+  when a step is held, i.e. the walk came through the choice (POFIN or
+  Egendefinert) or a detour; the default entry has none.
+- While a file is read the sweep (`ifc-sweep`, static under reduced
+  motion) runs along the target's foot. Once a model is `ready`, `App`
+  moves the step on to the first mapping (it used to on the file's arrival,
+  before it was read); on the default entry `firstStep` turns over with it.
+  A file that failed keeps the stage, with the file list saying why.
+- With a model loaded the IFC step keeps the target, the list, the bar,
+  Forrige / Neste and Last ned.
+- The bar (`segmentState`, `candidates.ts`, pure, selftested): `done`
+  (green) only with a model loaded and the step either confirmed in this
+  Oppsett while one was (`confirmStep`, every «Bruk» / plane / TFM / type
+  scheme), or its saved answer has hits in the loaded models; `saved`
+  (hatched muted/line) a saved answer not checked against a model (none
+  loaded, 0 hits, or not countable: an attribute or classification source,
+  psets or report not read yet); `open` the bare track; the current step
+  dark unless done. Hits: mapping and TFM, elements carrying the property
+  (pset inventory); Typenavn, the type Names reached; Fase, Materiale /
+  Produkt, the `prosjekt` sources' `n` on the report row; Etasjeoppsett,
+  model storeys the levels match. The summary's ✓ (`done`) is unchanged.
+- The frame, every step: the bar pinned on top, the step in a scroll area
+  under it (a size container). `FRAME`: `max-w-5xl` (64rem) below 1536 px,
+  80rem from 1536, 100rem from 2200; the bar shares it; 12 px margin.
+  Vertically a 2 : 3 pair of spacers puts a short step at the optical
+  centre; a tall one starts 24 px under the bar and scrolls in the walk.
+- In an iframe (`window.self !== window.top`, try/catch: a refusal counts
+  as framed) the no-model header drops its «ifc-check»; Oppsett, sign-in
+  and NB/EN stay. Standalone unchanged.
+
+Verified: `tsc` (app, node), selftest (485, the segment rule). **Not
+exercised in a browser**: sizes are computed, not measured (at 1440×900
+the stage is about 980 × 613; at 1920×1080 about 1188 × 742).
 
 Mengdetype is not a step (2026-10-05, edkjo: "It's not something to check,
 but something to assess … it's not a property or attribute"). The walk, its
