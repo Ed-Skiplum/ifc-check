@@ -68,6 +68,8 @@ export const REQUIREMENTS: readonly ReqSpec[] = [
   { key: "mmi", group: "std", label: "req.mmi", mapping: "progress-code", distribution: true },
   { key: "fase", group: "std", label: "req.fase", id: "phase" },
   { key: "tfm", group: "std", label: "req.tfm", mapping: "tfm", whenConfigured: true },
+  // The type name scheme (2026-10-05): a project's own, listed once set.
+  { key: "typenavn", group: "std", label: "check.type-name-placeholder", mapping: "type-name", whenConfigured: true },
 ];
 
 export const REQ_GROUPS: readonly { group: ReqGroup; label: StringKey }[] = [

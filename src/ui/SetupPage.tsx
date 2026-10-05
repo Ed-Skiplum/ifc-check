@@ -65,6 +65,7 @@ import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { hasErrors, lintRuleset } from "../ids/lint.ts";
 import { anyRoleRule, defaultCodeList, defaultExtract, everyOwnerName, roleRule } from "../ids/models.ts";
 import { STANDARD_SOURCES, type LayerSlot } from "../engine/standard-sources.ts";
+import { POFIN_SOURCES } from "../engine/pofin-standard.ts";
 import { layerJudge, layerPath, layerSources, previewLayer, withLayerSources } from "./layer-steps";
 import { MMI_PRESETS, matchingPreset, presetCodes, type MmiPresetId } from "../codelists/mmi-presets.ts";
 import type {
@@ -83,6 +84,8 @@ import type {
   TfmCheck,
   TfmPart,
   TfmToken,
+  NamePart,
+  TypeNameCheck,
 } from "../ids/types.ts";
 import { STATSBYGG_SEQUENCE, formatSequence, tfmRegexSource } from "../engine/tfm.ts";
 import type { Lang, StringKey } from "./i18n";
@@ -98,8 +101,11 @@ import type { Verdict } from "../engine/types";
 import type { ModelEntry } from "./useModels";
 import { requirements } from "./requirements";
 import { StateChip, TotalChips } from "./setup/chips";
+import { INPUT, ValuesInput } from "./setup/ValuesInput";
 import { previewTfm, rankPartBindings, rankTfmCandidates, type Candidate } from "./setup/candidates";
 import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
+import { TypeNameStep } from "./setup/TypeNameStep";
+import { partName } from "../engine/type-name.ts";
 import { stateLook } from "./alt/req-view";
 import {
   Alternatives,
@@ -131,7 +137,7 @@ type MappingCheck = CodeLookupCheck | CopyObjectCheck;
 
 /** The roles a mapping card edits: every mapping but `tfm`, which is its
  *  own step (`setup/TfmBuilder.tsx`). */
-type CardRole = Exclude<MappingRole, "tfm">;
+type CardRole = Exclude<MappingRole, "tfm" | "type-name">;
 
 function sourceKind(source: CodeSource): SourceKind {
   if ("property" in source) return "property";
@@ -333,9 +339,6 @@ function TemplateButtons({
 const LABEL = "text-[10px] font-semibold tracking-[0.12em] text-gold uppercase";
 const SECONDARY =
   "flex items-center gap-2 border border-line bg-cream px-3 py-1.5 text-[12px] text-ink hover:border-green hover:text-green";
-const INPUT =
-  "border border-line bg-input px-2 py-1 font-mono text-[12px] text-ink " +
-  "disabled:text-muted aria-[invalid=true]:border-bad";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -449,47 +452,6 @@ function CodeRow({
   );
 }
 
-/** Comma-separated codes. The draft keeps what is typed, trailing comma and
- *  all; the rule gets the parsed list on every keystroke. */
-function ValuesInput({
-  values,
-  invalid,
-  onChange,
-}: {
-  values: string[];
-  invalid: boolean;
-  onChange: (next: string[]) => void;
-}) {
-  const joined = values.join(", ");
-  const [draft, setDraft] = useState(joined);
-  // A new list from outside (a loaded file) replaces the draft; the list this
-  // draft itself produced does not.
-  const [seen, setSeen] = useState(joined);
-  if (seen !== joined) {
-    setSeen(joined);
-    if (parseValues(draft).join(", ") !== joined) setDraft(joined);
-  }
-  return (
-    <input
-      type="text"
-      className={INPUT}
-      aria-invalid={invalid}
-      value={draft}
-      onChange={(e) => {
-        setDraft(e.target.value);
-        onChange(parseValues(e.target.value));
-      }}
-    />
-  );
-}
-
-function parseValues(text: string): string[] {
-  return text
-    .split(",")
-    .map((v) => v.trim())
-    .filter((v) => v !== "");
-}
-
 /** The property source, picked from the loaded models: every set with its
  *  properties and element counts (`pset-choices.ts`), filtered as you type,
  *  arrows and Enter to pick. «Egenskapen er ikke med» is always the last
@@ -520,8 +482,8 @@ function PropertyPicker({
   value: { propertySet: string; name: string };
   /** The models' products: a property they lack reads `0 / total`. */
   total?: number | null;
-  /** List «Egenskapen er ikke med». The walk's own picker leaves it to the
-   *  door, where the fields can be typed in without the step changing. */
+  /** List «Egenskapen er ikke med». The TFM step's first picker leaves it to
+   *  «Endre», where the fields can be typed in without the step changing. */
   manual?: boolean;
   /** null: no model on the board, so nothing to pick from. */
   choices: PsetChoice[] | null;
@@ -985,6 +947,114 @@ function ExampleField({
   );
 }
 
+/** What a mapping step reads, on the step itself (2026-10-05, edkjo: "hiding
+ *  the mapping behind avansert is a bad move"): the source kind, then any
+ *  property of the models from the picker, or one they lack typed in, or an
+ *  attribute or classification system. */
+function SourceEditor({
+  role,
+  check,
+  issues,
+  picker,
+  lang,
+  onCheck,
+  onNext,
+}: {
+  role: CardRole;
+  check: MappingCheck;
+  issues: LintIssue[];
+  picker: Picker;
+  lang: Lang;
+  onCheck: (next: MappingCheck) => void;
+  onNext: () => void;
+}) {
+  const source = check.source;
+  const kind = sourceKind(source);
+  const classification = role === "system-classification" || role === "component-classification";
+  const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
+  const sourceIssues = issues.filter((i) => /\.check\.source(?=[.[]|$)/.test(i.path));
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label={t("field.source", lang)}>
+          <select
+            className={INPUT}
+            value={kind}
+            onChange={(e) => {
+              const next = e.target.value as SourceKind;
+              // Type leads: Typer wherever the evaluator can check a type,
+              // which is its Name, an attribute (`typeSubjects`). A property
+              // or classification is read per occurrence.
+              const target = next === "attribute" ? "type" : "occurrence";
+              onCheck(
+                check.type === "code-lookup" && classification
+                  ? { ...check, source: blankSource(next), target }
+                  : { ...check, source: blankSource(next) },
+              );
+            }}
+          >
+            {SOURCE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {t(`field.source.${k}` as StringKey, lang)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {"attribute" in source ? (
+          <Field label={t("field.source.attribute", lang)}>
+            <input
+              type="text"
+              className={INPUT}
+              aria-invalid={invalid("source")}
+              value={source.attribute}
+              onChange={(e) => onCheck({ ...check, source: { attribute: e.target.value } })}
+            />
+          </Field>
+        ) : null}
+        {"classification" in source ? (
+          <Field label={t("field.system", lang)}>
+            <input
+              type="text"
+              className={INPUT}
+              value={source.classification.system ?? ""}
+              onChange={(e) =>
+                onCheck({
+                  ...check,
+                  source: {
+                    classification: e.target.value === "" ? {} : { system: e.target.value },
+                  },
+                })
+              }
+            />
+          </Field>
+        ) : null}
+      </div>
+      {"property" in source ? (
+        <PropertyPicker
+          value={source.property}
+          choices={picker.choices}
+          reading={picker.reading}
+          errors={picker.errors}
+          total={picker.total}
+          invalidSet={invalid("source.property.propertySet")}
+          invalidName={invalid("source.property.name")}
+          lang={lang}
+          onChange={(property) =>
+            onCheck(
+              // A property is read per occurrence (`typeSubjects`).
+              check.type === "code-lookup" && classification
+                ? { ...check, source: { property }, target: "occurrence" }
+                : { ...check, source: { property } },
+            )
+          }
+          onNext={onNext}
+        />
+      ) : null}
+      <IssueLines issues={sourceIssues} lang={lang} />
+    </div>
+  );
+}
+
 function MappingCard({
   role,
   rule,
@@ -994,7 +1064,6 @@ function MappingCard({
   onToggle,
   onCheck,
   onAskEnable,
-  onNext,
   picker,
 }: {
   role: CardRole;
@@ -1003,20 +1072,17 @@ function MappingCard({
   lang: Lang;
   /** Names the step's template file. */
   rulesetName: string;
-  /** What the property picker lists, from the loaded models. */
+  /** What the values list reads, from the loaded models. */
   picker: Picker;
   onToggle: () => void;
   onCheck: (next: MappingCheck) => void;
   /** Double-click on the card while it is off. */
   onAskEnable: () => void;
-  /** Enter on the picked property: the step's next. */
-  onNext: () => void;
 }) {
   const active = rule !== null && rule.enabled !== false;
   const check: MappingCheck =
     rule && (rule.check.type === "code-lookup" || rule.check.type === "copy-object") ? rule.check : blankCheck(role);
   const source = check.source;
-  const kind = sourceKind(source);
   const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
   // Each issue at the field it concerns; the rest at the card's foot.
   const fieldOf = (issue: LintIssue) => /\.check\.(source|extract|codes|list|copy|own)(?=[.[]|$)/.exec(issue.path)?.[1] ?? null;
@@ -1118,91 +1184,22 @@ function MappingCard({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label={t("field.source", lang)}>
-          <select
-            className={INPUT}
-            value={kind}
-            onChange={(e) => {
-              const next = e.target.value as SourceKind;
-              // Type leads: Typer wherever the evaluator can check a type,
-              // which is its Name, an attribute (`typeSubjects`). A property
-              // or classification is read per occurrence.
-              const target = next === "attribute" ? "type" : "occurrence";
-              onCheck(
-                check.type === "code-lookup" && classification
-                  ? { ...check, source: blankSource(next), target }
-                  : { ...check, source: blankSource(next) },
-              );
-            }}
-          >
-            {SOURCE_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {t(`field.source.${k}` as StringKey, lang)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {"attribute" in source ? (
-          <Field label={t("field.source.attribute", lang)}>
-            <input
-              type="text"
-              className={INPUT}
-              aria-invalid={invalid("source")}
-              value={source.attribute}
-              onChange={(e) => onCheck({ ...check, source: { attribute: e.target.value } })}
-            />
-          </Field>
-        ) : null}
-        {"classification" in source ? (
-          <Field label={t("field.system", lang)}>
-            <input
-              type="text"
-              className={INPUT}
-              value={source.classification.system ?? ""}
-              onChange={(e) =>
-                onCheck({
-                  ...check,
-                  source: {
-                    classification: e.target.value === "" ? {} : { system: e.target.value },
-                  },
-                })
-              }
-            />
-          </Field>
-        ) : null}
-      </div>
-
-      {"property" in source ? (
-        <PropertyPicker
-          value={source.property}
-          choices={picker.choices}
-          reading={picker.reading}
-          errors={picker.errors}
-          total={picker.total}
-          invalidSet={invalid("source.property.propertySet")}
-          invalidName={invalid("source.property.name")}
+      {/* The source itself is the step's own (`SourceEditor`, «Endre»);
+          here, the values it reads. */}
+      {prop ? (
+        <ValuesPanel
+          prop={prop}
+          check={check}
+          role={role}
           lang={lang}
-          onChange={(property) => onCheck({ ...check, source: { property } })}
-          onNext={onNext}
-        >
-          {prop ? (
-            <ValuesPanel
-              prop={prop}
-              check={check}
-              role={role}
-              lang={lang}
-              onPick={check.type === "code-lookup" ? pickExample : undefined}
-              onAdd={
-                role === "progress-code" && check.type === "code-lookup"
-                  ? (codes) => onCheck({ ...check, codes: withCodes(check.codes ?? [], codes) })
-                  : undefined
-              }
-            />
-          ) : null}
-        </PropertyPicker>
+          onPick={check.type === "code-lookup" ? pickExample : undefined}
+          onAdd={
+            role === "progress-code" && check.type === "code-lookup"
+              ? (codes) => onCheck({ ...check, codes: withCodes(check.codes ?? [], codes) })
+              : undefined
+          }
+        />
       ) : null}
-      <IssueLines issues={at("source")} lang={lang} />
 
       {check.type === "code-lookup" ? (
         <div className="flex flex-col gap-3">
@@ -1861,6 +1858,7 @@ export type SetupStep = "start" | "ifc" | MappingRole | LayerStep | "storeys" | 
 const STEPS: SetupStep[] = [
   "start",
   "ifc",
+  "type-name",
   "system-classification",
   "component-classification",
   "copy-object",
@@ -1883,6 +1881,7 @@ export const FIRST_MAPPING_STEP: SetupStep = STEPS[2];
 const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
   start: "action.setup",
   ifc: "action.uploadIfc",
+  "type-name": "check.type-name-placeholder",
   "component-classification": "req.funksjonskode",
   phase: "req.fase",
   materials: "req.materiale-produkt",
@@ -1894,6 +1893,7 @@ const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
 /** The requirement (`requirements.ts`) whose report row is a step's result,
  *  as the IDS tab shows it. */
 const STEP_REQ: Partial<Record<SetupStep, string>> = {
+  "type-name": "typenavn",
   "system-classification": "systemkode",
   "component-classification": "funksjonskode",
   "copy-object": "kopiobjekt",
@@ -2022,6 +2022,8 @@ export function SetupPage({
   // sequence, Lokasjon's binding. Null until touched, so the pre-pick follows
   // the models as they are read; dropped when the step is left.
   const [tfmDraft, setTfmDraft] = useState<TfmDraft | null>(null);
+  // The TFM step's source editor, open by «Endre».
+  const [tfmEditing, setTfmEditing] = useState(false);
   const openInput = useRef<HTMLInputElement>(null);
   const ifcInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
@@ -2063,6 +2065,20 @@ export function SetupPage({
 
   const ownerNames = useMemo(() => everyOwnerName(ruleset), [ruleset]);
 
+  // The type step: every type Name the models' typed elements reach, with
+  // the elements using it, most first; null with no model profiled.
+  const typeNames = useMemo((): PsetValue[] | null => {
+    const profiled = models.filter((m) => m.profile);
+    if (profiled.length === 0) return null;
+    const counts = new Map<string, number>();
+    for (const m of profiled) {
+      for (const row of m.profile!.rows) {
+        if (row.typed && row.typeName) counts.set(row.typeName, (counts.get(row.typeName) ?? 0) + 1);
+      }
+    }
+    return [...counts].map(([v, n]) => ({ v, n })).sort((a, b) => b.n - a.n || a.v.localeCompare(b.v));
+  }, [models]);
+
   // The TFM step: the saved rule's check, and the properties whose values
   // are strings of its sequence (the standard's when none is saved).
   const tfmRule = mappingRule(ruleset, "tfm");
@@ -2073,6 +2089,7 @@ export function SetupPage({
     [current, picker.choices, tfmSaved],
   );
   if (current !== "tfm" && tfmDraft !== null) setTfmDraft(null);
+  if (current !== "tfm" && tfmEditing) setTfmEditing(false);
 
   // Each model's requirements as the IDS tab reads them: a step's result.
   const results = useMemo(
@@ -2434,10 +2451,16 @@ export function SetupPage({
     // standard, with the standard's sequence. A model that fits another
     // order is not guessed at: the default stays, and the counts show it.
     const top = tfmRanked[0];
+    // Lokasjon's standard (POFIN Lokasjon system), with its real count, 0
+    // included; pre-bound on a new rule when the models carry it.
+    const lokStd = POFIN_SOURCES["lokasjon-system"].source as { property: { propertySet: string; name: string } };
+    const lokStdN =
+      picker.choices?.find((c) => c.set === lokStd.property.propertySet)?.props.find((p) => p.name === lokStd.property.name)
+        ?.valued ?? 0;
     const draft: TfmDraft = tfmDraft ?? {
       source: tfmSaved?.source ?? (top ? { property: { propertySet: top.set, name: top.name } } : null),
       sequence: tfmSaved ? [...tfmSaved.sequence] : [...STATSBYGG_SEQUENCE],
-      lokasjon: tfmSaved?.bindings?.Lokasjon ?? null,
+      lokasjon: tfmSaved ? (tfmSaved.bindings?.Lokasjon ?? null) : lokStdN > 0 ? lokStd : null,
     };
     const update = (patch: Partial<TfmDraft>) => setTfmDraft({ ...draft, ...patch });
     const property = draft.source && "property" in draft.source ? draft.source.property : null;
@@ -2551,13 +2574,64 @@ export function SetupPage({
               sequence={draft.sequence}
               values={prop?.values ?? []}
               binding={binding}
-              lokasjonChoices={picker.choices && prop ? rankPartBindings(picker.choices, clean, prop.values, "Lokasjon") : []}
+              lokasjonChoices={[
+                { set: lokStd.property.propertySet, name: lokStd.property.name, n: lokStdN, standard: true },
+                ...(picker.choices && prop ? rankPartBindings(picker.choices, clean, prop.values, "Lokasjon") : []).filter(
+                  (b) => !(b.set === lokStd.property.propertySet && b.name === lokStd.property.name),
+                ),
+              ]}
               lokasjon={lokasjonProp ? { set: lokasjonProp.propertySet, name: lokasjonProp.name } : null}
               lang={lang}
               onSequence={(sequence) => update({ sequence })}
               onLokasjon={(b) => update({ lokasjon: b ? { property: { propertySet: b.set, name: b.name } } : null })}
             />
+            <button
+              type="button"
+              data-source-edit
+              aria-expanded={tfmEditing}
+              onClick={() => setTfmEditing((was) => !was)}
+              className="w-fit border border-line px-3 py-1 text-[12px] text-ink hover:border-green hover:text-green"
+            >
+              {t("action.change", lang)}
+            </button>
           </ProposalCard>
+          {/* The mapping on the step: the property carrying the string, and
+              Lokasjon's, either one typed in when the models lack it. */}
+          {tfmEditing ? (
+            <div data-source-editor className="flex flex-col gap-5 border border-line bg-panel p-4">
+              <div className="flex flex-col gap-1">
+                <span className={LABEL}>{t("req.tfm", lang)}</span>
+                <PropertyPicker
+                  value={property ?? blankProperty}
+                  choices={picker.choices}
+                  reading={picker.reading}
+                  errors={picker.errors}
+                  total={picker.total}
+                  invalidSet={false}
+                  invalidName={false}
+                  lang={lang}
+                  onChange={(p) => update({ source: p.propertySet === "" && p.name === "" ? null : { property: p } })}
+                  onNext={() => {}}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                {/* A part name, a term of art the same in both languages. */}
+                <span className={LABEL}>Lokasjon</span>
+                <PropertyPicker
+                  value={lokasjonProp ?? blankProperty}
+                  choices={picker.choices}
+                  reading={picker.reading}
+                  errors={picker.errors}
+                  total={picker.total}
+                  invalidSet={false}
+                  invalidName={false}
+                  lang={lang}
+                  onChange={(p) => update({ lokasjon: p.propertySet === "" && p.name === "" ? null : { property: p } })}
+                  onNext={() => {}}
+                />
+              </div>
+            </div>
+          ) : null}
           {/* Another property is another source for the same builder, not a
               way on: the sequence is half the answer. */}
           <Alternatives
@@ -2575,39 +2649,41 @@ export function SetupPage({
                 {tfmRegexSource(clean)}
               </code>
             </div>
-            <div className="flex flex-col gap-1">
-              <span className={LABEL}>{t("req.tfm", lang)}</span>
-              <PropertyPicker
-                value={property ?? blankProperty}
-                choices={picker.choices}
-                reading={picker.reading}
-                errors={picker.errors}
-                total={picker.total}
-                invalidSet={false}
-                invalidName={false}
-                lang={lang}
-                onChange={(p) => update({ source: p.propertySet === "" && p.name === "" ? null : { property: p } })}
-                onNext={() => {}}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              {/* A part name, a term of art the same in both languages. */}
-              <span className={LABEL}>Lokasjon</span>
-              <PropertyPicker
-                value={lokasjonProp ?? blankProperty}
-                choices={picker.choices}
-                reading={picker.reading}
-                errors={picker.errors}
-                total={picker.total}
-                invalidSet={false}
-                invalidName={false}
-                lang={lang}
-                onChange={(p) => update({ lokasjon: p.propertySet === "" && p.name === "" ? null : { property: p } })}
-                onNext={() => {}}
-              />
-            </div>
           </div>
         </Door>
+      </div>
+    );
+  } else if (current === "type-name") {
+    const rule = mappingRule(ruleset, "type-name");
+    const saved = rule && rule.check.type === "type-name" ? rule.check.sequence : null;
+    const typedResults = results.map(({ model, reqs }) => ({ model, req: reqs.find((r) => r.key === "typeobjekt") ?? null }));
+    const confirmName = (sequence: NamePart[]) => {
+      const check: TypeNameCheck = { type: "type-name", sequence };
+      const written: ExtendedRule = rule
+        ? { ...rule, check }
+        : {
+            id: freshId(ruleset, "type-name"),
+            kind: "extended",
+            name: t("check.type-name-placeholder", lang),
+            select: { entity: { group: "physicalElement" } },
+            check,
+          };
+      delete written.enabled;
+      onChange({ ...ruleset, rules: rule ? ruleset.rules.map((r) => (r === rule ? written : r)) : [...ruleset.rules, written] });
+      setLanded({ from: current, to: next, result: null, live: true });
+      onStep(next);
+    };
+    body = (
+      <div className="flex flex-col gap-5">
+        <TypeNameStep
+          key={saved ? JSON.stringify(saved) : "pofin"}
+          saved={saved}
+          typeNames={typeNames}
+          typed={<ReqResult results={typedResults} lang={lang} />}
+          lang={lang}
+          onConfirm={confirmName}
+        />
+        {nav}
       </div>
     );
   } else if (current === "end") {
@@ -2624,6 +2700,10 @@ export function SetupPage({
             [t("setup.standard", lang), ...layerSources(ruleset, slot).map((source) => sourceText(source, lang))].join(" + "),
           )
           .join(" · ");
+      if (s === "type-name") {
+        const r = mappingRule(ruleset, "type-name");
+        return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map(partName).join(" ") : "–";
+      }
       if (s === "tfm") {
         return tfmRule && tfmRule.enabled !== false && tfmSaved
           ? `${sourceText(tfmSaved.source, lang)} · ${formatSequence(tfmSaved.sequence)}`
@@ -2726,22 +2806,20 @@ export function SetupPage({
           lang={lang}
           onCandidate={confirmCandidate}
           onCurrent={confirmCurrent}
-          fallback={
-            picker.choices !== null ? (
-              <PropertyPicker
-                value={{ propertySet: "", name: "" }}
-                choices={picker.choices}
-                reading={picker.reading}
-                errors={picker.errors}
-                total={picker.total}
-                manual={false}
-                invalidSet={false}
-                invalidName={false}
-                lang={lang}
-                onChange={(property) => setCheck(r, { ...c, source: { property } })}
-                onNext={() => {}}
-              />
-            ) : null
+          onStandard={(option) => {
+            setCheck(r, option.check);
+            advance(option.preview ? <TotalChips preview={option.preview} lang={lang} /> : null);
+          }}
+          editor={
+            <SourceEditor
+              role={r}
+              check={c}
+              issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
+              picker={picker}
+              lang={lang}
+              onCheck={(nextCheck) => setCheck(r, nextCheck)}
+              onNext={() => confirmCurrent(null)}
+            />
           }
         />
         {nav}
@@ -2757,7 +2835,6 @@ export function SetupPage({
             onToggle={() => toggle(r)}
             onCheck={(nextCheck) => setCheck(r, nextCheck)}
             onAskEnable={() => setAsking(r)}
-            onNext={() => confirmCurrent(null)}
           />
         </Door>
       </div>

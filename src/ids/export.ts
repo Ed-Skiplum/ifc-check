@@ -62,6 +62,9 @@ const EXTENDED_REASONS: Record<ExtendedCheckType, string> = {
   tfm:
     "IDS 1.0 cannot split a value into parts and compare a part with another " +
     "property, the storey or a code another rule reads",
+  "type-name":
+    "IDS 1.0 has no facet on a type object's own Name read through the " +
+    "elements that use it, and no code list a part of a value is looked up in",
 };
 
 function slug(name: string): string {

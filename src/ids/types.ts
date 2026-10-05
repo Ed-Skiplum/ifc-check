@@ -352,6 +352,26 @@ export interface TfmCheck {
   bindings?: { Lokasjon?: CodeSource };
 }
 
+/** One part of a type name scheme (2026-10-05, edkjo: "it should be possible
+ *  to set a naming scheme by regex or by accepted value lists" · "NS3457-8
+ *  and NS3451 as options to select. Can also be a hybrid: List item one
+ *  part, regex another part"): a bundled code list's codes, the project's
+ *  own accepted values, a regular expression, or literal text. */
+export type NamePart =
+  | { list: "ns3457-8" | "ns3451" }
+  | { values: string[] }
+  | { regex: string }
+  | { text: string };
+
+/** The type objects' Name against a scheme, read through the elements that
+ *  use each type (`typeSubjects`): one subject per type Name, a finding
+ *  carrying the elements behind it (src/engine/type-name.ts). The check
+ *  type is the `type-name` role: at most one per ruleset. */
+export interface TypeNameCheck {
+  type: "type-name";
+  sequence: NamePart[];
+}
+
 export type ExtendedCheck =
   | ElementTypedCheck
   | UniqueAttributeCheck
@@ -359,7 +379,8 @@ export type ExtendedCheck =
   | ModelMetadataCheck
   | CodeLookupCheck
   | CopyObjectCheck
-  | TfmCheck;
+  | TfmCheck
+  | TypeNameCheck;
 
 export type ExtendedCheckType = ExtendedCheck["type"];
 
@@ -372,8 +393,9 @@ export type ExtendedCheckType = ExtendedCheck["type"];
  *    project's `codes`.
  *  - `copy-object`: the rule whose check is a `CopyObjectCheck`. It carries
  *    no `mapping` field: the check type is the role.
- *  - `tfm`: the rule whose check is a `TfmCheck`, the same way. */
-export type MappingRole = CodeLookupRole | "copy-object" | "tfm";
+ *  - `tfm`: the rule whose check is a `TfmCheck`, the same way.
+ *  - `type-name`: the rule whose check is a `TypeNameCheck`, the same way. */
+export type MappingRole = CodeLookupRole | "copy-object" | "tfm" | "type-name";
 
 /** The roles a code-lookup rule takes through its `mapping` field. */
 export type CodeLookupRole = "system-classification" | "component-classification" | "progress-code";

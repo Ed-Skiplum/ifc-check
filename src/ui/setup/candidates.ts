@@ -29,7 +29,8 @@
 import { MMI_PRESETS } from "../../codelists/mmi-presets.ts";
 import { agrees, partTexts, tfmMatcher } from "../../engine/tfm.ts";
 import { extractFromExample } from "../../ids/extract-example.ts";
-import { copyVerdict } from "../../ids/models.ts";
+import { copyVerdict, defaultExtract } from "../../ids/models.ts";
+import { POFIN_SOURCES, ROLE_STANDARD, type PofinSource } from "../../engine/pofin-standard.ts";
 import type { CodeEntry, CodeLookupCheck, CopyObjectCheck, MappingRole, TfmPart, TfmToken } from "../../ids/types.ts";
 import { previewExtract, type ExtractPreview, type ExtractState } from "../extract-preview.ts";
 import type { PsetChoice, PsetProp, PsetValue } from "../pset-choices.ts";
@@ -38,7 +39,7 @@ export type MappingCheck = CodeLookupCheck | CopyObjectCheck;
 
 /** The roles a mapping step proposes a source for; `tfm` ranks its own way
  *  (`rankTfmCandidates`). */
-export type CardRole = Exclude<MappingRole, "tfm">;
+export type CardRole = Exclude<MappingRole, "tfm" | "type-name">;
 
 export interface Candidate {
   set: string;
@@ -119,7 +120,12 @@ export function rankCandidates(
       } else {
         const classification = role === "system-classification" || role === "component-classification";
         const lead = classification ? leadingExtract(prop.values) : null;
-        const extracts = lead !== null && lead !== check.extract ? [check.extract, lead] : [check.extract];
+        // The rule's own Uttrekk, the whole value, the standard's form (a
+        // project property may carry 2341.001 too), the code before a name.
+        const standard = POFIN_SOURCES[ROLE_STANDARD[role]].extract;
+        const extracts = [
+          ...new Set([check.extract, ...(classification ? [defaultExtract(role), standard, lead] : [])]),
+        ].filter((e): e is string => e != null);
         const byFormat = role === "progress-code" && (check.codes ?? []).length === 0;
         for (const extract of extracts) {
           let preview: ExtractPreview;
@@ -144,6 +150,81 @@ export function rankCandidates(
   return out
     .sort((a, b) => b.score - a.score || a.set.localeCompare(b.set) || a.name.localeCompare(b.name))
     .slice(0, limit);
+}
+
+/* ------------------------------------------------------------ the standard */
+
+/** The step's standard source (`pofin-standard.ts`) as the step shows it:
+ *  the check confirming it writes, and the model's real count, 0 when the
+ *  models do not carry it. */
+export interface StandardOption {
+  entry: PofinSource;
+  set: string;
+  name: string;
+  /** The property in the models; undefined when they lack it. */
+  prop: PsetProp | undefined;
+  /** What «Bruk» on the standard writes: its source, and its Uttrekk when
+   *  its value form needs one. */
+  check: MappingCheck;
+  /** The step's check over its values; null when absent, or on an error. */
+  preview: ExtractPreview | null;
+  /** Elements carrying a value. */
+  hits: number;
+}
+
+export function standardOption(
+  role: CardRole,
+  check: MappingCheck,
+  choices: readonly PsetChoice[] | null,
+  ownerNames: readonly string[],
+): StandardOption {
+  const entry = POFIN_SOURCES[ROLE_STANDARD[role]];
+  const property = "property" in entry.source ? entry.source.property : { propertySet: "", name: "" };
+  const next: MappingCheck =
+    check.type === "code-lookup"
+      ? {
+          ...check,
+          source: entry.source,
+          ...(entry.extract !== undefined ? { extract: entry.extract } : {}),
+          ...(role === "system-classification" || role === "component-classification"
+            ? { target: entry.target ?? "occurrence" }
+            : {}),
+        }
+      : { ...check, source: entry.source };
+  const prop = choices?.find((c) => c.set === property.propertySet)?.props.find((p) => p.name === property.name);
+  let preview: ExtractPreview | null = null;
+  if (prop) {
+    try {
+      preview = evidence(next, role, prop, ownerNames);
+    } catch {
+      preview = null;
+    }
+  }
+  return { entry, set: property.propertySet, name: property.name, prop, check: next, preview, hits: prop?.valued ?? 0 };
+}
+
+/** Which answer a mapping step opens on. The standard is always shown first;
+ *  this is only what «Bruk» takes.
+ *
+ *   saved      the ruleset's source, when the models carry it (hits > 0), its
+ *              count cannot be read here (null: an attribute, a
+ *              classification), or it was set on this step just now
+ *   standard   when the models carry it
+ *   candidate  the model's best, when the standard has no hits
+ *   saved, else the standard, with 0: nothing has hits
+ *
+ * A saved source the models lack never wins over one they carry. */
+export type PrePick = "saved" | "standard" | "candidate";
+
+export function prePick(
+  standardHits: number,
+  saved: { hits: number | null; chosen: boolean } | null,
+  candidates: number,
+): PrePick {
+  if (saved && (saved.chosen || saved.hits === null || saved.hits > 0)) return "saved";
+  if (standardHits > 0) return "standard";
+  if (candidates > 0) return "candidate";
+  return saved ? "saved" : "standard";
 }
 
 /* -------------------------------------------------------------------- TFM */

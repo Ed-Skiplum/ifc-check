@@ -2622,7 +2622,8 @@ Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
 
 | Step | Pre-picked | Confirm |
 |---|---|---|
-| Systemkode, Funksjonskode, MMI, Duplikat objekt | the rule's saved source; else the top candidate, with up to 3 more as one-click rows | «Bruk», or a click on a row |
+| Typenavn (first, 2026-10-05) | the saved scheme, else POFIN Objekttypenavn (see "Typenavn") | «Bruk» |
+| Systemkode, Funksjonskode, MMI, Duplikat objekt | see "The standard first" below: standard, saved, candidate | «Bruk», or a click on a row |
 | Fase, Materiale / Produkt | Standard (`STANDARD_SOURCES`), with any project sources after it | «Bruk» keeps the step at the standard |
 | Etasjeoppsett | the saved levels, else the models' own storeys | OKFG or OKBD: the plane is the answer |
 
@@ -2648,11 +2649,54 @@ Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
 - End (`Oppsummering`): per step what was set and each model's report-row
   result; the outcome as a count per verdict over those rows; «Lagre
   oppsett», which saves and opens the IDS tab (`tab=project`).
-- Behind each step's «Avansert»: the step's old body, whole (MappingCard with
-  switch, list, Gjelder, Kildetype, picker, values, Uttrekk, Eksempel, MMI
-  presets, codes, template; LayerList; StoreyCard, its template and the
-  models' storeys). Behind «Last ned» in the bar: the ruleset name and the
-  three downloads.
+- Behind each step's «Avansert»: what is not the mapping (MappingCard with
+  switch, list, Gjelder, values, Uttrekk, Eksempel, MMI presets, codes,
+  template; LayerList; StoreyCard, its template and the models' storeys;
+  TFM's compiled regex). Behind «Last ned» in the bar: the ruleset name and
+  the three downloads.
+
+**The standard first (2026-10-05).** edkjo: "You're assuming that all
+projects use RefClass_NS3451 etc as in KNM. They dont, and hiding the
+mapping behind avansert is a bad move. If anything, suggest the standard as
+in POFIN, since thats built on NS8360 etc". The walk had pre-picked the
+saved source, and a browser's saved ruleset from KNM put
+`KNM_Project.RefClass_NS3451` on every model.
+
+- `src/engine/pofin-standard.ts`: POFIN 2.1 EIR bygg's sources (lines
+  ~423-486 of `02-1-eir-bygg.md`), with the Uttrekk each value form needs.
+  `ROLE_STANDARD`: Systemkode `NONS_Reference.RefPriSysOcc`
+  (`^(\d{1,4})\.\d+(?:\.\d+)?$`: the NS 3451 class before `.løpenummer`,
+  optional `.undernummer`, 2341.001); Funksjonskode
+  `NONS_Reference.RefCompOcc` (`^([A-ZÆØÅ]{1,3})\d+$`: the NS 3457-8
+  component code before the running number, DUZ007; edkjo: "NS3457-8 is not
+  the name … it is the component code"); MMI `NONS_Process.ProcessStatus`
+  and Duplikat objekt `NONS_Process.DuplicateOwnedBy` with the rule's own
+  check. The captured class is checked against the step's list as any code.
+  Also listed: Objekttypenavn (type Name, `^([A-ZÆØÅ]{1,3})\.\d+$`) and
+  Lokasjon system `NONS_Reference.RefPriSysLoc`.
+- A mapping step lists, in this order: «Standard» with its count in the
+  loaded models (`standardOption`; red `0 / N` when they lack it, never
+  hidden), the ruleset's saved source tagged «Regelsett» with its count
+  (left out when it is the standard), then up to 3 model candidates
+  (`rankCandidates`, now also trying the whole value and the standard's
+  Uttrekk). Names print raw, `Pset.Name`.
+- Pre-pick (`prePick`, pure): the saved source when the models carry it
+  (elements with a value), its count cannot be read (attribute,
+  classification), or it was set on this step; else the standard when the
+  models carry it; else the top candidate; else the saved, else the
+  standard, at 0. A saved source with 0 hits never wins over one with hits.
+  «Bruk» on the standard writes its source and Uttrekk (target Forekomster).
+- «Endre» on the card opens the source editor on the step (`SourceEditor`:
+  Kildetype, the full picker with «Egenskapen er ikke med», attribute,
+  classification system). The TFM step's «Endre» opens its property and
+  Lokasjon pickers. Lokasjon's chip lists `NONS_Reference.RefPriSysLoc`
+  first, tagged «Standard» with its count; a new TFM rule pre-binds it when
+  the models carry it. The TFM string has no standard source (it is not
+  RefCompOcc).
+
+Verified: `tsc`, selftest (the table's shape, the standard examples read
+to their codes against NS 3451 / NS 3457-8, a standard absent from the
+model counts 0, the pre-pick cases). **Not exercised in a browser.**
 
 Verified: `tsc`, selftest (candidate ranking: a code before its name, MMI
 against the presets, Duplikat objekt with and without values, nothing
@@ -2714,7 +2758,8 @@ come into play as components: system, function and location".
   properties sharing its segments (`rankPartBindings`) and «Ingen». Live:
   the evidence (`previewTfm`, shape only) and five values off the sequence.
   Agreement lands after «Bruk» (`TfmResult`, from the evaluated row).
-  «Avansert»: the compiled regex, the property and Lokasjon typed by hand.
+  «Avansert»: the compiled regex. The property and Lokasjon, picked or
+  typed by hand, are under «Endre» on the step (2026-10-05).
 
 Verified: `tsc`, selftest (Statsbygg and an adapted sequence, the miss
 position, digit lock, literal text, agreement, comparability, the check on a
@@ -2736,6 +2781,54 @@ KNM_ARK / RIV / RIB (KNM_Void-demo `01_inn/export_2026-09-14/`) is
 byte-identical to before the mapping was added (84/84, 4/4, 2/2 no match) —
 that ruleset carries no `copy-object` mapping, so this exercises the
 no-filter path, not the exclusion itself.
+
+### Typenavn (2026-10-05)
+
+edkjo: "Type name can follow that suggestion or something else. The
+important thing is that everything is typed, and it should be possible to
+set a naming scheme by regex or by accepted value lists" · "where we build
+in NS3457-8 and NS3451 as options to select. Can also be a hybrid: List item
+one part, regex another part".
+
+- The step (`setup/TypeNameStep.tsx`), first after Åpne IFC, named
+  «Typenavn» (`check.type-name-placeholder`, the board's existing term).
+  Typed: the board's Typeobjekt row (the `element-typed` fundamental,
+  advisory, unchanged), as the IDS tab reads it; nothing recounted.
+- The scheme is a sequence of parts, each `{list: "ns3457-8" | "ns3451"}`,
+  `{values: [...]}` (comma- or line-separated, `setup/ValuesInput.tsx`),
+  `{regex}` or `{text}`, edited in the TFM builder's chip row
+  (`setup/ChipRow.tsx`, moved out of `TfmBuilder.tsx` unchanged). The
+  suggestion and «↺ Standard» is POFIN Objekttypenavn (NS 8360-1),
+  `[NS 3457-8] "." /\d+/` (`POFIN_TYPE_NAME`; the number's width is not set
+  by the standard). Live: the loaded models' distinct type Names matching,
+  `n / N` «Typer», and up to five off it with where each leaves it. The
+  scheme is on the step; there is no «Avansert» here.
+- Engine (`src/engine/type-name.ts`, pure): one anchored regex, a named
+  group per part (a part's own groups do not shift the parts); a list part
+  is the list's codes less the reserved, longest first; a value list its
+  values, longest first; a miss gives the character and the part
+  (`sequence.length` when text trails).
+- Ruleset: `{type: "type-name", sequence}` on an extended rule, the
+  `type-name` role (`MappingRole`, one per ruleset, exemptable), lint codes
+  `type-name-*`, schema `namePart`. The workbook carries it in «Andre
+  regler» as JSON. `{"id": "type-name", "kind": "extended", "name":
+  "Typenavn", "select": {"entity": {"group": "physicalElement"}}, "check":
+  {"type": "type-name", "sequence": [{"list": "ns3457-8"}, {"text": "."},
+  {"regex": "\\d+"}]}}`
+- Check (`evaluate.ts` `typeNameCheck`): per type Name reached through the
+  selected elements (`typeSubjects`); a type with no Name is `empty`
+  (mangler), one off the scheme `no-match` (avvik), each finding carrying
+  the elements behind the type (`members`), so the board's filter reaches
+  them as for any type finding. Report row: `mapping: "type-name"`,
+  grunnlag per type, `IfcTypeObject`, kilde `Name`. Requirement «Typenavn»
+  in Standardkrav once configured (`whenConfigured`). The fixed
+  `type-name-placeholder` fundamental is unchanged.
+
+Verified: `tsc`, selftest (the POFIN scheme, longest-first lists, a pure
+regex, a pure value list, a hybrid, groups inside a part, the check on a
+synthetic model with members, the report row and requirement, lint
+refusals, schema, JSON and workbook round trips). **Not exercised in a
+browser.**
 
 ### The .xlsx workbook (2026-09-28)
 

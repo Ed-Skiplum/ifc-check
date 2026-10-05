@@ -7,6 +7,7 @@ import { EntityPicker, FacetBags, ValueEditor, type FacetContext } from "./facet
 import { t, type Lang, type StringKey } from "./strings.ts";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { STATSBYGG_SEQUENCE } from "../engine/tfm.ts";
+import { POFIN_TYPE_NAME } from "../engine/type-name.ts";
 import type {
   CodeLookupCheck,
   CodeSource,
@@ -94,6 +95,8 @@ function blankCheck(type: ExtendedCheck["type"]): ExtendedCheck {
       return { type, source: { attribute: "Name" }, copy: [], own: [] };
     case "tfm":
       return { type, source: { attribute: "Tag" }, sequence: [...STATSBYGG_SEQUENCE] };
+    case "type-name":
+      return { type, sequence: [...POFIN_TYPE_NAME] };
   }
 }
 
