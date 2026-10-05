@@ -53,7 +53,34 @@ export interface Candidate {
   /** Distinct values passing, of `prop.distinct`. */
   okValues: number;
   score: number;
+  /** Fit enough to be pre-picked: most of its valued elements pass in full,
+   *  or its own name names the step's list. A weaker candidate is listed,
+   *  never taken for the user. */
+  strong: boolean;
 }
+
+/** A value that is a date (20.05.2025, 2025-05-20) is no code, whatever a
+ *  pattern makes of it: «20» from a date is NS 3451 class 20 by accident
+ *  (rendered 2026-10-05: `MMI.MMI dato` pre-picked as Systemkode). */
+const DATE = /^\d{1,4}[.\-/]\d{1,2}[.\-/]\d{1,4}(?:[ T].*)?$/;
+export const isDateLike = (value: string) => DATE.test(value.trim());
+
+/** Quantity sets carry measures, never a code (rendered: `BaseQuantities.
+ *  CrossSectionArea` passed as NS 3451 on a Revit export). */
+const MEASURES = /^(?:BaseQuantities|Qto_)/i;
+
+/** The step's list named in the property's own name: NS 3451 for
+ *  Systemkode, NS 3457 for Funksjonskode, MMI for the progress code. */
+const NAMES: Partial<Record<CardRole, RegExp>> = {
+  "system-classification": /3451/,
+  "component-classification": /3457/,
+  "progress-code": /\bmmi\b|prosesstatus|processstatus/i,
+};
+
+/** Share of valued elements that must pass in full for a pre-pick. */
+const STRONG_SHARE = 0.8;
+/** Below this share a property is no candidate at all. */
+const CANDIDATE_SHARE = 0.5;
 
 /** Every preset's codes, once: the MMI step's code list for ranking. */
 const PRESET_CODES: CodeEntry[] = [
@@ -110,13 +137,18 @@ export function rankCandidates(
   limit = 4,
 ): Candidate[] {
   const out: Candidate[] = [];
+  const naming = NAMES[role];
   for (const choice of choices) {
+    // A measure is no code, no MMI and no owner.
+    if (MEASURES.test(choice.set)) continue;
     for (const prop of choice.props) {
       if (prop.valued === 0 || prop.values.length === 0) continue;
+      const named = naming !== undefined && naming.test(`${choice.set}.${prop.name}`);
       let best: Candidate | null = null;
       if (check.type === "copy-object") {
         const preview = previewCopy(check, prop.values, ownerNames);
-        best = { set: choice.set, name: prop.name, prop, preview, okValues: okValues(preview), score: score(preview.totals.ok, prop) };
+        const ok = preview.totals.ok;
+        best = { set: choice.set, name: prop.name, prop, preview, okValues: okValues(preview), score: score(ok, prop), strong: true };
       } else {
         const classification = role === "system-classification" || role === "component-classification";
         const lead = classification ? leadingExtract(prop.values) : null;
@@ -138,9 +170,31 @@ export function rankCandidates(
           } catch {
             continue;
           }
-          const s = score(ranked.totals.ok, prop);
+          // Passing in full: the pattern's code is in the list AND the value
+          // is not a date (a pattern that reads «20» out of 20.05.2025 has
+          // not found a code).
+          const ok = ranked.rows.reduce((n, r) => n + (r.state === "ok" && !isDateLike(r.v) ? r.n : 0), 0);
+          const share = prop.valued > 0 ? ok / prop.valued : 0;
+          if (share < CANDIDATE_SHARE && !(named && ok > 0)) continue;
+          // A property whose name names the list is preferred over one that
+          // passes by its values alone.
+          const s = score(ok, prop) * (named ? 4 : 1);
           if (best === null || s > best.score) {
-            best = { set: choice.set, name: prop.name, prop, extract, preview, okValues: okValues(preview), score: s };
+            best = {
+              set: choice.set,
+              name: prop.name,
+              prop,
+              extract,
+              preview,
+              okValues: okValues(preview),
+              score: s,
+              // A code list is taken for the user only from a property whose
+              // name names it: values alone read as codes by accident too
+              // often (rendered: `MMI.MMI signatur`, initials, and
+              // `SoneData.Gulvbehandling`, G01, both pre-picked as
+              // Funksjonskode). They stay in the list, with their counts.
+              strong: named || (!classification && share >= STRONG_SHARE),
+            };
           }
         }
       }
@@ -148,7 +202,10 @@ export function rankCandidates(
     }
   }
   return out
-    .sort((a, b) => b.score - a.score || a.set.localeCompare(b.set) || a.name.localeCompare(b.name))
+    .sort(
+      (a, b) =>
+        Number(b.strong) - Number(a.strong) || b.score - a.score || a.set.localeCompare(b.set) || a.name.localeCompare(b.name),
+    )
     .slice(0, limit);
 }
 
@@ -275,7 +332,7 @@ export function rankTfmCandidates(choices: readonly PsetChoice[], sequence: read
       if (prop.valued === 0 || prop.values.length === 0) continue;
       const preview = previewTfm(sequence, prop.values);
       const s = score(preview.totals.ok, prop);
-      if (s > 0) out.push({ set: choice.set, name: prop.name, prop, preview, okValues: okValues(preview), score: s });
+      if (s > 0) out.push({ set: choice.set, name: prop.name, prop, preview, okValues: okValues(preview), score: s, strong: true });
     }
   }
   return out

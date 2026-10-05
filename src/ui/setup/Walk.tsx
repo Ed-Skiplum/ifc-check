@@ -12,7 +12,8 @@
  * step bodies (`SetupPage.tsx`) are the «Avansert» door's contents, whole.
  */
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
 import { VERDICT_FILL } from "../state-visuals";
@@ -34,7 +35,7 @@ import {
   type StandardOption,
 } from "./candidates";
 
-export { Figure } from "./Mapping";
+export { Figure, STEP_TITLE, fixClass } from "./Mapping";
 
 /** A segment's look: green done (`segmentState`), the current one dark, a
  *  saved answer not yet checked against a model hatched, an open one the
@@ -42,8 +43,8 @@ export { Figure } from "./Mapping";
 const SEGMENT: Record<SegmentState | "here", string> = {
   done: "bg-green",
   here: "bg-ink",
-  saved: "bg-[image:repeating-linear-gradient(135deg,var(--color-muted)_0_3px,var(--color-line)_3px_6px)] group-hover:bg-muted",
-  open: "bg-line group-hover:bg-muted",
+  saved: "bg-[image:repeating-linear-gradient(135deg,var(--color-muted)_0_3px,transparent_3px_6px)] group-hover:bg-muted",
+  open: "bg-muted/25 group-hover:bg-muted",
 };
 
 /** The bar: one segment per step in its `segmentState`, the current one dark
@@ -63,7 +64,10 @@ export function WalkProgress<S extends string>({
   label: (step: S) => string;
   onStep: (step: S) => void;
 }) {
-  const at = current === null ? steps.length : steps.indexOf(current) + 1;
+  // The count is what the bar's colour says, the steps done of all; where
+  // the walk is, the bar says by the tall segment (2026-10-05, review: «1 /
+  // 10» beside nine green segments, TFM and the summary both «10 / 10»).
+  const doneCount = steps.filter((s) => state(s) === "done").length;
   return (
     <nav data-walk-progress className="flex min-w-0 flex-1 items-center gap-3">
       <ol className="m-0 flex min-w-0 flex-1 list-none gap-1 p-0">
@@ -79,11 +83,14 @@ export function WalkProgress<S extends string>({
                 aria-current={here ? "step" : undefined}
                 data-segment={s}
                 onClick={() => onStep(step)}
-                className="group block w-full py-2"
+                className="group flex h-6 w-full items-center"
               >
+                {/* Where the walk is: taller than the rest, whatever its
+                    state, so it is told apart by shape as well as colour. */}
                 <span
                   className={
-                    "block h-1.5 w-full transition-colors duration-500 motion-reduce:transition-none " +
+                    "block w-full transition-colors duration-500 motion-reduce:transition-none " +
+                    (here ? "h-3 " : "h-1.5 ") +
                     SEGMENT[s === "done" || !here ? s : "here"]
                   }
                 />
@@ -93,7 +100,7 @@ export function WalkProgress<S extends string>({
         })}
       </ol>
       <span data-walk-count className="shrink-0 font-mono text-[13px] tabular-nums text-ink">
-        {at} / {steps.length}
+        {doneCount} / {steps.length}
       </span>
     </nav>
   );
@@ -251,6 +258,51 @@ export function ProposalCard({
 export const CONFIRM =
   "flex min-h-12 items-center justify-center gap-3 bg-green px-8 text-[15px] font-medium text-cream hover:bg-ink";
 
+/** The same action while the answer on screen gives nothing on the loaded
+ *  models (2026-10-05, edkjo on «Bruk» leading at 0 / 91): still there, still
+ *  the way on, but outlined, so the screen leads with fixing the answer. */
+export const CONFIRM_QUIET =
+  "flex min-h-12 items-center justify-center gap-3 border-2 border-ink bg-panel px-8 text-[15px] font-medium text-ink hover:border-green hover:text-green";
+
+/** The primary's weight follows the state: `lead` when the answer has a real
+ *  result on the loaded models (or none is loaded to say otherwise). */
+export const confirmClass = (lead: boolean) => (lead ? CONFIRM : CONFIRM_QUIET);
+
+/** Where «Bruk» goes: one place for every step, the walk's foot, pinned
+ *  under the step's scrolling panel (2026-10-05, review: «Bruk» sat in four
+ *  places and fell below the fold at 1440 × 900). A step draws its own
+ *  `StepConfirm`; it lands in the slot the page provides. */
+const ConfirmSlot = createContext<HTMLElement | null>(null);
+export const ConfirmSlotProvider = ConfirmSlot.Provider;
+
+export function StepConfirm({
+  lead = true,
+  disabled = false,
+  label,
+  onClick,
+}: {
+  lead?: boolean;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  const slot = useContext(ConfirmSlot);
+  const button = (
+    <button
+      type="button"
+      autoFocus
+      data-step-confirm
+      data-lead={lead}
+      disabled={disabled}
+      onClick={onClick}
+      className={confirmClass(lead) + " disabled:cursor-not-allowed disabled:border-line disabled:bg-panel disabled:text-muted"}
+    >
+      {label} →
+    </button>
+  );
+  return slot ? createPortal(button, slot) : button;
+}
+
 /** Back, and the way on without an answer. */
 export function StepNav({
   lang,
@@ -282,11 +334,10 @@ export function StepNav({
 /** What the step just confirmed gave, under the bar on the next step. */
 export function Landed({ label, children }: { label: string; children?: ReactNode }) {
   return (
+    // No mark of its own: the result's state is the only colour (a ✓ beside
+    // «Avvik» said two things at once).
     <div data-landed className="pick-in flex flex-wrap items-center gap-3 border border-line bg-panel px-4 py-2">
-      <span aria-hidden="true" className="text-green">
-        ✓
-      </span>
-      <span className="text-[13px] text-ink">{label}</span>
+      <span className="text-[13px] font-medium text-ink">{label}</span>
       {children}
     </div>
   );
@@ -307,6 +358,9 @@ export function ReqResult({
         if (req === null) return null;
         const look = stateLook(req.state, lang);
         const f = figures(req, lang);
+        // A mapping row counts what its rule selects and names no class:
+        // say what the denominator counts, as the step's own figures do.
+        const unnamed = req.row?.mapping !== undefined && !req.row.dekning?.grunnlag_klasse;
         return (
           <span key={model} title={model} data-req-result={req.state} className="inline-flex items-center gap-2">
             <span className={"inline-flex items-center gap-1.5 px-2 py-0.5 font-mono text-[12px] " + VERDICT_FILL[look.verdict]}>
@@ -317,6 +371,7 @@ export function ReqResult({
               <span className="font-mono text-[12px] tabular-nums text-muted">
                 {f.figure}
                 {f.of ? ` · ${f.of}` : ""}
+                {f.of && unnamed ? ` ${t("walk.selected", lang)}` : ""}
               </span>
             ) : null}
           </span>
@@ -337,7 +392,8 @@ export function SummaryRow({
   lang,
   onClick,
 }: {
-  done: boolean;
+  /** Set or not; null: no mark (the POFIN prompt, where every row is set). */
+  done: boolean | null;
   label: string;
   text: string;
   results: readonly { model: string; req: Requirement | null }[];
@@ -346,9 +402,12 @@ export function SummaryRow({
 }) {
   const cells = (
     <>
-      <span aria-hidden="true" className={"w-4 shrink-0 text-center font-mono text-[12px] " + (done ? "text-green" : "text-muted")}>
-        {done ? "✓" : "–"}
-      </span>
+      {done === null ? null : (
+        // Set or not, in ink: the only colour on the row is the result's.
+        <span aria-hidden="true" className={"w-4 shrink-0 text-center text-[12px] " + (done ? "text-ink" : "text-muted")}>
+          {done ? "●" : "○"}
+        </span>
+      )}
       <span className="w-48 shrink-0 text-[14px] text-ink">{label}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{text}</span>
       <ReqResult results={results} lang={lang} />
@@ -419,7 +478,12 @@ export function MappingStep({
   editor,
   requirement,
   pinned = false,
+  written,
 }: {
+  /** The report row of the rule as the ruleset holds it, per model; null
+   *  when the ruleset has no live rule for the step. Shown while FROM is
+   *  that source. */
+  written: readonly { model: string; req: Requirement | null }[] | null;
   role: CardRole;
   check: MappingCheck;
   current: CurrentSource | null;
@@ -519,70 +583,93 @@ export function MappingStep({
   const showSaved = saved !== null && !savedIsStandard ? saved : null;
   const answers = [std, ...(showSaved ? [showSaved] : []), ...cands];
   const setHere = current !== null && (pinned || opened !== sourceKey(current));
-  let pick = prePick(standard.hits, saved ? { hits: saved.hits, chosen: setHere } : null, cands.length);
+  // Only a strong candidate is ever taken for the user (`Candidate.strong`):
+  // one that passes by coincidence is listed, never pre-picked.
+  const strong = others.filter((c) => c.strong).length;
+  let pick = prePick(standard.hits, saved ? { hits: saved.hits, chosen: setHere } : null, strong);
   if (pick === "saved" && savedIsStandard) pick = "standard";
   const prePicked = (pick === "saved" ? showSaved : pick === "candidate" ? cands[0] : std) ?? std;
   const from = answers.find((a) => a.key === chosen) ?? prePicked;
-  const nothing = !known && answers.every((a) => a.hits === 0);
-  const count = (a: Answer) => (a.prop ? a.prop.n : !known && a.hits === 0 ? 0 : null);
+  // Duplikat objekt: a model without the property has no copies, which is
+  // no fault (blank is the file's own object), so its absence is not red.
+  const absentOk = role === "copy-object";
+  const nothing = !known && !absentOk && answers.every((a) => a.hits === 0);
+  // Elements carrying a value, as the report row counts presence.
+  const count = (a: Answer) => (a.prop ? a.prop.valued : !known && a.hits === 0 ? 0 : null);
   const fromCount = count(from);
+  // The answer gives nothing on the loaded models: «Endre» leads, «Bruk»
+  // steps back (mapping is the infrastructure: VALID does not decide this).
+  const lead = known || absentOk || from.hits !== 0;
+  // FROM is what the ruleset holds now: its report row is the step's result,
+  // the same figures the landed strip and the summary print.
+  const isWritten = written !== null && (from.key === "saved" || (from.key === "standard" && savedIsStandard));
 
   return (
-    <MappingLayout
-      lang={lang}
-      to={<ToZone name={name} form={form} />}
-      fromState={!known && from.hits === 0 ? "missing" : "found"}
-      fromKey={from.key + from.title}
-      from={
-        <FromSource
-          tag={from.tag}
-          head={from.head || undefined}
-          title={from.title}
-          mapped={fromCount !== null ? <Mapped n={fromCount} total={total} lang={lang} /> : null}
-        />
-      }
-      options={
-        <OptionList
-          label={name}
-          lang={lang}
-          more={{ open: editing, onToggle: () => setEditing((was) => !was) }}
-          options={answers.map((a): MapOption => {
-            const n = count(a);
-            return {
-              key: a.key,
-              tag: a.tag,
-              head: a.head || undefined,
-              title: a.title,
-              count: n !== null ? <OptionCount n={n} total={total} current={a === from} lang={lang} /> : null,
-              current: a === from,
-              onPick: () => setChosen(a.key),
-            };
-          })}
-        >
-          {reading ? <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span> : null}
-          {nothing ? (
-            <div data-no-candidate className="flex items-center gap-3">
-              <StateChip state="no-match" lang={lang} />
-              <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
-            </div>
-          ) : null}
-        </OptionList>
-      }
-      editor={editing ? <div data-source-editor className="border border-line bg-panel p-4">{editor}</div> : null}
-      requirement={
-        <>
-          {requirement}
-          {from.prop && from.preview ? <Valid prop={from.prop} preview={from.preview} lang={lang} /> : null}
-          {from.error !== null ? (
-            <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">{from.error}</pre>
-          ) : null}
-        </>
-      }
-      confirm={
-        <button type="button" autoFocus data-step-confirm onClick={from.onConfirm} className={CONFIRM + " sm:self-end"}>
-          {t("action.apply", lang)} →
-        </button>
-      }
-    />
+    <>
+      <MappingLayout
+        lang={lang}
+        to={<ToZone name={name} form={form} />}
+        fromState={!known && !absentOk && from.hits === 0 ? "missing" : "found"}
+        fromKey={from.key + from.title}
+        from={
+          <FromSource
+            tag={from.tag}
+            head={from.head || undefined}
+            title={from.title}
+            samples={from.prop?.values.map((v) => v.v)}
+            mapped={fromCount !== null ? <Mapped n={fromCount} total={total} neutral={absentOk} lang={lang} /> : null}
+          />
+        }
+        options={
+          <OptionList
+            label={name}
+            lang={lang}
+            // «Endre» leads only when no listed answer has hits: else the fix
+            // is a pick in the list, which is already in view.
+            more={{
+              open: editing,
+              onToggle: () => setEditing((was) => !was),
+              lead: !lead && !editing && !answers.some((a) => (a.hits ?? 0) > 0),
+            }}
+            options={answers.map((a): MapOption => {
+              const n = count(a);
+              return {
+                key: a.key,
+                tag: a.tag,
+                head: a.head || undefined,
+                title: a.title,
+                count: n !== null ? <OptionCount n={n} total={total} current={a === from} neutral={absentOk} lang={lang} /> : null,
+                current: a === from,
+                onPick: () => setChosen(a.key),
+              };
+            })}
+          >
+            {reading ? <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span> : null}
+            {nothing ? (
+              <div data-no-candidate className="flex items-center gap-3">
+                <StateChip state="no-match" lang={lang} />
+                <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
+              </div>
+            ) : null}
+          </OptionList>
+        }
+        editor={editing ? <div data-source-editor className="border border-line bg-panel p-4">{editor}</div> : null}
+        requirement={
+          <>
+            {requirement}
+            {isWritten && written ? (
+              <span data-result className="flex flex-wrap items-center gap-3">
+                <ReqResult results={written} lang={lang} />
+              </span>
+            ) : null}
+            {from.prop && from.preview ? <Valid prop={from.prop} preview={from.preview} total={total} lang={lang} /> : null}
+            {from.error !== null ? (
+              <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">{from.error}</pre>
+            ) : null}
+          </>
+        }
+      />
+      <StepConfirm lead={lead} label={t("action.apply", lang)} onClick={from.onConfirm} />
+    </>
   );
 }

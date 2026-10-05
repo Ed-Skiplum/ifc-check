@@ -44,10 +44,9 @@ import {
   sameSequence,
   tfmMatcher,
 } from "../../engine/tfm.ts";
-import { POFIN_SOURCES } from "../../engine/pofin-standard.ts";
 import { ReqResult } from "./Walk";
 import { ChipRow, PILL, type ChipFace, type ChipParse } from "./ChipRow";
-import { FromSource, MappingLayout, Mapped, OptionList, ToZone, type MapOption } from "./Mapping";
+import { OptionList, type MapOption } from "./Mapping";
 
 /** What a chip says about its binding. `bound`: the name of what it reads.
  *  `shape`: nothing to compare, «Kun format». Absent: a part that never
@@ -205,12 +204,11 @@ function ChipEditor({
   );
 }
 
-/** Lokasjon's binding in the mapping layout, compact (`Mapping.tsx`): TO
- *  Lokasjon with POFIN's example, FROM the bound property, OPTIONS the
- *  standard first with its count, the properties sharing the string's
- *  segments, «Ingen», and «Endre» (any property, typed when the models lack
- *  it). Its value requirement is agreement with the string's own Lokasjon
- *  (⇄, as the chip says it). A pick binds; the step's «Bruk» writes it. */
+/** Lokasjon's binding, compact (2026-10-05, review: the chip's popover
+ *  nested a whole mapping step and ran off the viewport): the sources to
+ *  pick from, the standard first with its count, the properties sharing the
+ *  string's segments, «Ingen»; «Endre» opens any property (typed when the
+ *  models lack it). A pick binds; the step's «Bruk» writes it. */
 function LokasjonMapping({
   listed,
   bound,
@@ -226,7 +224,6 @@ function LokasjonMapping({
 }) {
   const [open, setOpen] = useState(false);
   const isBound = (b: { set: string; name: string }) => bound !== null && bound.set === b.set && bound.name === b.name;
-  const now = listed.find(isBound);
   const options: MapOption[] = [
     ...listed.map(
       (b): MapOption => ({
@@ -246,23 +243,10 @@ function LokasjonMapping({
     { key: "none", title: t("tfm.none", lang), current: bound === null, onPick: () => onBind(null) },
   ];
   return (
-    <MappingLayout
-      compact
-      lang={lang}
-      to={<ToZone compact name="Lokasjon" form={POFIN_SOURCES["lokasjon-system"].example} />}
-      fromState={bound === null ? "empty" : now && now.n === 0 ? "missing" : "found"}
-      fromKey={bound ? `${bound.set}\u0000${bound.name}` : "none"}
-      from={
-        <FromSource
-          tag={now?.standard ? t("setup.standard", lang) : null}
-          title={bound ? `${bound.set}.${bound.name}` : null}
-          mapped={now && now.n >= 0 ? <Mapped n={now.n} total={null} lang={lang} /> : null}
-        />
-      }
-      options={<OptionList options={options} label="Lokasjon" lang={lang} more={editor ? { open, onToggle: () => setOpen((was) => !was) } : undefined} />}
-      editor={open ? editor : null}
-      requirement={<span className="font-mono text-[13px] text-ink">⇄ {t("req.tfm", lang)}</span>}
-    />
+    <div data-lokasjon className="flex w-[min(28rem,80vw)] flex-col gap-2">
+      <OptionList options={options} label="Lokasjon" lang={lang} more={editor ? { open, onToggle: () => setOpen((was) => !was) } : undefined} />
+      {open ? <div className="max-h-[40vh] overflow-auto">{editor}</div> : null}
+    </div>
   );
 }
 

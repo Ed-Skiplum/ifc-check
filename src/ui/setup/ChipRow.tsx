@@ -19,7 +19,6 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
 import { formatCount } from "../format";
-import { VERDICT_FILL } from "../state-visuals";
 import type { PsetValue } from "../pset-choices";
 
 /** A value read against the sequence: its segment texts, or where it leaves
@@ -70,7 +69,25 @@ function Pop({ anchor, onClose, children }: { anchor: React.RefObject<HTMLElemen
   );
 }
 
-type Open = { kind: "edit"; index: number } | { kind: "insert"; at: number } | null;
+/** The piece a value lacks, drawn as its chip in small, set into the value
+ *  where the value leaves the sequence. */
+function WantedChip({ face, text, title }: { face: ChipFace; text: string; title: string }) {
+  return (
+    <span
+      data-wanted={face.kind}
+      title={title}
+      className={
+        "mx-1 inline-flex shrink-0 items-baseline gap-1.5 border-2 bg-palegreen px-2 py-1 leading-none text-green " +
+        (face.dashed ? "border-dashed border-green" : "border-green")
+      }
+    >
+      <span className="text-[16px] font-semibold whitespace-pre">{face.big ?? text}</span>
+      {face.sub ? <span className="font-sans text-[10px] whitespace-nowrap opacity-80 [&_*]:!text-green">{face.sub}</span> : null}
+    </span>
+  );
+}
+
+type Open ={ kind: "edit"; index: number } | { kind: "insert"; at: number } | null;
 
 /** A drag in progress: the chip, where it started, where the pointer is,
  *  and the gap it would land in (an index into the sequence without it). */
@@ -258,6 +275,9 @@ export function ChipRow<T>({
   const gap = (at: number) => {
     const here = open?.kind === "insert" && open.at === at;
     const target = dropGap === at;
+    // The gaps inside the row show their + on hover or focus only; the end
+    // of the row always does. A + between every chip read as noise.
+    const quiet = !here && at !== sequence.length;
     return (
       <div
         key={`gap-${at}`}
@@ -272,6 +292,7 @@ export function ChipRow<T>({
           aria-label={t("action.addRow", lang)}
           aria-expanded={here}
           onClick={() => setOpen(here ? null : { kind: "insert", at })}
+          // One width open or not, so opening a gap moves no chip.
           className="group flex w-7 cursor-pointer items-center justify-center self-stretch outline-none"
         >
           {target ? (
@@ -280,7 +301,8 @@ export function ChipRow<T>({
             <span
               aria-hidden="true"
               className={
-                "flex h-6 w-6 items-center justify-center border transition-colors motion-reduce:transition-none " +
+                "flex h-6 w-6 shrink-0 items-center justify-center border transition-[color,background-color,border-color,opacity] motion-reduce:transition-none " +
+                (quiet ? "opacity-0 group-hover/row:opacity-100 group-focus-visible:opacity-100 " : "") +
                 "group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-green " +
                 (here
                   ? "border-green bg-green text-cream"
@@ -411,7 +433,7 @@ export function ChipRow<T>({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-3">
-        <div data-tfm-chips className="flex min-w-0 flex-1 flex-wrap items-stretch gap-y-3">
+        <div data-tfm-chips className="group/row flex min-w-0 flex-1 flex-wrap items-stretch gap-y-3">
           {gap(0)}
           {sequence.flatMap((token, i) => [chip(token, i), gap(i + 1)])}
         </div>
@@ -430,21 +452,54 @@ export function ChipRow<T>({
         )}
       </div>
       {off.length > 0 ? (
-        <ul data-tfm-off className="m-0 flex list-none flex-col gap-1 p-0">
-          {off.map((o) => {
-            const wanted = sequence[o.token];
-            return (
-              <li key={o.v} className="flex items-baseline gap-3 font-mono text-[13px]">
-                <span className="min-w-0 truncate whitespace-pre">
-                  <span className="text-ink">{o.v.slice(0, o.at)}</span>
-                  <mark className={"px-0.5 " + VERDICT_FILL.fail}>{o.v.slice(o.at) || "…"}</mark>
-                </span>
-                {wanted !== undefined ? <span className="shrink-0 text-[11px] text-muted">{name(wanted)}</span> : null}
-                <span className="ml-auto shrink-0 text-[12px] tabular-nums text-muted">{formatCount(o.n, lang)}</span>
-              </li>
-            );
-          })}
-        </ul>
+        // A value off the sequence in human terms (2026-10-05, edkjo on one
+        // unmarked letter, the rest in red and a stray `"."`): the value as
+        // it is, the piece the sequence wanted where it leaves it set into
+        // it as that piece's own chip, and what did not fit underlined. The
+        // count is the elements carrying the value, under its column's name.
+        <div data-tfm-off className="flex flex-col gap-1.5">
+          <div aria-hidden="true" className="flex justify-end">
+            <span className="text-[12px] font-semibold tracking-[0.1em] text-gold uppercase">{t("kpi.products", lang)}</span>
+          </div>
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {off.map((o) => {
+              const wanted = sequence[o.token];
+              const rest = o.v.slice(o.at);
+              // The part-level diff only where the value nearly fits: at
+              // least its first two pieces take the sequence. Short of that a
+              // lone letter that happens to be a code (the «B» of
+              // «Betongsøyle») is no match, and the value is shown whole with
+              // one mark (2026-10-05, review).
+              if (o.token < 2) {
+                return (
+                  <li key={o.v} data-off-at="whole" className="flex items-center gap-3 font-mono text-[14px]">
+                    <span aria-hidden="true" className="shrink-0 font-sans text-[13px] text-bad">
+                      ✗
+                    </span>
+                    <span className="min-w-0 truncate whitespace-pre text-ink">{o.v}</span>
+                    <span className="ml-auto shrink-0 text-[13px] tabular-nums text-muted">{formatCount(o.n, lang)}</span>
+                  </li>
+                );
+              }
+              return (
+                // One mark: the wanted piece set in where the value leaves the
+                // sequence; the value itself stays whole and readable.
+                <li key={o.v} data-off-at={o.at} className="flex items-center gap-3 font-mono text-[14px]">
+                  <span className="flex min-w-0 items-center overflow-hidden whitespace-pre">
+                    {o.at > 0 ? <span className="shrink-0 text-ink">{o.v.slice(0, o.at)}</span> : null}
+                    {wanted !== undefined ? <WantedChip face={face(wanted)} text={exampleOf(wanted)} title={name(wanted)} /> : null}
+                    {rest ? (
+                      <span className="min-w-0 truncate text-ink">
+                        {rest}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[13px] tabular-nums text-muted">{formatCount(o.n, lang)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       ) : null}
     </div>
   );

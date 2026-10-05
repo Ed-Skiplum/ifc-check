@@ -496,6 +496,27 @@ export default function App() {
     clearModels();
   }, [clearModels, cross]);
 
+  // The bar with no board under it: the name (not inside a host's frame),
+  // the account, Oppsett and the language. The landing's, and Oppsett's.
+  const plainBar = (
+    <header className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-1.5 py-1">
+      {EMBEDDED ? null : (
+        <button
+          type="button"
+          onClick={() => setView({ page: null })}
+          className="text-[15px] font-semibold tracking-tight text-ink"
+        >
+          {t("app.name", view.lang)}
+        </button>
+      )}
+      <div className="ml-auto flex items-center gap-3">
+        {accountControl}
+        <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
+        <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
+      </div>
+    </header>
+  );
+
   return (
     <div
       className="flex h-full flex-col overflow-hidden bg-ground text-ink"
@@ -518,22 +539,7 @@ export default function App() {
     >
       {models.length === 0 ? (
         <>
-          <header className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-1.5 py-1">
-            {EMBEDDED ? null : (
-              <button
-                type="button"
-                onClick={() => setView({ page: null })}
-                className="text-[15px] font-semibold tracking-tight text-ink"
-              >
-                {t("app.name", view.lang)}
-              </button>
-            )}
-            <div className="ml-auto flex items-center gap-3">
-              {accountControl}
-              <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
-              <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
-            </div>
-          </header>
+          {plainBar}
           {setupPage && rulesetError ? (
             <pre className="m-0 shrink-0 bg-bad px-4 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
               {rulesetError}
@@ -557,6 +563,10 @@ export default function App() {
         </>
       ) : (
         <>
+          {/* While Oppsett is open the bar carries only what belongs to it
+              (2026-10-05, seen rendered: Tøm alle, Tøm buffer, BCF, PDF and
+              the ruleset's Fjern sat over the walk). The board keeps them. */}
+          {setupOpen ? plainBar : (
           <AppBar
             lang={view.lang}
             onLang={(lang) => setView({ lang })}
@@ -572,6 +582,7 @@ export default function App() {
             onSetup={toggleSetup}
             account={accountControl}
           />
+          )}
 
           {setupPage ? null : (
             <ModelTabs lang={view.lang} models={models} active={activeId} onActivate={(id) => activate(id)} />

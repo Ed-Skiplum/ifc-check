@@ -81,10 +81,11 @@
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { hasErrors, lintRuleset } from "../ids/lint.ts";
 import { anyRoleRule, defaultCodeList, defaultExtract, everyOwnerName, roleRule } from "../ids/models.ts";
-import { NOT_A_MATERIAL, STANDARD_SOURCES, phaseAccepted, type LayerSlot } from "../engine/standard-sources.ts";
+import { NOT_A_MATERIAL, NOT_A_MATERIAL_EXAMPLES, STANDARD_SOURCES, phaseAccepted, type LayerSlot } from "../engine/standard-sources.ts";
 import { POFIN_SOURCES, ROLE_STANDARD } from "../engine/pofin-standard.ts";
 import { POFIN_ROLES, withPofin } from "../engine/pofin-ruleset.ts";
 import { layerJudge, layerPath, layerSources, previewLayer, withLayerSources } from "./layer-steps";
@@ -121,28 +122,31 @@ import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 import type { Verdict } from "../engine/types";
 import type { ModelEntry } from "./useModels";
 import { requirements } from "./requirements";
-import { StateChip, TotalChips } from "./setup/chips";
+import { StateChip } from "./setup/chips";
 import { INPUT, ValuesInput } from "./setup/ValuesInput";
 import { previewTfm, rankPartBindings, rankTfmCandidates, segmentState, type Candidate } from "./setup/candidates";
 import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
-import { TypeNameStep } from "./setup/TypeNameStep";
-import { partName } from "../engine/type-name.ts";
+import { TypeNameStep, partLabel } from "./setup/TypeNameStep";
+import { isWalkSelected } from "../engine/walk-selection.ts";
+import { partShape } from "../engine/type-name.ts";
 import { stateLook } from "./alt/req-view";
 import {
   CONFIRM,
+  CONFIRM_QUIET,
+  ConfirmSlotProvider,
   Door,
   IfcDrop,
   Landed,
   MappingStep,
-  ProposalCard,
   ReqResult,
   STAGE_WIDTH,
+  StepConfirm,
   StepNav,
   SummaryRow,
   WalkProgress,
   type CurrentSource,
 } from "./setup/Walk";
-import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, ToZone, Valid, type MapOption } from "./setup/Mapping";
+import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, STEP_TITLE, ToZone, Valid, type MapOption } from "./setup/Mapping";
 import { PILL } from "./setup/ChipRow";
 import type { Requirement } from "./requirements";
 import {
@@ -361,7 +365,7 @@ function TemplateButtons({
   );
 }
 
-const LABEL = "text-[10px] font-semibold tracking-[0.12em] text-gold uppercase";
+const LABEL = "text-[12px] font-semibold tracking-[0.1em] text-gold uppercase";
 const SECONDARY =
   "flex items-center gap-2 border border-line bg-cream px-3 py-1.5 text-[12px] text-ink hover:border-green hover:text-green";
 
@@ -1169,6 +1173,16 @@ function MappingCard({
 
       {classification && check.type === "code-lookup" ? (
         <div className="flex flex-wrap gap-3">
+          {/* Every bundled list: the step itself offers its own only. */}
+          <div className="flex flex-col gap-1">
+            <span className={LABEL}>{t("field.list", lang)}</span>
+            <Seg
+              options={CODE_LIST_IDS}
+              value={check.list ?? defaultCodeList(role)}
+              label={(id) => CODE_LISTS[id].meta.label}
+              onChange={(list) => onCheck({ ...check, list, codes: undefined })}
+            />
+          </div>
           <div className="flex flex-col gap-1">
             <span className={LABEL}>{t("field.target", lang)}</span>
             <Seg
@@ -1325,9 +1339,17 @@ function MappingRequirement({
           ))}
         </div>
         {codes.length === 0 ? (
-          <code data-format className="w-fit bg-panel px-2 py-1 font-mono text-[12px] break-all text-ink">
-            {check.extract}
-          </code>
+          // The format in plain parts («0» · «Siffer · 3»); a pattern that
+          // does not read so is shown raw, as before. The raw pattern is
+          // also behind «Avansert» (Uttrekk).
+          <span data-format className="flex flex-wrap items-center gap-1.5">
+            {(patternParts(check.extract, lang) ?? [check.extract]).map((part, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5">
+                {i > 0 ? <span aria-hidden="true" className="font-mono text-[13px] text-muted">|</span> : null}
+                <span className="border border-line bg-panel px-2 py-1 font-mono text-[13px] text-ink">{part}</span>
+              </span>
+            ))}
+          </span>
         ) : null}
         <CodesTable codes={codes} issues={issues} lang={lang} onChange={(next) => onCheck({ ...check, codes: next })} />
         <IssueLines issues={at("codes")} lang={lang} subject={codeSubject} />
@@ -1347,10 +1369,15 @@ function MappingRequirement({
       </div>
     );
   }
+  // The step's own list leads (Systemkode NS 3451, Funksjonskode NS 3457-8),
+  // with the one the rule holds if it is another; the other lists are a
+  // switch behind «Avansert» (`MappingCard`).
+  const own = role === "system-classification" || role === "component-classification" ? defaultCodeList(role) : null;
+  const shown = CODE_LIST_IDS.filter((id) => id === own || id === check.list);
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-1.5">
-        {CODE_LIST_IDS.map((id) => (
+        {shown.map((id) => (
           <button
             key={id}
             type="button"
@@ -1365,6 +1392,27 @@ function MappingRequirement({
       <IssueLines issues={at("list")} lang={lang} />
     </div>
   );
+}
+
+/** A pattern as the walk shows it on its main surface: an alternation of
+ *  plain parts (`^(0|\d{3})$` reads «0» or «Siffer · 3»), each as the type
+ *  name builder's chip would name it; null when the pattern is not that
+ *  simple (it then stays behind «Avansert»). */
+function patternParts(pattern: string, lang: Lang): string[] | null {
+  const m = /^\^\((.*)\)\$$/.exec(pattern) ?? /^\^(.*)\$$/.exec(pattern);
+  if (!m) return null;
+  const parts = m[1].split("|");
+  const out: string[] = [];
+  for (const raw of parts) {
+    if (/^[\p{L}\p{N} ._-]+$/u.test(raw)) {
+      out.push(raw);
+      continue;
+    }
+    const shape = partShape({ regex: raw });
+    if (shape.kind !== "digits" && shape.kind !== "letters") return null;
+    out.push(partLabel({ regex: raw }, lang));
+  }
+  return out;
 }
 
 /** What the pickers list, and the models' products: `total`, null with no
@@ -1626,7 +1674,7 @@ function LayerList({
  *  products the row judges; VALID, of those, a value the standard layer
  *  takes and one it does not (`avvik`; on `material-product` only a
  *  material can be avvik). */
-type LayerSplit = { model: string; mapped: number; of: number; ok: number; bad: number };
+type LayerSplit = { model: string; mapped: number; of: number; ok: number; bad: number; klasse: string | null };
 
 function layerSplit(slot: LayerSlot, results: readonly { model: string; req: Requirement | null }[]): LayerSplit[] {
   const gren = slot === "product" ? "telleobjekt" : slot === "material" ? "mengdeobjekt" : undefined;
@@ -1637,7 +1685,7 @@ function layerSplit(slot: LayerSlot, results: readonly { model: string; req: Req
     if (kilder.some((k) => k.n === null)) return [];
     const mapped = kilder.reduce((n, k) => n + (k.n ?? 0), 0);
     const bad = slot === "product" ? 0 : (d.avvik ?? 0);
-    return [{ model, mapped, of: d.grunnlag, ok: mapped - bad, bad }];
+    return [{ model, mapped, of: d.grunnlag, ok: mapped - bad, bad, klasse: d.grunnlag_klasse ?? null }];
   });
 }
 
@@ -1708,7 +1756,10 @@ function LayerBranch({
     <MappingLayout
       lang={lang}
       to={to}
-      fromState={splits.length > 0 && splits.every((s) => s.mapped === 0) ? "missing" : "found"}
+      // No status colour of its own: the standard layer's verdict is the
+      // report row's, shown once for the step (a red 0 here beside its
+      // «Advarsel» said two things).
+      fromState="found"
       from={
         <FromSource
           tag={t("setup.standard", lang)}
@@ -1727,7 +1778,7 @@ function LayerBranch({
               <span className="flex flex-wrap gap-x-4 gap-y-1">
                 {splits.map((s) => (
                   <span key={s.model} title={s.model}>
-                    <Mapped n={s.mapped} total={s.of} lang={lang} />
+                    <Mapped n={s.mapped} total={s.of} neutral label={s.klasse ?? undefined} lang={lang} />
                   </span>
                 ))}
               </span>
@@ -1768,9 +1819,11 @@ function LayerBranch({
                 <span aria-hidden="true" className="font-mono text-[15px] text-ink">
                   ≠
                 </span>
-                {NOT_A_MATERIAL.map((r) => (
-                  <span key={r.source} className={DATUM + " text-muted"}>
-                    {r.source}
+                {/* What the patterns refuse, by example; the patterns are
+                    behind the step's «Avansert». */}
+                {NOT_A_MATERIAL_EXAMPLES.map((v) => (
+                  <span key={v} className={DATUM}>
+                    {v}
                   </span>
                 ))}
               </>
@@ -1778,7 +1831,7 @@ function LayerBranch({
               <span className={DATUM}>{t("tfm.none", lang)}</span>
             )}
           </div>
-          {slot !== "product" && splits.length > 0 ? (
+          {slot !== "product" && splits.some((s) => s.ok > 0 || s.bad > 0) ? (
             <span data-valid className="flex flex-wrap items-center gap-x-4 gap-y-1">
               {splits.map((s) => (
                 <span key={s.model} title={s.model} className="inline-flex items-center gap-1.5">
@@ -2215,13 +2268,17 @@ interface TfmDraft {
   lokasjon: CodeSource | null;
 }
 
-const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
-const H1 = "m-0 text-2xl font-medium text-ink";
+/** A choice tile. No background here: each tile sets its own (a shared
+ *  `bg-panel` beat the POFIN tile's `bg-green` in the cascade and left its
+ *  cream text on a pale tile, unreadable; seen rendered 2026-10-05). */
+const TILE = "flex min-h-36 flex-col border-2 p-8 text-left";
+const H1 = STEP_TITLE;
 /** The walk's frame, by viewport class: 64rem (the mapping row's width, to a
- *  1535 px laptop), 80rem from 1536 px, 100rem from 2200 px, so a wide
- *  screen gives its width to the step's zones instead of leaving 60 % of it
- *  empty. The bar and the step share it. */
-const FRAME = "max-w-5xl 2xl:max-w-7xl min-[2200px]:max-w-[100rem]";
+ *  1535 px laptop), 80rem from 1536 px, 100rem from 2200 px (137.5rem: in
+ *  rem, as the named breakpoints are, or Tailwind orders it before `2xl:`
+ *  and it never wins; measured 1280 px wide at 2560 before), so a wide
+ *  screen gives its width to the step's zones. The bar and the step share it. */
+const FRAME = "max-w-5xl 2xl:max-w-7xl min-[137.5rem]:max-w-[100rem]";
 const PLANES: readonly StoreyPlane[] = ["OKFG", "OKBD"];
 
 export function SetupPage({
@@ -2286,6 +2343,8 @@ export function SetupPage({
   const [tfmDraft, setTfmDraft] = useState<TfmDraft | null>(null);
   // The TFM step's source editor, open by «Endre».
   const [tfmEditing, setTfmEditing] = useState(false);
+  // Etasjeoppsett's plane, picked on the step; written by «Bruk».
+  const [planePick, setPlanePick] = useState<StoreyPlane | null>(null);
   // A step opened from a row of the POFIN prompt or the summary: its answer
   // goes back to that screen, not on. Dropped once the step is left.
   const [detour, setDetour] = useState<{ step: SetupStep; back: SetupStep } | null>(null);
@@ -2321,7 +2380,11 @@ export function SetupPage({
       choices: answered.length > 0 ? mergeChoices(answered) : models.length > 0 && reading ? [] : null,
       reading,
       errors: models.filter((m) => m.psetsError).map((m) => `${m.fileName}: ${m.psetsError}`),
-      total: profiled.length > 0 ? profiled.reduce((n, m) => n + m.profile!.rows.length, 0) : null,
+      // The elements the walk's rules select, the report rows' grunnlag.
+      total:
+        profiled.length > 0
+          ? profiled.reduce((n, m) => n + m.profile!.rows.filter((row) => isWalkSelected(row.entity)).length, 0)
+          : null,
     };
   }, [models]);
 
@@ -2348,7 +2411,8 @@ export function SetupPage({
     const counts = new Map<string, number>();
     for (const m of profiled) {
       for (const row of m.profile!.rows) {
-        if (row.typed && row.typeName) counts.set(row.typeName, (counts.get(row.typeName) ?? 0) + 1);
+        // The types the rule reaches: through the elements it selects.
+        if (row.typed && row.typeName && isWalkSelected(row.entity)) counts.set(row.typeName, (counts.get(row.typeName) ?? 0) + 1);
       }
     }
     return [...counts].map(([v, n]) => ({ v, n })).sort((a, b) => b.n - a.n || a.v.localeCompare(b.v));
@@ -2365,6 +2429,7 @@ export function SetupPage({
   );
   if (current !== "tfm" && tfmDraft !== null) setTfmDraft(null);
   if (current !== "tfm" && tfmEditing) setTfmEditing(false);
+  if (current !== "storeys" && planePick !== null) setPlanePick(null);
   const away = detour !== null && detour.step === current ? detour : null;
   if (detour !== null && away === null) setDetour(null);
 
@@ -2498,13 +2563,23 @@ export function SetupPage({
   // In a detour both lead back to the screen the step was opened from.
   const next = away?.back ?? STEPS[at + 1] ?? current;
   const back = away ? () => onStep(away.back) : at > 0 ? () => onStep(STEPS[at - 1]) : undefined;
-  const advance = (result: React.ReactNode) => {
+  // The landed strip reads the step's report row when it is shown, the same
+  // figures the summary prints (2026-10-05, review: the strip showed the
+  // preview's counts, the summary the report's, and they disagreed).
+  const advanceLive = () => {
     confirmStep(current);
-    setLanded({ from: current, to: next, result });
+    setLanded({ from: current, to: next, result: null, live: true });
     onStep(next);
   };
   const skip = () => onStep(next);
-  const nav = <StepNav lang={lang} onBack={back} forward={t("action.skip", lang)} onForward={skip} />;
+  // The walk's foot, one for every step (2026-10-05, review): back on the
+  // left; «Hopp over» (on the IFC step with a model, «Neste») and the step's
+  // «Bruk» on the right, the latter drawn by the step into `slot`
+  // (`StepConfirm`). Nothing of it on the choice and the IFC stage.
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const question = current !== "start" && current !== "pofin" && current !== "end" && !stage;
+  const footBack = current === "pofin" ? () => onStep("start") : stage ? (step !== null ? back : undefined) : current === "start" ? undefined : back;
+  const footForward = question ? t(current === "ifc" ? "action.next" : "action.skip", lang) : undefined;
 
   // What each step set, as the summary and the POFIN prompt name it.
   const setText = (s: SetupStep): string => {
@@ -2521,7 +2596,7 @@ export function SetupPage({
         .join(" · ");
     if (s === "type-name") {
       const r = mappingRule(ruleset, "type-name");
-      return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map(partName).join(" ") : "–";
+      return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map((p) => partLabel(p, lang)).join("  ") : "–";
     }
     if (s === "tfm") {
       return tfmRule && tfmRule.enabled !== false && tfmSaved
@@ -2530,7 +2605,12 @@ export function SetupPage({
     }
     if (isMappingStep(s)) {
       const r = mappingRule(ruleset, s);
-      return r && r.enabled !== false ? sourceText(checkOf(r, s).source, lang) : "–";
+      if (!r || r.enabled === false) return "–";
+      const c = checkOf(r, s);
+      // A rule read on the type objects says so, as its result's class does
+      // (a saved KNM rule reads Funksjonskode from the type's Name).
+      const onTypes = c.type === "code-lookup" && c.target === "type" ? ` · ${t("field.target.type", lang)}` : "";
+      return `${sourceText(c.source, lang)}${onTypes}`;
     }
     return "";
   };
@@ -2539,7 +2619,7 @@ export function SetupPage({
   const stepRow = (s: SetupStep, from: SetupStep | null) => (
     <SummaryRow
       key={s}
-      done={done(s)}
+      done={from === "pofin" ? null : done(s)}
       label={stepLabel(s, lang)}
       text={setText(s)}
       results={resultOf(s)}
@@ -2556,7 +2636,7 @@ export function SetupPage({
   const schemaRow = schema ? (
     <SummaryRow
       key="ifc-schema"
-      done={(schema.accepted?.length ?? 0) > 0}
+      done={current === "pofin" ? null : (schema.accepted?.length ?? 0) > 0}
       label={t("req.ifc-schema", lang)}
       text={schema.accepted?.join(", ") ?? "–"}
       results={resultsFor("ifc-schema")}
@@ -2585,9 +2665,9 @@ export function SetupPage({
             autoFocus
             data-choice="pofin"
             onClick={takePofin}
-            className={TILE + " items-start justify-center bg-green text-cream hover:bg-ink"}
+            className={TILE + " items-start justify-center border-green bg-green text-cream hover:border-ink hover:bg-ink"}
           >
-            <span className="text-lg font-medium">{t("setup.pofin", lang)} →</span>
+            <span className="text-[28px] leading-tight font-semibold tracking-tight">{t("setup.pofin", lang)} →</span>
           </button>
           <button
             type="button"
@@ -2596,9 +2676,9 @@ export function SetupPage({
               onPofin(false);
               onStep(firstStep);
             }}
-            className={TILE + " items-start justify-center text-ink hover:border-green"}
+            className={TILE + " items-start justify-center border-line bg-panel text-ink hover:border-green"}
           >
-            <span className="text-lg font-medium">{t("setup.custom", lang)} →</span>
+            <span className="text-[28px] leading-tight font-semibold tracking-tight">{t("setup.custom", lang)} →</span>
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -2629,27 +2709,46 @@ export function SetupPage({
       </>
     );
   } else if (current === "pofin") {
-    // What «POFIN» assigned, each row its step, then the two ways on.
+    // What «POFIN» assigned, each row its step, then the two ways on. The
+    // filled one follows the result: a POFIN item failing on the loaded
+    // models puts «Gjennomgå» first, else «Aksepter oppsett».
+    const failing = POFIN_ROLES.some((role) =>
+      resultOf(role).some(({ req }) => req !== null && stateLook(req.state, lang).verdict === "fail"),
+    );
     body = (
       <div className="flex flex-col gap-6">
         <ol data-pofin className="m-0 flex list-none flex-col border border-line bg-panel p-0">
           {POFIN_ROLES.map((role) => stepRow(role, "pofin"))}
           {schemaRow}
         </ol>
-        <div className="flex flex-wrap gap-2 sm:self-end">
-          <button
-            type="button"
-            data-pofin-review
-            onClick={() => onStep(firstStep)}
-            className="flex min-h-12 items-center justify-center gap-3 border-2 border-green bg-panel px-8 text-[15px] font-medium text-ink hover:bg-green hover:text-cream"
-          >
-            {t("action.review", lang)} →
-          </button>
-          <button type="button" autoFocus data-pofin-accept onClick={() => onStep("end")} className={CONFIRM}>
-            {t("action.acceptSetup", lang)} →
-          </button>
-        </div>
-        <StepNav lang={lang} onBack={() => onStep("start")} />
+        {/* The two ways on sit where every step's «Bruk» sits. */}
+        {slot
+          ? createPortal(
+              <>
+                <button
+                  type="button"
+                  autoFocus={failing}
+                  data-pofin-review
+                  data-lead={failing}
+                  onClick={() => onStep(firstStep)}
+                  className={failing ? CONFIRM : CONFIRM_QUIET}
+                >
+                  {t("action.review", lang)} →
+                </button>
+                <button
+                  type="button"
+                  autoFocus={!failing}
+                  data-pofin-accept
+                  data-lead={!failing}
+                  onClick={() => onStep("end")}
+                  className={failing ? CONFIRM_QUIET : CONFIRM}
+                >
+                  {t("action.acceptSetup", lang)} →
+                </button>
+              </>,
+              slot,
+            )
+          : null}
       </div>
     );
   } else if (current === "ifc") {
@@ -2679,11 +2778,7 @@ export function SetupPage({
             ))}
           </ul>
         ) : null}
-        {stage ? (
-          step !== null && back ? <StepNav lang={lang} onBack={back} /> : null
-        ) : (
-          <StepNav lang={lang} onBack={back} forward={t("action.next", lang)} onForward={skip} />
-        )}
+        {stage && step !== null && back ? <StepNav lang={lang} onBack={back} /> : null}
       </div>
     );
   } else if (isLayerStep(current)) {
@@ -2691,11 +2786,14 @@ export function SetupPage({
     const mmi = roleRule(ruleset, "progress-code")?.check;
     const mmiPhases = mmi?.type === "code-lookup" && (mmi.codes ?? []).some((c) => c.phase);
     const result = resultOf(current);
+    // «Bruk» filled once any branch's sources answer for an element on the
+    // loaded models (MAPPED), or no report is read to say otherwise.
+    const layerLead = result.every(({ req }) => req === null) || slots.some((slot) => layerSplit(slot, result).some((s) => s.mapped > 0));
     // «Bruk»: every cascade of the step at the standard, with the project's
     // sources, if any, after it.
     const keep = () => {
       setKept((was) => new Set([...was, ...slots]));
-      advance(<ReqResult results={result} lang={lang} />);
+      advanceLive();
     };
     // Each cascade in the mapping layout; one «Bruk» for the step. The
     // project's sources, once under «Avansert», are its OPTIONS' «Endre»;
@@ -2734,10 +2832,29 @@ export function SetupPage({
             onNext={keep}
           />
         ))}
-        <button type="button" autoFocus data-step-confirm onClick={keep} className={CONFIRM + " sm:self-end"}>
-          {t("action.apply", lang)} →
-        </button>
-        {nav}
+        {/* The step's result as the report row has it: the figures the
+            landed strip and the summary print. */}
+        {result.some(({ req }) => req !== null) ? (
+          <div data-result className="flex flex-wrap items-center gap-3 border border-line bg-panel px-4 py-3">
+            <span className={LABEL}>{stepLabel(current, lang)}</span>
+            <ReqResult results={result} lang={lang} />
+          </div>
+        ) : null}
+        <StepConfirm lead={layerLead} label={t("action.apply", lang)} onClick={keep} />
+        {slots.includes("material") ? (
+          <Door label={t("setup.advanced", lang)}>
+            <div className="flex flex-col gap-1">
+              <span className={LABEL}>{t("field.pattern", lang)}</span>
+              <span data-not-material className="flex flex-wrap gap-1.5">
+                {NOT_A_MATERIAL.map((r) => (
+                  <code key={r.source} className="bg-input px-2 py-0.5 font-mono text-[12px] text-ink">
+                    {r.source}
+                  </code>
+                ))}
+              </span>
+            </div>
+          </Door>
+        ) : null}
       </div>
     );
   } else if (current === "storeys") {
@@ -2756,60 +2873,67 @@ export function SetupPage({
         </span>
       </span>
     );
-    // One click: the plane is the answer, the levels come with it.
-    const take = (p: StoreyPlane) => {
+    // The plane is a choice on the step; «Bruk» writes it with the levels
+    // and moves on, as on every step (2026-10-05, review: OKFG / OKBD were
+    // the confirm, in another place and style than every other step's).
+    const chosen = planePick ?? plane ?? null;
+    const take = () => {
+      if (chosen === null) return;
       const setup = setupWithLevels(ruleset.storeys, levels);
-      if (setup) setStoreys({ ...setup, plane: p });
-      advance(figure);
+      if (setup) setStoreys({ ...setup, plane: chosen });
+      advanceLive();
     };
     body = (
       <div className="flex flex-col gap-5">
+        <h1 className={H1}>{stepLabel("storeys", lang)}</h1>
         {levels.length > 0 ? (
-          <ProposalCard
-            key="storeys"
-            actions={
-              <div className="flex flex-wrap gap-2 sm:self-end">
+          <div data-storeys className="grid grid-cols-1 items-start gap-x-10 gap-y-5 lg:grid-cols-[minmax(0,1.618fr)_minmax(16rem,1fr)]">
+            <div className="flex min-w-0 flex-col gap-3 border border-line bg-panel p-4">
+              {figure}
+              <div className="flex max-h-[38vh] flex-col overflow-auto border border-line bg-input py-1">
+                {levels.map((level, i) => (
+                  <div
+                    key={`${i}\u0000${level.name}`}
+                    data-storey={level.name}
+                    className="grid items-center gap-3 px-3 py-1 text-[13px] text-ink [grid-template-columns:minmax(0,1fr)_7rem]"
+                  >
+                    <span className="min-w-0 truncate font-mono">{level.name}</span>
+                    <span className="text-right font-mono tabular-nums text-muted">{formatMetres(level.elevation, lang)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div role="radiogroup" aria-label={t("field.plane", lang)} className="flex flex-col gap-2">
+              <span className={LABEL}>{t("field.plane", lang)}</span>
+              <div className="flex flex-wrap gap-2">
                 {PLANES.map((p) => (
                   <button
                     key={p}
                     type="button"
-                    autoFocus={p === plane}
+                    role="radio"
+                    aria-checked={p === chosen}
                     data-plane={p}
-                    aria-pressed={p === plane}
-                    onClick={() => take(p)}
+                    onClick={() => setPlanePick(p)}
                     className={
-                      p === plane
-                        ? CONFIRM
-                        : "flex min-h-12 items-center justify-center gap-3 border-2 border-green bg-panel px-8 text-[15px] font-medium text-ink hover:bg-green hover:text-cream"
+                      "flex min-h-12 min-w-28 items-center justify-center px-6 font-mono text-[17px] " +
+                      (p === chosen
+                        ? "border-2 border-ink bg-panel font-semibold text-ink"
+                        : "border-2 border-transparent bg-panel text-ink outline-1 -outline-offset-2 outline-line hover:outline-green")
                     }
                   >
-                    {p} →
+                    {p}
                   </button>
                 ))}
               </div>
-            }
-          >
-            {figure}
-            <div className="flex max-h-64 flex-col overflow-auto border border-line bg-input py-1">
-              {levels.map((level, i) => (
-                <div
-                  key={`${i}\u0000${level.name}`}
-                  data-storey={level.name}
-                  className="grid items-center gap-3 px-3 py-1 text-[12px] text-ink [grid-template-columns:minmax(0,1fr)_7rem]"
-                >
-                  <span className="min-w-0 truncate font-mono">{level.name}</span>
-                  <span className="text-right font-mono tabular-nums text-muted">{formatMetres(level.elevation, lang)}</span>
-                </div>
-              ))}
             </div>
-          </ProposalCard>
+          </div>
         ) : (
           <div data-no-candidate className="flex items-center gap-3">
             <StateChip state="no-match" lang={lang} />
             <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
           </div>
         )}
-        {nav}
+        <StepConfirm lead={levels.length === 0 || fromModels.length === 0 || matched > 0} disabled={chosen === null || levels.length === 0} label={t("action.apply", lang)} onClick={take} />
         <Door label={t("setup.advanced", lang)}>
           <div className="flex flex-col gap-4">
             <StoreyCard
@@ -2945,43 +3069,95 @@ export function SetupPage({
           key: `c\u0000${c.set}\u0000${c.name}`,
           tag: savedTag(c.set, c.name),
           title: `${c.set}.${c.name}`,
-          count: <OptionCount n={c.prop.n} total={picker.total} current={isProp(property, c.set, c.name)} lang={lang} />,
+          count: <OptionCount n={c.prop.valued} total={picker.total} current={isProp(property, c.set, c.name)} lang={lang} />,
           current: isProp(property, c.set, c.name),
           onPick: () => update({ source: { property: { propertySet: c.set, name: c.name } } }),
         }),
       ),
     ];
-    // Nothing to propose: the picker is open from the start.
-    const tfmOpen = tfmEditing || (draft.source === null && picker.choices !== null);
+    // The property tree only behind «Endre» (2026-10-05, review: open by
+    // default it made the step a dead end); with nothing proposed «Endre»
+    // leads instead.
+    const tfmOpen = tfmEditing;
+    // «Bruk» filled once the property's values take the sequence on the
+    // loaded models, or none are read to say otherwise.
+    const tfmPreview = prop ? previewTfm(clean, prop.values) : null;
+    const tfmLead =
+      draft.source !== null &&
+      (picker.choices === null || picker.reading || (tfmPreview !== null && tfmPreview.rows.some((r) => r.state === "ok")));
+    // The builder leads (2026-10-05, review): the string as parts, those the
+    // earlier steps answered marked with what they read; the property that
+    // carries the string is the mapping row under it.
     body = (
       <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-1.5">
+          <h1 className={H1}>{stepLabel("tfm", lang)}</h1>
+          <span data-to-form className="font-mono text-[16px] text-muted">
+            {STATSBYGG_SEQUENCE.map(exampleText).join("")}
+          </span>
+        </div>
+        <div data-tfm-panel className="flex flex-col gap-4 border border-line bg-panel p-4">
+          <TfmBuilder
+            sequence={draft.sequence}
+            values={prop?.values ?? []}
+            binding={binding}
+            lokasjonChoices={[
+              { set: lokStd.property.propertySet, name: lokStd.property.name, n: lokStdN, standard: true },
+              ...(picker.choices && prop ? rankPartBindings(picker.choices, clean, prop.values, "Lokasjon") : []).filter(
+                (b) => !(b.set === lokStd.property.propertySet && b.name === lokStd.property.name),
+              ),
+            ]}
+            lokasjon={lokasjonProp ? { set: lokasjonProp.propertySet, name: lokasjonProp.name } : null}
+            lokasjonEditor={
+              <PropertyPicker
+                value={lokasjonProp ?? blankProperty}
+                choices={picker.choices}
+                reading={picker.reading}
+                errors={picker.errors}
+                total={picker.total}
+                invalidSet={false}
+                invalidName={false}
+                lang={lang}
+                onChange={(p) => update({ lokasjon: p.propertySet === "" && p.name === "" ? null : { property: p } })}
+                onNext={() => {}}
+              />
+            }
+            lang={lang}
+            onSequence={(sequence) => update({ sequence })}
+            onLokasjon={(b) => update({ lokasjon: b ? { property: { propertySet: b.set, name: b.name } } : null })}
+          />
+          {/* VALID: the values off the sequence are the chip row's own. */}
+          {prop && tfmPreview ? <Valid prop={prop} preview={tfmPreview} failing={false} total={picker.total} lang={lang} /> : null}
+        </div>
         <MappingLayout
           lang={lang}
-          to={<ToZone name={stepLabel("tfm", lang)} form={STATSBYGG_SEQUENCE.map(exampleText).join("")} />}
+          to={<ToZone compact name={stepLabel("tfm", lang)} />}
           fromState={draft.source === null ? "empty" : missing ? "missing" : "found"}
           fromKey={property ? `${property.propertySet}\u0000${property.name}` : "tfm"}
           from={
-            <FromSource
-              tag={property ? savedTag(property.propertySet, property.name) : null}
-              title={property ? `${property.propertySet}.${property.name}` : draft.source ? sourceText(draft.source, lang) : null}
-              mapped={prop ? <Mapped n={prop.n} total={picker.total} lang={lang} /> : missing ? <Mapped n={0} total={picker.total} lang={lang} /> : null}
-            />
+            draft.source === null && picker.choices !== null && !picker.reading ? (
+              // Nothing to propose: FROM says so itself.
+              <div data-no-candidate className="flex items-center gap-3">
+                <StateChip state="no-match" lang={lang} />
+                <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
+              </div>
+            ) : (
+              <FromSource
+                tag={property ? savedTag(property.propertySet, property.name) : null}
+                title={property ? `${property.propertySet}.${property.name}` : draft.source ? sourceText(draft.source, lang) : null}
+                samples={prop?.values.map((v) => v.v)}
+                mapped={prop ? <Mapped n={prop.valued} total={picker.total} lang={lang} /> : missing ? <Mapped n={0} total={picker.total} lang={lang} /> : null}
+              />
+            )
           }
           options={
             <OptionList
               options={tfmOptions}
               label={stepLabel("tfm", lang)}
               lang={lang}
-              more={{ open: tfmOpen, onToggle: () => setTfmEditing(!tfmOpen) }}
+              more={{ open: tfmOpen, onToggle: () => setTfmEditing(!tfmOpen), lead: !tfmOpen && draft.source === null }}
             >
-              {picker.reading ? (
-                <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span>
-              ) : picker.choices !== null && draft.source === null ? (
-                <div data-no-candidate className="flex items-center gap-3">
-                  <StateChip state="no-match" lang={lang} />
-                  <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
-                </div>
-              ) : null}
+              {picker.reading ? <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span> : null}
             </OptionList>
           }
           editor={
@@ -3006,55 +3182,8 @@ export function SetupPage({
               </div>
             ) : null
           }
-          requirement={
-            <>
-              <TfmBuilder
-                sequence={draft.sequence}
-                values={prop?.values ?? []}
-                binding={binding}
-                lokasjonChoices={[
-                  { set: lokStd.property.propertySet, name: lokStd.property.name, n: lokStdN, standard: true },
-                  ...(picker.choices && prop ? rankPartBindings(picker.choices, clean, prop.values, "Lokasjon") : []).filter(
-                    (b) => !(b.set === lokStd.property.propertySet && b.name === lokStd.property.name),
-                  ),
-                ]}
-                lokasjon={lokasjonProp ? { set: lokasjonProp.propertySet, name: lokasjonProp.name } : null}
-                lokasjonEditor={
-                  <PropertyPicker
-                    value={lokasjonProp ?? blankProperty}
-                    choices={picker.choices}
-                    reading={picker.reading}
-                    errors={picker.errors}
-                    total={picker.total}
-                    invalidSet={false}
-                    invalidName={false}
-                    lang={lang}
-                    onChange={(p) => update({ lokasjon: p.propertySet === "" && p.name === "" ? null : { property: p } })}
-                    onNext={() => {}}
-                  />
-                }
-                lang={lang}
-                onSequence={(sequence) => update({ sequence })}
-                onLokasjon={(b) => update({ lokasjon: b ? { property: { propertySet: b.set, name: b.name } } : null })}
-              />
-              {/* VALID: the values off the sequence are the chip row's own. */}
-              {prop ? <Valid prop={prop} preview={previewTfm(clean, prop.values)} failing={false} lang={lang} /> : null}
-            </>
-          }
-          confirm={
-            <button
-              type="button"
-              autoFocus
-              data-step-confirm
-              disabled={!ready}
-              onClick={confirmTfm}
-              className={CONFIRM + " disabled:cursor-not-allowed disabled:opacity-40 sm:self-end"}
-            >
-              {t("action.apply", lang)} →
-            </button>
-          }
         />
-        {nav}
+        <StepConfirm lead={tfmLead} disabled={!ready} label={t("action.apply", lang)} onClick={confirmTfm} />
         <Door label={t("setup.advanced", lang)}>
           <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-1">
@@ -3095,12 +3224,11 @@ export function SetupPage({
           name={stepLabel("type-name", lang)}
           saved={saved}
           typeNames={typeNames}
-          total={picker.total}
+          written={rule && rule.enabled !== false ? resultOf("type-name") : null}
           typed={<ReqResult results={typedResults} lang={lang} />}
           lang={lang}
           onConfirm={confirmName}
         />
-        {nav}
       </div>
     );
   } else if (current === "end") {
@@ -3117,8 +3245,18 @@ export function SetupPage({
     body = (
       <div className="flex flex-col gap-6">
         <ol data-summary className="m-0 flex list-none flex-col border border-line bg-panel p-0">
-          {WALK.map((s) => stepRow(s, pofin ? "end" : null))}
-          {pofin ? schemaRow : null}
+          {pofin ? (
+            // The prompt's rows first, the same set and order, then the rest
+            // of the walk under a heavier rule.
+            <>
+              {POFIN_ROLES.map((s) => stepRow(s, "end"))}
+              {schemaRow}
+              <li aria-hidden="true" className="h-0 border-t-2 border-ink" />
+              {WALK.filter((s) => !(POFIN_ROLES as readonly SetupStep[]).includes(s)).map((s) => stepRow(s, "end"))}
+            </>
+          ) : (
+            WALK.map((s) => stepRow(s, null))
+          )}
         </ol>
         {results.length > 0 ? (
           <div data-overall className="flex flex-wrap items-center gap-2">
@@ -3136,10 +3274,7 @@ export function SetupPage({
             )}
           </div>
         ) : null}
-        <button type="button" autoFocus data-step-confirm onClick={save} className={CONFIRM + " sm:self-end"}>
-          {t("action.saveSetup", lang)} →
-        </button>
-        <StepNav lang={lang} onBack={back} />
+        <StepConfirm label={t("action.saveSetup", lang)} onClick={save} />
       </div>
     );
   } else {
@@ -3160,11 +3295,12 @@ export function SetupPage({
             }
           : { ...c, source: { property } },
       );
-      advance(<TotalChips preview={candidate.preview} lang={lang} />);
+      advanceLive();
     };
     const confirmCurrent = (preview: ExtractPreview | null) => {
       if (rule !== null && rule.enabled === false) toggle(r);
-      advance(preview ? <TotalChips preview={preview} lang={lang} /> : null);
+      void preview;
+      advanceLive();
     };
     body = (
       <div className="flex flex-col gap-5">
@@ -3181,6 +3317,7 @@ export function SetupPage({
           name={stepLabel(r, lang)}
           form={POFIN_SOURCES[ROLE_STANDARD[r]].example}
           pinned={pofin}
+          written={rule !== null && rule.enabled !== false ? resultOf(r) : null}
           requirement={
             <MappingRequirement
               role={r}
@@ -3194,7 +3331,7 @@ export function SetupPage({
           onCurrent={confirmCurrent}
           onStandard={(option) => {
             setCheck(r, option.check);
-            advance(option.preview ? <TotalChips preview={option.preview} lang={lang} /> : null);
+            advanceLive();
           }}
           editor={
             <SourceEditor
@@ -3208,7 +3345,6 @@ export function SetupPage({
             />
           }
         />
-        {nav}
         <Door label={t("setup.advanced", lang)}>
           <MappingCard
             key={r}
@@ -3228,6 +3364,7 @@ export function SetupPage({
   }
 
   return (
+    <ConfirmSlotProvider value={slot}>
     <main className="flex min-h-0 flex-1 flex-col">
       {/* The bar, pinned over the walk, in the frame's width. Not on the
           stage: no bar and no door before a model is loaded. */}
@@ -3309,36 +3446,68 @@ export function SetupPage({
         </div>
       )}
 
-      {/* The walk: one frame sized to the viewport (`FRAME`), scrolling under
-          the bar. A short step sits at the optical centre (2 : 3 above and
-          below it), a tall one starts under the bar. A size container, so the
-          IFC stage sizes to the walk's height (`STAGE_WIDTH`). */}
+      {/* What the step before gave: a strip of its own height under the bar,
+          held empty when there is none, so the step's name sits at the same
+          place on every step (2026-10-05, review: it jumped). */}
+      {stage ? null : (
+        <div className="shrink-0 px-3 pt-2">
+          <div data-landed-slot className={"mx-auto flex min-h-12 w-full flex-col justify-center " + FRAME}>
+            {landed !== null && landed.to === current ? (
+              <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
+                {landed.live ? <TfmResult results={resultOf(landed.from)} lang={lang} /> : landed.result}
+              </Landed>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* The step's panel: one frame sized to the viewport (`FRAME`), the
+          step's name at its top, scrolling inside when the step is taller.
+          The IFC stage alone is centred (2 : 3 above and below), and sizes to
+          the walk's height (`STAGE_WIDTH`: a size container). */}
       <div data-walk className="min-h-0 flex-1 overflow-auto px-3 pb-3 [container-type:size]">
         <div className={"mx-auto flex min-h-full w-full flex-col " + FRAME}>
-          <div aria-hidden="true" className="min-h-6 flex-[2_1_0%]" />
-          <div className="flex min-w-0 flex-col gap-6">
+          <div aria-hidden="true" className={stage ? "min-h-6 flex-[2_1_0%]" : "h-4 shrink-0"} />
+          <div data-walk-content className="flex min-w-0 flex-col gap-6">
             {exportError !== null ? (
               <pre className="m-0 bg-bad px-3 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
                 {exportError}
               </pre>
             ) : null}
 
-            {landed !== null && landed.to === current ? (
-              <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
-                {landed.live ? <TfmResult results={resultOf(landed.from)} lang={lang} /> : landed.result}
-              </Landed>
-            ) : null}
-
             <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-col gap-5">
               {/* A step in the mapping layout carries its name in TO; the
                   IFC step's is in its target. */}
-              {current === "start" || current === "ifc" || inTo ? null : <h1 className={H1}>{stepLabel(current, lang)}</h1>}
+              {current === "start" || current === "ifc" || current === "storeys" || inTo ? null : (
+                <h1 className={H1}>{stepLabel(current, lang)}</h1>
+              )}
               {body}
             </section>
           </div>
-          <div aria-hidden="true" className="min-h-6 flex-[3_1_0%]" />
+          {stage ? <div aria-hidden="true" className="min-h-6 flex-[3_1_0%]" /> : null}
         </div>
       </div>
+
+      {/* The walk's foot, pinned: back, «Hopp over», and the step's «Bruk»
+          (`StepConfirm` portals into `slot`), in one place for every step. */}
+      {stage ? null : (
+        <footer data-walk-foot className="shrink-0 border-t border-line px-3 py-3">
+          <div className={"mx-auto flex w-full flex-wrap items-center gap-4 " + FRAME}>
+            {footBack ? (
+              <button type="button" onClick={footBack} className="px-1 py-2 text-[14px] text-muted hover:text-ink">
+                ← {t("action.previous", lang)}
+              </button>
+            ) : null}
+            <span className="flex-1" />
+            {footForward ? (
+              <button type="button" data-step-skip onClick={skip} className="px-2 py-2 text-[14px] text-muted hover:text-ink">
+                {footForward}
+              </button>
+            ) : null}
+            <div ref={setSlot} data-confirm-slot className="flex flex-wrap items-center gap-2" />
+          </div>
+        </footer>
+      )}
 
       {asking ? (
         <EnableDialog
@@ -3355,5 +3524,6 @@ export function SetupPage({
         />
       ) : null}
     </main>
+    </ConfirmSlotProvider>
   );
 }

@@ -18,7 +18,8 @@ const EXTRACT_VERDICT: Record<ExtractState | "rest", Verdict> = {
 };
 
 export function StateChip({ state, count, lang }: { state: ExtractState | "rest"; count?: number; lang: Lang }) {
-  const verdict = EXTRACT_VERDICT[state];
+  // Colour is status: «✓ 0» passes nothing, so it is not green.
+  const verdict = state === "ok" && count === 0 ? "na" : EXTRACT_VERDICT[state];
   return (
     <span
       data-state={state}

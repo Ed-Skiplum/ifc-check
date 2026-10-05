@@ -62,7 +62,8 @@ import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
 import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
-import { POFIN_TYPE_NAME, nameMatcher } from "../src/engine/type-name.ts";
+import { NOT_A_MATERIAL, NOT_A_MATERIAL_EXAMPLES } from "../src/engine/standard-sources.ts";
+import { POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher, partExample, partShape } from "../src/engine/type-name.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList, roleRule, ruleRole } from "../src/ids/models.ts";
 import { pofinRuleset, withPofin } from "../src/engine/pofin-ruleset.ts";
@@ -3634,8 +3635,8 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
   );
   const mmi: CodeLookupCheck = { type: "code-lookup", source: blankProp, codes: [], extract: defaultExtract("progress-code") };
   record(
-    "walk candidates MMI: with no codes, ranked by the presets' codes, so a width sinks",
-    "P.MMI:8 Dim.Width:52",
+    "walk candidates MMI: with no codes, ranked by the presets' codes; a width that passes by accident (2 of 52) is none",
+    "P.MMI:8",
     ranked([choice("Dim", "Width", [["123", 50], ["300", 2]]), choice("P", "MMI", [["300", 5], ["400", 3]])], "progress-code", mmi),
   );
   record(
@@ -3654,6 +3655,52 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
     }),
   );
   record("walk candidates: no property passing is no proposal", "none", ranked([choice("Dim", "Text", [["Vegg", 40]])], "system-classification", sys));
+  // Rendered 2026-10-05: `MMI.MMI dato` (20.05.2025 reads as NS 3451 class 20
+  // in the standard's form) was pre-picked as Systemkode, and on a Revit
+  // export `BaseQuantities.CrossSectionArea` passed as NS 3451.
+  record(
+    "walk candidates Systemkode: a date is no code, a quantity set is none, a property naming the list leads",
+    "BYGNINGSDEL.NS 3451 (2-sifret):30",
+    ranked(
+      [
+        choice("MMI", "MMI dato", [["20.05.2025", 39]]),
+        choice("BaseQuantities", "CrossSectionArea", [["21.5", 2]]),
+        choice("BYGNINGSDEL", "NS 3451 (2-sifret)", [["23", 30]]),
+      ],
+      "system-classification",
+      sys,
+    ),
+  );
+  record(
+    "walk candidates: only a strong candidate (named, or >= 80 % passing) may be pre-picked",
+    "Klass.NS3451:true Mixed.Kode:false",
+    rankCandidates(
+      [choice("Klass", "NS3451", [["231", 2], ["Vegg", 8]]), choice("Mixed", "Kode", [["231", 6], ["Vegg", 4]])],
+      "system-classification",
+      sys,
+      [],
+    )
+      .map((c) => `${c.set}.${c.name}:${c.strong}`)
+      .join(" "),
+  );
+  record(
+    "walk candidates Funksjonskode: values that read as codes are listed, pre-picked only from a property naming the list",
+    "MMI.MMI signatur:false P.Komp:false",
+    rankCandidates(
+      [choice("MMI", "MMI signatur", [["AB", 30], ["DUZ", 7]]), choice("P", "Komp", [["DUZ007", 9], ["AB12", 3]])],
+      "component-classification",
+      { type: "code-lookup", source: blankProp, list: "ns3457-8", target: "occurrence", extract: defaultExtract("component-classification") },
+      [],
+    )
+      .map((c) => `${c.set}.${c.name}:${c.strong}`)
+      .sort()
+      .join(" "),
+  );
+  record(
+    "not a material: each example the walk shows is refused by its own pattern",
+    NOT_A_MATERIAL.map(() => "refused").join(" "),
+    NOT_A_MATERIAL_EXAMPLES.map((v, i) => (NOT_A_MATERIAL[i].test(v) ? "refused" : `taken:${v}`)).join(" "),
+  );
 
   // The standard (src/engine/pofin-standard.ts): POFIN 2.1's sources, each
   // Uttrekk one group, the standard's own examples read to their codes.
@@ -4004,6 +4051,29 @@ function typeNameSelftest(record: Record_): void {
       .join(" "),
   );
   record("type name: a part's own groups do not move the parts", "AB|-|x1", parse([{ regex: "(A)(B)" }, { text: "-" }, { regex: "(x)(\\d)" }], "AB-x1"));
+  // The builder's human parts: digits and letters are stored as patterns and
+  // read back as themselves; any other pattern stays a pattern.
+  const shape = (part: NamePart) => {
+    const s = partShape(part);
+    return s.count === undefined ? s.kind : `${s.kind}:${s.count ?? "+"}`;
+  };
+  record(
+    "type name parts: N digits / N letters read back from their patterns, the rest stays a pattern",
+    "digits:+ digits:3 digits:2 digits:1 letters:+ letters:2 letters:3 regex regex ns3457-8 text values",
+    [
+      { regex: "\\d+" }, { regex: "\\d{3}" }, { regex: "[0-9]{2}" }, { regex: "\\d" }, { regex: "[A-ZÆØÅ]+" }, { regex: "[A-ZÆØÅ]{2}" },
+      { regex: "[A-Z]{3}" }, { regex: "\\d{2,3}" }, { regex: "[A-Z]+-\\d{3}" }, { list: "ns3457-8" }, { text: "." }, { values: ["A"] },
+    ].map((p) => shape(p as NamePart)).join(" "),
+  );
+  record(
+    "type name parts: the builder's digits and letters round-trip and match what they say",
+    "digits:3 letters:2 digits:+ | 001 AB 001 | AB|.|001 off@3:2 off@0:0",
+    [
+      [digitsPart(3), lettersPart(2), digitsPart(null)].map(shape).join(" "),
+      [digitsPart(3), lettersPart(2), POFIN_TYPE_NAME[2]].map(partExample).join(" "),
+      ["AB.001", "AB.01", "ab.001"].map((v) => parse([lettersPart(2), { text: "." }, digitsPart(3)], v)).join(" "),
+    ].join(" | "),
+  );
 
   // Five walls: three types (one off the scheme, one without a Name), one
   // untyped.

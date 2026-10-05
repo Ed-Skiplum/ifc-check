@@ -98,6 +98,8 @@ scripts/
   module-grid-gate.mjs  the design alternatives against the layout canon
                      (rules 1, 3 to 9) in headless Chrome, per viewport class
   bento-pack-test.mjs   the module grid and the packer without a browser
+  walk-shots.mjs  every screen of the Oppsett walk rendered, shot and
+                  measured at 2560×1280 and 1440×900 (see "The design pass")
   build-wasm.sh  rebuild the vendored ifcfast wasm module
   gen-ifc-classes.py   regenerate the concrete-class lists from the EXPRESS schema
 vendor/ifcfast-wasm/   the wasm engine + PROVENANCE.md
@@ -2740,7 +2742,7 @@ step already swapped on a pick, so all now follow it.
 | Produkt, Materiale (one layout each) | branch name | as Fase, per branch | as Fase | Produkt «Ingen» (MAPPED only); Materiale ≠ `NOT_A_MATERIAL`, as data |
 | TFM | name, `+123456=360.001-JV401` | the draft's property | the ranked candidates (the draft first when they lack it), «Endre» = the picker | the sequence builder; VALID with no failing list (the chip row lists them) |
 | TFM Lokasjon (chip popover, compact) | Lokasjon, ByggA | the bound property | standard first with its count, the sharing properties, «Ingen», «Endre» = the picker | ⇄ TFM: agreement with the string's own Lokasjon |
-| Typenavn | name, DUZ.001 | Attributt Name, fixed; the Typeobjekt row | none (–) | the scheme's chip row; VALID the type Names on it |
+| Typenavn | not in the layout since the design pass (its own composition, see "The design pass"): nothing to choose FROM, one decision, the scheme | | | |
 
 The layer steps' MAPPED and VALID are the report row's, per model
 (`layerSplit`): MAPPED the elements the branch's sources answered for
@@ -2800,6 +2802,155 @@ screen empty, and «ifc-check» in the app bar under the host frame's own.
 Verified: `tsc` (app, node), selftest (485, the segment rule). **Not
 exercised in a browser**: sizes are computed, not measured (at 1440×900
 the stage is about 980 × 613; at 1920×1080 about 1188 × 742).
+
+**The design pass (2026-10-05, rendered).** edkjo looked at two screens
+built on tsc alone and asked "is this great UI?". Every screen of the walk
+is now rendered by `scripts/walk-shots.mjs` (below) and was looked at, at
+2560×1280 and 1440×900, before and after. What changed, and why:
+
+- The app bar while Oppsett is open is the plain bar (name unless framed,
+  sign-in, Oppsett, NB/EN), with or without models: Tøm alle, Tøm buffer,
+  BCF, Eksporter PDF and the ruleset's Fjern sat over the walk. The board's
+  bar is unchanged (`App.tsx` `plainBar`).
+- A step's name is the lead (`STEP_TITLE`, 34 px semibold, `Mapping.tsx`);
+  zone and figure labels are 12 px (were 10 px, unread).
+- The primary's weight follows the state (`confirmClass`, `Walk.tsx`):
+  «Bruk» is filled when the answer has a result on the loaded models, else
+  outlined (`CONFIRM_QUIET`), still the way on. Per step: mapping steps,
+  FROM has hits (MAPPED decides, not VALID: "mapping is the
+  infrastructure"); Typenavn, the scheme matches a type Name; TFM, a source
+  and a value on the sequence; Fase and Materiale / Produkt, a branch's
+  MAPPED above 0 (or no report yet); the POFIN prompt, «Gjennomgå» is filled
+  when a POFIN row fails on the loaded models, else «Aksepter oppsett». With
+  no model read every primary is filled. «Endre» (`fixClass`) leads (heavy outline, since the second pass) when
+  the answer gives nothing and no listed option has hits (the fix is then
+  the picker); `data-lead` carries the state for the driver.
+- Typenavn no longer draws the mapping layout (an OPTIONS zone of one "–";
+  a FROM box with Produkter 373 / 545 beside Typeobjekt 75,2 % · 373 av 496,
+  two measures with two denominators in one box). Its own composition, on
+  the golden split from `lg`: the name, `DUZ.001 ← Attributt Name`, the
+  scheme panel (red edge while it matches nothing) with the off list; beside
+  it «Typer» n / N large (distinct type Names on the scheme, the only
+  number of the step's own), then, apart, Typeobjekt (the board's row, as
+  context), then «Bruk».
+- The off list (`ChipRow.tsx`, both builders): the value as it is, the
+  piece the sequence wanted set in where it leaves it as that piece's chip
+  in small (`WantedChip`: its face, its second line), what did not fit
+  underlined in red; the count under its column's name, «Produkter».
+- The chip row's inner + gaps show on hover or focus only (the last one
+  always); the gap keeps its width, so opening one moves nothing.
+- The type name parts, in order: NS 3457-8, NS 3451, Siffer, Bokstaver,
+  Tekst, Godtatte, Mønster. Siffer and Bokstaver take a count (1+, 1 … 6)
+  and are stored as the pattern they are, `\d{3}`, `[A-ZÆØÅ]{2}`, `\d+`
+  (`digitsPart`, `lettersPart`, `partShape` in `engine/type-name.ts`); a
+  saved pattern that is exactly that reads back as the part (`[0-9]{n}` and
+  `[A-Z]{n}` too). The ruleset format is unchanged. A chip shows its example
+  (001, AB) over the part's name and count (`partLabel`), which the summary
+  uses too.
+- OPTIONS with nothing listed draws nothing (it drew "–"); `MappingLayout`
+  takes no `options` and then has no third column. TFM with no candidate
+  says «Ingen treff» in FROM itself; the picker under it is open.
+- The POFIN prompt's rows carry no ✓ (all of them are set by definition).
+- The choice: the POFIN tile's `bg-green` lost to the shared tile's
+  `bg-panel` and its cream text was unreadable; tiles now set their own.
+- The frame's 100rem step never applied (an arbitrary `min-[2200px]` sorts
+  before `2xl:` in Tailwind v4): now `min-[137.5rem]`, measured 1600 px at
+  2560.
+- The bar: the current segment is taller (12 px against 6 px), so it reads
+  by shape as well as colour; the open track is darker; hatched stripes on
+  the field.
+
+Measured (walk-shots, round2): no horizontal scroll at either size. At
+2560×1280 the content block is 63 % of the width and 27–74 % of the height,
+top 164–454 px (short steps at the optical centre). At 1440×900, 71 % wide;
+Materiale / Produkt, TFM, «Endre» and «Avansert» open, and the summary after
+POFIN scroll inside the walk.
+
+Not changed, seen: the summary and the landed strip print the report row's
+figure as the IDS tab does (Typenavn «Avvik 100 % · 10 av 10
+IfcTypeObject» counts type objects; the step's «Typer» counts distinct
+Names, 0 / 11 on the same model); the Materiale requirement shows
+`NOT_A_MATERIAL`'s patterns raw; a pre-picked mapping candidate can be an
+odd property (Systemkode ← `MMI.MMI dato` on OBF ARK) because the ranking
+scores what passes.
+
+**The second pass (2026-10-05, after an independent review of the
+rendered screens).** What changed, and why:
+
+- One denominator per kind of thing. The step counted every product row
+  (84 on OBF ARK), its rule's report row the physical elements it selects
+  (80), the standard layer products less openings (82). The walk now counts
+  over what its rules select: the worker's pset inventory takes `owners`
+  (`walkSelection`, `engine/walk-selection.ts`, the `physicalElement` group
+  over every schema), `picker.total` and the type Names likewise; MAPPED
+  counts valued elements, as the report counts presence. Every figure says
+  what it counts: «Fysiske elementer» (`walk.selected`, the rule builder's
+  own term) on the step and appended to a mapping row's figure, the row's
+  own class (IfcProduct, IfcTypeObject) elsewhere. VALID adds «mangler»
+  (elements with no value), so the chips add up to the report's figure.
+- The same source: the landed strip always reads the step's report row
+  (`advanceLive`); a step whose FROM is what the ruleset holds shows that
+  row (`ReqResult`) in its requirement zone; Fase and Materiale / Produkt
+  show their row once, under the branches. No ✓ beside a result: the strip
+  has no mark, the summary marks set / not set as ● / ○ in ink.
+- The bar's count is the steps done (the segments' green), not the
+  position; the position is the tall segment.
+- After «POFIN» the summary lists the prompt's rows first, in its order,
+  then a heavy rule, then the rest.
+- Candidates (`candidates.ts`): a quantity set (`BaseQuantities`, `Qto_`)
+  is never one; a date-shaped value never passes; below half of the valued
+  elements passing a property is no candidate; a property whose name names
+  the list (3451, 3457, MMI) scores ×4 and sorts first. Only a `strong`
+  candidate is pre-picked: for a code list, one whose name names it; for
+  MMI, also one passing ≥ 80 %. FROM shows up to five real values.
+- Colour is status only: FROM's frame is neutral when found; a selected
+  option is outlined and bold (no green fill); «Endre» leading is outlined
+  heavy; «✓ 0» is grey; Duplikat objekt's absent property is not red (blank
+  is own).
+- Typenavn's off list: the name whole with one mark (✗); the wanted piece
+  set in only when the name nearly fits (its first two pieces take the
+  scheme), so a lone code letter («B» of «Betongsøyle») is no match.
+- «Bruk» has one place and one look: the walk's foot (`data-walk-foot`),
+  pinned under the step's scrolling panel, with ← Forrige and «Hopp over»;
+  a step draws `StepConfirm`, which portals into the foot's slot. The POFIN
+  prompt's two ways on sit there too. Etasjeoppsett: OKFG / OKBD are a
+  choice (outlined when picked), «Bruk» writes the levels with it. The
+  landed strip has its own fixed slot under the bar, the step's name is at
+  the panel's top (measured: 161 px on every step at both sizes; «Bruk» in
+  view on every screen).
+- Regex off the main surface: MMI «Kun format» reads `0 | Siffer · 3`
+  (`patternParts`); Materiale's requirement lists a value each pattern
+  refuses (`NOT_A_MATERIAL_EXAMPLES`, selftested against its pattern), the
+  patterns behind the step's «Avansert».
+- TFM leads with the builder; the property row is under it; the property
+  tree opens only by «Endre»; Lokasjon's chip popover is the part pills and
+  a compact source list (no nested mapping step).
+- Systemkode's and Funksjonskode's requirement show their own list; every
+  list is a switch in «Avansert» (`MappingCard`, «Kodeliste»).
+
+### `scripts/walk-shots.mjs`
+
+```bash
+node scripts/walk-shots.mjs --round round3 [--states a,b,c] [--vp 2560x1280,1440x900]
+```
+
+Starts the Vite dev server in-process (port 5191, its own cache dir
+`tmp/.vite-walk`) and one headless Chrome (CDP 9341, >= 3.5 GB free) with
+one page; stops only those. Reduced motion is emulated. States from cleared
+storage: `a` choice, «Egendefinert», the IFC stage, OBF ARK (Sophies Minde,
+873 kB) dropped, every step's primary to Oppsummering, plus a chip's
+popover, the insert menu, «Endre», «Avansert», TFM's Lokasjon popover and
+the IFC step with a model; `b` a model on the board, «POFIN», the prompt,
+«Aksepter oppsett», then again «POFIN» → «Gjennomgå» skipped through; `c`
+`tests/fixtures/private/*knm*.ruleset.json` saved in localStorage, KNM_RIB
+(a Revit export, free-text type names) dropped, skipped through. Each screen
+is shot at every viewport to `C:/workspace/toolkit/ifc-check/tmp/walk-pass/
+<round>/<WxH>/<state>-<nn>-<step>.png` (the main checkout's tmp, so a
+worktree's shots outlive it) and measured: the content block
+(`[data-walk-content]`) against the viewport, top offset, whether the walk
+scrolls, horizontal scroll (exit 1). A table on stdout,
+`measure-<states>.json` beside the shots. It proves what renders locally,
+not the deployed site.
 
 Mengdetype is not a step (2026-10-05, edkjo: "It's not something to check,
 but something to assess … it's not a property or attribute"). The walk, its
@@ -2896,7 +3047,9 @@ one part, regex another part".
 - The scheme is a sequence of parts, each `{list: "ns3457-8" | "ns3451"}`,
   `{values: [...]}` (comma- or line-separated, `setup/ValuesInput.tsx`),
   `{regex}` or `{text}`, edited in the TFM builder's chip row
-  (`setup/ChipRow.tsx`, moved out of `TfmBuilder.tsx` unchanged). The
+  (`setup/ChipRow.tsx`, moved out of `TfmBuilder.tsx` unchanged). Offered
+  as NS 3457-8, NS 3451, Siffer, Bokstaver, Tekst, Godtatte, Mønster; Siffer
+  and Bokstaver are `{regex}` parts with a count (see "The design pass"). The
   suggestion and «↺ Standard» is POFIN Objekttypenavn (NS 8360-1),
   `[NS 3457-8] "." /\d+/` (`POFIN_TYPE_NAME`; the number's width is not set
   by the standard). Live: the loaded models' distinct type Names matching,
