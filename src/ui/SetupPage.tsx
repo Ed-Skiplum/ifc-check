@@ -1658,6 +1658,7 @@ function LayerBranch({
   judge,
   viaMmi,
   results,
+  kept,
   lang,
   onChange,
   onKeep,
@@ -1676,6 +1677,10 @@ function LayerBranch({
   results: readonly { model: string; req: Requirement | null }[];
   lang: Lang;
   onChange: (next: PhaseSource[]) => void;
+  /** The standard picked: kept, or a project source after it. */
+  kept: boolean;
+  /** The standard's pick, a toggle as `StandardPick`'s: off only with no
+   *  project source, and then the step is not done. */
   onKeep: () => void;
   onNext: () => void;
 }) {
@@ -1684,7 +1689,7 @@ function LayerBranch({
   const standard = STANDARD_SOURCES[slot];
   const hasMmi = sources.some((s) => "progressCode" in s);
   const options: MapOption[] = [
-    { key: "standard", tag: t("setup.standard", lang), title: standard.join(" · "), current: true, onPick: onKeep },
+    { key: "standard", tag: t("setup.standard", lang), title: standard.join(" · "), current: kept, onPick: onKeep },
     ...(viaMmi || hasMmi
       ? [
           {
@@ -2664,7 +2669,15 @@ export function SetupPage({
             results={result}
             lang={lang}
             onChange={(nextSources) => onChange(withLayerSources(ruleset, slot, nextSources))}
-            onKeep={() => setKept((was) => new Set([...was, slot]))}
+            kept={kept.has(slot) || layerSources(ruleset, slot).length > 0}
+            onKeep={() =>
+              setKept((was) => {
+                const now = new Set(was);
+                if (now.has(slot) && layerSources(ruleset, slot).length === 0) now.delete(slot);
+                else now.add(slot);
+                return now;
+              })
+            }
             onNext={keep}
           />
         ))}
