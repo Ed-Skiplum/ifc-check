@@ -112,6 +112,9 @@ export interface PsetInventory {
 export interface PsetInventoryOptions {
   /** Distinct example values per property. Default 5. */
   examples?: number;
+  /** Count only these owners (by GlobalId): the Oppsett walk counts over
+   *  what its rules select, so its numbers and the report row's agree. */
+  owners?: ReadonlySet<string>;
 }
 
 /* -------------------------------------------------------- required sets */
@@ -261,11 +264,14 @@ export function psetInventory(
   const typeOf = new Map(graph.products.map((p) => [p.guid, p.type_guid]));
 
   const rows: Row[] = [];
+  const keep = options.owners;
   for (const r of graph.psets ?? []) {
+    if (keep && !keep.has(r.guid)) continue;
     rows.push({ guid: r.guid, set: r.pset_name, prop: r.prop_name, value: r.value, vtype: r.value_type, fromType: r.source === "type" });
   }
   const psetRowCount = rows.length;
   for (const r of graph.quantities ?? []) {
+    if (keep && !keep.has(r.guid)) continue;
     rows.push({ guid: r.guid, set: r.qto_name, prop: r.quantity_name, value: r.value, vtype: r.quantity_type, fromType: r.source === "type" });
   }
 

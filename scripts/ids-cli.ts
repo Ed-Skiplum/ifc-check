@@ -62,6 +62,7 @@ import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
 import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
+import { NOT_A_MATERIAL, NOT_A_MATERIAL_EXAMPLES } from "../src/engine/standard-sources.ts";
 import { POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher, partExample, partShape } from "../src/engine/type-name.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList, roleRule, ruleRole } from "../src/ids/models.ts";
@@ -3634,8 +3635,8 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
   );
   const mmi: CodeLookupCheck = { type: "code-lookup", source: blankProp, codes: [], extract: defaultExtract("progress-code") };
   record(
-    "walk candidates MMI: with no codes, ranked by the presets' codes, so a width sinks",
-    "P.MMI:8 Dim.Width:52",
+    "walk candidates MMI: with no codes, ranked by the presets' codes; a width that passes by accident (2 of 52) is none",
+    "P.MMI:8",
     ranked([choice("Dim", "Width", [["123", 50], ["300", 2]]), choice("P", "MMI", [["300", 5], ["400", 3]])], "progress-code", mmi),
   );
   record(
@@ -3654,6 +3655,52 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
     }),
   );
   record("walk candidates: no property passing is no proposal", "none", ranked([choice("Dim", "Text", [["Vegg", 40]])], "system-classification", sys));
+  // Rendered 2026-10-05: `MMI.MMI dato` (20.05.2025 reads as NS 3451 class 20
+  // in the standard's form) was pre-picked as Systemkode, and on a Revit
+  // export `BaseQuantities.CrossSectionArea` passed as NS 3451.
+  record(
+    "walk candidates Systemkode: a date is no code, a quantity set is none, a property naming the list leads",
+    "BYGNINGSDEL.NS 3451 (2-sifret):30",
+    ranked(
+      [
+        choice("MMI", "MMI dato", [["20.05.2025", 39]]),
+        choice("BaseQuantities", "CrossSectionArea", [["21.5", 2]]),
+        choice("BYGNINGSDEL", "NS 3451 (2-sifret)", [["23", 30]]),
+      ],
+      "system-classification",
+      sys,
+    ),
+  );
+  record(
+    "walk candidates: only a strong candidate (named, or >= 80 % passing) may be pre-picked",
+    "Klass.NS3451:true Mixed.Kode:false",
+    rankCandidates(
+      [choice("Klass", "NS3451", [["231", 2], ["Vegg", 8]]), choice("Mixed", "Kode", [["231", 6], ["Vegg", 4]])],
+      "system-classification",
+      sys,
+      [],
+    )
+      .map((c) => `${c.set}.${c.name}:${c.strong}`)
+      .join(" "),
+  );
+  record(
+    "walk candidates Funksjonskode: values that read as codes are listed, pre-picked only from a property naming the list",
+    "MMI.MMI signatur:false P.Komp:false",
+    rankCandidates(
+      [choice("MMI", "MMI signatur", [["AB", 30], ["DUZ", 7]]), choice("P", "Komp", [["DUZ007", 9], ["AB12", 3]])],
+      "component-classification",
+      { type: "code-lookup", source: blankProp, list: "ns3457-8", target: "occurrence", extract: defaultExtract("component-classification") },
+      [],
+    )
+      .map((c) => `${c.set}.${c.name}:${c.strong}`)
+      .sort()
+      .join(" "),
+  );
+  record(
+    "not a material: each example the walk shows is refused by its own pattern",
+    NOT_A_MATERIAL.map(() => "refused").join(" "),
+    NOT_A_MATERIAL_EXAMPLES.map((v, i) => (NOT_A_MATERIAL[i].test(v) ? "refused" : `taken:${v}`)).join(" "),
+  );
 
   // The standard (src/engine/pofin-standard.ts): POFIN 2.1's sources, each
   // Uttrekk one group, the standard's own examples read to their codes.

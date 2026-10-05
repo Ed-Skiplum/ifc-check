@@ -39,6 +39,7 @@ import type { Ruleset } from "../ids/types.ts";
 import type { ImportedIds } from "../ids/import.ts";
 import { evaluateIds, type IdsModelResult } from "../ids/ids-report.ts";
 import { psetInventory } from "../engine/pset-inventory.ts";
+import { walkSelection } from "../engine/walk-selection.ts";
 import { psetChoices, VALUE_CAP, type PsetChoice } from "./pset-choices";
 // The graph -> profile reduction is shared with the restore worker, which must
 // not import this module: it would pull the wasm parser into a worker whose
@@ -388,7 +389,9 @@ function psetsHere() {
     return;
   }
   try {
-    send({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: VALUE_CAP })) });
+    // Counted over what the walk's rules select, as their report rows count.
+    const owners = walkSelection(heldGraph.products);
+    send({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: VALUE_CAP, owners })) });
   } catch (err) {
     send({ kind: "psets-error", message: err instanceof Error ? err.message : String(err) });
   }

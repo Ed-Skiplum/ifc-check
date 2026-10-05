@@ -55,6 +55,22 @@ export const NOT_A_MATERIAL: readonly RegExp[] = [
   /^<.*>$/i,
 ];
 
+/** One value each pattern above refuses, in the same order: how the walk
+ *  shows the list to someone who does not read patterns (2026-10-05); the
+ *  patterns themselves sit behind «Avansert». Data, checked by the
+ *  selftest to be refused by its own pattern. */
+export const NOT_A_MATERIAL_EXAMPLES: readonly string[] = [
+  "RAL 9010",
+  "NCS S 0500-N",
+  "lakkert",
+  "hvit",
+  "vegg",
+  "200 x 50",
+  "Default",
+  "MC_1_2_3",
+  "<By Category>",
+];
+
 export const usableMaterial = (name: string): boolean =>
   name.trim() !== "" && !NOT_A_MATERIAL.some((r) => r.test(name));
 

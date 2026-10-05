@@ -41,6 +41,7 @@ import { withTypeFacts } from "../ui/types/facts.ts";
 import { boardData } from "../ui/report-rows.ts";
 import { MeasureChannel, MeasureState, type MeasureBatch } from "../ui/measure-state.ts";
 import { psetInventory } from "../engine/pset-inventory.ts";
+import { walkSelection } from "../engine/walk-selection.ts";
 import { psetChoices, VALUE_CAP } from "../ui/pset-choices.ts";
 
 export type RestoreWorkerRequest =
@@ -198,7 +199,9 @@ function psetsHere() {
     return;
   }
   try {
-    post({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: VALUE_CAP })) });
+    // Counted over what the walk's rules select, as their report rows count.
+    const owners = walkSelection(heldGraph.products);
+    post({ kind: "psets", choices: psetChoices(psetInventory(heldGraph, heldSummary.schema, null, { examples: VALUE_CAP, owners })) });
   } catch (err) {
     post({ kind: "psets-error", message: err instanceof Error ? err.message : String(err) });
   }
