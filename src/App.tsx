@@ -57,6 +57,17 @@ const EMPTY_RULESET: Ruleset = {
   rules: [],
 };
 
+/** Inside an iframe (skiplum.com/uttun/verktoy/ifc-check): the host's frame
+ *  already names the tool, so the app bar does not name it again. A parent
+ *  that refuses the look counts as a host. */
+const EMBEDDED = (() => {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+})();
+
 export default function App() {
   const [view, setView] = useHashView();
   const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached, requestPsets } =
@@ -342,13 +353,15 @@ export default function App() {
   useEffect(() => {
     if (setupOpen) requestPsets();
   }, [setupOpen, requestPsets]);
-  // The IFC step done: the walk moves on to the first mapping.
-  const hadModels = useRef(models.length > 0);
+  // The IFC step done once a model is read: the walk moves on to the first
+  // mapping by itself. On the default entry (no step held) the page's own
+  // first step turns over with it.
+  const anyReady = models.some((m) => m.state === "ready");
+  const hadReady = useRef(anyReady);
   useEffect(() => {
-    const has = models.length > 0;
-    if (has && !hadModels.current) setSetupStep((s) => (s === "ifc" ? FIRST_MAPPING_STEP : s));
-    hadModels.current = has;
-  }, [models.length]);
+    if (anyReady && !hadReady.current) setSetupStep((s) => (s === "ifc" ? FIRST_MAPPING_STEP : s));
+    hadReady.current = anyReady;
+  }, [anyReady]);
   const setupFileName = rulesetName && /\.json$/i.test(rulesetName)
     ? rulesetName
     : `${(rulesetName ?? ruleset?.name ?? "regelsett").replace(/\.(ids|xml|xlsx)$/i, "")}.ruleset.json`;
@@ -364,6 +377,7 @@ export default function App() {
       onChange={editRuleset}
       onOpen={loadRuleset}
       onFiles={takeFiles}
+      dragging={dragging > 0}
       pofin={setupPofin}
       onPofin={setSetupPofin}
       onSave={() => {
@@ -505,13 +519,15 @@ export default function App() {
       {models.length === 0 ? (
         <>
           <header className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-1.5 py-1">
-            <button
-              type="button"
-              onClick={() => setView({ page: null })}
-              className="text-[15px] font-semibold tracking-tight text-ink"
-            >
-              {t("app.name", view.lang)}
-            </button>
+            {EMBEDDED ? null : (
+              <button
+                type="button"
+                onClick={() => setView({ page: null })}
+                className="text-[15px] font-semibold tracking-tight text-ink"
+              >
+                {t("app.name", view.lang)}
+              </button>
+            )}
             <div className="ml-auto flex items-center gap-3">
               {accountControl}
               <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
