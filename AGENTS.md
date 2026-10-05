@@ -2623,7 +2623,7 @@ Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
 | Step | Pre-picked | Confirm |
 |---|---|---|
 | Systemkode, Funksjonskode, MMI, Duplikat objekt | the rule's saved source; else the top candidate, with up to 3 more as one-click rows | «Bruk», or a click on a row |
-| Fase, Materiale / Produkt, Mengdetype | Standard (`STANDARD_SOURCES`), with any project sources after it | «Bruk» keeps the step at the standard |
+| Fase, Materiale / Produkt | Standard (`STANDARD_SOURCES`), with any project sources after it | «Bruk» keeps the step at the standard |
 | Etasjeoppsett | the saved levels, else the models' own storeys | OKFG or OKBD: the plane is the answer |
 
 - Candidates: every property in the pset inventory, run through the step's
@@ -2658,6 +2658,15 @@ Verified: `tsc`, selftest (candidate ranking: a code before its name, MMI
 against the presets, Duplikat objekt with and without values, nothing
 passing). **Not exercised in a browser**: no click of the walk, the doors,
 the focus on «Bruk» or the landing on the IDS tab has been seen.
+
+Mengdetype is not a step (2026-10-05, edkjo: "It's not something to check,
+but something to assess … it's not a property or attribute"). The walk, its
+bar, the end summary and the «Avansert» doors do not offer
+`projectLayer.material-product.mengdetype`. A ruleset that carries the list
+still loads, evaluates and is written back unchanged, JSON and workbook
+(selftest); the engine reads it as before (see "The standard layer"). The
+config template (`config-template.ts`, `eks-config-template.xlsx`) still
+carries a mengdetype row, as one row of every part the workbook takes.
 
 ### TFM (2026-10-05)
 
@@ -3227,6 +3236,32 @@ marker). HI90 says `bad` where this says `warn`.
   decided (oppfylt + avvik), HI90's is oppfylt only. Trappeløp og rampeløp is
   listed here with n 0; HI90 omits a classed ruling that touches nothing.
   HI90 says `bad` where this says `warn`.
+
+  **Mengdetype is assessed, not reported** (2026-10-05, edkjo: "it's not
+  really anything to put into the report, other than in the type
+  aggregation as a recommended master unit"). The contract above is
+  unchanged: the mengdetype `kilder`, `gren` and `mengdetype-undecided`
+  findings are still in the JSON, and the verdicts and counts are the same
+  (selftest). The screen and the browser report leave the switch out:
+  `shownSources` (`src/ui/requirements.ts`) drops the `gren: "mengdetype"`
+  sources from the «fra» line on the board and the IDS tab; `shownFinding`
+  shows a `mengdetype-undecided` finding as `empty` without its value in the
+  derivation band and on the type page, so the finding and its count stay;
+  the browser mottakskontroll report (`src/mottakskontroll/html.ts`) prints
+  no «Mengdetype» line on Produkt and Materiale, only the open rulings on a
+  line of their own («åpen»). The Python report
+  (`mottakskontroll/bygg_mottakskontroll.py`) is not changed and still prints
+  both.
+
+  **Ledeenhet in the type ledger.** The Innhold tab's type ledger
+  (`src/ui/types/`) has a Ledeenhet column: per instance, `ledeenhet()`
+  (`standard-sources.ts`, the same table lookups the switch uses) takes the
+  IFC class row when it decides, else the NS 3457 code's row (the first
+  `IfcClassificationReference` in a system naming 3457); the project's
+  mengdetype sources carry no unit and are not read. A type whose instances
+  give different units, or some none, is shown as the ledger's other mixed
+  values are; a type none decides shows «—». Not in `disagreements`. The
+  Typer gallery cards do not show it.
 
 Not in the contract yet: a
 standard-layer cascade for the classification mappings (with no mapping
