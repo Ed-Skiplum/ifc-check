@@ -12,7 +12,8 @@
  *   ← → on a chip        move it one place
  *   Delete / Backspace   remove it
  *   click / Enter        change it in place: the part, its digit count, the
- *                        separator, the text; Lokasjon's binding
+ *                        separator, the text; Lokasjon's binding, in the
+ *                        mapping layout, compact (`LokasjonMapping`)
  *   + between chips      insert a part, a separator or text there
  *
  * A bound chip names what its part is compared with (the step's property,
@@ -25,7 +26,7 @@
  * Pure parsing is `src/engine/tfm.ts`; the ranking is `candidates.ts`.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
 import { formatCount } from "../format";
@@ -43,8 +44,10 @@ import {
   sameSequence,
   tfmMatcher,
 } from "../../engine/tfm.ts";
+import { POFIN_SOURCES } from "../../engine/pofin-standard.ts";
 import { ReqResult } from "./Walk";
 import { ChipRow, PILL, type ChipFace, type ChipParse } from "./ChipRow";
+import { FromSource, MappingLayout, Mapped, OptionList, ToZone, type MapOption } from "./Mapping";
 
 /** What a chip says about its binding. `bound`: the name of what it reads.
  *  `shape`: nothing to compare, «Kun format». Absent: a part that never
@@ -101,6 +104,7 @@ function ChipEditor({
   lang,
   bindings,
   bound,
+  editor,
   onChange,
   onBind,
   onRemove,
@@ -110,6 +114,8 @@ function ChipEditor({
   /** Lokasjon only: the properties sharing its values, and the current one. */
   bindings: readonly BindingChoice[];
   bound: { set: string; name: string } | null;
+  /** Lokasjon only: the full picker, under «Endre». */
+  editor?: ReactNode;
   onChange: (token: TfmToken) => void;
   onBind: (source: { set: string; name: string } | null) => void;
   onRemove: () => void;
@@ -193,38 +199,70 @@ function ChipEditor({
           </button>
         </div>
       ) : null}
-      {token.part === "Lokasjon" ? (
-        <div className="flex flex-col gap-1">
-          {listed.map((b) => {
-            const on = bound !== null && bound.set === b.set && bound.name === b.name;
-            return (
-              <button
-                key={`${b.set}\u0000${b.name}`}
-                type="button"
-                aria-pressed={on}
-                onClick={() => onBind({ set: b.set, name: b.name })}
-                data-standard={b.standard ? true : undefined}
-                className={PILL + " flex items-baseline gap-2 text-left"}
-              >
-                {b.standard ? (
-                  <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] uppercase opacity-75">
-                    {t("setup.standard", lang)}
-                  </span>
-                ) : null}
-                <span className="min-w-0 [overflow-wrap:anywhere]">
-                  {b.set}.{b.name}
-                </span>
-                {b.n >= 0 ? <span className="ml-auto pl-3 text-[11px] tabular-nums opacity-75">{formatCount(b.n, lang)}</span> : null}
-              </button>
-            );
-          })}
-          <button type="button" aria-pressed={bound === null} onClick={() => onBind(null)} className={PILL + " text-left"}>
-            {t("tfm.none", lang)}
-          </button>
-        </div>
-      ) : null}
+      {token.part === "Lokasjon" ? <LokasjonMapping listed={listed} bound={bound} editor={editor} lang={lang} onBind={onBind} /> : null}
       {remove}
     </>
+  );
+}
+
+/** Lokasjon's binding in the mapping layout, compact (`Mapping.tsx`): TO
+ *  Lokasjon with POFIN's example, FROM the bound property, OPTIONS the
+ *  standard first with its count, the properties sharing the string's
+ *  segments, «Ingen», and «Endre» (any property, typed when the models lack
+ *  it). Its value requirement is agreement with the string's own Lokasjon
+ *  (⇄, as the chip says it). A pick binds; the step's «Bruk» writes it. */
+function LokasjonMapping({
+  listed,
+  bound,
+  editor,
+  lang,
+  onBind,
+}: {
+  listed: readonly BindingChoice[];
+  bound: { set: string; name: string } | null;
+  editor?: ReactNode;
+  lang: Lang;
+  onBind: (source: { set: string; name: string } | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const isBound = (b: { set: string; name: string }) => bound !== null && bound.set === b.set && bound.name === b.name;
+  const now = listed.find(isBound);
+  const options: MapOption[] = [
+    ...listed.map(
+      (b): MapOption => ({
+        key: `${b.set}\u0000${b.name}`,
+        tag: b.standard ? t("setup.standard", lang) : null,
+        title: `${b.set}.${b.name}`,
+        count:
+          b.n >= 0 ? (
+            <span className={"shrink-0 px-1 font-mono text-[12px] tabular-nums " + (b.n === 0 ? VERDICT_FILL.fail : "")}>
+              {formatCount(b.n, lang)}
+            </span>
+          ) : null,
+        current: isBound(b),
+        onPick: () => onBind({ set: b.set, name: b.name }),
+      }),
+    ),
+    { key: "none", title: t("tfm.none", lang), current: bound === null, onPick: () => onBind(null) },
+  ];
+  return (
+    <MappingLayout
+      compact
+      lang={lang}
+      to={<ToZone compact name="Lokasjon" form={POFIN_SOURCES["lokasjon-system"].example} />}
+      fromState={bound === null ? "empty" : now && now.n === 0 ? "missing" : "found"}
+      fromKey={bound ? `${bound.set}\u0000${bound.name}` : "none"}
+      from={
+        <FromSource
+          tag={now?.standard ? t("setup.standard", lang) : null}
+          title={bound ? `${bound.set}.${bound.name}` : null}
+          mapped={now && now.n >= 0 ? <Mapped n={now.n} total={null} lang={lang} /> : null}
+        />
+      }
+      options={<OptionList options={options} label="Lokasjon" lang={lang} more={editor ? { open, onToggle: () => setOpen((was) => !was) } : undefined} />}
+      editor={open ? editor : null}
+      requirement={<span className="font-mono text-[13px] text-ink">⇄ {t("req.tfm", lang)}</span>}
+    />
   );
 }
 
@@ -234,10 +272,13 @@ export function TfmBuilder({
   binding,
   lokasjonChoices,
   lokasjon,
+  lokasjonEditor,
   lang,
   onSequence,
   onLokasjon,
 }: {
+  /** Lokasjon's full picker: any property, or one typed in. */
+  lokasjonEditor?: ReactNode;
   sequence: readonly TfmToken[];
   /** The TFM property's listed values, most frequent first; empty with no
    *  property or no model. */
@@ -305,6 +346,7 @@ export function TfmBuilder({
             lang={lang}
             bindings={lokasjonChoices}
             bound={lokasjon}
+            editor={lokasjonEditor}
             onChange={change}
             onBind={onLokasjon}
             onRemove={remove}

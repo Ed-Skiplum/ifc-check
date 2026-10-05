@@ -27,6 +27,9 @@ export interface PofinSource {
   /** "type": the type object's own attribute, read through its elements. */
   target?: "occurrence" | "type";
   extract?: string;
+  /** The standard's own example of the value's form (2341.001): what the
+   *  walk shows as the form of the information wanted. */
+  example: string;
 }
 
 const nons = (propertySet: string, name: string): CodeSource => ({ property: { propertySet, name } });
@@ -44,6 +47,7 @@ export const POFIN_SOURCES: Record<PofinKey, PofinSource> = {
     source: nons("NONS_Reference", "RefPriSysOcc"),
     target: "occurrence",
     extract: "^(\\d{1,4})\\.\\d+(?:\\.\\d+)?$",
+    example: "2341.001",
   },
   // Forekomst: NS 3457-8 component class, then the occurrence's running
   // number with no separator (NS 3457-7, NS 8360-2): DUZ007. The class is
@@ -53,6 +57,7 @@ export const POFIN_SOURCES: Record<PofinKey, PofinSource> = {
     source: nons("NONS_Reference", "RefCompOcc"),
     target: "occurrence",
     extract: `^(${NS3457_CLASS})\\d+$`,
+    example: "DUZ007",
   },
   // Objekttypenavn: IfcRoot.Name on the type object, NS 3457-8 component
   // class + "." + a project-unique type number (NS 8360-1): DUZ.001.
@@ -61,16 +66,17 @@ export const POFIN_SOURCES: Record<PofinKey, PofinSource> = {
     source: { attribute: "Name" },
     target: "type",
     extract: `^(${NS3457_CLASS})\\.\\d+$`,
+    example: "DUZ.001",
   },
   // Lokasjon system: a location code the client sets (NS 3457-7, NS 8360-2):
   // ByggA.
-  "lokasjon-system": { key: "lokasjon-system", source: nons("NONS_Reference", "RefPriSysLoc") },
+  "lokasjon-system": { key: "lokasjon-system", source: nons("NONS_Reference", "RefPriSysLoc"), example: "ByggA" },
   // Prosesstatuskode (MMI): a three-digit code per the MMI-veileder
   // (NS 8360-1/G1): 400.
-  prosesstatuskode: { key: "prosesstatuskode", source: nons("NONS_Process", "ProcessStatus") },
+  prosesstatuskode: { key: "prosesstatuskode", source: nons("NONS_Process", "ProcessStatus"), example: "400" },
   // Duplikat objekt: the owning discipline's abbreviation, ARK, RIV …
   // (NS 8360-1/G1).
-  "duplikat-objekt": { key: "duplikat-objekt", source: nons("NONS_Process", "DuplicateOwnedBy") },
+  "duplikat-objekt": { key: "duplikat-objekt", source: nons("NONS_Process", "DuplicateOwnedBy"), example: "RIV" },
 };
 
 /** The standard a mapping step offers first. Funksjonskode is the NS 3457-8

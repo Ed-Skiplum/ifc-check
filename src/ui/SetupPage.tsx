@@ -70,14 +70,22 @@
  * «Aksepter oppsett» (the summary). A row of the prompt, or of the summary
  * after POFIN, opens its step, and the step's answer returns to the row's
  * screen (`detour`), not onward.
+ *
+ * One mapping layout (2026-10-05, `setup/Mapping.tsx`). edkjo: "What we're
+ * mapping to + what we're currently mapping from + options for mapping" ·
+ * "Mapping is the infrastructure, not the validity check." Every mapping
+ * step, the layer steps' cascades, TFM and its Lokasjon binding, and
+ * Typenavn draw TO ← FROM │ OPTIONS and, apart, the value requirement, which
+ * left «Avansert» for the step (`MappingRequirement`, the TFM builder, the
+ * type name scheme). A pick changes FROM; «Bruk» confirms and moves on.
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { hasErrors, lintRuleset } from "../ids/lint.ts";
 import { anyRoleRule, defaultCodeList, defaultExtract, everyOwnerName, roleRule } from "../ids/models.ts";
-import { STANDARD_SOURCES, type LayerSlot } from "../engine/standard-sources.ts";
-import { POFIN_SOURCES } from "../engine/pofin-standard.ts";
+import { NOT_A_MATERIAL, STANDARD_SOURCES, phaseAccepted, type LayerSlot } from "../engine/standard-sources.ts";
+import { POFIN_SOURCES, ROLE_STANDARD } from "../engine/pofin-standard.ts";
 import { POFIN_ROLES, withPofin } from "../engine/pofin-ruleset.ts";
 import { layerJudge, layerPath, layerSources, previewLayer, withLayerSources } from "./layer-steps";
 import { MMI_PRESETS, matchingPreset, presetCodes, type MmiPresetId } from "../codelists/mmi-presets.ts";
@@ -100,7 +108,7 @@ import type {
   NamePart,
   TypeNameCheck,
 } from "../ids/types.ts";
-import { STATSBYGG_SEQUENCE, formatSequence, tfmRegexSource } from "../engine/tfm.ts";
+import { STATSBYGG_SEQUENCE, exampleText, formatSequence, tfmRegexSource } from "../engine/tfm.ts";
 import type { Lang, StringKey } from "./i18n";
 import { hasString, locale, t } from "./i18n";
 import { Switch } from "./Switch";
@@ -121,10 +129,8 @@ import { TypeNameStep } from "./setup/TypeNameStep";
 import { partName } from "../engine/type-name.ts";
 import { stateLook } from "./alt/req-view";
 import {
-  Alternatives,
   CONFIRM,
   Door,
-  Evidence,
   Landed,
   MappingStep,
   ProposalCard,
@@ -134,6 +140,9 @@ import {
   WalkProgress,
   type CurrentSource,
 } from "./setup/Walk";
+import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, ToZone, Valid, type MapOption } from "./setup/Mapping";
+import { PILL } from "./setup/ChipRow";
+import type { Requirement } from "./requirements";
 import {
   extractedCodes,
   hasLevel,
@@ -1098,15 +1107,11 @@ function MappingCard({
     rule && (rule.check.type === "code-lookup" || rule.check.type === "copy-object") ? rule.check : blankCheck(role);
   const source = check.source;
   const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
-  // Each issue at the field it concerns; the rest at the card's foot.
+  // Each issue at the field it concerns; the rest at the card's foot. The
+  // source's print at the step's editor, the list's, codes' and values' in
+  // the step's requirement zone.
   const fieldOf = (issue: LintIssue) => /\.check\.(source|extract|codes|list|copy|own)(?=[.[]|$)/.exec(issue.path)?.[1] ?? null;
   const at = (field: string | null) => (active ? issues.filter((i) => fieldOf(i) === field) : []);
-  const codeSubject = (issue: LintIssue) => {
-    const m = /\.check\.codes\[(\d+)\]/.exec(issue.path);
-    if (!m || check.type !== "code-lookup") return null;
-    const i = Number(m[1]);
-    return check.codes?.[i]?.code || `#${i + 1}`;
-  };
   const classification = role === "system-classification" || role === "component-classification";
   // The picked property as the model has it: its values feed the values
   // list, the extract preview and the example's suggestions.
@@ -1120,8 +1125,6 @@ function MappingCard({
   // always shows; a typed or picked one replaces it until the property changes.
   const propKey = "property" in source ? `${source.property.propertySet}\u0000${source.property.name}` : "";
   const [typed, setTyped] = useState<{ key: string; value: string } | null>(null);
-  // The MMI preset waiting on the replace ask.
-  const [replacing, setReplacing] = useState<MmiPresetId | null>(null);
   const example = typed !== null && typed.key === propKey ? typed.value : (prop?.values[0]?.v ?? "");
   const setExample = (value: string) => setTyped({ key: propKey, value });
   const exampleRef = useRef<HTMLInputElement>(null);
@@ -1164,28 +1167,6 @@ function MappingCard({
 
       {classification && check.type === "code-lookup" ? (
         <div className="flex flex-wrap gap-3">
-          <Field label={t("field.list", lang)}>
-            <select
-              className={INPUT}
-              aria-invalid={invalid("list")}
-              value={check.list ?? ""}
-              onChange={(e) =>
-                onCheck({
-                  ...check,
-                  list: e.target.value as CodeLookupCheck["list"],
-                  codes: undefined,
-                })
-              }
-            >
-              {check.list === undefined ? <option value="" /> : null}
-              {CODE_LIST_IDS.map((id) => (
-                <option key={id} value={id}>
-                  {CODE_LISTS[id].meta.label}
-                </option>
-              ))}
-            </select>
-            <IssueLines issues={at("list")} lang={lang} />
-          </Field>
           <div className="flex flex-col gap-1">
             <span className={LABEL}>{t("field.target", lang)}</span>
             <Seg
@@ -1238,79 +1219,149 @@ function MappingCard({
             />
           </div>
           <IssueLines issues={at("extract")} lang={lang} />
+          {/* The codes themselves are the step's requirement zone
+              (`MappingRequirement`); their sheet, a file action, stays. */}
           {role === "progress-code" ? (
-            <>
-              <Seg
-                options={MMI_PRESETS.map((p) => p.id)}
-                value={matchingPreset(check.codes ?? [])}
-                label={(id) => presetName(id)}
-                onChange={(id) => {
-                  const codes = check.codes ?? [];
-                  // Never replace a list silently: one that holds other codes asks.
-                  if (codes.length === 0 || matchingPreset(codes) === id) onCheck({ ...check, codes: presetCodes(id) });
-                  else setReplacing(id);
-                }}
-              />
-              {replacing !== null ? (
-                <EnableDialog
-                  title={presetName(replacing)}
-                  confirm="action.apply"
-                  lang={lang}
-                  onCancel={() => setReplacing(null)}
-                  onConfirm={() => {
-                    const id = replacing;
-                    setReplacing(null);
-                    onCheck({ ...check, codes: presetCodes(id) });
-                  }}
-                />
-              ) : null}
-              <CodesTable
-                codes={check.codes ?? []}
-                issues={issues}
-                lang={lang}
-                onChange={(codes) => onCheck({ ...check, codes })}
-              />
-              <IssueLines issues={at("codes")} lang={lang} subject={codeSubject} />
-              <TemplateButtons
-                fileName={templateFileName(rulesetName, "mmi")}
-                lang={lang}
-                onDownload={async () => {
-                  const { writeCodesXlsx } = await import("../ids/xlsx.ts");
-                  const extracted = prop ? extractedCodes(check.extract, prop.values) : [];
-                  return writeCodesXlsx(withCodes(check.codes ?? [], extracted));
-                }}
-                onUpload={async (bytes) => {
-                  const { readCodesXlsx } = await import("../ids/xlsx.ts");
-                  onCheck({ ...check, codes: readCodesXlsx(bytes) });
-                }}
-              />
-            </>
+            <TemplateButtons
+              fileName={templateFileName(rulesetName, "mmi")}
+              lang={lang}
+              onDownload={async () => {
+                const { writeCodesXlsx } = await import("../ids/xlsx.ts");
+                const extracted = prop ? extractedCodes(check.extract, prop.values) : [];
+                return writeCodesXlsx(withCodes(check.codes ?? [], extracted));
+              }}
+              onUpload={async (bytes) => {
+                const { readCodesXlsx } = await import("../ids/xlsx.ts");
+                onCheck({ ...check, codes: readCodesXlsx(bytes) });
+              }}
+            />
           ) : null}
         </div>
-      ) : (
+      ) : null}
+
+      <IssueLines issues={at(null)} lang={lang} />
+    </section>
+  );
+}
+
+/** A mapping step's value requirement, on the step (2026-10-05, edkjo:
+ *  "if there are any quality requirements to the value itself. Mapping is
+ *  the infrastructure, not the validity check"): what the rule can already
+ *  say, edited where it is shown. Systemkode, Funksjonskode: the bundled
+ *  code list (lint wants one, so there is no «Ingen»). MMI: «Kun format»
+ *  (`codes: []`, the Uttrekk's format alone, shown), a preset, or the
+ *  project's own codes. Duplikat objekt: the copy and own values, «Ingen»
+ *  when both are empty. Its issues print here. */
+function MappingRequirement({
+  role,
+  check,
+  issues,
+  lang,
+  onCheck,
+}: {
+  role: CardRole;
+  check: MappingCheck;
+  issues: LintIssue[];
+  lang: Lang;
+  onCheck: (next: MappingCheck) => void;
+}) {
+  // The MMI codes waiting on the replace ask, and what they are named by.
+  const [replacing, setReplacing] = useState<{ title: string; codes: CodeEntry[] } | null>(null);
+  const at = (field: string) => issues.filter((i) => new RegExp(`\\.check\\.${field}(?=[.[]|$)`).test(i.path));
+  if (check.type === "copy-object") {
+    const none = check.copy.length === 0 && check.own.length === 0;
+    return (
+      <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end gap-3">
+          <button
+            type="button"
+            aria-pressed={none}
+            onClick={() => onCheck({ ...check, copy: [], own: [] })}
+            className={PILL + " self-end"}
+          >
+            {t("tfm.none", lang)}
+          </button>
           <Field label={t("field.copy", lang)}>
             <ValuesInput
               values={check.copy}
-              invalid={invalid("copy")}
+              invalid={at("copy").length > 0}
               onChange={(copy) => onCheck({ ...check, copy })}
             />
           </Field>
           <Field label={t("field.own", lang)}>
-            <ValuesInput
-              values={check.own}
-              invalid={invalid("own")}
-              onChange={(own) => onCheck({ ...check, own })}
-            />
+            <ValuesInput values={check.own} invalid={at("own").length > 0} onChange={(own) => onCheck({ ...check, own })} />
           </Field>
-          <div className="basis-full">
-            <IssueLines issues={[...at("copy"), ...at("own")]} lang={lang} />
-          </div>
         </div>
-      )}
-
-      <IssueLines issues={at(null)} lang={lang} />
-    </section>
+        <IssueLines issues={[...at("copy"), ...at("own")]} lang={lang} />
+      </div>
+    );
+  }
+  if (role === "progress-code") {
+    const codes = check.codes ?? [];
+    const preset = matchingPreset(codes);
+    // Never replace a list silently: one that holds other codes asks.
+    const take = (title: string, next: CodeEntry[]) => {
+      if (codes.length === 0 || (next.length > 0 && matchingPreset(next) === preset)) onCheck({ ...check, codes: next });
+      else setReplacing({ title, codes: next });
+    };
+    const codeSubject = (issue: LintIssue) => {
+      const m = /\.check\.codes\[(\d+)\]/.exec(issue.path);
+      if (!m) return null;
+      const i = Number(m[1]);
+      return codes[i]?.code || `#${i + 1}`;
+    };
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" aria-pressed={codes.length === 0} onClick={() => take(t("tfm.shapeOnly", lang), [])} className={PILL}>
+            {t("tfm.shapeOnly", lang)}
+          </button>
+          {MMI_PRESETS.map((p) => (
+            <button key={p.id} type="button" aria-pressed={preset === p.id} onClick={() => take(presetName(p.id), presetCodes(p.id))} className={PILL}>
+              {presetName(p.id)}
+            </button>
+          ))}
+        </div>
+        {codes.length === 0 ? (
+          <code data-format className="w-fit bg-panel px-2 py-1 font-mono text-[12px] break-all text-ink">
+            {check.extract}
+          </code>
+        ) : null}
+        <CodesTable codes={codes} issues={issues} lang={lang} onChange={(next) => onCheck({ ...check, codes: next })} />
+        <IssueLines issues={at("codes")} lang={lang} subject={codeSubject} />
+        {replacing !== null ? (
+          <EnableDialog
+            title={replacing.title}
+            confirm="action.apply"
+            lang={lang}
+            onCancel={() => setReplacing(null)}
+            onConfirm={() => {
+              const next = replacing.codes;
+              setReplacing(null);
+              onCheck({ ...check, codes: next });
+            }}
+          />
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-1.5">
+        {CODE_LIST_IDS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={check.list === id}
+            onClick={() => onCheck({ ...check, list: id, codes: undefined })}
+            className={PILL}
+          >
+            {CODE_LISTS[id].meta.label}
+          </button>
+        ))}
+      </div>
+      <IssueLines issues={at("list")} lang={lang} />
+    </div>
   );
 }
 
@@ -1492,7 +1543,9 @@ function LayerList({
   viaMmi: boolean;
   lang: Lang;
   onChange: (next: PhaseSource[]) => void;
-  onKeep: () => void;
+  /** The standard's own pick; absent where the standard is an option of
+   *  the step's mapping layout. */
+  onKeep?: () => void;
   onNext: () => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -1505,7 +1558,9 @@ function LayerList({
   return (
     <div className="flex flex-col gap-3" data-layer={slot}>
       {label ? <h2 className="m-0 text-sm font-medium text-ink">{label}</h2> : null}
-      <StandardPick names={STANDARD_SOURCES[slot]} picked={kept || sources.length > 0} lang={lang} onPick={onKeep} />
+      {onKeep ? (
+        <StandardPick names={STANDARD_SOURCES[slot]} picked={kept || sources.length > 0} lang={lang} onPick={onKeep} />
+      ) : null}
       {items.map((source, i) =>
         source !== null && "progressCode" in source ? (
           <section key={i} data-layer-source className="flex flex-col gap-2 border border-line bg-panel p-4">
@@ -1559,6 +1614,181 @@ function LayerList({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** A layer cascade's result, split as the mapping layout splits it, per
+ *  model, off the report row the engine wrote (cascade-aware, so nothing is
+ *  counted twice): MAPPED, the elements a source of this cascade answered
+ *  for (`dekning.kilder`, the branch's own on `material-product`) of the
+ *  products the row judges; VALID, of those, a value the standard layer
+ *  takes and one it does not (`avvik`; on `material-product` only a
+ *  material can be avvik). */
+type LayerSplit = { model: string; mapped: number; of: number; ok: number; bad: number };
+
+function layerSplit(slot: LayerSlot, results: readonly { model: string; req: Requirement | null }[]): LayerSplit[] {
+  const gren = slot === "product" ? "telleobjekt" : slot === "material" ? "mengdeobjekt" : undefined;
+  return results.flatMap(({ model, req }) => {
+    const d = req?.row?.dekning;
+    if (!d || d.grunnlag === null || !d.kilder) return [];
+    const kilder = d.kilder.filter((k) => gren === undefined || k.gren === gren);
+    if (kilder.some((k) => k.n === null)) return [];
+    const mapped = kilder.reduce((n, k) => n + (k.n ?? 0), 0);
+    const bad = slot === "product" ? 0 : (d.avvik ?? 0);
+    return [{ model, mapped, of: d.grunnlag, ok: mapped - bad, bad }];
+  });
+}
+
+/** One cascade of a layer step (Fase; Produkt and Materiale, the two
+ *  branches of Materiale / Produkt) in the mapping layout (`Mapping.tsx`).
+ *  FROM is the cascade as read: the standard's sources, then the project's
+ *  (+). OPTIONS: the standard (always read first, so always current; a pick
+ *  keeps the step at it), «Via MMI» on Fase once the MMI codes carry
+ *  phases, and «Endre», the project's sources (`LayerList`). The
+ *  requirement is what the standard layer takes (`layerJudge`), as data:
+ *  Fase the accepted phases, Materiale a name none of `NOT_A_MATERIAL`
+ *  matches, Produkt «Ingen» (any value is a product, so MAPPED alone). */
+function LayerBranch({
+  slot,
+  to,
+  sources,
+  accepted,
+  picker,
+  issues,
+  judge,
+  viaMmi,
+  results,
+  kept,
+  lang,
+  onChange,
+  onKeep,
+  onNext,
+}: {
+  slot: LayerSlot;
+  to: React.ReactNode;
+  sources: PhaseSource[];
+  /** Fase: the phases the standard layer takes. */
+  accepted: readonly string[];
+  picker: Picker;
+  issues: LintIssue[];
+  judge: (value: string) => boolean;
+  /** Offer «Via MMI»: the MMI step's codes carry phases. */
+  viaMmi: boolean;
+  results: readonly { model: string; req: Requirement | null }[];
+  lang: Lang;
+  onChange: (next: PhaseSource[]) => void;
+  /** The standard picked: kept, or a project source after it. */
+  kept: boolean;
+  /** The standard's pick, a toggle as `StandardPick`'s: off only with no
+   *  project source, and then the step is not done. */
+  onKeep: () => void;
+  onNext: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const splits = layerSplit(slot, results);
+  const standard = STANDARD_SOURCES[slot];
+  const hasMmi = sources.some((s) => "progressCode" in s);
+  const options: MapOption[] = [
+    { key: "standard", tag: t("setup.standard", lang), title: standard.join(" · "), current: kept, onPick: onKeep },
+    ...(viaMmi || hasMmi
+      ? [
+          {
+            key: "via-mmi",
+            title: t("setup.viaMmi", lang),
+            current: hasMmi,
+            onPick: () => (hasMmi ? undefined : onChange([...sources, { progressCode: {} }])),
+          },
+        ]
+      : []),
+  ];
+  const DATUM = "border border-line bg-panel px-2 py-0.5 font-mono text-[12px] text-ink";
+  return (
+    <MappingLayout
+      lang={lang}
+      to={to}
+      fromState={splits.length > 0 && splits.every((s) => s.mapped === 0) ? "missing" : "found"}
+      from={
+        <FromSource
+          tag={t("setup.standard", lang)}
+          title={
+            <>
+              {standard.map((name) => (
+                <span key={name}>{name}</span>
+              ))}
+              {sources.map((source, i) => (
+                <span key={i}>+ {sourceText(source, lang)}</span>
+              ))}
+            </>
+          }
+          mapped={
+            splits.length > 0 ? (
+              <span className="flex flex-wrap gap-x-4 gap-y-1">
+                {splits.map((s) => (
+                  <span key={s.model} title={s.model}>
+                    <Mapped n={s.mapped} total={s.of} lang={lang} />
+                  </span>
+                ))}
+              </span>
+            ) : null
+          }
+        />
+      }
+      options={<OptionList options={options} label={t(`field.${slot}` as StringKey, lang)} lang={lang} more={{ open: editing, onToggle: () => setEditing((was) => !was) }} />}
+      editor={
+        editing ? (
+          <div data-source-editor className="border border-line bg-panel p-4">
+            <LayerList
+              slot={slot}
+              sources={sources}
+              kept
+              picker={picker}
+              issues={issues}
+              judge={judge}
+              viaMmi={false}
+              lang={lang}
+              onChange={onChange}
+              onNext={onNext}
+            />
+          </div>
+        ) : null
+      }
+      requirement={
+        <>
+          <div data-layer-requirement={slot} className="flex flex-wrap items-center gap-1.5">
+            {slot === "phase" ? (
+              accepted.map((v) => (
+                <span key={v} className={DATUM}>
+                  {v}
+                </span>
+              ))
+            ) : slot === "material" ? (
+              <>
+                <span aria-hidden="true" className="font-mono text-[15px] text-ink">
+                  ≠
+                </span>
+                {NOT_A_MATERIAL.map((r) => (
+                  <span key={r.source} className={DATUM + " text-muted"}>
+                    {r.source}
+                  </span>
+                ))}
+              </>
+            ) : (
+              <span className={DATUM}>{t("tfm.none", lang)}</span>
+            )}
+          </div>
+          {slot !== "product" && splits.length > 0 ? (
+            <span data-valid className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              {splits.map((s) => (
+                <span key={s.model} title={s.model} className="inline-flex items-center gap-1.5">
+                  <StateChip state="ok" count={s.ok} lang={lang} />
+                  {s.bad > 0 ? <StateChip state="not-in-list" count={s.bad} lang={lang} /> : null}
+                </span>
+              ))}
+            </span>
+          ) : null}
+        </>
+      }
+    />
   );
 }
 
@@ -2267,6 +2497,10 @@ export function SetupPage({
     />
   ) : null;
 
+  // The steps whose name is the mapping layout's TO (Materiale / Produkt
+  // keeps its heading: its two branches are the TOs).
+  const inTo = isMappingStep(current) || current === "type-name" || current === "tfm" || current === "phase";
+
   let body: React.ReactNode;
   if (current === "start") {
     // «POFIN»: the template on the working copy, nothing saved.
@@ -2410,62 +2644,47 @@ export function SetupPage({
       setKept((was) => new Set([...was, ...slots]));
       advance(<ReqResult results={result} lang={lang} />);
     };
+    // Each cascade in the mapping layout; one «Bruk» for the step. The
+    // project's sources, once under «Avansert», are its OPTIONS' «Endre»;
+    // nothing else was behind that door, so the step has none.
     body = (
       <div className="flex flex-col gap-5">
-        <ProposalCard key={current} title={t("setup.standard", lang)} confirm={t("action.apply", lang)} onConfirm={keep}>
-          <div className="flex flex-col gap-3">
-            {slots.map((slot) => (
-              <div key={slot} data-layer-pick={slot} className="flex flex-col gap-1">
-                {slots.length > 1 ? (
-                  <span className={LABEL}>{t(slot === "product" ? "field.product" : "field.material", lang)}</span>
-                ) : null}
-                {STANDARD_SOURCES[slot].map((name) => (
-                  <span key={name} className="truncate font-mono text-[13px] text-ink">
-                    {name}
-                  </span>
-                ))}
-                {layerSources(ruleset, slot).map((source, i) => (
-                  <span key={i} className="truncate font-mono text-[13px] text-ink">
-                    + {sourceText(source, lang)}
-                  </span>
-                ))}
-              </div>
-            ))}
-            <ReqResult results={result} lang={lang} />
-          </div>
-        </ProposalCard>
+        {slots.map((slot) => (
+          <LayerBranch
+            key={`${current}\u0000${slot}`}
+            slot={slot}
+            to={
+              slots.length > 1 ? (
+                <ToZone as="h2" name={t(slot === "product" ? "field.product" : "field.material", lang)} />
+              ) : (
+                <ToZone name={stepLabel(current, lang)} />
+              )
+            }
+            sources={layerSources(ruleset, slot)}
+            accepted={phaseAccepted(ruleset)}
+            picker={picker}
+            issues={layerIssues(slot)}
+            judge={layerJudge(slot, ruleset)}
+            viaMmi={slot === "phase" && mmiPhases}
+            results={result}
+            lang={lang}
+            onChange={(nextSources) => onChange(withLayerSources(ruleset, slot, nextSources))}
+            kept={kept.has(slot) || layerSources(ruleset, slot).length > 0}
+            onKeep={() =>
+              setKept((was) => {
+                const now = new Set(was);
+                if (now.has(slot) && layerSources(ruleset, slot).length === 0) now.delete(slot);
+                else now.add(slot);
+                return now;
+              })
+            }
+            onNext={keep}
+          />
+        ))}
+        <button type="button" autoFocus data-step-confirm onClick={keep} className={CONFIRM + " sm:self-end"}>
+          {t("action.apply", lang)} →
+        </button>
         {nav}
-        <Door label={t("setup.advanced", lang)}>
-          <div key={current} className="flex flex-col gap-6">
-            {slots.map((slot) => {
-              const sources = layerSources(ruleset, slot);
-              return (
-                <LayerList
-                  key={slot}
-                  slot={slot}
-                  label={slots.length > 1 ? t(slot === "product" ? "field.product" : "field.material", lang) : undefined}
-                  sources={sources}
-                  kept={kept.has(slot)}
-                  picker={picker}
-                  issues={layerIssues(slot)}
-                  judge={layerJudge(slot, ruleset)}
-                  viaMmi={slot === "phase" && mmiPhases && !sources.some((s) => "progressCode" in s)}
-                  lang={lang}
-                  onChange={(nextSources) => onChange(withLayerSources(ruleset, slot, nextSources))}
-                  onKeep={() =>
-                    setKept((was) => {
-                      const now = new Set(was);
-                      if (now.has(slot) && sources.length === 0) now.delete(slot);
-                      else now.add(slot);
-                      return now;
-                    })
-                  }
-                  onNext={keep}
-                />
-              );
-            })}
-          </div>
-        </Door>
       </div>
     );
   } else if (current === "storeys") {
@@ -2644,87 +2863,76 @@ export function SetupPage({
       onStep(next);
     };
     const blankProperty = { propertySet: "", name: "" };
-    const others = tfmRanked.filter((c) => !(property && c.set === property.propertySet && c.name === property.name)).slice(0, 3);
+    // The mapping layout: FROM the draft's property, OPTIONS the ranked
+    // candidates (the draft's own first when they lack it), the sequence
+    // builder the requirement zone. A pick swaps the property and moves
+    // nothing on: the sequence is half the answer. No standard source: the
+    // TFM string is not RefCompOcc.
+    const savedProp = tfmSaved && "property" in tfmSaved.source ? tfmSaved.source.property : null;
+    const isProp = (p: { propertySet: string; name: string } | null, set: string, name: string) =>
+      p !== null && p.propertySet === set && p.name === name;
+    const savedTag = (set: string, name: string) => (isProp(savedProp, set, name) ? t("label.ruleset", lang) : null);
+    const ranked = tfmRanked.slice(0, 4);
+    const tfmOptions: MapOption[] = [
+      ...(property && !ranked.some((c) => isProp(property, c.set, c.name))
+        ? [
+            {
+              key: "draft",
+              tag: savedTag(property.propertySet, property.name),
+              title: `${property.propertySet}.${property.name}`,
+              count: picker.choices ? <OptionCount n={prop?.n ?? 0} total={picker.total} current lang={lang} /> : null,
+              current: true,
+              onPick: () => {},
+            },
+          ]
+        : []),
+      ...ranked.map(
+        (c): MapOption => ({
+          key: `c\u0000${c.set}\u0000${c.name}`,
+          tag: savedTag(c.set, c.name),
+          title: `${c.set}.${c.name}`,
+          count: <OptionCount n={c.prop.n} total={picker.total} current={isProp(property, c.set, c.name)} lang={lang} />,
+          current: isProp(property, c.set, c.name),
+          onPick: () => update({ source: { property: { propertySet: c.set, name: c.name } } }),
+        }),
+      ),
+    ];
+    // Nothing to propose: the picker is open from the start.
+    const tfmOpen = tfmEditing || (draft.source === null && picker.choices !== null);
     body = (
       <div className="flex flex-col gap-5">
-        {draft.source === null ? (
-          <div className="flex flex-col gap-4">
-            {picker.reading ? (
-              <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span>
-            ) : picker.choices !== null ? (
-              <div data-no-candidate className="flex items-center gap-3">
-                <StateChip state="no-match" lang={lang} />
-                <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
-              </div>
-            ) : null}
-            {picker.choices !== null ? (
-              <PropertyPicker
-                value={blankProperty}
-                choices={picker.choices}
-                reading={picker.reading}
-                errors={picker.errors}
-                total={picker.total}
-                manual={false}
-                invalidSet={false}
-                invalidName={false}
-                lang={lang}
-                onChange={(p) => update({ source: { property: p } })}
-                onNext={() => {}}
-              />
-            ) : null}
-          </div>
-        ) : null}
-        <div className="flex flex-col gap-3">
-          <ProposalCard
-            key={property ? `${property.propertySet}\u0000${property.name}` : "tfm"}
-            head={property ? property.propertySet : draft.source ? sourceText(draft.source, lang) : undefined}
-            title={property ? property.name : undefined}
-            missing={missing}
-            actions={
-              <button
-                type="button"
-                autoFocus
-                data-step-confirm
-                disabled={!ready}
-                onClick={confirmTfm}
-                className={CONFIRM + " disabled:cursor-not-allowed disabled:opacity-40 sm:self-end"}
-              >
-                {t("action.apply", lang)} →
-              </button>
-            }
-          >
-            {prop ? <Evidence prop={prop} preview={previewTfm(clean, prop.values)} total={picker.total} lang={lang} /> : null}
-            <TfmBuilder
-              sequence={draft.sequence}
-              values={prop?.values ?? []}
-              binding={binding}
-              lokasjonChoices={[
-                { set: lokStd.property.propertySet, name: lokStd.property.name, n: lokStdN, standard: true },
-                ...(picker.choices && prop ? rankPartBindings(picker.choices, clean, prop.values, "Lokasjon") : []).filter(
-                  (b) => !(b.set === lokStd.property.propertySet && b.name === lokStd.property.name),
-                ),
-              ]}
-              lokasjon={lokasjonProp ? { set: lokasjonProp.propertySet, name: lokasjonProp.name } : null}
-              lang={lang}
-              onSequence={(sequence) => update({ sequence })}
-              onLokasjon={(b) => update({ lokasjon: b ? { property: { propertySet: b.set, name: b.name } } : null })}
+        <MappingLayout
+          lang={lang}
+          to={<ToZone name={stepLabel("tfm", lang)} form={STATSBYGG_SEQUENCE.map(exampleText).join("")} />}
+          fromState={draft.source === null ? "empty" : missing ? "missing" : "found"}
+          fromKey={property ? `${property.propertySet}\u0000${property.name}` : "tfm"}
+          from={
+            <FromSource
+              tag={property ? savedTag(property.propertySet, property.name) : null}
+              title={property ? `${property.propertySet}.${property.name}` : draft.source ? sourceText(draft.source, lang) : null}
+              mapped={prop ? <Mapped n={prop.n} total={picker.total} lang={lang} /> : missing ? <Mapped n={0} total={picker.total} lang={lang} /> : null}
             />
-            <button
-              type="button"
-              data-source-edit
-              aria-expanded={tfmEditing}
-              onClick={() => setTfmEditing((was) => !was)}
-              className="w-fit border border-line px-3 py-1 text-[12px] text-ink hover:border-green hover:text-green"
+          }
+          options={
+            <OptionList
+              options={tfmOptions}
+              label={stepLabel("tfm", lang)}
+              lang={lang}
+              more={{ open: tfmOpen, onToggle: () => setTfmEditing(!tfmOpen) }}
             >
-              {t("action.change", lang)}
-            </button>
-          </ProposalCard>
-          {/* The mapping on the step: the property carrying the string, and
-              Lokasjon's, either one typed in when the models lack it. */}
-          {tfmEditing ? (
-            <div data-source-editor className="flex flex-col gap-5 border border-line bg-panel p-4">
-              <div className="flex flex-col gap-1">
-                <span className={LABEL}>{t("req.tfm", lang)}</span>
+              {picker.reading ? (
+                <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span>
+              ) : picker.choices !== null && draft.source === null ? (
+                <div data-no-candidate className="flex items-center gap-3">
+                  <StateChip state="no-match" lang={lang} />
+                  <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
+                </div>
+              ) : null}
+            </OptionList>
+          }
+          editor={
+            tfmOpen ? (
+              <div data-source-editor className="border border-line bg-panel p-4">
                 <PropertyPicker
                   value={property ?? blankProperty}
                   choices={picker.choices}
@@ -2734,36 +2942,64 @@ export function SetupPage({
                   invalidSet={false}
                   invalidName={false}
                   lang={lang}
-                  onChange={(p) => update({ source: p.propertySet === "" && p.name === "" ? null : { property: p } })}
+                  onChange={(p) => {
+                    // Typing a set the models lack keeps the picker open.
+                    setTfmEditing(true);
+                    update({ source: p.propertySet === "" && p.name === "" ? null : { property: p } });
+                  }}
                   onNext={() => {}}
                 />
               </div>
-              <div className="flex flex-col gap-1">
-                {/* A part name, a term of art the same in both languages. */}
-                <span className={LABEL}>Lokasjon</span>
-                <PropertyPicker
-                  value={lokasjonProp ?? blankProperty}
-                  choices={picker.choices}
-                  reading={picker.reading}
-                  errors={picker.errors}
-                  total={picker.total}
-                  invalidSet={false}
-                  invalidName={false}
-                  lang={lang}
-                  onChange={(p) => update({ lokasjon: p.propertySet === "" && p.name === "" ? null : { property: p } })}
-                  onNext={() => {}}
-                />
-              </div>
-            </div>
-          ) : null}
-          {/* Another property is another source for the same builder, not a
-              way on: the sequence is half the answer. */}
-          <Alternatives
-            candidates={others}
-            lang={lang}
-            onPick={(c) => update({ source: { property: { propertySet: c.set, name: c.name } } })}
-          />
-        </div>
+            ) : null
+          }
+          requirement={
+            <>
+              <TfmBuilder
+                sequence={draft.sequence}
+                values={prop?.values ?? []}
+                binding={binding}
+                lokasjonChoices={[
+                  { set: lokStd.property.propertySet, name: lokStd.property.name, n: lokStdN, standard: true },
+                  ...(picker.choices && prop ? rankPartBindings(picker.choices, clean, prop.values, "Lokasjon") : []).filter(
+                    (b) => !(b.set === lokStd.property.propertySet && b.name === lokStd.property.name),
+                  ),
+                ]}
+                lokasjon={lokasjonProp ? { set: lokasjonProp.propertySet, name: lokasjonProp.name } : null}
+                lokasjonEditor={
+                  <PropertyPicker
+                    value={lokasjonProp ?? blankProperty}
+                    choices={picker.choices}
+                    reading={picker.reading}
+                    errors={picker.errors}
+                    total={picker.total}
+                    invalidSet={false}
+                    invalidName={false}
+                    lang={lang}
+                    onChange={(p) => update({ lokasjon: p.propertySet === "" && p.name === "" ? null : { property: p } })}
+                    onNext={() => {}}
+                  />
+                }
+                lang={lang}
+                onSequence={(sequence) => update({ sequence })}
+                onLokasjon={(b) => update({ lokasjon: b ? { property: { propertySet: b.set, name: b.name } } : null })}
+              />
+              {/* VALID: the values off the sequence are the chip row's own. */}
+              {prop ? <Valid prop={prop} preview={previewTfm(clean, prop.values)} failing={false} lang={lang} /> : null}
+            </>
+          }
+          confirm={
+            <button
+              type="button"
+              autoFocus
+              data-step-confirm
+              disabled={!ready}
+              onClick={confirmTfm}
+              className={CONFIRM + " disabled:cursor-not-allowed disabled:opacity-40 sm:self-end"}
+            >
+              {t("action.apply", lang)} →
+            </button>
+          }
+        />
         {nav}
         <Door label={t("setup.advanced", lang)}>
           <div className="flex flex-col gap-5">
@@ -2801,8 +3037,10 @@ export function SetupPage({
       <div className="flex flex-col gap-5">
         <TypeNameStep
           key={saved ? JSON.stringify(saved) : "pofin"}
+          name={stepLabel("type-name", lang)}
           saved={saved}
           typeNames={typeNames}
+          total={picker.total}
           typed={<ReqResult results={typedResults} lang={lang} />}
           lang={lang}
           onConfirm={confirmName}
@@ -2885,7 +3123,18 @@ export function SetupPage({
           total={picker.total}
           ownerNames={ownerNames}
           lang={lang}
+          name={stepLabel(r, lang)}
+          form={POFIN_SOURCES[ROLE_STANDARD[r]].example}
           pinned={pofin}
+          requirement={
+            <MappingRequirement
+              role={r}
+              check={c}
+              issues={rule && rule.enabled !== false ? lint.filter((i) => i.ruleId === rule.id) : []}
+              lang={lang}
+              onCheck={(nextCheck) => setCheck(r, nextCheck)}
+            />
+          }
           onCandidate={confirmCandidate}
           onCurrent={confirmCurrent}
           onStandard={(option) => {
@@ -2925,8 +3174,9 @@ export function SetupPage({
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-4 pb-10">
-      {/* ONE bounded column: the bar, what just landed, the question. */}
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      {/* ONE bounded column: the bar, what just landed, the question. Wide
+          enough for the mapping layout's TO ← FROM │ OPTIONS in one row. */}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <div className="flex items-center gap-4">
           {current === "start" || current === "pofin" ? (
             <div className="flex-1" />
@@ -3014,7 +3264,8 @@ export function SetupPage({
         ) : null}
 
         <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-col gap-5">
-          {current === "start" ? null : <h1 className={H1}>{stepLabel(current, lang)}</h1>}
+          {/* A step in the mapping layout carries its name in TO. */}
+          {current === "start" || inTo ? null : <h1 className={H1}>{stepLabel(current, lang)}</h1>}
           {body}
         </section>
       </div>

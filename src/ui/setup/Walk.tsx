@@ -1,6 +1,7 @@
-/** The walk's own pieces (2026-10-05): the progress bar, the proposal card
- *  with its evidence, the alternatives, the landed result, the step's way
- *  on and back, and the door every config control sits behind.
+/** The walk's own pieces (2026-10-05): the progress bar, the proposal card,
+ *  the mapping step (in the one mapping layout, `Mapping.tsx`), the landed
+ *  result, the step's way on and back, and the door the rest of the config
+ *  sits behind.
  *
  * edkjo: "Too many clicks and options/traces from the original basic config
  * page. Didn't get the full conversion to the super intuitive pull-me-through
@@ -14,13 +15,13 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
-import { formatCount } from "../format";
 import { VERDICT_FILL } from "../state-visuals";
 import type { PsetChoice, PsetProp } from "../pset-choices";
 import type { ExtractPreview } from "../extract-preview";
 import type { Requirement } from "../requirements";
 import { figures, stateLook } from "../alt/req-view";
-import { StateChip, TotalChips } from "./chips";
+import { StateChip } from "./chips";
+import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, ToZone, Valid, type MapOption } from "./Mapping";
 import {
   evidence,
   prePick,
@@ -31,6 +32,8 @@ import {
   type MappingCheck,
   type StandardOption,
 } from "./candidates";
+
+export { Figure } from "./Mapping";
 
 /** The bar: one segment per step, filled once the step is done, the current
  *  one dark; a segment is the jump to its step. Beside it, where the walk is,
@@ -110,46 +113,6 @@ export function Door({ label, float = false, children }: { label: string; float?
   );
 }
 
-export function Figure({ label, value, bad = false }: { label: string; value: string; bad?: boolean }) {
-  return (
-    <span className="flex items-baseline gap-2">
-      <span className="text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">{label}</span>
-      <span className={"px-1 font-mono text-[13px] tabular-nums " + (bad ? VERDICT_FILL.fail : "text-ink")}>{value}</span>
-    </span>
-  );
-}
-
-const of = (part: number, whole: number | null, lang: Lang) =>
-  whole === null ? formatCount(part, lang) : `${formatCount(part, lang)} / ${formatCount(whole, lang)}`;
-
-/** A property's evidence: the elements carrying it of the models' products,
- *  the distinct values passing of its distinct values, and the elements per
- *  state of the step's check. */
-export function Evidence({
-  prop,
-  preview,
-  total,
-  lang,
-}: {
-  prop: PsetProp;
-  preview: ExtractPreview;
-  total: number | null;
-  lang: Lang;
-}) {
-  const listed = prop.values.reduce((n, v) => n + v.n, 0);
-  const okValues = preview.rows.filter((r) => r.state === "ok").length;
-  return (
-    <div data-evidence className="flex flex-wrap items-center gap-x-5 gap-y-2">
-      <Figure label={t("kpi.products", lang)} value={of(prop.n, total, lang)} />
-      <Figure
-        label={t("field.values", lang)}
-        value={`${formatCount(okValues, lang)} / ${prop.exact ? "" : "≥"}${formatCount(prop.distinct, lang)}`}
-      />
-      <TotalChips preview={preview} rest={Math.max(0, prop.valued - listed)} lang={lang} />
-    </div>
-  );
-}
-
 /** The step's answer: what the source is, its evidence, and «Bruk», which
  *  takes it and moves on. Red when the models lack it, with the count that
  *  says so. Keyed by the caller, so a new answer lands as one. */
@@ -195,38 +158,6 @@ export function ProposalCard({
 /** The step's one primary: large, filled, the way on. */
 export const CONFIRM =
   "flex min-h-12 items-center justify-center gap-3 bg-green px-8 text-[15px] font-medium text-cream hover:bg-ink";
-
-/** The next candidates, each one click from being the answer. */
-export function Alternatives({
-  candidates,
-  lang,
-  onPick,
-}: {
-  candidates: readonly Candidate[];
-  lang: Lang;
-  onPick: (candidate: Candidate) => void;
-}) {
-  if (candidates.length === 0) return null;
-  return (
-    <ul data-alternatives className="m-0 flex list-none flex-col gap-1 p-0">
-      {candidates.map((c) => (
-        <li key={`${c.set}\u0000${c.name}`}>
-          <button
-            type="button"
-            data-alternative
-            onClick={() => onPick(c)}
-            className="flex w-full items-center gap-3 border border-line bg-panel px-4 py-2 text-left hover:border-green"
-          >
-            <span className="min-w-0 flex-1 font-mono text-[13px] [overflow-wrap:anywhere] text-ink">
-              {c.set}.{c.name}
-            </span>
-            <TotalChips preview={c.preview} lang={lang} />
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 /** Back, and the way on without an answer. */
 export function StepNav({
@@ -345,6 +276,7 @@ export function SummaryRow({
   );
 }
 
+
 /** The source a mapping rule holds now, as the step shows it: a property
  *  (found in the models or not), or an attribute or classification. */
 export type CurrentSource =
@@ -363,17 +295,21 @@ type Answer = {
   /** Elements carrying a value; null when it cannot be counted here. */
   hits: number | null;
   error: string | null;
+  /** «Bruk» on it: writes it and moves on. */
   onConfirm: () => void;
 };
 
 const sourceKey = (s: CurrentSource) => (s.kind === "property" ? `p\u0000${s.set}\u0000${s.name}` : `o\u0000${s.head}\u0000${s.title}`);
 
-/** A mapping step's question (2026-10-05, edkjo: "You're assuming that all
- *  projects use RefClass_NS3451 etc as in KNM … suggest the standard as in
- *  POFIN"). Listed in one order: the standard, the ruleset's saved source,
- *  the model's candidates. The pre-picked one (`prePick`) is the card with
- *  «Bruk»; every other is one click from being the answer. The source itself
- *  is changed here too, by «Endre» (`editor`), never behind «Avansert». */
+/** A mapping step (Systemkode, Funksjonskode, MMI, Duplikat objekt) in the
+ *  one mapping layout (`Mapping.tsx`). OPTIONS lists, in one order, the
+ *  standard (2026-10-05, edkjo: "suggest the standard as in POFIN"), the
+ *  ruleset's saved source, the model's candidates; FROM opens on the
+ *  pre-picked one (`prePick`). A pick makes another one FROM without moving
+ *  on; «Bruk» writes FROM and moves on. «Endre» opens the full source editor
+ *  (`editor`) under the mapping, which writes the rule as it is edited. The
+ *  requirement zone holds the step's own value requirement (`requirement`)
+ *  and VALID for FROM. */
 export function MappingStep({
   role,
   check,
@@ -383,10 +319,13 @@ export function MappingStep({
   total,
   ownerNames,
   lang,
+  name,
+  form,
   onCandidate,
   onCurrent,
   onStandard,
   editor,
+  requirement,
   pinned = false,
 }: {
   role: CardRole;
@@ -397,6 +336,9 @@ export function MappingStep({
   total: number | null;
   ownerNames: readonly string[];
   lang: Lang;
+  /** TO: the step's name, and the standard's example of the value. */
+  name: string;
+  form?: string;
   onCandidate: (candidate: Candidate) => void;
   /** «Bruk» on the saved source, with its preview when it has one. */
   onCurrent: (preview: ExtractPreview | null) => void;
@@ -404,6 +346,8 @@ export function MappingStep({
   onStandard: (option: StandardOption) => void;
   /** The source editor: kind, property picker, a property not in the model. */
   editor: ReactNode;
+  /** The value requirement's controls: code list, codes, values. */
+  requirement: ReactNode;
   /** The saved source is the answer whatever the models carry: a POFIN
    *  template being reviewed opens every step on POFIN's. */
   pinned?: boolean;
@@ -411,6 +355,15 @@ export function MappingStep({
   const [editing, setEditing] = useState(false);
   // The source the step opened on: a different one now was set here.
   const [opened] = useState(() => (current ? sourceKey(current) : null));
+  // The answer picked in OPTIONS: FROM until «Bruk». Dropped when the rule's
+  // source changes under it (the editor writes it).
+  const [chosen, setChosen] = useState<string | null>(null);
+  const nowKey = current ? sourceKey(current) : null;
+  const [seenKey, setSeenKey] = useState(nowKey);
+  if (seenKey !== nowKey) {
+    setSeenKey(nowKey);
+    setChosen(null);
+  }
   const candidates = useMemo(
     () => (choices ? rankCandidates(choices, role, check, ownerNames) : []),
     [choices, role, check, ownerNames],
@@ -472,81 +425,72 @@ export function MappingStep({
     onConfirm: () => onCandidate(c),
   }));
   const showSaved = saved !== null && !savedIsStandard ? saved : null;
-  const chosen = current !== null && (pinned || opened !== sourceKey(current));
-  let pick = prePick(standard.hits, saved ? { hits: saved.hits, chosen } : null, cands.length);
-  if (pick === "saved" && savedIsStandard) pick = "standard";
-  const picked = pick === "saved" ? showSaved : pick === "candidate" ? cands[0] : std;
   const answers = [std, ...(showSaved ? [showSaved] : []), ...cands];
+  const setHere = current !== null && (pinned || opened !== sourceKey(current));
+  let pick = prePick(standard.hits, saved ? { hits: saved.hits, chosen: setHere } : null, cands.length);
+  if (pick === "saved" && savedIsStandard) pick = "standard";
+  const prePicked = (pick === "saved" ? showSaved : pick === "candidate" ? cands[0] : std) ?? std;
+  const from = answers.find((a) => a.key === chosen) ?? prePicked;
   const nothing = !known && answers.every((a) => a.hits === 0);
-  const confirm = t("action.apply", lang);
+  const count = (a: Answer) => (a.prop ? a.prop.n : !known && a.hits === 0 ? 0 : null);
+  const fromCount = count(from);
 
   return (
-    <div className="flex flex-col gap-3">
-      {reading ? <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span> : null}
-      {nothing ? (
-        <div data-no-candidate className="flex items-center gap-3">
-          <StateChip state="no-match" lang={lang} />
-          <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
-        </div>
-      ) : null}
-      {answers.map((a) =>
-        a === picked ? (
-          <ProposalCard
-            key={a.key + a.title}
-            head={[a.tag, a.head].filter(Boolean).join(" · ") || undefined}
-            title={a.title}
-            missing={!known && a.hits === 0}
-            confirm={confirm}
-            onConfirm={a.onConfirm}
-          >
-            {a.prop && a.preview ? <Evidence prop={a.prop} preview={a.preview} total={total} lang={lang} /> : null}
-            {!known && a.hits === 0 && !a.prop ? <Figure label={t("kpi.products", lang)} value={of(0, total, lang)} bad /> : null}
-            {a.error !== null ? (
-              <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">{a.error}</pre>
-            ) : null}
-            <button
-              type="button"
-              data-source-edit
-              aria-expanded={editing}
-              onClick={() => setEditing((was) => !was)}
-              className="w-fit border border-line px-3 py-1 text-[12px] text-ink hover:border-green hover:text-green"
-            >
-              {t("action.change", lang)}
-            </button>
-          </ProposalCard>
-        ) : (
-          <AnswerRow key={a.key + a.title} answer={a} total={total} known={known} lang={lang} />
-        ),
-      )}
-      {editing ? <div data-source-editor className="border border-line bg-panel p-4">{editor}</div> : null}
-    </div>
-  );
-}
-
-/** An answer not pre-picked: its tag, `Pset.Name`, its count; a click takes
- *  it and moves on. */
-function AnswerRow({ answer: a, total, known, lang }: { answer: Answer; total: number | null; known: boolean; lang: Lang }) {
-  const zero = !known && a.hits === 0;
-  return (
-    <button
-      type="button"
-      data-alternative
-      data-answer={a.tag === null ? "candidate" : a.key}
-      onClick={a.onConfirm}
-      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 border border-line bg-panel px-4 py-2 text-left hover:border-green"
-    >
-      {a.tag ? <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">{a.tag}</span> : null}
-      <span className="min-w-0 flex-1 font-mono text-[13px] [overflow-wrap:anywhere] text-ink">
-        {a.head ? <span className="text-muted">{a.head} </span> : null}
-        {a.title}
-      </span>
-      {a.preview ? (
-        <TotalChips preview={a.preview} lang={lang} />
-      ) : a.hits !== null && !known ? (
-        <span className={"px-1 font-mono text-[12px] tabular-nums " + (zero ? VERDICT_FILL.fail : "text-muted")}>
-          {of(a.hits, total, lang)}
-        </span>
-      ) : null}
-    </button>
+    <MappingLayout
+      lang={lang}
+      to={<ToZone name={name} form={form} />}
+      fromState={!known && from.hits === 0 ? "missing" : "found"}
+      fromKey={from.key + from.title}
+      from={
+        <FromSource
+          tag={from.tag}
+          head={from.head || undefined}
+          title={from.title}
+          mapped={fromCount !== null ? <Mapped n={fromCount} total={total} lang={lang} /> : null}
+        />
+      }
+      options={
+        <OptionList
+          label={name}
+          lang={lang}
+          more={{ open: editing, onToggle: () => setEditing((was) => !was) }}
+          options={answers.map((a): MapOption => {
+            const n = count(a);
+            return {
+              key: a.key,
+              tag: a.tag,
+              head: a.head || undefined,
+              title: a.title,
+              count: n !== null ? <OptionCount n={n} total={total} current={a === from} lang={lang} /> : null,
+              current: a === from,
+              onPick: () => setChosen(a.key),
+            };
+          })}
+        >
+          {reading ? <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span> : null}
+          {nothing ? (
+            <div data-no-candidate className="flex items-center gap-3">
+              <StateChip state="no-match" lang={lang} />
+              <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
+            </div>
+          ) : null}
+        </OptionList>
+      }
+      editor={editing ? <div data-source-editor className="border border-line bg-panel p-4">{editor}</div> : null}
+      requirement={
+        <>
+          {requirement}
+          {from.prop && from.preview ? <Valid prop={from.prop} preview={from.preview} lang={lang} /> : null}
+          {from.error !== null ? (
+            <pre className="m-0 bg-bad px-2 py-1.5 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">{from.error}</pre>
+          ) : null}
+        </>
+      }
+      confirm={
+        <button type="button" autoFocus data-step-confirm onClick={from.onConfirm} className={CONFIRM + " sm:self-end"}>
+          {t("action.apply", lang)} →
+        </button>
+      }
+    />
   );
 }

@@ -21,9 +21,10 @@ import { formatCount } from "../format";
 import type { PsetValue } from "../pset-choices";
 import type { NamePart } from "../../ids/types.ts";
 import { CODE_LISTS } from "../../codelists/index.ts";
-import { POFIN_TYPE_NAME, nameMatcher, partExample, partName, sameScheme } from "../../engine/type-name.ts";
+import { POFIN_TYPE_NAME, POFIN_TYPE_NAME_EXAMPLE, nameMatcher, partExample, partName, sameScheme } from "../../engine/type-name.ts";
 import { ChipRow, PILL, type ChipFace, type ChipParse } from "./ChipRow";
-import { CONFIRM, Figure } from "./Walk";
+import { CONFIRM } from "./Walk";
+import { Figure, FromSource, LABEL, MappingLayout, Mapped, OptionList, ToZone } from "./Mapping";
 import { INPUT, ValuesInput } from "./ValuesInput";
 
 type Kind = "ns3457-8" | "ns3451" | "values" | "regex" | "text";
@@ -117,18 +118,27 @@ function PartEditor({
   );
 }
 
+/** In the one mapping layout (`Mapping.tsx`): TO Typenavn, FROM the type's
+ *  Name attribute, fixed, so OPTIONS is empty; the scheme is the requirement
+ *  zone, VALID the type Names matching it. */
 export function TypeNameStep({
+  name,
   saved,
   typeNames,
+  total,
   typed,
   lang,
   onConfirm,
 }: {
+  /** TO: the step's name. */
+  name: string;
   /** The ruleset's scheme, or null. */
   saved: readonly NamePart[] | null;
   /** The loaded models' type Names, with the elements using each; null with
    *  no model read. */
   typeNames: readonly PsetValue[] | null;
+  /** The models' products: MAPPED's whole. */
+  total: number | null;
   /** The Typeobjekt row's result, per model. */
   typed: ReactNode;
   lang: Lang;
@@ -167,38 +177,54 @@ export function TypeNameStep({
 
   const ready = parse !== null && sequence.length > 0 && sequence.every((p) => !("values" in p) || p.values.length > 0);
 
+  // MAPPED: the elements whose type carries a Name.
+  const named = values.reduce((n, v) => n + v.n, 0);
+
   return (
-    <div className="flex flex-col gap-3">
-      <div data-typed className="flex flex-wrap items-center gap-3">
-        <span className="text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">{t("req.typeobjekt", lang)}</span>
-        {typed}
-      </div>
-      <div data-proposal={typeNames && values.length > 0 && matching === 0 ? "missing" : "found"} className={"flex flex-col gap-4 border-2 bg-panel p-5 " + (typeNames && values.length > 0 && matching === 0 ? "border-bad" : "border-green")}>
-        {tag ? <span className="font-mono text-[12px] text-muted">{tag}</span> : null}
-        {typeNames ? (
-          <Figure
-            label={t("field.target.type", lang)}
-            value={`${formatCount(matching, lang)} / ${formatCount(values.length, lang)}`}
-            bad={values.length > 0 && matching === 0}
+    <MappingLayout
+      lang={lang}
+      to={<ToZone name={name} form={POFIN_TYPE_NAME_EXAMPLE} />}
+      fromState={typeNames && named === 0 ? "missing" : "found"}
+      from={
+        <FromSource head={t("field.source.attribute", lang)} title="Name" mapped={typeNames ? <Mapped n={named} total={total} lang={lang} /> : null}>
+          <span data-typed className="flex flex-wrap items-center gap-3">
+            <span className={LABEL}>{t("req.typeobjekt", lang)}</span>
+            {typed}
+          </span>
+        </FromSource>
+      }
+      options={<OptionList options={[]} label={name} lang={lang} />}
+      requirement={
+        <>
+          {tag ? <span className="font-mono text-[12px] text-muted">{tag}</span> : null}
+          <ChipRow
+            sequence={sequence}
+            values={values}
+            parse={parse}
+            exampleOf={partExample}
+            face={face}
+            name={partName}
+            editor={(part, change, remove) => <PartEditor part={part} lang={lang} onChange={change} onRemove={remove} />}
+            palette={(pick) => <Kinds current={null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />}
+            typed={(part) =>
+              "text" in part ? { empty: part.text === "" } : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
+            }
+            standard={POFIN_TYPE_NAME}
+            same={sameScheme}
+            lang={lang}
+            onSequence={setSequence}
           />
-        ) : null}
-        <ChipRow
-          sequence={sequence}
-          values={values}
-          parse={parse}
-          exampleOf={partExample}
-          face={face}
-          name={partName}
-          editor={(part, change, remove) => <PartEditor part={part} lang={lang} onChange={change} onRemove={remove} />}
-          palette={(pick) => <Kinds current={null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />}
-          typed={(part) =>
-            "text" in part ? { empty: part.text === "" } : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
-          }
-          standard={POFIN_TYPE_NAME}
-          same={sameScheme}
-          lang={lang}
-          onSequence={setSequence}
-        />
+          {/* VALID: the distinct type Names off the scheme or on it. */}
+          {typeNames ? (
+            <Figure
+              label={t("field.target.type", lang)}
+              value={`${formatCount(matching, lang)} / ${formatCount(values.length, lang)}`}
+              bad={values.length > 0 && matching === 0}
+            />
+          ) : null}
+        </>
+      }
+      confirm={
         <button
           type="button"
           autoFocus
@@ -209,7 +235,7 @@ export function TypeNameStep({
         >
           {t("action.apply", lang)} →
         </button>
-      </div>
-    </div>
+      }
+    />
   );
 }
