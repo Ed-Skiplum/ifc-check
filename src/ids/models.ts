@@ -35,10 +35,12 @@ export function ownerKey(value: string): string {
 }
 
 /** The role a rule plays, or null. A code-lookup rule's role is its
- *  `mapping`; a copy-object check is the `copy-object` role. */
+ *  `mapping`; a copy-object check is the `copy-object` role, a tfm check
+ *  the `tfm` role. */
 export function ruleRole(rule: Rule): MappingRole | null {
   if (rule.kind !== "extended") return null;
   if (rule.check?.type === "copy-object") return "copy-object";
+  if (rule.check?.type === "tfm") return "tfm";
   return rule.mapping ?? null;
 }
 

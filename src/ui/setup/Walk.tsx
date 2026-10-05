@@ -19,10 +19,9 @@ import { VERDICT_FILL } from "../state-visuals";
 import type { PsetChoice, PsetProp } from "../pset-choices";
 import type { ExtractPreview } from "../extract-preview";
 import type { Requirement } from "../requirements";
-import type { MappingRole } from "../../ids/types.ts";
 import { figures, stateLook } from "../alt/req-view";
 import { StateChip, TotalChips } from "./chips";
-import { evidence, rankCandidates, type Candidate, type MappingCheck } from "./candidates";
+import { evidence, rankCandidates, type Candidate, type CardRole, type MappingCheck } from "./candidates";
 
 /** The bar: one segment per step, filled once the step is done, the current
  *  one dark; a segment is the jump to its step. Beside it, where the walk is,
@@ -318,7 +317,7 @@ export function MappingStep({
   onCurrent,
   fallback,
 }: {
-  role: MappingRole;
+  role: CardRole;
   check: MappingCheck;
   current: CurrentSource | null;
   choices: PsetChoice[] | null;

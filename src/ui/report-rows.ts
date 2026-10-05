@@ -39,10 +39,11 @@ function readings(
   rule: ExtendedRule | null,
   graph: IfcGraph,
   file: string,
+  summary?: IfcSummary,
 ): TreeReading[] | null {
   if (!ruleset || !rule) return null;
   try {
-    return codeLookupSubjects(ruleset, rule, graph as unknown as ModelGraph, file);
+    return codeLookupSubjects(ruleset, rule, graph as unknown as ModelGraph, file, summary);
   } catch {
     // The rule is not_evaluable and its row says why; the treemap then shows
     // the unconfigured default rather than an invented reading.
@@ -75,9 +76,9 @@ export function boardData(
   });
 
   const values: BoardData["values"] = {};
-  for (const role of ["system-classification", "component-classification", "progress-code", "copy-object"] as const) {
+  for (const role of ["system-classification", "component-classification", "progress-code", "copy-object", "tfm"] as const) {
     const rule = mappingRule(ruleset, role);
-    const read = readings(ruleset, rule, graph, file);
+    const read = readings(ruleset, rule, graph, file, summary);
     if (!rule || !read) continue;
     const byValue = new Map<string | null, string[]>();
     for (const r of read) {

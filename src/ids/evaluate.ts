@@ -23,8 +23,10 @@
 
 import { entityNameValue } from "./emit.ts";
 import { isEnabled } from "./export.ts";
-import { copyVerdict, everyOwnerName, modelFact, modelLabel, ruleRole } from "./models.ts";
+import { copyVerdict, everyOwnerName, modelFact, modelLabel, roleRule, ruleRole, storeyPolicy } from "./models.ts";
 import { CODE_LISTS, CODE_LIST_IDS, type CodeList } from "../codelists/index.ts";
+import { agrees, fitsPart, tfmMatcher } from "../engine/tfm.ts";
+import { matchStoreys, resolveStoreyRules } from "../engine/storey-config.ts";
 import type {
   ModelClassification,
   ModelGraph,
@@ -51,6 +53,8 @@ import type {
   Rule,
   Ruleset,
   Selector,
+  TfmCheck,
+  TfmPart,
 } from "./types.ts";
 
 export type ResultState = "pass" | "fail" | "not_applicable" | "not_evaluable";
@@ -105,6 +109,35 @@ export interface RuleResult {
   /** Every distinct value read, uncollapsed, most frequent first. Same
    *  checks as `coverage`. */
   values?: ValueCount[];
+  /** The tfm check only: per part of its sequence, what the part was
+   *  compared against and how the elements whose string parsed came out. */
+  tfm?: TfmPartTally[];
+}
+
+/** What a bound TFM part reads on the element: a mapping rule's value, the
+ *  element's storey as a level of `storeys`, or the Lokasjon binding. */
+export type TfmBinding = "system-classification" | "component-classification" | "storeys" | "Lokasjon";
+
+/** Why a part is checked for shape only. `no-binding`: the part has no
+ *  value of the element's to agree with (Løpenummer, Komp.nr, ...).
+ *  `unbound`: it would have one, but the rule, setup or binding it reads is
+ *  absent, off or not evaluable. `not-exposed`: the parsed graph does not
+ *  carry it (Rom: elements contained in a space are not reported).
+ *  `not-comparable`: no element's bound value takes the part's form. */
+export type TfmShapeOnly = "no-binding" | "unbound" | "not-exposed" | "not-comparable";
+
+export interface TfmPartTally {
+  /** Index into the sequence. */
+  index: number;
+  part: TfmPart;
+  binding: TfmBinding | null;
+  /** Set when the part is checked for shape only; the counts are then 0. */
+  shapeOnly?: TfmShapeOnly;
+  /** Over the elements whose string parsed: agreeing, disagreeing, and
+   *  with no bound value to compare. */
+  agree: number;
+  disagree: number;
+  unknown: number;
 }
 
 export interface ModelResult {
@@ -1392,6 +1425,285 @@ function copyObjectFilter(
   }
 }
 
+/* -------------------------------------------------------------------- TFM */
+
+/** The element's own values for a bound part, or null when it has none.
+ *  Several when a mapping rule reads a code out of a value: the code, then
+ *  the value. */
+type BoundReader = (product: ModelProduct) => string[] | null;
+
+/** Which part reads what (types.ts `TfmCheck`). Rom would read the
+ *  element's space, which the parsed graph does not carry. */
+const PART_BINDING: Partial<Record<TfmPart, TfmBinding>> = {
+  Systemkode: "system-classification",
+  Komponent: "component-classification",
+  Etasje: "storeys",
+  Lokasjon: "Lokasjon",
+};
+
+/** A mapping rule's reading of one element, by the rule's own source,
+ *  target and Uttrekk. Null when the rule is absent, off or cannot run. */
+function mappingReader(
+  ruleset: Ruleset,
+  role: "system-classification" | "component-classification",
+  index: ModelIndex,
+): BoundReader | null {
+  const rule = roleRule(ruleset, role);
+  if (!rule || rule.check.type !== "code-lookup") return null;
+  const check = rule.check;
+  let regex: RegExp;
+  try {
+    regex = compileExtract(check.extract);
+  } catch {
+    return null;
+  }
+  const byType = (check.target ?? "occurrence") === "type";
+  if (byType && !("attribute" in check.source && check.source.attribute === "Name")) return null;
+  return (product) => {
+    const raw = byType ? (product.typed ? product.type_name : null) : codeValue(check.source, product, index).value;
+    if (raw === null || raw === "") return null;
+    const code = regex.exec(raw)?.[1];
+    return code && code !== raw ? [code, raw] : [raw];
+  };
+}
+
+/** The element's storey as a level of `storeys`: the storey it is in,
+ *  matched the way `storey-config` matches it (the model's plane and
+ *  tolerance). Only a storey that IS a level gives one; a storey off the
+ *  table, or off by name or elevation, gives none. */
+function storeyReader(
+  ruleset: Ruleset,
+  graph: ModelGraph,
+  summary: ModelSummary,
+  modelName: string,
+  byGuid: Map<string, ModelProduct>,
+  index: ModelIndex,
+): BoundReader | "unbound" | "not-exposed" {
+  const setup = ruleset.storeys;
+  const policy = storeyPolicy(ruleset, modelName);
+  if (!setup || !policy || !Array.isArray(setup.levels) || setup.levels.length === 0) return "unbound";
+  if (!summary.unit_resolved || graph.storeys.some((s) => s.elevation === undefined)) return "not-exposed";
+  const storeys = graph.storeys.map((s) => ({ guid: s.guid, name: s.name, elevation: s.elevation ?? null }));
+  const { rules } = resolveStoreyRules(policy, storeys, summary.unit_scale, setup.levels);
+  const levelOf = new Map<string, string>();
+  for (const m of matchStoreys(storeys, summary.unit_scale, setup.levels, rules)) {
+    if (m.config !== null && (m.state === "match" || m.state === "duplicate" || m.state === "whitespace")) {
+      levelOf.set(m.storey.guid, setup.levels[m.config].name);
+    }
+  }
+  return (product) => {
+    const storey = product.storey_guid ?? containerOf(product, byGuid, index);
+    const level = storey === undefined || storey === null ? undefined : levelOf.get(storey);
+    return level === undefined ? null : [level];
+  };
+}
+
+/** One element a tfm check judges, with every finding it gives. */
+interface TfmSubject {
+  guid: string;
+  entity: string;
+  name: string | null;
+  value: string | null;
+  state: ValueCount["state"];
+  findings: Finding[];
+}
+
+const PART_SLUG: Partial<Record<TfmPart, string>> = {
+  Systemkode: "systemkode",
+  Komponent: "komponent",
+  Etasje: "etasje",
+  Lokasjon: "lokasjon",
+};
+
+/** Every selected element's TFM string, its shape and, per bound part, its
+ *  agreement; and per part, the tally. */
+function tfmSubjects(
+  check: TfmCheck,
+  select: Selector,
+  products: ModelProduct[],
+  byGuid: Map<string, ModelProduct>,
+  index: ModelIndex,
+  ruleset: Ruleset,
+  graph: ModelGraph,
+  summary: ModelSummary,
+  modelName: string,
+): { subjects: TfmSubject[]; parts: TfmPartTally[]; extras: number } {
+  if ("material" in check.source) throw new Unsupported("a TFM string is not a material name");
+  const matcher = tfmMatcher(check.sequence);
+  const label = sourceLabel(check.source);
+
+  // Per part token: its binding and reader, or why it has none.
+  type PartSlot = { tally: TfmPartTally; read: BoundReader | null; fits: number; unreachable: boolean };
+  const slots: PartSlot[] = [];
+  check.sequence.forEach((token, i) => {
+    if (!("part" in token)) return;
+    const binding = PART_BINDING[token.part] ?? null;
+    const tally: TfmPartTally = { index: i, part: token.part, binding, agree: 0, disagree: 0, unknown: 0 };
+    let read: BoundReader | null = null;
+    if (token.part === "Rom") tally.shapeOnly = "not-exposed";
+    else if (binding === null) tally.shapeOnly = "no-binding";
+    else if (binding === "storeys") {
+      const r = storeyReader(ruleset, graph, summary, modelName, byGuid, index);
+      if (typeof r === "string") tally.shapeOnly = r;
+      else read = r;
+    } else if (binding === "Lokasjon") {
+      const source = check.bindings?.Lokasjon;
+      if (source === undefined || "material" in source) tally.shapeOnly = "unbound";
+      else
+        read = (p) => {
+          const v = codeValue(source, p, index).value;
+          return v === null || v === "" ? null : [v];
+        };
+    } else {
+      read = mappingReader(ruleset, binding, index);
+      if (read === null) tally.shapeOnly = "unbound";
+    }
+    slots.push({ tally, read, fits: 0, unreachable: false });
+  });
+
+  // First pass: read and parse; keep each comparison for the second.
+  type Compared = { slot: PartSlot; segment: string; bound: string[] };
+  let extras = 0;
+  const read = products
+    .filter((p) => selects(select, p, byGuid, index, ruleset.ifcVersions))
+    .map((p) => {
+      const got = codeValue(check.source, p, index);
+      if (got.extra > 0) extras += 1;
+      const value = got.value === "" ? null : got.value;
+      const parsed = value === null ? null : matcher.parse(value);
+      const compared: Compared[] = [];
+      if (parsed?.ok) {
+        for (const slot of slots) {
+          if (slot.read === null) continue;
+          let bound: string[] | null;
+          try {
+            bound = slot.read(p);
+          } catch (error) {
+            if (!(error instanceof Unsupported)) throw error;
+            slot.unreachable = true;
+            bound = null;
+          }
+          const segment = parsed.segments[slot.tally.index].text;
+          if (bound === null) {
+            slot.tally.unknown += 1;
+            continue;
+          }
+          const token = check.sequence[slot.tally.index] as { part: TfmPart; digits?: number };
+          if (bound.some((b) => fitsPart(token, b))) slot.fits += 1;
+          compared.push({ slot, segment, bound });
+        }
+      }
+      return { p, value, parsed, compared };
+    });
+
+  // A bound part none of whose values takes its form, or whose source
+  // could not be read, is no comparison: shape only.
+  for (const slot of slots) {
+    if (slot.read === null) continue;
+    if (slot.unreachable) slot.tally.shapeOnly = "unbound";
+    else if (slot.fits === 0 && slot.tally.unknown < read.filter((r) => r.parsed?.ok).length) slot.tally.shapeOnly = "not-comparable";
+    if (slot.tally.shapeOnly !== undefined) slot.tally.unknown = 0;
+  }
+
+  const subjects = read.map(({ p, value, parsed, compared }): TfmSubject => {
+    const base = { guid: p.guid, entity: p.entity, name: p.name, value };
+    if (value === null) {
+      return { ...base, state: "missing", findings: [{ ...base, reason: `${label} is empty`, code: "empty", value: null }] };
+    }
+    if (parsed === null || !parsed.ok) {
+      const at = parsed === null ? 0 : parsed.at;
+      const token = parsed === null ? undefined : check.sequence[parsed.token];
+      const wanted =
+        token === undefined ? "the end" : "part" in token ? token.part : "sep" in token ? `"${token.sep}"` : `"${token.text}"`;
+      return {
+        ...base,
+        state: "deviating",
+        findings: [{ ...base, reason: `${label} "${value}" leaves the sequence at character ${at + 1}, where ${wanted} follows`, code: "no-match" }],
+      };
+    }
+    const findings: Finding[] = [];
+    for (const { slot, segment, bound } of compared) {
+      if (slot.tally.shapeOnly !== undefined) continue;
+      if (bound.some((b) => agrees(segment, b))) {
+        slot.tally.agree += 1;
+        continue;
+      }
+      slot.tally.disagree += 1;
+      const part = slot.tally.part;
+      findings.push({
+        ...base,
+        reason: `${part} "${segment}" in ${label} "${value}" is not the element's ${slot.tally.binding} value "${bound[bound.length - 1]}"`,
+        code: `disagree-${PART_SLUG[part] ?? part}`,
+      });
+    }
+    return { ...base, state: findings.length > 0 ? "deviating" : "ok", findings };
+  });
+  return { subjects, parts: slots.map((s) => s.tally), extras };
+}
+
+function tfmCheck(
+  check: TfmCheck,
+  select: Selector,
+  products: ModelProduct[],
+  byGuid: Map<string, ModelProduct>,
+  index: ModelIndex,
+  ruleset: Ruleset,
+  graph: ModelGraph,
+  summary: ModelSummary,
+  modelName: string,
+  notes: string[],
+  maxFindings: number,
+): Omit<RuleResult, "ruleId" | "ruleName" | "kind"> {
+  const { subjects, parts, extras } = tfmSubjects(check, select, products, byGuid, index, ruleset, graph, summary, modelName);
+  const label = sourceLabel(check.source);
+  if (extras > 0) {
+    notes.push(`${extras} of ${subjects.length} objects carry more than one value for ${label}; the first in file order was used`);
+  }
+  if (subjects.length === 0) {
+    return {
+      state: "not_applicable",
+      applicable: 0,
+      failed: 0,
+      findings: [],
+      detail: "no elements matched the selection",
+      notes: notes.length ? notes : undefined,
+      tfm: parts,
+    };
+  }
+  const tally = new Map<string | null, ValueCount>();
+  let missing = 0;
+  let offSequence = 0;
+  let disagreeing = 0;
+  const findings: Finding[] = [];
+  for (const s of subjects) {
+    const row = tally.get(s.value);
+    if (!row) tally.set(s.value, { value: s.value, n: 1, state: s.state });
+    else {
+      row.n += 1;
+      // One string, several elements: the worst reading of it.
+      if (s.state !== "ok" && row.state === "ok") row.state = s.state;
+    }
+    if (s.state === "missing") missing += 1;
+    else if (s.findings.some((f) => f.code === "no-match")) offSequence += 1;
+    else if (s.state === "deviating") disagreeing += 1;
+    findings.push(...s.findings);
+  }
+  const failed = missing + offSequence + disagreeing;
+  return {
+    state: failed === 0 ? "pass" : "fail",
+    applicable: subjects.length,
+    failed,
+    findings: cap(findings, maxFindings),
+    detail:
+      `${subjects.length - failed} of ${subjects.length} elements carry a TFM of the sequence that agrees where bound; ` +
+      `${missing} empty, ${offSequence} off the sequence, ${disagreeing} disagree`,
+    notes: notes.length ? notes : undefined,
+    coverage: { met: subjects.length - failed, deviating: offSequence + disagreeing, missing, sourceHits: subjects.length - missing },
+    values: sortedValues(tally),
+    tfm: parts,
+  };
+}
+
 /* ------------------------------------------------ per-object code reading */
 
 /** One object a code-lookup rule judges, with what it read and how it was
@@ -1419,11 +1731,34 @@ export function codeLookupSubjects(
   rule: ExtendedRule,
   graph: ModelGraph,
   modelName: string,
+  /** The tfm check's Etasje reads storey elevations in the file's unit;
+   *  without a summary that part reads nothing. */
+  summary?: ModelSummary,
 ): CodeLookupSubject[] {
   const allProducts = selectableProducts(graph);
   const byGuid = new Map(allProducts.map((p) => [p.guid, p]));
   const index = buildIndex(graph);
   const select = rule.select ?? {};
+  if (rule.check.type === "tfm") {
+    // The string read and how the element came out, shape and agreement
+    // together, as the rule's value tally has it. No code is extracted.
+    const filter = copyObjectFilter(ruleset, allProducts, byGuid, index, modelName);
+    const products =
+      filter && filter.excluded.size > 0 ? allProducts.filter((p) => !filter.excluded.has(p.guid)) : allProducts;
+    const unitless: ModelSummary = {
+      schema: graph.schema,
+      length_unit: "",
+      unit_scale: 1,
+      unit_resolved: false,
+      authoring_app: null,
+      project_name: null,
+      duplicate_step_ids: 0,
+      products: products.length,
+    };
+    return tfmSubjects(rule.check, select, products, byGuid, index, ruleset, graph, summary ?? unitless, modelName).subjects.map(
+      (s) => ({ guid: s.guid, entity: s.entity, value: s.value, code: null, state: s.state }),
+    );
+  }
   if (rule.check.type === "copy-object") {
     // Every value read, as its tally has it: judged nowhere, `deviating` only
     // for a value the project names nowhere. `code` is the verdict.
@@ -1487,6 +1822,8 @@ function evaluateRule(
   index: ModelIndex,
   ruleset: Ruleset,
   maxFindings: number,
+  graph: ModelGraph,
+  modelName: string,
 ): RuleResult {
   const base = {
     ruleId: rule.id,
@@ -1537,6 +1874,13 @@ function evaluateRule(
           sourceHits: value === null ? 0 : 1,
         },
         values: [{ value, n: 1, state: ok ? "ok" : value === null ? "missing" : "deviating" }],
+      };
+    }
+
+    if (rule.kind === "extended" && rule.check.type === "tfm") {
+      return {
+        ...base,
+        ...tfmCheck(rule.check, rule.select ?? {}, products, byGuid, index, ruleset, graph, summary, modelName, notes, maxFindings),
       };
     }
 
@@ -1809,7 +2153,7 @@ export function evaluateRuleset(
               detail: "exempt",
               reason: exemptReason(modelLabel(modelName)),
             }
-          : evaluateRule(rule, rule.kind === "ids" ? withTypes : products, summary, byGuid, index, ruleset, maxFindings),
+          : evaluateRule(rule, rule.kind === "ids" ? withTypes : products, summary, byGuid, index, ruleset, maxFindings, graph, modelName),
     );
   const counts: Record<ResultState, number> = {
     pass: 0,

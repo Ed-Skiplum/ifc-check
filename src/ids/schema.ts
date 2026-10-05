@@ -9,6 +9,7 @@
  */
 
 import { CODE_LIST_IDS } from "../codelists/index.ts";
+import { DIGIT_PARTS, TFM_PARTS, TFM_SEPARATORS } from "../engine/tfm.ts";
 
 export const RULESET_SCHEMA_ID =
   "https://skiplum.no/ifc-check/ruleset.schema.json";
@@ -731,6 +732,64 @@ export const RULESET_JSON_SCHEMA = {
             copy: { type: "array", items: { type: "string", minLength: 1 } },
             own: { type: "array", items: { type: "string", minLength: 1 } },
           },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "source", "sequence"],
+          description:
+            "The tfm role: each element's TFM string (tverrfaglig merkesystem) must match " +
+            "the sequence, and a bound part must equal the element's own value: " +
+            "Systemkode the system-classification rule's, Komponent the " +
+            "component-classification rule's, Etasje its storey as a level of storeys, " +
+            "Lokasjon bindings.Lokasjon. Compared literally. Any other part, and a bound " +
+            "part whose rule, setup or binding is absent, is checked for shape only.",
+          properties: {
+            type: { const: "tfm" },
+            source: { $ref: "#/$defs/codeSource", description: "The property carrying the TFM string. Not a material source." },
+            sequence: {
+              type: "array",
+              minItems: 1,
+              description: "Statsbygg PA 0802: + Lokasjon = Systemkode . Løpenummer - Komponent Komp.nr",
+              items: { $ref: "#/$defs/tfmToken" },
+            },
+            bindings: {
+              type: "object",
+              additionalProperties: false,
+              properties: { Lokasjon: { $ref: "#/$defs/codeSource" } },
+            },
+          },
+        },
+      ],
+    },
+
+    tfmToken: {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["part"],
+          properties: {
+            part: { enum: [...TFM_PARTS] },
+            digits: {
+              type: "integer",
+              minimum: 1,
+              maximum: 12,
+              description: `Exactly this many digits. Only on ${DIGIT_PARTS.join(", ")}.`,
+            },
+          },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["sep"],
+          properties: { sep: { enum: [...TFM_SEPARATORS] } },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["text"],
+          properties: { text: { type: "string", minLength: 1 } },
         },
       ],
     },

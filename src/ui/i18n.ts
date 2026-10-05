@@ -333,6 +333,14 @@ const STRINGS = {
   "mapping.component-classification": { nb: "Komponentklasse", en: "Component class" },
   "mapping.progress-code": { nb: "Prosesstatuskode (MMI)", en: "Process status code (MMI)" },
   "mapping.copy-object": { nb: "Duplikat objekt", en: "Duplicate object" },
+  // TFM (tverrfaglig merkesystem): the step and its builder.
+  // The part names (Lokasjon, Løpenummer, ...) are tfm-check's, terms of
+  // art the same in both languages, and are not strings of this table.
+  "mapping.tfm": { nb: "TFM", en: "TFM" },
+  "tfm.shapeOnly": { nb: "Kun format", en: "Shape only" },
+  "tfm.text": { nb: "Tekst", en: "Text" },
+  "tfm.digits": { nb: "Siffer", en: "Digits" },
+  "tfm.none": { nb: "Ingen", en: "None" },
   "field.enabled": { nb: "Aktiv", en: "Enabled" },
   "action.enable": { nb: "Aktiver", en: "Enable" },
   "action.cancel": { nb: "Avbryt", en: "Cancel" },
@@ -500,6 +508,7 @@ const STRINGS = {
   "req.kopiobjekt": { nb: "Kopiobjekt", en: "Reference object" },
   "req.mmi": { nb: "MMI", en: "MMI" },
   "req.fase": { nb: "Fase", en: "Phase" },
+  "req.tfm": { nb: "TFM", en: "TFM" },
   "req.dekning": { nb: "Dekning", en: "Coverage" },
   "req.fordeling": { nb: "Fordeling", en: "Distribution" },
   "req.fra": { nb: "fra", en: "from" },

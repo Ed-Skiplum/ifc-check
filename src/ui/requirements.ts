@@ -43,6 +43,9 @@ interface ReqSpec {
   second?: string;
   /** MMI: a distribution, never a KPI (begreper.md §7). */
   distribution?: boolean;
+  /** Listed only once the ruleset configures it: TFM is a project's own
+   *  convention, not one of the report's eleven. */
+  whenConfigured?: boolean;
 }
 
 export const REQUIREMENTS: readonly ReqSpec[] = [
@@ -63,6 +66,7 @@ export const REQUIREMENTS: readonly ReqSpec[] = [
   { key: "kopiobjekt", group: "std", label: "req.kopiobjekt", mapping: "copy-object" },
   { key: "mmi", group: "std", label: "req.mmi", mapping: "progress-code", distribution: true },
   { key: "fase", group: "std", label: "req.fase", id: "phase" },
+  { key: "tfm", group: "std", label: "req.tfm", mapping: "tfm", whenConfigured: true },
 ];
 
 export const REQ_GROUPS: readonly { group: ReqGroup; label: StringKey }[] = [
@@ -102,7 +106,8 @@ function find(rows: readonly ReportRow[], spec: { id?: string; mapping?: Mapping
 
 export function requirements(rows: readonly ReportRow[] | undefined): Requirement[] {
   const all = rows ?? [];
-  return REQUIREMENTS.map((spec) => {
+  const listed = REQUIREMENTS.filter((spec) => !spec.whenConfigured || find(all, spec) !== null);
+  return listed.map((spec) => {
     const row = find(all, spec);
     const second = spec.second ? find(all, { id: spec.second }) : null;
     // A mapping whose rule is configured but produced no row, or one the
