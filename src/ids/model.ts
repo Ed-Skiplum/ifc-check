@@ -94,7 +94,9 @@ export interface ModelGraph {
   contained_in: { product_guid: string; storey_guid: string }[];
   aggregates: { child_guid: string; parent_guid: string; parent_kind: string }[];
   voids: { opening_guid: string; host_guid: string }[];
-  storeys: { guid: string; name: string | null }[];
+  /** `elevation` in FILE units, as `graphJson()` gives it; read only to
+   *  match a storey to a level of `storeys` (a TFM Etasje). */
+  storeys: { guid: string; name: string | null; elevation?: number | null }[];
   buildings: { guid: string; name: string | null }[];
   sites: { guid: string; name: string | null }[];
   spaces: { guid: string; name: string | null }[];

@@ -10,6 +10,7 @@
 import { CODE_LIST_IDS } from "../codelists/index.ts";
 import { IFC_CLASSES } from "./ifc-classes.ts";
 import { ownerKey, ruleRole } from "./models.ts";
+import { DIGIT_PARTS, TFM_PARTS, TFM_SEPARATORS } from "../engine/tfm.ts";
 import { REQUIREMENT_IDS } from "./types.ts";
 import type {
   Applicability,
@@ -31,6 +32,7 @@ import type {
   Selector,
   StandardRequirementId,
   StoreyTolerance,
+  TfmCheck,
 } from "./types.ts";
 
 const RELATIONS: PartOfRelation[] = [
@@ -510,6 +512,13 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
     return;
   }
   if (rule.mapping !== undefined) checkMapping(ctx, path, rule);
+  if (check.type === "tfm") {
+    checkTfm(ctx, path, check);
+    if (rule.select) {
+      checkFacets(ctx, `${path}.select`, rule.select, ruleset.ifcVersions, false);
+    }
+    return;
+  }
   if (check.type === "copy-object") {
     checkCopyObject(ctx, path, check);
     if (rule.select) {
@@ -565,7 +574,7 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
 }
 
 /** Where a source sits decides which kinds it may be. */
-type SourceSlot = "code-lookup" | "copy-object" | "phase" | "mengdetype" | "product" | "material";
+type SourceSlot = "code-lookup" | "copy-object" | "tfm" | "phase" | "mengdetype" | "product" | "material";
 
 /** One source: a code-lookup's or copy-object's, or one entry of a
  *  project-layer cascade. `material` is a code-lookup source only: the
@@ -800,6 +809,7 @@ export const MAPPING_ROLES: MappingRole[] = [
   "component-classification",
   "progress-code",
   "copy-object",
+  "tfm",
 ];
 
 const CODE_LOOKUP_ROLES: CodeLookupRole[] = ["system-classification", "component-classification", "progress-code"];
@@ -815,7 +825,7 @@ function checkMapping(ctx: Ctx, path: string, rule: ExtendedRule): void {
       `${path}.mapping`,
       "mapping-unknown",
       `unknown mapping "${role}"; mappings are ${CODE_LOOKUP_ROLES.join(", ")}` +
-        (role === "copy-object" ? " (copy-object is the check type itself)" : ""),
+        (role === "copy-object" || role === "tfm" ? ` (${role} is the check type itself)` : ""),
     );
     return;
   }
@@ -856,6 +866,66 @@ function checkCopyObject(ctx: Ctx, path: string, check: CopyObjectCheck): void {
         add(ctx, "error", `${path}.check.copy[${i}]`, "copy-own-overlap", `"${value}" is both a copy value and an own value`);
       }
     });
+  }
+}
+
+/** The tfm role: its source, then the sequence token by token, then the
+ *  one binding the walk picks inside the builder (Lokasjon). */
+function checkTfm(ctx: Ctx, path: string, check: TfmCheck): void {
+  checkCodeSource(ctx, `${path}.check.source`, check.source, "tfm");
+  const sequence = check.sequence as unknown;
+  if (!Array.isArray(sequence) || sequence.length === 0) {
+    add(ctx, "error", `${path}.check.sequence`, "tfm-sequence-empty", "sequence lists no token");
+  } else {
+    let parts = 0;
+    sequence.forEach((raw, i) => {
+      const at = `${path}.check.sequence[${i}]`;
+      const token = (raw ?? {}) as Record<string, unknown>;
+      const kind = ["part", "sep", "text"].filter((k) => k in token);
+      if (kind.length !== 1) {
+        add(ctx, "error", at, "tfm-token-shape", "a token is exactly one of part, sep and text");
+        return;
+      }
+      if (kind[0] === "part") {
+        parts += 1;
+        if (!(TFM_PARTS as readonly unknown[]).includes(token.part)) {
+          add(ctx, "error", `${at}.part`, "tfm-part-unknown", `"${String(token.part)}" is not a part; parts are ${TFM_PARTS.join(", ")}`);
+        } else if (token.digits !== undefined) {
+          const n = token.digits;
+          if (!(DIGIT_PARTS as readonly unknown[]).includes(token.part)) {
+            add(ctx, "error", `${at}.digits`, "tfm-digits-part", `${String(token.part)} takes no digit count; ${DIGIT_PARTS.join(", ")} do`);
+          } else if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 12) {
+            add(ctx, "error", `${at}.digits`, "tfm-digits", "digits is a whole number from 1 to 12");
+          }
+        }
+      } else if (kind[0] === "sep") {
+        if (!(TFM_SEPARATORS as readonly unknown[]).includes(token.sep)) {
+          add(ctx, "error", `${at}.sep`, "tfm-separator-unknown", `"${String(token.sep)}" is not a separator; separators are ${TFM_SEPARATORS.map((x) => `"${x}"`).join(" ")}`);
+        }
+      } else if (typeof token.text !== "string" || token.text === "") {
+        add(ctx, "error", `${at}.text`, "tfm-text-empty", "text is empty; leave the token out");
+      }
+    });
+    if (parts === 0) add(ctx, "error", `${path}.check.sequence`, "tfm-no-part", "sequence has no part");
+  }
+  const bindings = check.bindings as unknown;
+  if (bindings !== undefined) {
+    if (bindings === null || typeof bindings !== "object" || Array.isArray(bindings)) {
+      add(ctx, "error", `${path}.check.bindings`, "tfm-bindings-shape", "bindings is an object keyed by part");
+      return;
+    }
+    for (const key of Object.keys(bindings)) {
+      if (key !== "Lokasjon") {
+        add(ctx, "error", `${path}.check.bindings.${key}`, "tfm-binding-unknown", `${key} takes no binding here; only Lokasjon does`);
+      }
+    }
+    const lokasjon = check.bindings?.Lokasjon;
+    if (lokasjon !== undefined) {
+      checkCodeSource(ctx, `${path}.check.bindings.Lokasjon`, lokasjon, "tfm");
+      if (Array.isArray(sequence) && !sequence.some((t) => (t as { part?: unknown })?.part === "Lokasjon")) {
+        add(ctx, "warning", `${path}.check.bindings.Lokasjon`, "tfm-binding-unused", "the sequence has no Lokasjon to bind");
+      }
+    }
   }
 }
 

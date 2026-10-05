@@ -27,13 +27,18 @@
  */
 
 import { MMI_PRESETS } from "../../codelists/mmi-presets.ts";
+import { agrees, partTexts, tfmMatcher } from "../../engine/tfm.ts";
 import { extractFromExample } from "../../ids/extract-example.ts";
 import { copyVerdict } from "../../ids/models.ts";
-import type { CodeEntry, CodeLookupCheck, CopyObjectCheck, MappingRole } from "../../ids/types.ts";
+import type { CodeEntry, CodeLookupCheck, CopyObjectCheck, MappingRole, TfmPart, TfmToken } from "../../ids/types.ts";
 import { previewExtract, type ExtractPreview, type ExtractState } from "../extract-preview.ts";
 import type { PsetChoice, PsetProp, PsetValue } from "../pset-choices.ts";
 
 export type MappingCheck = CodeLookupCheck | CopyObjectCheck;
+
+/** The roles a mapping step proposes a source for; `tfm` ranks its own way
+ *  (`rankTfmCandidates`). */
+export type CardRole = Exclude<MappingRole, "tfm">;
 
 export interface Candidate {
   set: string;
@@ -72,7 +77,7 @@ export function previewCopy(check: CopyObjectCheck, values: readonly PsetValue[]
  *  the proposal show. Throws the evaluator's error on an invalid Uttrekk. */
 export function evidence(
   check: MappingCheck,
-  role: MappingRole,
+  role: CardRole,
   prop: PsetProp,
   ownerNames: readonly string[],
 ): ExtractPreview {
@@ -98,7 +103,7 @@ function leadingExtract(values: readonly PsetValue[]): string | null {
  *  first, at most `limit`. */
 export function rankCandidates(
   choices: readonly PsetChoice[],
-  role: MappingRole,
+  role: CardRole,
   check: MappingCheck,
   ownerNames: readonly string[],
   limit = 4,
@@ -139,4 +144,67 @@ export function rankCandidates(
   return out
     .sort((a, b) => b.score - a.score || a.set.localeCompare(b.set) || a.name.localeCompare(b.name))
     .slice(0, limit);
+}
+
+/* -------------------------------------------------------------------- TFM */
+
+/** A property's values read against a TFM sequence: `ok` a string of the
+ *  sequence, `no-match` one off it. The same parse the tfm check runs
+ *  (`src/engine/tfm.ts`), shape only: agreement needs each element's own
+ *  values, which the inventory's value list does not pair. */
+export function previewTfm(sequence: readonly TfmToken[], values: readonly PsetValue[]): ExtractPreview {
+  const matcher = tfmMatcher(sequence);
+  const totals: Record<ExtractState, number> = { ok: 0, "no-match": 0, "not-in-list": 0 };
+  const rows = values.map((value) => {
+    const state: ExtractState = matcher.parse(value.v).ok ? "ok" : "no-match";
+    totals[state] += value.n;
+    return { ...value, code: null, state };
+  });
+  return { rows, totals };
+}
+
+/** The TFM step's proposals: the properties whose values are strings of
+ *  `sequence` (the standard's, or the saved rule's), scored as the other
+ *  steps score. A property no value of which parses is no candidate. */
+export function rankTfmCandidates(choices: readonly PsetChoice[], sequence: readonly TfmToken[], limit = 4): Candidate[] {
+  const out: Candidate[] = [];
+  for (const choice of choices) {
+    for (const prop of choice.props) {
+      if (prop.valued === 0 || prop.values.length === 0) continue;
+      const preview = previewTfm(sequence, prop.values);
+      const s = score(preview.totals.ok, prop);
+      if (s > 0) out.push({ set: choice.set, name: prop.name, prop, preview, okValues: okValues(preview), score: s });
+    }
+  }
+  return out
+    .sort((a, b) => b.score - a.score || a.set.localeCompare(b.set) || a.name.localeCompare(b.name))
+    .slice(0, limit);
+}
+
+/** The properties that could bind a part (Lokasjon): those carrying the
+ *  segments the TFM values parse to for it, as a value or a code before a
+ *  name, most elements first. Overlap of values, never a name. */
+export function rankPartBindings(
+  choices: readonly PsetChoice[],
+  sequence: readonly TfmToken[],
+  values: readonly PsetValue[],
+  part: TfmPart,
+  limit = 4,
+): { set: string; name: string; n: number }[] {
+  const matcher = tfmMatcher(sequence);
+  const segments = new Set<string>();
+  for (const value of values) {
+    const parsed = matcher.parse(value.v);
+    const text = parsed.ok ? partTexts(parsed.segments).get(part) : undefined;
+    if (text) segments.add(text);
+  }
+  if (segments.size === 0) return [];
+  const out: { set: string; name: string; n: number }[] = [];
+  for (const choice of choices) {
+    for (const prop of choice.props) {
+      const n = prop.values.reduce((sum, v) => sum + ([...segments].some((seg) => agrees(seg, v.v)) ? v.n : 0), 0);
+      if (n > 0) out.push({ set: choice.set, name: prop.name, n });
+    }
+  }
+  return out.sort((a, b) => b.n - a.n || a.set.localeCompare(b.set) || a.name.localeCompare(b.name)).slice(0, limit);
 }

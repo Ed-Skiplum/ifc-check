@@ -59,6 +59,9 @@ const EXTENDED_REASONS: Record<ExtendedCheckType, string> = {
   "copy-object":
     "IDS 1.0 has no scope filter: a facet cannot take an object out of every " +
     "other specification, and cannot compare a value with the file it is in",
+  tfm:
+    "IDS 1.0 cannot split a value into parts and compare a part with another " +
+    "property, the storey or a code another rule reads",
 };
 
 function slug(name: string): string {

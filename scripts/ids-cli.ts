@@ -45,12 +45,23 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { validateXML } from "xmllint-wasm";
 
 import { CODE_LISTS } from "../src/codelists/index.ts";
-import { compileExtract, evaluateRuleset } from "../src/ids/evaluate.ts";
+import { codeLookupSubjects, compileExtract, evaluateRuleset } from "../src/ids/evaluate.ts";
+import {
+  STATSBYGG_EXAMPLE,
+  STATSBYGG_SEQUENCE,
+  agrees,
+  exampleText,
+  fitsPart,
+  formatSequence,
+  moveToken,
+  tfmMatcher,
+  tfmRegexSource,
+} from "../src/engine/tfm.ts";
 import { extractFromExample } from "../src/ids/extract-example.ts";
 import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
-import { rankCandidates } from "../src/ui/setup/candidates.ts";
-import type { CodeLookupCheck, CopyObjectCheck, MappingRole } from "../src/ids/types.ts";
+import { rankCandidates, rankPartBindings, rankTfmCandidates } from "../src/ui/setup/candidates.ts";
+import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList } from "../src/ids/models.ts";
 import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
@@ -86,7 +97,7 @@ import { REQUIREMENT_IDS, type IdsRule, type Rule, type Ruleset } from "../src/i
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
 import { detailEn, line as detailLine, runFundamentals } from "../src/engine/fundamentals.ts";
 import { detailText } from "../src/ui/display.ts";
-import { labelOfFocus } from "../src/ui/requirements.ts";
+import { labelOfFocus, requirements } from "../src/ui/requirements.ts";
 import {
   checkMeshPlacement,
   collectBoxes,
@@ -2754,6 +2765,7 @@ async function cmdSelftest(): Promise<number> {
   configSelftest(record);
   mottakskontrollSelftest(record);
   setupWalkSelftest(record);
+  tfmSelftest(record);
   layerStepSelftest(record);
   stepTemplateSelftest(record);
   qtoSelftest(record);
@@ -3210,6 +3222,250 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
     }),
   );
   record("walk candidates: no property passing is no proposal", "none", ranked([choice("Dim", "Text", [["Vegg", 40]])], "system-classification", sys));
+}
+
+/* -------------------------------------------------------------------- TFM */
+
+/** The TFM builder's engine (`src/engine/tfm.ts`), the tfm check
+ *  (`evaluate.ts`: shape, then agreement per bound part), its report row,
+ *  lint, schema, the JSON and workbook round trips, and the walk's
+ *  proposals. */
+function tfmSelftest(record: Record_): void {
+  const segs = (sequence: readonly TfmToken[], value: string) => {
+    const p = tfmMatcher(sequence).parse(value);
+    return p.ok ? p.segments.map((s) => s.text).join("|") : `off@${p.at}:${p.token}`;
+  };
+  record("tfm: the Statsbygg example parses into its parts", "+|123456|=|360|.|001|-|JV|401", segs(STATSBYGG_SEQUENCE, STATSBYGG_EXAMPLE));
+  record(
+    "tfm: the Statsbygg sequence compiles, one group per token, anchored both ends",
+    "^(\\+)([A-Za-z0-9]{6})(=)(\\d{3})(\\.)(\\d{3})(-)([A-Z]{2})(\\d{3})$",
+    tfmRegexSource(STATSBYGG_SEQUENCE),
+  );
+  record("tfm: the Statsbygg sequence as the summary names it", "+ Lokasjon = Systemkode . Løpenummer - Komponent Komp.nr", formatSequence(STATSBYGG_SEQUENCE));
+  record(
+    "tfm: off the sequence, where and at which token",
+    "off@12:5 off@21:9 off@0:0 off@0:0",
+    ["+123456=360.01-JV401", "+123456=360.001-JV401 X", "=360.001", ""].map((v) => segs(STATSBYGG_SEQUENCE, v)).join(" "),
+  );
+  // tfm-check's own default (Systemkode . Etasje - Komponent Løpenummer),
+  // with a digit lock splitting "103" as tfm-check documents it.
+  const adapted: TfmToken[] = [
+    { part: "Systemkode" },
+    { sep: "." },
+    { part: "Etasje", digits: 1 },
+    { part: "Subnr" },
+    { sep: "-" },
+    { part: "Komponent" },
+    { part: "Løpenummer" },
+  ];
+  record("tfm: an adapted sequence, Etasje locked to one digit", "360|.|1|03|-|JV|001", segs(adapted, "360.103-JV001"));
+  record("tfm: literal text is part of the shape", "RIV-|360 off@0:0", `${segs([{ text: "RIV-" }, { part: "Systemkode" }], "RIV-360")} ${segs([{ text: "RIV-" }, { part: "Systemkode" }], "RIE-360")}`);
+  record(
+    "tfm: a chip's example fits its digit lock; the standard's text otherwise",
+    "0001 360 JV ++",
+    [exampleText({ part: "Løpenummer", digits: 4 }), exampleText({ part: "Systemkode" }), exampleText({ part: "Komponent" }), exampleText({ sep: "++" })].join(" "),
+  );
+  record(
+    "tfm: move a token",
+    "Lokasjon + =",
+    moveToken(STATSBYGG_SEQUENCE, 0, 1)
+      .slice(0, 3)
+      .map((t) => ("part" in t ? t.part : "sep" in t ? t.sep : t.text))
+      .join(" "),
+  );
+  record(
+    "tfm: agreement is literal, a code before its name included",
+    "true true false false",
+    [agrees("360", "360"), agrees("360", "360 Ventilasjon"), agrees("360", "3601"), agrees("36", "360 Ventilasjon")].map(String).join(" "),
+  );
+  record("tfm: a three-letter NS 3457-8 code never takes Komponent's form", "false true", `${fitsPart({ part: "Komponent" }, "QLD")} ${fitsPart({ part: "Komponent" }, "JV")}`);
+
+  // A synthetic model: six walls on two storeys, the TFM string, the two
+  // classification codes, the building number.
+  const wall = (guid: string, storey: string) => ({
+    guid, entity: "IFCWALL", name: guid, predefined_type: null, object_type: null, tag: null,
+    storey_guid: storey, parent_guid: null, type_name: null, typed: false, materials: [],
+    is_external: null, fire_rating: null, load_bearing: null,
+  });
+  const prop = (guid: string, set: string, name: string, value: string) => ({ guid, pset_name: set, prop_name: name, value });
+  const rows: [string, string, string | null, string | null, string][] = [
+    // guid, storey, TFM, NS 3451, building
+    ["w1", "s1", "+123456=360.001-JV401", "360 Ventilasjon", "123456"],
+    ["w2", "s1", "+123456=361.002-JV402", "360 Ventilasjon", "123456"],
+    ["w3", "s2", "+123456=360.01-JV401", "360 Ventilasjon", "123456"],
+    ["w4", "s2", null, "360 Ventilasjon", "123456"],
+    ["w5", "s2", "+654321=360.003-JV403", "360 Ventilasjon", "123456"],
+    ["w6", "s2", "+123456=360.004-JV404", null, "123456"],
+  ];
+  const graph: ModelGraph = {
+    schema: "IFC4",
+    products: rows.map(([g, s]) => wall(g, s)),
+    contained_in: rows.map(([g, s]) => ({ product_guid: g, storey_guid: s })),
+    aggregates: [], voids: [], buildings: [], sites: [], spaces: [],
+    storeys: [{ guid: "s1", name: "01", elevation: 0 }, { guid: "s2", name: "02", elevation: 3000 }],
+    psets: rows.flatMap(([g, , tfm, ns, bygg]) => [
+      ...(tfm === null ? [] : [prop(g, "Prosjekt", "TFM", tfm)]),
+      ...(ns === null ? [] : [prop(g, "Klass", "NS3451", ns)]),
+      prop(g, "Klass", "NS3457", "QLD"),
+      prop(g, "Bygg", "Nr", bygg),
+    ]),
+    classifications: [],
+  };
+  const summary: ModelSummary = {
+    schema: "IFC4", length_unit: "MILLIMETRE", unit_scale: 0.001, unit_resolved: true,
+    authoring_app: null, project_name: null, duplicate_step_ids: 0, products: rows.length,
+  };
+  const property = (propertySet: string, name: string) => ({ property: { propertySet, name } });
+  const tfmRule = (check: Partial<TfmCheck> = {}, id = "tfm"): Rule => ({
+    id, kind: "extended", name: "TFM", select: { entity: { group: "physicalElement" } },
+    check: { type: "tfm", source: property("Prosjekt", "TFM"), sequence: [...STATSBYGG_SEQUENCE], bindings: { Lokasjon: property("Bygg", "Nr") }, ...check },
+  });
+  const classRule = (mapping: "system-classification" | "component-classification", set: string, name: string, list: "ns3451" | "ns3457-8", extract: string): Rule => ({
+    id: mapping, kind: "extended", name: mapping, mapping, select: { entity: { group: "physicalElement" } },
+    check: { type: "code-lookup", list, target: "occurrence", source: property(set, name), extract },
+  });
+  const base = { ...SAMPLE_RULESET, rules: [] } as Ruleset;
+  const full: Ruleset = {
+    ...base,
+    rules: [
+      classRule("system-classification", "Klass", "NS3451", "ns3451", "^(\\d{3})"),
+      classRule("component-classification", "Klass", "NS3457", "ns3457-8", "^([A-Z]{2,3})$"),
+      tfmRule(),
+    ],
+  };
+  const tfmOf = (ruleset: Ruleset) => evaluateRuleset(ruleset, graph, summary, "P_RIV.ifc").results.find((r) => r.ruleId === "tfm")!;
+  const result = tfmOf(full);
+  const partsText = (r: typeof result) =>
+    (r.tfm ?? []).map((p) => `${p.part}:${p.shapeOnly ?? `${p.agree}/${p.disagree}/${p.unknown}`}`).join(" ");
+  record(
+    "tfm check: shape and agreement per element",
+    "fail 6/4 [w2:disagree-systemkode, w3:no-match, w4:empty, w5:disagree-lokasjon]",
+    `${result.state} ${result.applicable}/${result.failed} [${result.findings.map((f) => `${f.guid}:${f.code}`).join(", ")}]`,
+  );
+  record("tfm check: coverage", "met 2 deviating 3 missing 1 hits 5", `met ${result.coverage?.met} deviating ${result.coverage?.deviating} missing ${result.coverage?.missing} hits ${result.coverage?.sourceHits}`);
+  record(
+    "tfm check: per part, compared or shape only and why",
+    "Lokasjon:3/1/0 Systemkode:2/1/1 Løpenummer:no-binding Komponent:not-comparable Komp.nr:no-binding",
+    partsText(result),
+  );
+  const noSystem = tfmOf({ ...full, rules: [full.rules[1], tfmRule({ bindings: undefined })] });
+  record(
+    "tfm check: a skipped step and no Lokasjon binding leave their parts shape only",
+    "Lokasjon:unbound Systemkode:unbound | fail 6/2",
+    `${partsText(noSystem).split(" ").slice(0, 2).join(" ")} | ${noSystem.state} ${noSystem.applicable}/${noSystem.failed}`,
+  );
+  const storeyRuleset: Ruleset = {
+    ...base,
+    storeys: {
+      plane: "OKFG", tolerance: { aboveMm: 0, belowMm: 0 }, nameWindowMm: null, nearMm: 0,
+      levels: [{ name: "01", elevation: 0 }, { name: "02", elevation: 3 }],
+    },
+    rules: [tfmRule({ sequence: [{ part: "Etasje" }, { sep: "-" }, { part: "Rom" }], bindings: undefined, source: property("Klass", "NS3457") })],
+  };
+  const etasje = (value: (g: string) => string) =>
+    evaluateRuleset(
+      storeyRuleset,
+      { ...graph, psets: rows.map(([g]) => prop(g, "Klass", "NS3457", value(g))) },
+      summary,
+      "P_RIV.ifc",
+    ).results[0];
+  const floors = etasje((g) => (g === "w1" ? "01-101" : g === "w2" ? "02-102" : "02-201"));
+  record(
+    "tfm check: Etasje agrees with the storey as a level; Rom is not exposed",
+    "Etasje:5/1/0 Rom:not-exposed [w2:disagree-etasje]",
+    `${partsText(floors)} [${floors.findings.map((f) => `${f.guid}:${f.code}`).join(", ")}]`,
+  );
+  const noFloors = evaluateRuleset({ ...storeyRuleset, storeys: undefined }, graph, summary, "P_RIV.ifc").results[0];
+  record("tfm check: no Etasjeoppsett, Etasje is shape only", "Etasje:unbound", partsText(noFloors).split(" ")[0]);
+
+  // The report row carries the per-part tally; the board's door reads the
+  // same subjects.
+  const report = reportRows({
+    model: { file: "P_RIV.ifc", schema: "IFC4", sha256: "" },
+    graph: graph as unknown as IfcGraph,
+    summary: summary as unknown as IfcSummary,
+    checks: [],
+    ruleset: full,
+    evaluation: evaluateRuleset(full, graph, summary, "P_RIV.ifc"),
+  }).find((r) => r.mapping === "tfm");
+  record(
+    "tfm report row: mapping, state, dekning, kilder and deler",
+    "tfm fail 6=2+3+1 Prosjekt.TFM prosjekt | Systemkode system-classification 2/1/1 · Komponent - not-comparable",
+    report
+      ? `${report.mapping} ${report.state} ${report.dekning.grunnlag}=${report.dekning.oppfylt}+${report.dekning.avvik}+${report.dekning.mangler} ` +
+          `${report.dekning.kilder[0]?.navn} ${report.dekning.kilder[0]?.lag} | ` +
+          [report.deler?.[1], report.deler?.[3]]
+            .map((d) => (d ? `${d.del} ${d.kun_form ? `- ${d.kun_form}` : `${d.kilde} ${d.samsvar}/${d.avvik}/${d.uten_verdi}`}` : "?"))
+            .join(" · ")
+      : "no row",
+  );
+  record(
+    "tfm requirement: shown once configured, absent otherwise",
+    "tfm fail | none",
+    `${requirements(report ? [report] : []).find((r) => r.key === "tfm")?.key ?? "none"} ${report?.state ?? ""} | ${requirements([]).find((r) => r.key === "tfm")?.key ?? "none"}`,
+  );
+  const subjects = codeLookupSubjects(full, full.rules[2] as ExtendedRule, graph, "P_RIV.ifc", summary);
+  record("tfm board door: the subjects the rule judged", "w1:ok w2:deviating w3:deviating w4:missing w5:deviating w6:ok", subjects.map((s) => `${s.guid}:${s.state}`).join(" "));
+
+  // Lint, schema, JSON and workbook round trips.
+  const tfmLint = (rules: unknown[]) => lintCodes({ ...base, rules } as unknown as Ruleset);
+  record("tfm lint: the full ruleset is clean", "none", lintCodes(full));
+  record(
+    "tfm lint refuses",
+    "tfm-sequence-empty | tfm-part-unknown | tfm-digits-part | material-source-slot | mapping-duplicate | tfm-binding-unused | mapping-unknown",
+    [
+      tfmLint([tfmRule({ sequence: [] })]),
+      tfmLint([tfmRule({ sequence: [{ part: "Bygg" as TfmPart }] })]),
+      tfmLint([tfmRule({ sequence: [{ part: "Komponent", digits: 2 }] })]),
+      tfmLint([tfmRule({ source: { material: {} } })]),
+      tfmLint([tfmRule(), tfmRule({}, "tfm-2")]),
+      lintRuleset({ ...base, rules: [tfmRule({ sequence: [{ part: "Systemkode" }] })] })
+        .filter((i) => i.severity === "warning" && i.code.startsWith("tfm"))
+        .map((i) => i.code)
+        .join(",") || "none",
+      tfmLint([{ ...classRule("system-classification", "Klass", "NS3451", "ns3451", "^(\\d{3})"), mapping: "tfm" }]),
+    ].join(" | "),
+  );
+  record("tfm schema: the full ruleset validates", "valid", shapeErrors(full).length === 0 ? "valid" : shapeErrors(full).map((e) => `${e.path} ${e.message}`).join(" | "));
+  record(
+    "tfm schema: an unknown part and a digit count of 0 are refused",
+    "rejected rejected",
+    [tfmRule({ sequence: [{ part: "Bygg" as TfmPart }] }), tfmRule({ sequence: [{ part: "Rom", digits: 0 }] })]
+      .map((rule) => (shapeErrors({ ...base, rules: [rule] }).length > 0 ? "rejected" : "accepted"))
+      .join(" "),
+  );
+  const json = JSON.parse(JSON.stringify(full)) as Ruleset;
+  record("tfm JSON round trip: equal, clean and valid", "equal none valid", `${rulesetDiff(json, full) === null ? "equal" : "differs"} ${lintCodes(json)} ${shapeErrors(json).length === 0 ? "valid" : "invalid"}`);
+  let workbook: string;
+  try {
+    const back = readRulesetXlsx(writeRulesetXlsx(full)).ruleset;
+    workbook = rulesetDiff(back, canonicalRuleset(full)) ?? "equal";
+  } catch (error) {
+    workbook = error instanceof Error ? error.message : String(error);
+  }
+  record("tfm workbook round trip (Andre regler, one JSON per rule): equal", "equal", workbook);
+
+  // The walk's proposals.
+  const choice = (set: string, name: string, values: [string, number][]): PsetChoice => {
+    const n = values.reduce((sum, [, k]) => sum + k, 0);
+    return { set, objects: n, props: [{ name, n, valued: n, values: values.map(([v, k]) => ({ v, n: k })), distinct: values.length, exact: true }] };
+  };
+  const choices = [
+    choice("Prosjekt", "TFM", [["+123456=360.001-JV401", 3], ["360.001", 1]]),
+    choice("Prosjekt", "Merke", [["+123456=360.001-JV401", 1], ["x", 5]]),
+    choice("Bygg", "Nr", [["123456", 4]]),
+    choice("Dim", "Text", [["Vegg", 40]]),
+  ];
+  record(
+    "tfm walk: properties ranked by strings of the standard",
+    "Prosjekt.TFM:3 Prosjekt.Merke:1",
+    rankTfmCandidates(choices, STATSBYGG_SEQUENCE).map((c) => `${c.set}.${c.name}:${c.preview.totals.ok}`).join(" "),
+  );
+  record(
+    "tfm walk: Lokasjon's binding proposed by the values it shares",
+    "Bygg.Nr:4",
+    rankPartBindings(choices, STATSBYGG_SEQUENCE, choices[0].props[0].values, "Lokasjon").map((c) => `${c.set}.${c.name}:${c.n}`).join(" ") || "none",
+  );
 }
 
 /* ------------------------------------------------------------------ xlsx */

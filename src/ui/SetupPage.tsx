@@ -119,6 +119,10 @@ type SourceKind = (typeof SOURCE_KINDS)[number];
 
 type MappingCheck = CodeLookupCheck | CopyObjectCheck;
 
+/** The roles a mapping card edits: every mapping but `tfm`, which is its
+ *  own step (`setup/TfmBuilder.tsx`). */
+type CardRole = Exclude<MappingRole, "tfm">;
+
 function sourceKind(source: CodeSource): SourceKind {
   if ("property" in source) return "property";
   if ("classification" in source) return "classification";
@@ -138,7 +142,7 @@ function blankSource(kind: SourceKind): CodeSource {
   }
 }
 
-function blankCheck(role: MappingRole): MappingCheck {
+function blankCheck(role: CardRole): MappingCheck {
   // A property by default: the walk's picker lists the loaded model's sets.
   const base = { type: "code-lookup", source: blankSource("property") } as const;
   switch (role) {
@@ -791,7 +795,7 @@ function ValuesPanel({
 }: {
   prop: PsetProp;
   check?: MappingCheck;
-  role?: MappingRole;
+  role?: CardRole;
   judge?: (value: string) => boolean;
   lang: Lang;
   onPick?: (value: string) => void;
@@ -983,7 +987,7 @@ function MappingCard({
   onNext,
   picker,
 }: {
-  role: MappingRole;
+  role: CardRole;
   rule: ExtendedRule | null;
   issues: LintIssue[];
   lang: Lang;
@@ -1893,7 +1897,7 @@ const STEP_REQ: Partial<Record<SetupStep, string>> = {
 
 function stepLabel(step: SetupStep, lang: Lang): string {
   const key = STEP_LABEL[step];
-  return key ? t(key, lang) : t(`mapping.${step as MappingRole}`, lang);
+  return key ? t(key, lang) : t(`mapping.${step as CardRole}`, lang);
 }
 
 function isLayerStep(step: SetupStep): step is LayerStep {
@@ -1907,12 +1911,12 @@ const MAPPING_ROLES: readonly SetupStep[] = [
   "progress-code",
 ];
 
-function isMappingStep(step: SetupStep): step is MappingRole {
+function isMappingStep(step: SetupStep): step is CardRole {
   return MAPPING_ROLES.includes(step);
 }
 
 /** The rule's check, or the blank one a first answer starts from. */
-function checkOf(rule: ExtendedRule | null, role: MappingRole): MappingCheck {
+function checkOf(rule: ExtendedRule | null, role: CardRole): MappingCheck {
   return rule && (rule.check.type === "code-lookup" || rule.check.type === "copy-object") ? rule.check : blankCheck(role);
 }
 
@@ -1986,7 +1990,7 @@ export function SetupPage({
   // download was attempted, never on a page nobody has typed on yet.
   const [nameTouched, setNameTouched] = useState(false);
   const [attempted, setAttempted] = useState(false);
-  const [asking, setAsking] = useState<MappingRole | null>(null);
+  const [asking, setAsking] = useState<CardRole | null>(null);
   // The cascades explicitly left at the standard: no project source, and
   // the standard picked. Not in the ruleset (an empty entry is refused by
   // the workbook), so it holds for this Oppsett.
@@ -2065,7 +2069,7 @@ export function SetupPage({
     return r !== null && r.enabled !== false && !hasErrors(lint.filter((i) => i.ruleId === r.id));
   };
 
-  const newRule = (role: MappingRole): ExtendedRule => ({
+  const newRule = (role: CardRole): ExtendedRule => ({
     id: freshId(ruleset, role),
     kind: "extended",
     // The copy-object role is its check type; the others are a mapping.
@@ -2075,7 +2079,7 @@ export function SetupPage({
     check: blankCheck(role),
   });
 
-  const toggle = (role: MappingRole) => {
+  const toggle = (role: CardRole) => {
     const rule = mappingRule(ruleset, role);
     if (rule === null) {
       onChange({ ...ruleset, rules: [...ruleset.rules, newRule(role)] });
@@ -2088,7 +2092,7 @@ export function SetupPage({
   };
 
   // An edit is a decision: it turns the rule on, creating it if need be.
-  const setCheck = (role: MappingRole, check: MappingCheck) => {
+  const setCheck = (role: CardRole, check: MappingCheck) => {
     const rule = mappingRule(ruleset, role);
     if (rule === null) {
       const created: ExtendedRule = { ...newRule(role), check };
@@ -2464,7 +2468,7 @@ export function SetupPage({
       </div>
     );
   } else {
-    const r = current;
+    const r = current as CardRole;
     const c = check ?? checkOf(rule, r);
     const confirmCandidate = (candidate: Candidate) => {
       const property = { propertySet: candidate.set, name: candidate.name };

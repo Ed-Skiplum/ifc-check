@@ -135,6 +135,13 @@ export interface ReportRow {
    *  `n` is null for a ruling with no class, which cannot be told apart per
    *  object. */
   aapne?: { tittel: string; klasser: string[]; n: number | null }[];
+  /** On the `tfm` row only: per part of the sequence, in order, what its
+   *  segment was compared against (`kilde`: a mapping role, `storeys` or
+   *  `Lokasjon`; null when none) and, over the elements whose string
+   *  parsed, how many agree, disagree and had no value to compare.
+   *  `kun_form` names why a part is checked for shape only (`no-binding`,
+   *  `unbound`, `not-exposed`, `not-comparable`); its counts are then 0. */
+  deler?: { del: string; kilde: string | null; kun_form: string | null; samsvar: number; avvik: number; uten_verdi: number }[];
   dekning: ReportCoverage;
   /** null = the engine does not produce a distribution for this requirement. */
   fordeling: ReportValue[] | null;
@@ -695,7 +702,7 @@ function ruleRow(rule: Rule, result: RuleResult, model: ReportModel, excludedAny
         row.godtatte = check.codes.map((c) => c.code);
         row.koder = check.codes.map((c) => ({ kode: c.code, navn: c.name, ...(c.phase ? { fase: c.phase } : {}) }));
       }
-    } else if (check.type === "copy-object") {
+    } else if (check.type === "copy-object" || check.type === "tfm") {
       const s = sourceOf(check.source);
       kilder = [{ ...s, n: cov ? cov.sourceHits : null, foretrukket: true }];
     } else if (check.type === "element-typed") {
@@ -730,6 +737,16 @@ function ruleRow(rule: Rule, result: RuleResult, model: ReportModel, excludedAny
   };
   if (result.values) {
     row.fordeling = result.values.map((v) => ({ verdi: v.value, n: v.n, flagg: FLAG_OF[v.state] }));
+  }
+  if (result.tfm) {
+    row.deler = result.tfm.map((p) => ({
+      del: p.part,
+      kilde: p.binding,
+      kun_form: p.shapeOnly ?? null,
+      samsvar: p.agree,
+      avvik: p.disagree,
+      uten_verdi: p.unknown,
+    }));
   }
   return row;
 }

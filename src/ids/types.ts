@@ -309,13 +309,57 @@ export interface CopyObjectCheck {
   own: string[];
 }
 
+/** A kodeledd of a TFM string (tverrfaglig merkesystem), named as tfm-check
+ *  names them (`backend/engine/constants.py` PART_TYPES). */
+export type TfmPart =
+  | "Lokasjon"
+  | "Rom"
+  | "Systemkode"
+  | "Etasje"
+  | "Subnr"
+  | "Løpenummer"
+  | "Komponent"
+  | "Komp.nr"
+  | "T-suffiks";
+
+/** A separator between kodeledd, as the character itself (tfm-check's
+ *  SEP_TO_CHAR values; `mellomrom` is " "). */
+export type TfmSeparator = "+" | "." | "-" | "_" | "/" | " " | "=" | "++";
+
+/** One token of a TFM sequence: a part, a separator, or literal text. A
+ *  part's `digits` locks it to exactly that many digits; only the digit
+ *  parts take it (Etasje, Subnr, Løpenummer, Komp.nr, Rom). */
+export type TfmToken = { part: TfmPart; digits?: number } | { sep: TfmSeparator } | { text: string };
+
+/** The property carrying each element's TFM string, checked twice per
+ *  element (src/engine/tfm.ts, src/ids/evaluate.ts):
+ *
+ *    shape      the whole string matches `sequence`
+ *    agreement  a parsed part equals the element's own value where the part
+ *               is bound: Systemkode to the system-classification rule,
+ *               Komponent to the component-classification rule, Etasje to
+ *               `storeys` (the element's storey as a level), Lokasjon to
+ *               `bindings.Lokasjon`. Compared literally, never translated
+ *               between code lists. Any other part, and a bound part whose
+ *               rule or setup is absent, is checked for shape only.
+ *
+ *  The check type is the `tfm` role: at most one per ruleset. */
+export interface TfmCheck {
+  type: "tfm";
+  /** Not a material source. */
+  source: CodeSource;
+  sequence: TfmToken[];
+  bindings?: { Lokasjon?: CodeSource };
+}
+
 export type ExtendedCheck =
   | ElementTypedCheck
   | UniqueAttributeCheck
   | TypeUsageCountCheck
   | ModelMetadataCheck
   | CodeLookupCheck
-  | CopyObjectCheck;
+  | CopyObjectCheck
+  | TfmCheck;
 
 export type ExtendedCheckType = ExtendedCheck["type"];
 
@@ -327,8 +371,9 @@ export type ExtendedCheckType = ExtendedCheck["type"];
  *  - `progress-code`: a code-lookup rule carrying `mapping`, against the
  *    project's `codes`.
  *  - `copy-object`: the rule whose check is a `CopyObjectCheck`. It carries
- *    no `mapping` field: the check type is the role. */
-export type MappingRole = CodeLookupRole | "copy-object";
+ *    no `mapping` field: the check type is the role.
+ *  - `tfm`: the rule whose check is a `TfmCheck`, the same way. */
+export type MappingRole = CodeLookupRole | "copy-object" | "tfm";
 
 /** The roles a code-lookup rule takes through its `mapping` field. */
 export type CodeLookupRole = "system-classification" | "component-classification" | "progress-code";
