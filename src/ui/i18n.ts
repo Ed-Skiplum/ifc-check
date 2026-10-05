@@ -341,6 +341,8 @@ const STRINGS = {
   "tfm.shapeOnly": { nb: "Kun format", en: "Shape only" },
   "tfm.text": { nb: "Tekst", en: "Text" },
   "tfm.digits": { nb: "Siffer", en: "Digits" },
+  // The type name builder's letters part (2026-10-05), beside «Siffer».
+  "tfm.letters": { nb: "Bokstaver", en: "Letters" },
   "tfm.none": { nb: "Ingen", en: "None" },
   "field.enabled": { nb: "Aktiv", en: "Enabled" },
   "action.enable": { nb: "Aktiver", en: "Enable" },

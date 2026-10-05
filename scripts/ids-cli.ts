@@ -62,7 +62,7 @@ import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
 import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
-import { POFIN_TYPE_NAME, nameMatcher } from "../src/engine/type-name.ts";
+import { POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher, partExample, partShape } from "../src/engine/type-name.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList, roleRule, ruleRole } from "../src/ids/models.ts";
 import { pofinRuleset, withPofin } from "../src/engine/pofin-ruleset.ts";
@@ -4004,6 +4004,29 @@ function typeNameSelftest(record: Record_): void {
       .join(" "),
   );
   record("type name: a part's own groups do not move the parts", "AB|-|x1", parse([{ regex: "(A)(B)" }, { text: "-" }, { regex: "(x)(\\d)" }], "AB-x1"));
+  // The builder's human parts: digits and letters are stored as patterns and
+  // read back as themselves; any other pattern stays a pattern.
+  const shape = (part: NamePart) => {
+    const s = partShape(part);
+    return s.count === undefined ? s.kind : `${s.kind}:${s.count ?? "+"}`;
+  };
+  record(
+    "type name parts: N digits / N letters read back from their patterns, the rest stays a pattern",
+    "digits:+ digits:3 digits:2 digits:1 letters:+ letters:2 letters:3 regex regex ns3457-8 text values",
+    [
+      { regex: "\\d+" }, { regex: "\\d{3}" }, { regex: "[0-9]{2}" }, { regex: "\\d" }, { regex: "[A-ZÆØÅ]+" }, { regex: "[A-ZÆØÅ]{2}" },
+      { regex: "[A-Z]{3}" }, { regex: "\\d{2,3}" }, { regex: "[A-Z]+-\\d{3}" }, { list: "ns3457-8" }, { text: "." }, { values: ["A"] },
+    ].map((p) => shape(p as NamePart)).join(" "),
+  );
+  record(
+    "type name parts: the builder's digits and letters round-trip and match what they say",
+    "digits:3 letters:2 digits:+ | 001 AB 001 | AB|.|001 off@3:2 off@0:0",
+    [
+      [digitsPart(3), lettersPart(2), digitsPart(null)].map(shape).join(" "),
+      [digitsPart(3), lettersPart(2), POFIN_TYPE_NAME[2]].map(partExample).join(" "),
+      ["AB.001", "AB.01", "ab.001"].map((v) => parse([lettersPart(2), { text: "." }, digitsPart(3)], v)).join(" "),
+    ].join(" | "),
+  );
 
   // Five walls: three types (one off the scheme, one without a Name), one
   // untyped.

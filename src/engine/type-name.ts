@@ -76,13 +76,52 @@ export function partName(part: NamePart): string {
   return `"${part.text}"`;
 }
 
+/** A part as a coordinator reads it (2026-10-05, edkjo: "Most people dont
+ *  know regex, so we can have regex as an option, but also have predefined
+ *  regexes: 2 digit, 3 digit, etc."). Digits and letters are stored as the
+ *  pattern they are (`{regex: "\\d{3}"}`, `{regex: "[A-ZÆØÅ]{2}"}`), so the
+ *  ruleset format is unchanged; a pattern that is exactly N digits or N
+ *  letters, or one or more of them (`count` null), reads back as that part.
+ *  Any other pattern stays a pattern. */
+export type PartKind = "ns3457-8" | "ns3451" | "digits" | "letters" | "text" | "values" | "regex";
+
+export interface PartShape {
+  kind: PartKind;
+  /** Digits and letters: the exact count, null for one or more. */
+  count?: number | null;
+}
+
+const DIGITS_RE = /^(?:\\d|\[0-9\])(?:\+|\{([1-9][0-9]?)\})?$/;
+const LETTERS_RE = /^\[A-Z(?:ÆØÅ)?\](?:\+|\{([1-9][0-9]?)\})?$/;
+
+export function partShape(part: NamePart): PartShape {
+  if ("list" in part) return { kind: part.list };
+  if ("values" in part) return { kind: "values" };
+  if ("text" in part) return { kind: "text" };
+  for (const [kind, re] of [["digits", DIGITS_RE], ["letters", LETTERS_RE]] as const) {
+    const m = re.exec(part.regex);
+    if (m) return { kind, count: m[1] !== undefined ? Number(m[1]) : /[+]$/.test(part.regex) ? null : 1 };
+  }
+  return { kind: "regex" };
+}
+
+/** N digits, or one or more (null): the pattern stored for it. */
+export const digitsPart = (count: number | null): NamePart => ({ regex: count === null ? "\\d+" : `\\d{${count}}` });
+
+/** N letters, or one or more (null), A–Z and ÆØÅ, as the POFIN codes are. */
+export const lettersPart = (count: number | null): NamePart => ({ regex: count === null ? "[A-ZÆØÅ]+" : `[A-ZÆØÅ]{${count}}` });
+
 /** What a part shows when no real name parses: the text, the first value,
- *  the POFIN example's class (DUZ) or an NS 3451 class, else the pattern. */
+ *  the POFIN example's class (DUZ) or an NS 3451 class, N digits as 001,
+ *  N letters as AB, else the pattern. */
 export function partExample(part: NamePart): string {
   if ("text" in part) return part.text;
   if ("values" in part) return part.values[0] ?? "";
   if ("list" in part) return part.list === "ns3457-8" ? "DUZ" : "2341";
-  return part.regex === "\\d+" ? "001" : part.regex;
+  const shape = partShape(part);
+  if (shape.kind === "digits") return shape.count == null ? "001" : "1".padStart(shape.count, "0");
+  if (shape.kind === "letters") return shape.count == null ? "AB" : "ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(0, Math.min(shape.count, 26));
+  return part.regex;
 }
 
 export function sameScheme(a: readonly NamePart[], b: readonly NamePart[]): boolean {
