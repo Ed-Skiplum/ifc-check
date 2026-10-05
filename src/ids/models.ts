@@ -41,6 +41,7 @@ export function ruleRole(rule: Rule): MappingRole | null {
   if (rule.kind !== "extended") return null;
   if (rule.check?.type === "copy-object") return "copy-object";
   if (rule.check?.type === "tfm") return "tfm";
+  if (rule.check?.type === "type-name") return "type-name";
   return rule.mapping ?? null;
 }
 

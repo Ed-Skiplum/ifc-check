@@ -760,6 +760,23 @@ export const RULESET_JSON_SCHEMA = {
             },
           },
         },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "sequence"],
+          description:
+            "The type-name role: each type object's Name, read through the elements that " +
+            "use it, must match the scheme, part after part, whole.",
+          properties: {
+            type: { const: "type-name" },
+            sequence: {
+              type: "array",
+              minItems: 1,
+              description: "POFIN 2.1 Objekttypenavn (NS 8360-1): NS 3457-8 + . + a type number, DUZ.001",
+              items: { $ref: "#/$defs/namePart" },
+            },
+          },
+        },
       ],
     },
 
@@ -791,6 +808,20 @@ export const RULESET_JSON_SCHEMA = {
           required: ["text"],
           properties: { text: { type: "string", minLength: 1 } },
         },
+      ],
+    },
+
+    namePart: {
+      oneOf: [
+        { type: "object", additionalProperties: false, required: ["list"], properties: { list: { enum: ["ns3457-8", "ns3451"] } } },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["values"],
+          properties: { values: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } } },
+        },
+        { type: "object", additionalProperties: false, required: ["regex"], properties: { regex: { type: "string", minLength: 1 } } },
+        { type: "object", additionalProperties: false, required: ["text"], properties: { text: { type: "string", minLength: 1 } } },
       ],
     },
 

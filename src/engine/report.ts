@@ -690,7 +690,7 @@ function ruleRow(rule: Rule, result: RuleResult, model: ReportModel, excludedAny
     klasse =
       check.type === "model-metadata"
         ? null
-        : check.type === "code-lookup" && check.target === "type"
+        : (check.type === "code-lookup" && check.target === "type") || check.type === "type-name"
           ? "IfcTypeObject"
           : selectorClass(rule.select);
     if (check.type === "code-lookup") {
@@ -707,6 +707,8 @@ function ruleRow(rule: Rule, result: RuleResult, model: ReportModel, excludedAny
       kilder = [{ ...s, n: cov ? cov.sourceHits : null, foretrukket: true }];
     } else if (check.type === "element-typed") {
       kilder = [source("IfcRelDefinesByType", cov ? cov.sourceHits : null)];
+    } else if (check.type === "type-name") {
+      kilder = [{ ...source("Name", cov ? cov.sourceHits : null), foretrukket: true }];
     } else if (check.type === "type-usage-count") {
       kilder = [source("IfcRelDefinesByType", null)];
     } else if (check.type === "unique-attribute") {

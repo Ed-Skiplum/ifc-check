@@ -62,7 +62,8 @@ import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
 import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, standardOption } from "../src/ui/setup/candidates.ts";
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
-import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
+import { POFIN_TYPE_NAME, nameMatcher } from "../src/engine/type-name.ts";
+import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList } from "../src/ids/models.ts";
 import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
@@ -2923,6 +2924,7 @@ async function cmdSelftest(): Promise<number> {
   mottakskontrollSelftest(record);
   setupWalkSelftest(record);
   tfmSelftest(record);
+  typeNameSelftest(record);
   layerStepSelftest(record);
   stepTemplateSelftest(record);
   qtoSelftest(record);
@@ -3674,6 +3676,117 @@ function tfmSelftest(record: Record_): void {
     "Bygg.Nr:4",
     rankPartBindings(choices, STATSBYGG_SEQUENCE, choices[0].props[0].values, "Lokasjon").map((c) => `${c.set}.${c.name}:${c.n}`).join(" ") || "none",
   );
+}
+
+/* ------------------------------------------------------------- type name */
+
+/** The type name scheme (`src/engine/type-name.ts`), the type-name check on
+ *  a synthetic model, its report row, lint, schema and the round trips. */
+function typeNameSelftest(record: Record_): void {
+  const parse = (sequence: NamePart[], value: string) => {
+    const p = nameMatcher(sequence).parse(value);
+    return p.ok ? p.texts.join("|") : `off@${p.at}:${p.part}`;
+  };
+  record(
+    "type name: the POFIN scheme reads NS 3457-8 . number; a class not in the list, no period, trailing text are off",
+    "DUZ|.|001 AB|.|12 off@0:0 off@3:1 off@7:3",
+    ["DUZ.001", "AB.12", "123.001", "DUZ001", "DUZ.001x"].map((v) => parse([...POFIN_TYPE_NAME], v)).join(" "),
+  );
+  record("type name: list parts match longest first (DUZ, not D or DU)", "DUZ|7", parse([{ list: "ns3457-8" }, { regex: "\\d+" }], "DUZ7"));
+  record("type name: one regex for the whole name", "VEGG-200 off@0:0", ["VEGG-200", "vegg"].map((v) => parse([{ regex: "[A-Z]+-\\d{3}" }], v)).join(" "));
+  record(
+    "type name: one accepted value list for the whole name",
+    "Yttervegg Innervegg-B off@0:0",
+    ["Yttervegg", "Innervegg-B", "Dekke"].map((v) => parse([{ values: ["Yttervegg", "Innervegg-B", "Innervegg"] }], v)).join(" "),
+  );
+  record(
+    "type name: a hybrid, NS 3451 then _ then accepted values then _ then a regex",
+    "231|_|BET|_|200 off@3:1 off@4:2",
+    ["231_BET_200", "2311BET_200", "231_TRE_200"]
+      .map((v) => parse([{ list: "ns3451" }, { text: "_" }, { values: ["BET", "STÅL"] }, { text: "_" }, { regex: "\\d+" }], v))
+      .join(" "),
+  );
+  record("type name: a part's own groups do not move the parts", "AB|-|x1", parse([{ regex: "(A)(B)" }, { text: "-" }, { regex: "(x)(\\d)" }], "AB-x1"));
+
+  // Five walls: three types (one off the scheme, one without a Name), one
+  // untyped.
+  const wall = (guid: string, typeName: string | null, typed = true) => ({
+    guid, entity: "IFCWALL", name: guid, predefined_type: null, object_type: null, tag: null,
+    storey_guid: null, parent_guid: null, type_name: typeName, typed, materials: [],
+    is_external: null, fire_rating: null, load_bearing: null,
+  });
+  const graph: ModelGraph = {
+    schema: "IFC4",
+    products: [wall("w1", "AB.001"), wall("w2", "AB.001"), wall("w3", "Vegg 200"), wall("w4", null), wall("w5", null, false)],
+    contained_in: [], aggregates: [], voids: [], buildings: [], sites: [], spaces: [], storeys: [], psets: [], classifications: [],
+  };
+  const summary: ModelSummary = {
+    schema: "IFC4", length_unit: "MILLIMETRE", unit_scale: 0.001, unit_resolved: true,
+    authoring_app: null, project_name: null, duplicate_step_ids: 0, products: 5,
+  };
+  const nameRule = (sequence: NamePart[] = [...POFIN_TYPE_NAME], id = "type-name"): Rule => ({
+    id, kind: "extended", name: "Typenavn", select: { entity: { group: "physicalElement" } }, check: { type: "type-name", sequence },
+  });
+  const base = { ...SAMPLE_RULESET, rules: [] } as Ruleset;
+  const full: Ruleset = { ...base, rules: [nameRule()] };
+  const result = evaluateRuleset(full, graph, summary, "P_ARK.ifc").results[0];
+  record(
+    "type-name check: per type Name, findings carry the elements behind the type",
+    "fail 3/2 [no-match Vegg 200 w3, empty - w4] met 1 deviating 1 missing 1 hits 2",
+    `${result.state} ${result.applicable}/${result.failed} [${result.findings.map((f) => `${f.code} ${f.value ?? "-"} ${(f.members ?? []).join(",")}`).join(", ")}] ` +
+      `met ${result.coverage?.met} deviating ${result.coverage?.deviating} missing ${result.coverage?.missing} hits ${result.coverage?.sourceHits}`,
+  );
+  const report = reportRows({
+    model: { file: "P_ARK.ifc", schema: "IFC4", sha256: "" },
+    graph: graph as unknown as IfcGraph,
+    summary: summary as unknown as IfcSummary,
+    checks: [],
+    ruleset: full,
+    evaluation: evaluateRuleset(full, graph, summary, "P_ARK.ifc"),
+  }).find((r) => r.mapping === "type-name");
+  record(
+    "type-name report row: per type, IfcTypeObject, read from Name; the requirement shows once set",
+    "type-name fail 3=1+1+1 IfcTypeObject Name | typenavn | none",
+    report
+      ? `${report.mapping} ${report.state} ${report.dekning.grunnlag}=${report.dekning.oppfylt}+${report.dekning.avvik}+${report.dekning.mangler} ` +
+          `${report.dekning.grunnlag_klasse} ${report.dekning.kilder[0]?.navn} | ${requirements([report]).find((r) => r.key === "typenavn")?.key ?? "none"} | ` +
+          `${requirements([]).find((r) => r.key === "typenavn")?.key ?? "none"}`
+      : "no row",
+  );
+  const nameLint = (rules: unknown[]) => lintCodes({ ...base, rules } as unknown as Ruleset);
+  record("type-name lint: the POFIN scheme is clean", "none", lintCodes(full));
+  record(
+    "type-name lint refuses",
+    "type-name-sequence-empty | type-name-list-unknown | type-name-values-empty | type-name-regex-invalid | type-name-text-empty | type-name-part-shape | mapping-duplicate",
+    [
+      nameLint([nameRule([])]),
+      nameLint([nameRule([{ list: "ns9999" } as unknown as NamePart])]),
+      nameLint([nameRule([{ values: [] }])]),
+      nameLint([nameRule([{ regex: "(" }])]),
+      nameLint([nameRule([{ text: "" }])]),
+      nameLint([nameRule([{ text: ".", regex: "x" } as unknown as NamePart])]),
+      nameLint([nameRule(), nameRule(undefined, "type-name-2")]),
+    ].join(" | "),
+  );
+  record("type-name schema: the POFIN scheme validates", "valid", shapeErrors(full).length === 0 ? "valid" : shapeErrors(full).map((e) => `${e.path} ${e.message}`).join(" | "));
+  record(
+    "type-name schema: an unknown list and an empty value list are refused",
+    "rejected rejected",
+    [nameRule([{ list: "ns9999" } as unknown as NamePart]), nameRule([{ values: [] }])]
+      .map((rule) => (shapeErrors({ ...base, rules: [rule] }).length > 0 ? "rejected" : "accepted"))
+      .join(" "),
+  );
+  const hybrid: Ruleset = { ...base, rules: [nameRule([{ list: "ns3451" }, { text: "_" }, { values: ["BET", "STÅL"] }, { regex: "\\d+" }])] };
+  const json = JSON.parse(JSON.stringify(hybrid)) as Ruleset;
+  record("type-name JSON round trip: equal, clean and valid", "equal none valid", `${rulesetDiff(json, hybrid) === null ? "equal" : "differs"} ${lintCodes(json)} ${shapeErrors(json).length === 0 ? "valid" : "invalid"}`);
+  let workbook: string;
+  try {
+    const back = readRulesetXlsx(writeRulesetXlsx(hybrid)).ruleset;
+    workbook = rulesetDiff(back, canonicalRuleset(hybrid)) ?? "equal";
+  } catch (error) {
+    workbook = error instanceof Error ? error.message : String(error);
+  }
+  record("type-name workbook round trip (Andre regler): equal", "equal", workbook);
 }
 
 /* ------------------------------------------------------------------ xlsx */

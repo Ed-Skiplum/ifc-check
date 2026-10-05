@@ -33,7 +33,9 @@ import type {
   StandardRequirementId,
   StoreyTolerance,
   TfmCheck,
+  TypeNameCheck,
 } from "./types.ts";
+import { nameMatcher } from "../engine/type-name.ts";
 
 const RELATIONS: PartOfRelation[] = [
   "IFCRELAGGREGATES",
@@ -512,6 +514,13 @@ function checkRule(ctx: Ctx, rule: Rule, index: number, ruleset: Ruleset): void 
     return;
   }
   if (rule.mapping !== undefined) checkMapping(ctx, path, rule);
+  if (check.type === "type-name") {
+    checkTypeName(ctx, path, check);
+    if (rule.select) {
+      checkFacets(ctx, `${path}.select`, rule.select, ruleset.ifcVersions, false);
+    }
+    return;
+  }
   if (check.type === "tfm") {
     checkTfm(ctx, path, check);
     if (rule.select) {
@@ -810,6 +819,7 @@ export const MAPPING_ROLES: MappingRole[] = [
   "progress-code",
   "copy-object",
   "tfm",
+  "type-name",
 ];
 
 const CODE_LOOKUP_ROLES: CodeLookupRole[] = ["system-classification", "component-classification", "progress-code"];
@@ -866,6 +876,57 @@ function checkCopyObject(ctx: Ctx, path: string, check: CopyObjectCheck): void {
         add(ctx, "error", `${path}.check.copy[${i}]`, "copy-own-overlap", `"${value}" is both a copy value and an own value`);
       }
     });
+  }
+}
+
+/** The type-name role: the scheme part by part, then the whole compiled. */
+function checkTypeName(ctx: Ctx, path: string, check: TypeNameCheck): void {
+  const sequence = check.sequence as unknown;
+  if (!Array.isArray(sequence) || sequence.length === 0) {
+    add(ctx, "error", `${path}.check.sequence`, "type-name-sequence-empty", "sequence lists no part");
+    return;
+  }
+  let ok = true;
+  sequence.forEach((part: unknown, i) => {
+    const at = `${path}.check.sequence[${i}]`;
+    const keys = part !== null && typeof part === "object" ? Object.keys(part) : [];
+    const kind = keys.length === 1 ? keys[0] : null;
+    const p = part as Record<string, unknown>;
+    if (kind === "list") {
+      if (p.list !== "ns3457-8" && p.list !== "ns3451") {
+        ok = false;
+        add(ctx, "error", `${at}.list`, "type-name-list-unknown", `"${String(p.list)}" is not a list a part takes; lists are ns3457-8, ns3451`);
+      }
+    } else if (kind === "values") {
+      const values = p.values;
+      if (!Array.isArray(values) || values.length === 0 || values.some((v) => typeof v !== "string" || v === "")) {
+        ok = false;
+        add(ctx, "error", `${at}.values`, "type-name-values-empty", "values lists no value, or an empty one");
+      }
+    } else if (kind === "regex") {
+      try {
+        if (typeof p.regex !== "string" || p.regex === "") throw new Error("empty");
+        new RegExp(p.regex);
+      } catch {
+        ok = false;
+        add(ctx, "error", `${at}.regex`, "type-name-regex-invalid", `regex "${String(p.regex)}" is not a valid regular expression`);
+      }
+    } else if (kind === "text") {
+      if (typeof p.text !== "string" || p.text === "") {
+        ok = false;
+        add(ctx, "error", `${at}.text`, "type-name-text-empty", "text is empty; leave the part out");
+      }
+    } else {
+      ok = false;
+      add(ctx, "error", at, "type-name-part-shape", "a part is exactly one of list, values, regex and text");
+    }
+  });
+  if (ok) {
+    try {
+      nameMatcher(check.sequence);
+    } catch (error) {
+      add(ctx, "error", `${path}.check.sequence`, "type-name-regex-invalid", `the scheme does not compile: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 

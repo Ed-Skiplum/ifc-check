@@ -55,7 +55,9 @@ import type {
   Selector,
   TfmCheck,
   TfmPart,
+  TypeNameCheck,
 } from "./types.ts";
+import { nameMatcher, partName } from "../engine/type-name.ts";
 
 export type ResultState = "pass" | "fail" | "not_applicable" | "not_evaluable";
 
@@ -1704,6 +1706,86 @@ function tfmCheck(
   };
 }
 
+/** The type-name check (types.ts `TypeNameCheck`): each type Name reached
+ *  through the selected elements (`typeSubjects`, so a type nothing selected
+ *  uses is not read) against the scheme. A type with no Name is missing; a
+ *  Name off the scheme deviates, its finding naming the part it leaves the
+ *  scheme at and carrying the elements behind it. Counted per type. */
+function typeNameCheck(
+  check: TypeNameCheck,
+  select: Selector,
+  products: ModelProduct[],
+  summary: ModelSummary,
+  byGuid: Map<string, ModelProduct>,
+  index: ModelIndex,
+  ruleset: Ruleset,
+  notes: string[],
+  maxFindings: number,
+): Omit<RuleResult, "ruleId" | "ruleName" | "kind"> {
+  let matcher: ReturnType<typeof nameMatcher>;
+  try {
+    matcher = nameMatcher(check.sequence);
+  } catch (error) {
+    throw new Unsupported(`the type name scheme does not compile: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const subjects = typeSubjects(select, products, { attribute: "Name" }, byGuid, index, ruleset.ifcVersions);
+  const declared = summary.tables?.type_objects?.rows;
+  notes.push(
+    `${subjects.length} type names reached through the selected elements` +
+      (declared === undefined ? "" : `; the file declares ${declared} type objects`),
+  );
+  if (subjects.length === 0) {
+    return {
+      state: "not_applicable",
+      applicable: 0,
+      failed: 0,
+      findings: [],
+      detail: "no typed element matched the selection",
+      notes,
+    };
+  }
+  const tally = new Map<string | null, ValueCount>();
+  const findings: Finding[] = [];
+  let missing = 0;
+  let off = 0;
+  for (const subject of subjects) {
+    const value = subject.value;
+    if (value === null || value === "") {
+      missing += 1;
+      countValue(tally, null, "missing");
+      findings.push({ guid: "-", entity: subject.entity, name: null, reason: "the type has no Name", code: "empty", value: null, members: subject.members });
+      continue;
+    }
+    const parsed = matcher.parse(value);
+    countValue(tally, value, parsed.ok ? "ok" : "deviating");
+    if (parsed.ok) continue;
+    off += 1;
+    const part = check.sequence[parsed.part];
+    findings.push({
+      guid: "-",
+      entity: subject.entity,
+      name: value,
+      reason:
+        `type Name "${value}" leaves the scheme at character ${parsed.at}` +
+        (part ? `: ${partName(part)} does not follow` : ": text trails"),
+      code: "no-match",
+      value,
+      members: subject.members,
+    });
+  }
+  const failed = missing + off;
+  return {
+    state: failed === 0 ? "pass" : "fail",
+    applicable: subjects.length,
+    failed,
+    findings: cap(findings, maxFindings),
+    detail: `${subjects.length - failed} of ${subjects.length} types carry a Name of the scheme; ${missing} without a Name, ${off} off the scheme`,
+    notes,
+    coverage: { met: subjects.length - failed, deviating: off, missing, sourceHits: subjects.length - missing },
+    values: sortedValues(tally),
+  };
+}
+
 /* ------------------------------------------------ per-object code reading */
 
 /** One object a code-lookup rule judges, with what it read and how it was
@@ -1881,6 +1963,13 @@ function evaluateRule(
       return {
         ...base,
         ...tfmCheck(rule.check, rule.select ?? {}, products, byGuid, index, ruleset, graph, summary, modelName, notes, maxFindings),
+      };
+    }
+
+    if (rule.kind === "extended" && rule.check.type === "type-name") {
+      return {
+        ...base,
+        ...typeNameCheck(rule.check, rule.select ?? {}, products, summary, byGuid, index, ruleset, notes, maxFindings),
       };
     }
 
