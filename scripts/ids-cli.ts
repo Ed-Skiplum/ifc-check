@@ -97,7 +97,8 @@ import { REQUIREMENT_IDS, type IdsRule, type Rule, type Ruleset } from "../src/i
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
 import { detailEn, line as detailLine, runFundamentals } from "../src/engine/fundamentals.ts";
 import { detailText } from "../src/ui/display.ts";
-import { labelOfFocus, requirements } from "../src/ui/requirements.ts";
+import { labelOfFocus, requirements, shownFinding, shownSources } from "../src/ui/requirements.ts";
+import { aggregateTypes } from "../src/ui/types/aggregate.ts";
 import {
   checkMeshPlacement,
   collectBoxes,
@@ -1756,6 +1757,85 @@ async function cmdSelftest(): Promise<number> {
     "not_evaluable",
     mpRowFor(undefined, noMaterials).state,
   );
+
+  // Mengdetype left the walk and the report (2026-10-05). A saved
+  // `material-product.mengdetype` list still loads from JSON and from the
+  // workbook, and the switch gives the same verdicts and counts as above.
+  const mpSaved = { ...SAMPLE_RULESET, projectLayer: mpLayer } as Ruleset;
+  const mpVerdicts = (r: Ruleset) => {
+    const row = reportRows({
+      model: { file: "m.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+      graph: mpGraph,
+      summary: summary as unknown as IfcSummary,
+      checks: [],
+      ruleset: r,
+    }).find((x) => x.id === "material-product")!;
+    return `${JSON.stringify(r.projectLayer?.["material-product"]?.mengdetype)} ${describe(row)} ` +
+      row.funn.map((f) => `${f.guid}:${f.grunn}`).join(",");
+  };
+  const mpWant =
+    '[{"property":{"propertySet":"NOSKI_Mengde","name":"Mengdetype"}}] warn 12=5+2+5 ' +
+    "f3:product-missing,w2:material-unusable,c1:material-unusable,x1:material-missing,x2:product-missing," +
+    "x3:mengdetype-undecided,u1:mengdetype-undecided";
+  record(
+    "material-product: a saved mengdetype list, as loaded, via JSON and via the workbook, switches as before",
+    [mpWant, mpWant, mpWant].join(" | "),
+    [
+      mpVerdicts(mpSaved),
+      mpVerdicts(JSON.parse(JSON.stringify(mpSaved)) as Ruleset),
+      mpVerdicts(readRulesetXlsx(writeRulesetXlsx(mpSaved)).ruleset),
+    ].join(" | "),
+  );
+  record(
+    "material-product: the screen shows no mengdetype source and no mengdetype in a finding; the counts stay",
+    "telleobjekt,telleobjekt,telleobjekt,mengdeobjekt,mengdeobjekt,mengdeobjekt | " +
+      "f3:product-missing:null,w2:material-unusable:Innervegg,c1:material-unusable:RAL 9010," +
+      "x1:material-missing:null,x2:product-missing:null,x3:empty:null,u1:empty:null",
+    `${shownSources(mpPrj).map((k) => k.gren).join(",")} | ` +
+      mpPrj.funn.map((f) => ({ guid: f.guid, ...shownFinding(f) })).map((f) => `${f.guid}:${f.grunn}:${f.verdi}`).join(","),
+  );
+
+  // Ledeenhet in the type ledger: per instance the IFC class row when it
+  // decides, else the NS 3457 code's row; a type of mixed units lists each and
+  // counts an instance neither decides as undeclared; none decided is empty.
+  const unitRow = (guid: string, entity: string, typeName: string): ProductRowLite => ({
+    guid, entity, name: guid, storeyGuid: null, typed: true, typeName,
+  });
+  const unitRef = (system: string, code: string) => ({ system, code, name: null });
+  const unitProfile: ModelProfile = {
+    rows: [
+      unitRow("d1", "IfcDoor", "Dør"), unitRow("d2", "IfcDoor", "Dør"),
+      unitRow("x1", "IfcBuildingElementProxy", "Proxy"), unitRow("x2", "IfcBuildingElementProxy", "Proxy"),
+      unitRow("x3", "IfcBuildingElementProxy", "Proxy"),
+      unitRow("y1", "IfcBuildingElementProxy", "Proxy 3451"),
+      unitRow("p1", "IfcBuildingElementPart", "Del"),
+      unitRow("u1", "IfcNotAClass", "Ukjent"),
+    ],
+    storeys: [],
+    spatial: { projects: 0, sites: 0, buildings: 0, storeys: 0 },
+    classifications: new Map([
+      ["d2", [unitRef("NS 3457-8", "BAA")]],
+      ["x1", [unitRef("NS 3457-8", "AB-01")]],
+      ["x2", [unitRef("NS 3451", "231"), unitRef("NS 3457-8", "BAA")]],
+      ["y1", [unitRef("NS 3451", "BAA")]],
+      ["u1", [unitRef("NS 3457-8", "ARA")]],
+    ]),
+  };
+  const unitsOf = (p: ModelProfile) =>
+    aggregateTypes(p)
+      .rows.filter((r) => r.typeName !== null)
+      .map((r) => `${r.typeName}:${r.unit.values.join("/")}:${r.unit.undeclared}`)
+      .join(" ");
+  record(
+    "type ledger Ledeenhet: the class first, then the NS 3457 code; mixed listed, none empty",
+    "Proxy:m/m3:1 Dør:stk:0 Del::1 Proxy 3451::1 Ukjent:stk:0",
+    unitsOf(unitProfile),
+  );
+  record(
+    "type ledger Ledeenhet: no classification table, the class alone",
+    "Proxy::3 Dør:stk:0 Del::1 Proxy 3451::1 Ukjent::1",
+    unitsOf({ ...unitProfile, classifications: undefined }),
+  );
   // element-material (#5): a layer-set column, a direct IfcMaterial row, a row
   // ifcfast could not name, and nothing. Only the first two carry a material.
   const emGraph = {
@@ -3127,9 +3207,10 @@ function stepTemplateSelftest(record: (name: string, expected: string, actual: s
   record("step template Etasjer refuses: a file without the sheet", "Etasjer", refused(() => readLevelsXlsx(codesFile)));
 }
 
-/** Oppsett's Fase, Materiale / Produkt and Mengdetype steps
- *  (`src/ui/layer-steps.ts`): what each writes lints clean, emptied lists
- *  leave nothing behind, and the live check judges as the standard layer. */
+/** Oppsett's Fase and Materiale / Produkt steps (`src/ui/layer-steps.ts`):
+ *  what each writes lints clean, emptied lists leave nothing behind, and the
+ *  live check judges as the standard layer. The mengdetype cascade has no
+ *  step since 2026-10-05; the same functions still write and judge it. */
 function layerStepSelftest(record: (name: string, expected: string, actual: string) => void): void {
   const errors = (r: Ruleset) => lintRuleset(r).filter((i) => i.severity === "error").map((i) => i.code).join(",") || "none";
   const mmi = {
@@ -3165,7 +3246,7 @@ function layerStepSelftest(record: (name: string, expected: string, actual: stri
   );
   const qto = withLayerSources(base, "mengdetype", [prop("Mengde", "Mengdetype"), { classification: {} }]);
   record(
-    "layer step Mengdetype: the mengdetype list, lint clean",
+    "layer cascade mengdetype: the mengdetype list, lint clean",
     '[{"property":{"propertySet":"Mengde","name":"Mengdetype"}},{"classification":{}}] none',
     `${JSON.stringify(qto.projectLayer?.["material-product"]?.mengdetype)} ${errors(qto)}`,
   );
@@ -3188,7 +3269,7 @@ function layerStepSelftest(record: (name: string, expected: string, actual: stri
   };
   record("layer live check Fase: PEnum_ElementStatus, folded", "ok ok not-in-list | 4 2", states("phase", base, ["new", " EXISTING ", "NY"]));
   record("layer live check Fase: the MMI table's phases once Via MMI is listed", "ok ok not-in-list | 4 2", states("phase", phase, ["new", "NY", "Ferdig"]));
-  record("layer live check Mengdetype: telleobjekt / mengdeobjekt decide", "ok ok not-in-list | 4 2", states("mengdetype", base, ["Telleobjekt", " mengdeobjekt", "avhenger"]));
+  record("layer live check mengdetype: telleobjekt / mengdeobjekt decide", "ok ok not-in-list | 4 2", states("mengdetype", base, ["Telleobjekt", " mengdeobjekt", "avhenger"]));
   record("layer live check Produkt: any value", "ok ok | 4 0", states("product", base, ["AB-123", "x"]));
   record("layer live check Materiale: a usable name", "ok not-in-list not-in-list | 2 4", states("material", base, ["Betong B35", "RAL 9010", "Vegg"]));
 }
@@ -3755,6 +3836,11 @@ function mottakskontrollSelftest(record: Record_): void {
     String(html.split(`<span class="kord">${SENTINEL}</span>`).length - 1),
   );
   record("mottakskontroll: no mojibake in either report", "clean", /Ã|â€|Â/.test(html + prosjekt) ? "mojibake" : "clean");
+  record(
+    "mottakskontroll: mengdetype is not reported, the open rulings are",
+    "absent present",
+    `${/mengdetype/i.test(html + prosjekt) ? "present" : "absent"} ${html.includes("Dør og vindu") ? "present" : "absent"}`,
+  );
 }
 
 /** Private fixtures: `tests/fixtures/private/*.json` and `*.xlsx`, never

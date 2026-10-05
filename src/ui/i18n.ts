@@ -263,6 +263,7 @@ const STRINGS = {
   "col.triangles": { nb: "Trekanter", en: "Triangles" },
   "col.materials": { nb: "Materialer", en: "Materials" },
   "col.properties": { nb: "Egenskaper", en: "Properties" },
+  "col.leadUnit": { nb: "Ledeenhet", en: "Lead unit" },
   "type.untyped": { nb: "Uten type", en: "Untyped" },
   // The Typer instance mode, labels verbatim from the G55 QTO-LCA type viewer
   // (`10027…/G55_QTO-LCA/02_arbeid/verify_app.html`, 2026-06-17).
@@ -364,8 +365,7 @@ const STRINGS = {
   "field.phase": { nb: "Fase", en: "Phase" },
   "setup.storeys": { nb: "Etasjeoppsett", en: "Storey setup" },
   // The project-layer steps: Fase and Materiale / Produkt are the board's
-  // Standardkrav names (req.*); the QTO step configures `mengdetype`.
-  "setup.qto": { nb: "Mengdetype", en: "Quantity type" },
+  // Standardkrav names (req.*).
   "setup.standard": { nb: "Standard", en: "Standard" },
   "setup.viaMmi": { nb: "Via MMI", en: "Via MMI" },
   // The walk (2026-10-05): the door every config control sits behind, the

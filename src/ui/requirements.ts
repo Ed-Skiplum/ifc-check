@@ -15,6 +15,7 @@
  *
  *  - Produkt and Materiale are ONE row in the contract (`material-product`,
  *    switched per object by mengdetype), so they are one requirement here.
+ *    The switch itself is not shown (`shownSources`, `shownFinding`).
  *  - NS 3451 and NS 3457-8 produce a row only when the ruleset configures
  *    their mapping (AGENTS.md "Report contract": no standard-layer cascade for
  *    the classification mappings yet). With none configured the requirement
@@ -24,7 +25,7 @@
  * leads the IFC-struktur group here because the board has no Nøkkeltall band.
  */
 
-import type { ReportRow, ReportState } from "../engine/report";
+import type { ReportFinding, ReportRow, ReportSource, ReportState } from "../engine/report";
 import type { MappingRole } from "../ids/types.ts";
 import type { StringKey } from "./i18n";
 import type { Focus } from "./trace";
@@ -156,6 +157,25 @@ export function labelOfFocus(focus: Focus, rows: readonly ReportRow[] | undefine
     return row ? labelOfRow(row) : null;
   }
   return null;
+}
+
+/** The sources a row shows: its `kilder` less the mengdetype branch.
+ *  Mengdetype is assessed, not checked (2026-10-05, edkjo: "not really
+ *  anything to put into the report"), so the contract keeps those sources
+ *  and their counts, and the screen leaves them out. */
+export function shownSources(row: ReportRow): ReportSource[] {
+  return row.dekning.kilder.filter((k) => k.gren !== "mengdetype");
+}
+
+/** A finding's code and value as the screen shows them. An object the
+ *  Materiale / Produkt switch picks no reading for (`mengdetype-undecided`,
+ *  verdi the mengdetype) is a mangler with nothing read: shown as `empty`,
+ *  the contract's own code for that, without the mengdetype. */
+export function shownFinding(f: Pick<ReportFinding, "grunn"> & { verdi?: ReportFinding["verdi"] }): {
+  grunn: string;
+  verdi: string | null;
+} {
+  return f.grunn === "mengdetype-undecided" ? { grunn: "empty", verdi: null } : { grunn: f.grunn, verdi: f.verdi ?? null };
 }
 
 /** The label of the requirement a row belongs to, for a chip or a title. */

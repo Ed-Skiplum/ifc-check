@@ -29,7 +29,6 @@ export const ETIKETTER = {
   dekning: "Dekning",
   gyldig: "Gyldig",
   fordeling: "Fordeling",
-  mengdetype: "Mengdetype",
   av: "av",
   unike_verdier: "unike verdier",
   telleobjekter: "telleobjekter",

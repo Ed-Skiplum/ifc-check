@@ -13,7 +13,7 @@ import type { Focus } from "../trace";
 import { ruleCounts } from "../trace";
 import type { Lang, StringKey } from "../i18n";
 import type { ModelEntry } from "../useModels";
-import { requirements, type Requirement } from "../requirements";
+import { requirements, shownSources, type Requirement } from "../requirements";
 import { t, locale } from "../i18n";
 import { formatCount } from "../format";
 import { VERDICT_GLYPH } from "../state-visuals";
@@ -237,7 +237,7 @@ export function barLook(bars: readonly Bar[]): (bar: Bar) => BarLook {
  * states, in its own terms, never prose. */
 
 /** What a Standardkrav requirement reads and judges against: the sources
- *  the report row read (`dekning.kilder`), the code list (a bundled list's
+ *  the report row read (`shownSources`), the code list (a bundled list's
  *  label, or the project's own codes), the Uttrekk, and the values a row
  *  without a code list accepts (`godtatte`) or, on Kopiobjekt, the values
  *  that mark a copy. */
@@ -265,7 +265,7 @@ export function stdAsk(req: Requirement, ruleset: Ruleset | null): StdAsk | null
   } else if (row.godtatte?.length) {
     values = { label: "field.accepted", values: row.godtatte };
   }
-  return { sources: row.dekning.kilder, list, extract, values };
+  return { sources: shownSources(row), list, extract, values };
 }
 
 /** A Standardkrav row's result counts. A rule's row (a mapping) reads the

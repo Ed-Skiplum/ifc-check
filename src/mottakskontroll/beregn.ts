@@ -87,7 +87,9 @@ export interface Blokk {
   krav_tekst: string;
   verdikt: BlokkVerdikt;
   rad: Rad | null;
-  bryter: { gren: "telleobjekt" | "mengdeobjekt"; antall: number; n: number | null } | null;
+  /** On Produkt and Materiale: the open mengdetype rulings that touch
+   *  objects. The switch's branch count (the Python report's `bryter`) is not
+   *  carried: mengdetype is assessed, not reported. */
   aapne: string[];
 }
 
@@ -288,8 +290,8 @@ function lesTypeobjekt(profile: ModelProfile | undefined): Lesing {
 
 /** Produkt and Materiale off the one `material-product` row: Dekning per
  *  branch from the branch's sources and the row's finding codes. */
-function lesGren(def: BlokkDef, row: ReportRow | null): Pick<Blokk, "verdikt" | "rad" | "bryter" | "aapne"> {
-  const tom = { bryter: null, aapne: [] };
+function lesGren(def: BlokkDef, row: ReportRow | null): Pick<Blokk, "verdikt" | "rad" | "aapne"> {
+  const tom = { aapne: [] };
   const ingen = utenLesing(row);
   if (ingen || !row) return { ...(ingen ?? { verdikt: "ukjent", rad: null }), ...tom };
   const gren = def.id === "produkt" ? "telleobjekt" : "mengdeobjekt";
@@ -303,7 +305,6 @@ function lesGren(def: BlokkDef, row: ReportRow | null): Pick<Blokk, "verdikt" | 
   // distribution mixes with the products: decided only when none was carried.
   const verdikt: BlokkVerdikt =
     def.verdiliste && funnet > 0 ? "ukjent" : verdiktFra(tilstede, null);
-  const d = row.dekning;
   const aapne = (row.aapne ?? []).flatMap((r) =>
     r.n === null ? [r.tittel] : r.n > 0 ? [`${r.tittel} ×${n_(r.n)}`] : [],
   );
@@ -315,11 +316,6 @@ function lesGren(def: BlokkDef, row: ReportRow | null): Pick<Blokk, "verdikt" | 
       gyldig: null,
       unike: null,
       grunnlag_tekst: E(gren === "telleobjekt" ? "telleobjekter" : "mengdeobjekter"),
-    },
-    bryter: {
-      gren,
-      antall: tilstede[1],
-      n: d.grunnlag === null || d.gjelder_ikke === null ? null : d.grunnlag + d.gjelder_ikke,
     },
     aapne,
   };
@@ -488,7 +484,7 @@ export function beregnModell(input: ModellInput, ruleset: Ruleset | null): Model
   const etasjer = lesEtasjer(input, ruleset, rowOf(rows, { id: "storey-config" }));
   const exempt = new Set(modelFact(ruleset, input.fileName)?.exempt ?? []);
   const blokker: Blokk[] = BLOKKER.map((def) => {
-    const base = { id: def.id, tittel: def.tittel, seksjon: def.seksjon, krav_tekst: def.krav_tekst, bryter: null, aapne: [] };
+    const base = { id: def.id, tittel: def.tittel, seksjon: def.seksjon, krav_tekst: def.krav_tekst, aapne: [] };
     switch (def.id) {
       case "guid":
         return { ...base, verdikt: guid.verdikt, rad: null };

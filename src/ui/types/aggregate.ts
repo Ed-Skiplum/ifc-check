@@ -28,6 +28,7 @@
  * reason as above: one basis, one set of numbers.
  */
 
+import { ledeenhet, NS3457_SYSTEM } from "../../engine/standard-sources.ts";
 import type { ModelProfile, ProductRowLite } from "../profile";
 
 /** A declared value the instances of one type do not agree on.
@@ -81,6 +82,12 @@ export interface TypeRow {
   isExternal: Declared;
   fireRating: Declared;
   loadBearing: Declared;
+  /** The recommended lead unit (`ledeenhet`) per instance, from the
+   *  mengdetype tables (`ledeenhet` in standard-sources.ts): the IFC class,
+   *  then the NS 3457 code. An instance neither decides counts as
+   *  undeclared. Not a declared value of the file, so never in
+   *  `disagreements`. */
+  unit: Declared;
   /** Every field the instances disagree on. Empty on the untyped row: elements
    *  that share no type are not expected to share anything. */
   disagreements: TypeDisagreement[];
@@ -205,6 +212,16 @@ function declaredMaterials(rows: ProductRowLite[]): Declared {
     undeclared: undeclaredCount,
     variants: signatures.size,
   };
+}
+
+/** The object's NS 3457 code as the Materiale / Produkt switch reads it: the
+ *  first classification reference in a system naming 3457 with a code.
+ *  Undefined with none, or with no classification table supplied. */
+function ns3457Code(profile: ModelProfile, guid: string): string | undefined {
+  const ref = profile.classifications
+    ?.get(guid)
+    ?.find((c) => NS3457_SYSTEM.test(c.system ?? "") && c.code && c.code.trim());
+  return ref?.code ?? undefined;
 }
 
 function median(values: number[]): number | null {
@@ -336,6 +353,7 @@ export function aggregateTypes(
         m.loadBearing === null || m.loadBearing === undefined ? null : renderBool(m.loadBearing),
       ),
     );
+    const unit = declared(members.map((m) => ledeenhet(m.entity, ns3457Code(profile, m.guid))));
 
     const candidates: TypeDisagreement[] = [
       { field: "class", variants: classes.length },
@@ -364,6 +382,7 @@ export function aggregateTypes(
       isExternal,
       fireRating,
       loadBearing,
+      unit,
       disagreements,
       sources,
     };
@@ -392,6 +411,7 @@ export function aggregateTypes(
       isExternal: declared([]),
       fireRating: declared([]),
       loadBearing: declared([]),
+      unit: declared([]),
       disagreements: [],
       sources: [],
     });

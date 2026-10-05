@@ -40,10 +40,13 @@
  *
  * Type leads (2026-10-01). edkjo: "System, Function, Copy, MMI, Phase,
  * Materials, QTO: these are my main things … the onboarding needs to take
- * you through them." The steps follow that order. Fase, Materiale / Produkt
- * and Mengdetype edit the `projectLayer` cascades (`layer-steps.ts`): the
+ * you through them." The steps follow that order. Fase and Materiale /
+ * Produkt edit the `projectLayer` cascades (`layer-steps.ts`): the
  * standard's sources first, then the project's, picked as a mapping's
- * source is. Gjelder defaults to Typer where the evaluator reads a type,
+ * source is. Mengdetype is no step (2026-10-05, edkjo: "not something to
+ * check, but something to assess"): a saved `material-product.mengdetype`
+ * list still loads, evaluates and is written back; the walk does not offer
+ * it. Gjelder defaults to Typer where the evaluator reads a type,
  * which is an attribute source (the type's Name); a property is read per
  * occurrence.
  *
@@ -1840,19 +1843,19 @@ function parseElevation(text: string): number {
 }
 
 /** The project-layer steps, and the cascades each one edits. */
-type LayerStep = "phase" | "materials" | "qto";
+type LayerStep = "phase" | "materials";
 
 const LAYER_SLOTS: Record<LayerStep, readonly LayerSlot[]> = {
   phase: ["phase"],
   materials: ["product", "material"],
-  qto: ["mengdetype"],
 };
 
 /** Oppsett's steps, in order. `start` is the choice between a filled-in
  *  config file and the guided walk; `ifc` opens a model, so the property
  *  pickers have something to list. Then edkjo's Type-first order (2026-10-01:
  *  "System, Function, Copy, MMI, Phase, Materials, QTO: these are my main
- *  things"), Etasjeoppsett, and `end`: what was set, what it gives, Save. */
+ *  things"; QTO's Mengdetype left the walk 2026-10-05), Etasjeoppsett, and
+ *  `end`: what was set, what it gives, Save. */
 export type SetupStep = "start" | "ifc" | MappingRole | LayerStep | "storeys" | "end";
 
 const STEPS: SetupStep[] = [
@@ -1864,7 +1867,6 @@ const STEPS: SetupStep[] = [
   "progress-code",
   "phase",
   "materials",
-  "qto",
   "storeys",
   "tfm",
   "end",
@@ -1884,15 +1886,13 @@ const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
   "component-classification": "req.funksjonskode",
   phase: "req.fase",
   materials: "req.materiale-produkt",
-  qto: "setup.qto",
   storeys: "setup.storeys",
   tfm: "req.tfm",
   end: "setup.summary",
 };
 
 /** The requirement (`requirements.ts`) whose report row is a step's result,
- *  as the IDS tab shows it. Mengdetype is what switches Materiale / Produkt,
- *  so its result is that row. */
+ *  as the IDS tab shows it. */
 const STEP_REQ: Partial<Record<SetupStep, string>> = {
   "system-classification": "systemkode",
   "component-classification": "funksjonskode",
@@ -1900,7 +1900,6 @@ const STEP_REQ: Partial<Record<SetupStep, string>> = {
   "progress-code": "mmi",
   phase: "fase",
   materials: "materiale-produkt",
-  qto: "materiale-produkt",
   storeys: "etasjedefinisjon",
   tfm: "tfm",
 };

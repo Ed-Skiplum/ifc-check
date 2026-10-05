@@ -21,12 +21,15 @@
 
 import { physicalProducts } from "./fundamentals.ts";
 import type { IfcGraph, MaterialRow, ProductRow } from "./types";
-import { MENGDETYPE_AAPNE, MENGDETYPE_IFCKLASSE } from "../codelists/mengdetype-ifcklasse.ts";
-import { MENGDETYPE_NS3457 } from "../codelists/mengdetype-ns3457.ts";
+import { MENGDETYPE_AAPNE } from "../codelists/mengdetype-ifcklasse.ts";
 import { DEFAULT_ACCEPTED_SCHEMAS } from "../ids/lint.ts";
 import { cascadeReader, compileExtract, SourceUnreachable, type CascadeSource } from "../ids/evaluate.ts";
 import { roleRule } from "../ids/models.ts";
 import {
+  CLASS_ROWS,
+  DECISIVE,
+  NS3457_SYSTEM,
+  codeRow,
   NOT_A_MATERIAL,
   PHASE_ACCEPTED,
   STANDARD_SOURCES,
@@ -308,23 +311,8 @@ function phaseRow(
 
 /* ------------------------------------------------------ material-product */
 
-const CLASS_ROWS = new Map(
-  Object.entries(MENGDETYPE_IFCKLASSE.rows).map(([k, v]) => [k.toUpperCase(), v] as const),
-);
-
-/** The NS 3457-8 table row for a component code, as HI90's blokkdata looks
- *  it up: the whole value, then its first three, then its first two
- *  characters, so `AB-01` finds AB. */
-function codeRow(code: string) {
-  const k = code.trim().toUpperCase();
-  for (const n of [k.length, 3, 2]) {
-    const row = MENGDETYPE_NS3457.rows[k.slice(0, n)];
-    if (row) return row;
-  }
-  return undefined;
-}
-
-const DECISIVE = new Set(["telleobjekt", "mengdeobjekt", "ikke_relevant"]);
+// The tables' lookups (`CLASS_ROWS`, `codeRow`, `DECISIVE`) live in
+// standard-sources.ts, shared with the type ledger's Ledeenhet.
 
 type MaterialKind = "material" | "materiallag" | "";
 
@@ -435,7 +423,7 @@ function materialProductRow(
   };
   const codes = new Map<string, string>();
   for (const c of graph.classifications ?? []) {
-    if (codes.has(c.guid) || !/3457/.test(c.system_name ?? "")) continue;
+    if (codes.has(c.guid) || !NS3457_SYSTEM.test(c.system_name ?? "")) continue;
     if (c.identification && c.identification.trim()) codes.set(c.guid, c.identification);
   }
   const materialRows = new Map<string, MaterialRow[]>();
