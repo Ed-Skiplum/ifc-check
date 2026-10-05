@@ -342,13 +342,15 @@ export default function App() {
   useEffect(() => {
     if (setupOpen) requestPsets();
   }, [setupOpen, requestPsets]);
-  // The IFC step done: the walk moves on to the first mapping.
-  const hadModels = useRef(models.length > 0);
+  // The IFC step done once a model is read: the walk moves on to the first
+  // mapping by itself. On the default entry (no step held) the page's own
+  // first step turns over with it.
+  const anyReady = models.some((m) => m.state === "ready");
+  const hadReady = useRef(anyReady);
   useEffect(() => {
-    const has = models.length > 0;
-    if (has && !hadModels.current) setSetupStep((s) => (s === "ifc" ? FIRST_MAPPING_STEP : s));
-    hadModels.current = has;
-  }, [models.length]);
+    if (anyReady && !hadReady.current) setSetupStep((s) => (s === "ifc" ? FIRST_MAPPING_STEP : s));
+    hadReady.current = anyReady;
+  }, [anyReady]);
   const setupFileName = rulesetName && /\.json$/i.test(rulesetName)
     ? rulesetName
     : `${(rulesetName ?? ruleset?.name ?? "regelsett").replace(/\.(ids|xml|xlsx)$/i, "")}.ruleset.json`;
@@ -364,6 +366,7 @@ export default function App() {
       onChange={editRuleset}
       onOpen={loadRuleset}
       onFiles={takeFiles}
+      dragging={dragging > 0}
       pofin={setupPofin}
       onPofin={setSetupPofin}
       onSave={() => {

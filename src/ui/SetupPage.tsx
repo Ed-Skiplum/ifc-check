@@ -123,7 +123,7 @@ import type { ModelEntry } from "./useModels";
 import { requirements } from "./requirements";
 import { StateChip, TotalChips } from "./setup/chips";
 import { INPUT, ValuesInput } from "./setup/ValuesInput";
-import { previewTfm, rankPartBindings, rankTfmCandidates, type Candidate } from "./setup/candidates";
+import { previewTfm, rankPartBindings, rankTfmCandidates, segmentState, type Candidate } from "./setup/candidates";
 import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
 import { TypeNameStep } from "./setup/TypeNameStep";
 import { partName } from "../engine/type-name.ts";
@@ -131,10 +131,12 @@ import { stateLook } from "./alt/req-view";
 import {
   CONFIRM,
   Door,
+  IfcDrop,
   Landed,
   MappingStep,
   ProposalCard,
   ReqResult,
+  STAGE_WIDTH,
   StepNav,
   SummaryRow,
   WalkProgress,
@@ -2215,6 +2217,11 @@ interface TfmDraft {
 
 const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
 const H1 = "m-0 text-2xl font-medium text-ink";
+/** The walk's frame, by viewport class: 64rem (the mapping row's width, to a
+ *  1535 px laptop), 80rem from 1536 px, 100rem from 2200 px, so a wide
+ *  screen gives its width to the step's zones instead of leaving 60 % of it
+ *  empty. The bar and the step share it. */
+const FRAME = "max-w-5xl 2xl:max-w-7xl min-[2200px]:max-w-[100rem]";
 const PLANES: readonly StoreyPlane[] = ["OKFG", "OKBD"];
 
 export function SetupPage({
@@ -2228,6 +2235,7 @@ export function SetupPage({
   onChange,
   onOpen,
   onFiles,
+  dragging,
   onSave,
   pofin,
   onPofin,
@@ -2247,6 +2255,8 @@ export function SetupPage({
   onOpen: (file: File) => Promise<boolean>;
   /** IFC files picked on the IFC step. */
   onFiles: (files: File[]) => void;
+  /** A file is held over the page (`App`'s drop takes it anywhere). */
+  dragging: boolean;
   /** «Lagre oppsett»: null once saved, else the storage's error. */
   onSave: () => string | null;
   /** «POFIN» was the choice: held by the caller, as the step is, so it
@@ -2280,14 +2290,24 @@ export function SetupPage({
   // goes back to that screen, not on. Dropped once the step is left.
   const [detour, setDetour] = useState<{ step: SetupStep; back: SetupStep } | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
-  const ifcInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
   const hasIds = ruleset.rules.some((r) => r.kind === "ids" && r.enabled !== false);
   const downloadClass = (off: boolean) => SECONDARY + (off ? " cursor-not-allowed text-muted hover:border-line hover:text-muted" : "");
 
-  const firstStep: SetupStep = models.length === 0 ? "ifc" : FIRST_MAPPING_STEP;
+  // A model read and on the board: until then the walk stays on its IFC
+  // step, which `App` leaves for the first mapping once one is.
+  const loaded = models.some((m) => m.state === "ready");
+  const firstStep: SetupStep = loaded ? FIRST_MAPPING_STEP : "ifc";
   const current: SetupStep = step ?? (rulesetLoaded ? firstStep : "start");
   const at = STEPS.indexOf(current);
+  // The IFC step with no model loaded: the stage, the drop target alone.
+  const stage = current === "ifc" && !loaded;
+  // The steps answered by a click in this Oppsett while a model was loaded:
+  // the bar's green (`segmentState`), with the saved sources that hit.
+  const [confirmed, setConfirmed] = useState<ReadonlySet<SetupStep>>(new Set());
+  const confirmStep = (s: SetupStep) => {
+    if (loaded && !confirmed.has(s)) setConfirmed(new Set([...confirmed, s]));
+  };
 
   // The picker's list: every model that has answered, merged. null while no
   // model is on the board; reading while one is still being read or asked.
@@ -2377,6 +2397,52 @@ export function SetupPage({
     return r !== null && r.enabled !== false && !hasErrors(lint.filter((i) => i.ruleId === r.id));
   };
 
+  // The bar's segments: green only against a loaded model (`segmentState`).
+  // A step's saved answer and its hits in the loaded models: elements
+  // carrying the property, the project sources' count on the report row,
+  // the model storeys the levels match; null where it cannot be counted
+  // here or is not read yet.
+  const propHits = (source: CodeSource): number | null => {
+    if (!("property" in source) || picker.choices === null) return null;
+    const { propertySet, name } = source.property;
+    return picker.choices.find((c) => c.set === propertySet)?.props.find((p) => p.name === name)?.valued ?? 0;
+  };
+  const projectHits = (s: LayerStep): number | null => {
+    let hits = 0;
+    for (const { req } of resultOf(s)) {
+      for (const slot of LAYER_SLOTS[s]) {
+        const gren = slot === "product" ? "telleobjekt" : slot === "material" ? "mengdeobjekt" : undefined;
+        for (const k of req?.row?.dekning?.kilder ?? []) {
+          if (k.lag !== "prosjekt" || (gren !== undefined && k.gren !== gren)) continue;
+          if (k.n === null) return null;
+          hits += k.n;
+        }
+      }
+    }
+    return results.length > 0 ? hits : null;
+  };
+  const savedAnswer = (s: SetupStep): { hits: number | null } | null => {
+    if (s === "storeys") {
+      const levels = ruleset.storeys?.levels ?? [];
+      if (levels.length === 0) return null;
+      return { hits: fromModels.length > 0 ? fromModels.filter((l) => hasLevel(levels, l)).length : null };
+    }
+    if (isLayerStep(s))
+      return LAYER_SLOTS[s].some((slot) => layerSources(ruleset, slot).length > 0) ? { hits: projectHits(s) } : null;
+    if (s === "type-name") {
+      const r = mappingRule(ruleset, "type-name");
+      return r && r.enabled !== false && r.check.type === "type-name" ? { hits: typeNames?.length ?? null } : null;
+    }
+    if (s === "tfm") return tfmRule && tfmRule.enabled !== false && tfmSaved ? { hits: propHits(tfmSaved.source) } : null;
+    if (isMappingStep(s)) {
+      const r = mappingRule(ruleset, s);
+      return r && r.enabled !== false ? { hits: propHits(checkOf(r, s).source) } : null;
+    }
+    return null;
+  };
+  const segment = (s: SetupStep) =>
+    s === "ifc" ? segmentState(loaded, loaded, null) : segmentState(loaded, confirmed.has(s), savedAnswer(s));
+
   const newRule = (role: CardRole): ExtendedRule => ({
     id: freshId(ruleset, role),
     kind: "extended",
@@ -2433,6 +2499,7 @@ export function SetupPage({
   const next = away?.back ?? STEPS[at + 1] ?? current;
   const back = away ? () => onStep(away.back) : at > 0 ? () => onStep(STEPS[at - 1]) : undefined;
   const advance = (result: React.ReactNode) => {
+    confirmStep(current);
     setLanded({ from: current, to: next, result });
     onStep(next);
   };
@@ -2586,34 +2653,21 @@ export function SetupPage({
       </div>
     );
   } else if (current === "ifc") {
+    // The stage: the target alone, back only to a screen that was there (the
+    // choice, or the screen a detour came from). Read: the sweep in the
+    // target, and `App` moves on once a model is loaded. A file that failed
+    // keeps the stage, with the list saying why.
+    const busy = !loaded && models.some((m) => m.state === "queued" || m.state === "parsing");
     body = (
-      <div className="flex flex-col gap-4">
-        <button
-          type="button"
-          autoFocus={models.length === 0}
-          onClick={() => ifcInput.current?.click()}
-          className={
-            "flex min-h-44 flex-col items-start justify-center gap-2 p-6 text-left " +
-            (models.length === 0
-              ? "bg-green text-cream hover:bg-ink"
-              : "border border-line bg-panel text-ink hover:border-green")
-          }
-        >
-          <span className="text-lg font-medium">{t("action.uploadIfc", lang)}</span>
-          <span className="font-mono text-[11px] tracking-wide opacity-75">{t("accept.ifc", lang)}</span>
-        </button>
-        <input
-          ref={ifcInput}
-          type="file"
-          multiple
-          accept=".ifc,.ifczip"
-          className="hidden"
-          onChange={(event) => {
-            onFiles(Array.from(event.target.files ?? []));
-            event.target.value = "";
-          }}
+      <div className={"mx-auto flex flex-col gap-4 " + STAGE_WIDTH}>
+        <IfcDrop
+          label={stepLabel("ifc", lang)}
+          accept={t("accept.ifc", lang)}
+          dragging={dragging}
+          busy={busy}
+          onFiles={onFiles}
         />
-        {models.length > 0 ? (
+        {loaded || models.some((m) => m.state === "failed") ? (
           <ul className="m-0 flex list-none flex-col border border-line bg-panel p-0">
             {models.map((m) => (
               <li key={m.id} className="flex items-center justify-between gap-3 border-b border-line px-4 py-2 last:border-b-0">
@@ -2625,12 +2679,11 @@ export function SetupPage({
             ))}
           </ul>
         ) : null}
-        <StepNav
-          lang={lang}
-          onBack={back}
-          forward={t(models.length > 0 ? "action.next" : "action.skip", lang)}
-          onForward={skip}
-        />
+        {stage ? (
+          step !== null && back ? <StepNav lang={lang} onBack={back} /> : null
+        ) : (
+          <StepNav lang={lang} onBack={back} forward={t("action.next", lang)} onForward={skip} />
+        )}
       </div>
     );
   } else if (isLayerStep(current)) {
@@ -2859,6 +2912,7 @@ export function SetupPage({
       delete written.enabled;
       onChange({ ...ruleset, rules: tfmRule ? ruleset.rules.map((r) => (r === tfmRule ? written : r)) : [...ruleset.rules, written] });
       setTfmDraft(null);
+      confirmStep(current);
       setLanded({ from: current, to: next, result: null, live: true });
       onStep(next);
     };
@@ -3030,6 +3084,7 @@ export function SetupPage({
           };
       delete written.enabled;
       onChange({ ...ruleset, rules: rule ? ruleset.rules.map((r) => (r === rule ? written : r)) : [...ruleset.rules, written] });
+      confirmStep(current);
       setLanded({ from: current, to: next, result: null, live: true });
       onStep(next);
     };
@@ -3173,101 +3228,116 @@ export function SetupPage({
   }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-4 pb-10">
-      {/* ONE bounded column: the bar, what just landed, the question. Wide
-          enough for the mapping layout's TO ← FROM │ OPTIONS in one row. */}
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        <div className="flex items-center gap-4">
-          {current === "start" || current === "pofin" ? (
-            <div className="flex-1" />
-          ) : (
-            <WalkProgress
-              steps={WALK}
-              current={current === "end" ? null : current}
-              done={done}
-              label={(s) => stepLabel(s, lang)}
-              onStep={onStep}
-            />
-          )}
-          {/* The file actions, one door: the ruleset's name and its three
-              downloads, as the header had them. */}
-          <Door label={t("action.download", lang)} float>
-            <div className="flex flex-col items-start gap-3">
-              <Field label={t("label.ruleset", lang)}>
-                <input
-                  type="text"
-                  className={INPUT + " w-64"}
-                  aria-invalid={nameIssue && (nameTouched || attempted)}
-                  value={ruleset.name}
-                  onBlur={() => setNameTouched(true)}
-                  onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
-                />
-              </Field>
-              <button
-                type="button"
-                aria-disabled={blocked}
-                onClick={() => {
-                  setAttempted(true);
-                  if (!blocked) downloadRuleset(ruleset, fileName);
-                }}
-                className={downloadClass(blocked)}
-              >
-                <span>{t("action.download", lang)}</span>
-                <span className="font-mono text-[11px]">{fileName}</span>
-              </button>
-              <button
-                type="button"
-                aria-disabled={blocked}
-                onClick={() => {
-                  setAttempted(true);
-                  if (blocked) return;
-                  setExportError(null);
-                  downloadXlsx(ruleset, xlsxName(fileName)).catch((error: unknown) =>
-                    setExportError(error instanceof Error ? error.message : String(error)),
-                  );
-                }}
-                className={downloadClass(blocked)}
-              >
-                <span>{t("action.download", lang)}</span>
-                <span className="font-mono text-[11px]">{xlsxName(fileName)}</span>
-              </button>
-              <button
-                type="button"
-                aria-disabled={blocked || !hasIds}
-                onClick={() => {
-                  setAttempted(true);
-                  if (blocked || !hasIds) return;
-                  setExportError(null);
-                  downloadIds(ruleset, idsName(fileName)).catch((error: unknown) =>
-                    setExportError(error instanceof Error ? error.message : String(error)),
-                  );
-                }}
-                className={downloadClass(blocked || !hasIds)}
-              >
-                <span>{t("action.download", lang)}</span>
-                <span className="font-mono text-[11px]">{idsName(fileName)}</span>
-              </button>
-            </div>
-          </Door>
+    <main className="flex min-h-0 flex-1 flex-col">
+      {/* The bar, pinned over the walk, in the frame's width. Not on the
+          stage: no bar and no door before a model is loaded. */}
+      {stage ? null : (
+        <div className="shrink-0 px-3 pt-3">
+          <div className={"mx-auto flex w-full items-center gap-4 " + FRAME}>
+            {current === "start" || current === "pofin" ? (
+              <div className="flex-1" />
+            ) : (
+              <WalkProgress
+                steps={WALK}
+                current={current === "end" ? null : current}
+                state={segment}
+                label={(s) => stepLabel(s, lang)}
+                onStep={onStep}
+              />
+            )}
+            {/* The file actions, one door: the ruleset's name and its three
+                downloads, as the header had them. */}
+            <Door label={t("action.download", lang)} float>
+              <div className="flex flex-col items-start gap-3">
+                <Field label={t("label.ruleset", lang)}>
+                  <input
+                    type="text"
+                    className={INPUT + " w-64"}
+                    aria-invalid={nameIssue && (nameTouched || attempted)}
+                    value={ruleset.name}
+                    onBlur={() => setNameTouched(true)}
+                    onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
+                  />
+                </Field>
+                <button
+                  type="button"
+                  aria-disabled={blocked}
+                  onClick={() => {
+                    setAttempted(true);
+                    if (!blocked) downloadRuleset(ruleset, fileName);
+                  }}
+                  className={downloadClass(blocked)}
+                >
+                  <span>{t("action.download", lang)}</span>
+                  <span className="font-mono text-[11px]">{fileName}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-disabled={blocked}
+                  onClick={() => {
+                    setAttempted(true);
+                    if (blocked) return;
+                    setExportError(null);
+                    downloadXlsx(ruleset, xlsxName(fileName)).catch((error: unknown) =>
+                      setExportError(error instanceof Error ? error.message : String(error)),
+                    );
+                  }}
+                  className={downloadClass(blocked)}
+                >
+                  <span>{t("action.download", lang)}</span>
+                  <span className="font-mono text-[11px]">{xlsxName(fileName)}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-disabled={blocked || !hasIds}
+                  onClick={() => {
+                    setAttempted(true);
+                    if (blocked || !hasIds) return;
+                    setExportError(null);
+                    downloadIds(ruleset, idsName(fileName)).catch((error: unknown) =>
+                      setExportError(error instanceof Error ? error.message : String(error)),
+                    );
+                  }}
+                  className={downloadClass(blocked || !hasIds)}
+                >
+                  <span>{t("action.download", lang)}</span>
+                  <span className="font-mono text-[11px]">{idsName(fileName)}</span>
+                </button>
+              </div>
+            </Door>
+          </div>
         </div>
+      )}
 
-        {exportError !== null ? (
-          <pre className="m-0 bg-bad px-3 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
-            {exportError}
-          </pre>
-        ) : null}
+      {/* The walk: one frame sized to the viewport (`FRAME`), scrolling under
+          the bar. A short step sits at the optical centre (2 : 3 above and
+          below it), a tall one starts under the bar. A size container, so the
+          IFC stage sizes to the walk's height (`STAGE_WIDTH`). */}
+      <div data-walk className="min-h-0 flex-1 overflow-auto px-3 pb-3 [container-type:size]">
+        <div className={"mx-auto flex min-h-full w-full flex-col " + FRAME}>
+          <div aria-hidden="true" className="min-h-6 flex-[2_1_0%]" />
+          <div className="flex min-w-0 flex-col gap-6">
+            {exportError !== null ? (
+              <pre className="m-0 bg-bad px-3 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+                {exportError}
+              </pre>
+            ) : null}
 
-        {landed !== null && landed.to === current ? (
-          <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
-            {landed.live ? <TfmResult results={resultOf(landed.from)} lang={lang} /> : landed.result}
-          </Landed>
-        ) : null}
+            {landed !== null && landed.to === current ? (
+              <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
+                {landed.live ? <TfmResult results={resultOf(landed.from)} lang={lang} /> : landed.result}
+              </Landed>
+            ) : null}
 
-        <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-col gap-5">
-          {/* A step in the mapping layout carries its name in TO. */}
-          {current === "start" || inTo ? null : <h1 className={H1}>{stepLabel(current, lang)}</h1>}
-          {body}
-        </section>
+            <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-col gap-5">
+              {/* A step in the mapping layout carries its name in TO; the
+                  IFC step's is in its target. */}
+              {current === "start" || current === "ifc" || inTo ? null : <h1 className={H1}>{stepLabel(current, lang)}</h1>}
+              {body}
+            </section>
+          </div>
+          <div aria-hidden="true" className="min-h-6 flex-[3_1_0%]" />
+        </div>
       </div>
 
       {asking ? (

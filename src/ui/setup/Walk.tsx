@@ -12,7 +12,7 @@
  * step bodies (`SetupPage.tsx`) are the «Avansert» door's contents, whole.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { Lang } from "../i18n";
 import { t } from "../i18n";
 import { VERDICT_FILL } from "../state-visuals";
@@ -30,25 +30,36 @@ import {
   type Candidate,
   type CardRole,
   type MappingCheck,
+  type SegmentState,
   type StandardOption,
 } from "./candidates";
 
 export { Figure } from "./Mapping";
 
-/** The bar: one segment per step, filled once the step is done, the current
- *  one dark; a segment is the jump to its step. Beside it, where the walk is,
- *  `n / N`. */
+/** A segment's look: green done (`segmentState`), the current one dark, a
+ *  saved answer not yet checked against a model hatched, an open one the
+ *  bare track. */
+const SEGMENT: Record<SegmentState | "here", string> = {
+  done: "bg-green",
+  here: "bg-ink",
+  saved: "bg-[image:repeating-linear-gradient(135deg,var(--color-muted)_0_3px,var(--color-line)_3px_6px)] group-hover:bg-muted",
+  open: "bg-line group-hover:bg-muted",
+};
+
+/** The bar: one segment per step in its `segmentState`, the current one dark
+ *  unless done; a segment is the jump to its step. Beside it, where the walk
+ *  is, `n / N`. */
 export function WalkProgress<S extends string>({
   steps,
   current,
-  done,
+  state,
   label,
   onStep,
 }: {
   steps: readonly S[];
   /** null: past the last step (the summary). */
   current: S | null;
-  done: (step: S) => boolean;
+  state: (step: S) => SegmentState;
   label: (step: S) => string;
   onStep: (step: S) => void;
 }) {
@@ -58,7 +69,7 @@ export function WalkProgress<S extends string>({
       <ol className="m-0 flex min-w-0 flex-1 list-none gap-1 p-0">
         {steps.map((step) => {
           const here = step === current;
-          const ok = done(step);
+          const s = state(step);
           return (
             <li key={step} className="min-w-0 flex-1">
               <button
@@ -66,14 +77,14 @@ export function WalkProgress<S extends string>({
                 title={label(step)}
                 aria-label={label(step)}
                 aria-current={here ? "step" : undefined}
-                data-done={ok}
+                data-segment={s}
                 onClick={() => onStep(step)}
                 className="group block w-full py-2"
               >
                 <span
                   className={
                     "block h-1.5 w-full transition-colors duration-500 motion-reduce:transition-none " +
-                    (ok ? "bg-green" : here ? "bg-ink" : "bg-line group-hover:bg-muted")
+                    SEGMENT[s === "done" || !here ? s : "here"]
                   }
                 />
               </button>
@@ -110,6 +121,87 @@ export function Door({ label, float = false, children }: { label: string; float?
         {children}
       </div>
     </details>
+  );
+}
+
+/** The width of the IFC step's stage: the frame's, held to 72 % of the walk's
+ *  height at 16:10 (`cqh`: the walk's scroll area is a size container), so
+ *  the target is the screen's one large thing and never runs off it. */
+export const STAGE_WIDTH = "w-[min(100%,calc(72cqh*1.6))]";
+
+/** The IFC step's stage (2026-10-05, edkjo on a flat green banner: "is this
+ *  great UI?"): one drop target, dashed at rest, the upload glyph, the
+ *  step's name once and the formats taken. A file dropped anywhere on the
+ *  page lands (`App`'s drop); `dragging` lights the target while one is
+ *  held over the page. Click or Enter opens the file dialog. While a model
+ *  is read, the sweep runs along its foot. */
+export function IfcDrop({
+  label,
+  accept,
+  dragging,
+  busy,
+  onFiles,
+}: {
+  label: string;
+  accept: string;
+  dragging: boolean;
+  busy: boolean;
+  onFiles: (files: File[]) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button
+        type="button"
+        autoFocus
+        data-ifc-drop={dragging ? "over" : busy ? "busy" : "rest"}
+        aria-busy={busy}
+        onClick={() => input.current?.click()}
+        className={
+          "group relative flex aspect-[16/10] min-h-44 w-full flex-col items-center justify-center gap-5 overflow-hidden border-2 border-dashed p-6 text-center transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-green " +
+          (dragging
+            ? "border-green bg-palegreen text-green"
+            : "border-muted bg-input text-ink hover:border-green hover:text-green")
+        }
+      >
+        <svg
+          width="72"
+          height="72"
+          viewBox="0 0 72 72"
+          aria-hidden="true"
+          className={"shrink-0 " + (dragging ? "text-green" : "text-muted group-hover:text-green")}
+        >
+          <path d="M8 46v16h56V46" fill="none" stroke="currentColor" strokeWidth="3" />
+          <g
+            className={
+              "transition-transform duration-150 motion-reduce:transition-none " +
+              (dragging ? "-translate-y-1" : "group-hover:-translate-y-0.5")
+            }
+          >
+            <path d="M36 50V12" fill="none" stroke="currentColor" strokeWidth="3" />
+            <path d="M22 26 36 12l14 14" fill="none" stroke="currentColor" strokeWidth="3" />
+          </g>
+        </svg>
+        <span className="text-2xl leading-tight font-medium tracking-tight sm:text-[28px]">{label}</span>
+        <span className="font-mono text-[13px] tracking-wide text-muted">{accept}</span>
+        {busy ? (
+          <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-line">
+            <span className="ifc-sweep block h-full w-1/3 bg-green motion-reduce:animate-none!" />
+          </span>
+        ) : null}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        accept=".ifc,.ifczip"
+        className="hidden"
+        onChange={(event) => {
+          onFiles(Array.from(event.target.files ?? []));
+          event.target.value = "";
+        }}
+      />
+    </>
   );
 }
 
