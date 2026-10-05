@@ -2822,7 +2822,7 @@ is now rendered by `scripts/walk-shots.mjs` (below) and was looked at, at
   and a value on the sequence; Fase and Materiale / Produkt, a branch's
   MAPPED above 0 (or no report yet); the POFIN prompt, «Gjennomgå» is filled
   when a POFIN row fails on the loaded models, else «Aksepter oppsett». With
-  no model read every primary is filled. «Endre» (`fixClass`) is filled when
+  no model read every primary is filled. «Endre» (`fixClass`) leads (heavy outline, since the second pass) when
   the answer gives nothing and no listed option has hits (the fix is then
   the picker); `data-lead` carries the state for the driver.
 - Typenavn no longer draws the mapping layout (an OPTIONS zone of one "–";
@@ -2873,6 +2873,60 @@ Names, 0 / 11 on the same model); the Materiale requirement shows
 `NOT_A_MATERIAL`'s patterns raw; a pre-picked mapping candidate can be an
 odd property (Systemkode ← `MMI.MMI dato` on OBF ARK) because the ranking
 scores what passes.
+
+**The second pass (2026-10-05, after an independent review of the
+rendered screens).** What changed, and why:
+
+- One denominator per kind of thing. The step counted every product row
+  (84 on OBF ARK), its rule's report row the physical elements it selects
+  (80), the standard layer products less openings (82). The walk now counts
+  over what its rules select: the worker's pset inventory takes `owners`
+  (`walkSelection`, `engine/walk-selection.ts`, the `physicalElement` group
+  over every schema), `picker.total` and the type Names likewise; MAPPED
+  counts valued elements, as the report counts presence. Every figure says
+  what it counts: «Fysiske elementer» (`walk.selected`, the rule builder's
+  own term) on the step and appended to a mapping row's figure, the row's
+  own class (IfcProduct, IfcTypeObject) elsewhere. VALID adds «mangler»
+  (elements with no value), so the chips add up to the report's figure.
+- The same source: the landed strip always reads the step's report row
+  (`advanceLive`); a step whose FROM is what the ruleset holds shows that
+  row (`ReqResult`) in its requirement zone; Fase and Materiale / Produkt
+  show their row once, under the branches. No ✓ beside a result: the strip
+  has no mark, the summary marks set / not set as ● / ○ in ink.
+- The bar's count is the steps done (the segments' green), not the
+  position; the position is the tall segment.
+- After «POFIN» the summary lists the prompt's rows first, in its order,
+  then a heavy rule, then the rest.
+- Candidates (`candidates.ts`): a quantity set (`BaseQuantities`, `Qto_`)
+  is never one; a date-shaped value never passes; below half of the valued
+  elements passing a property is no candidate; a property whose name names
+  the list (3451, 3457, MMI) scores ×4 and sorts first. Only a `strong`
+  candidate is pre-picked: for a code list, one whose name names it; for
+  MMI, also one passing ≥ 80 %. FROM shows up to five real values.
+- Colour is status only: FROM's frame is neutral when found; a selected
+  option is outlined and bold (no green fill); «Endre» leading is outlined
+  heavy; «✓ 0» is grey; Duplikat objekt's absent property is not red (blank
+  is own).
+- Typenavn's off list: the name whole with one mark (✗); the wanted piece
+  set in only when the name nearly fits (its first two pieces take the
+  scheme), so a lone code letter («B» of «Betongsøyle») is no match.
+- «Bruk» has one place and one look: the walk's foot (`data-walk-foot`),
+  pinned under the step's scrolling panel, with ← Forrige and «Hopp over»;
+  a step draws `StepConfirm`, which portals into the foot's slot. The POFIN
+  prompt's two ways on sit there too. Etasjeoppsett: OKFG / OKBD are a
+  choice (outlined when picked), «Bruk» writes the levels with it. The
+  landed strip has its own fixed slot under the bar, the step's name is at
+  the panel's top (measured: 161 px on every step at both sizes; «Bruk» in
+  view on every screen).
+- Regex off the main surface: MMI «Kun format» reads `0 | Siffer · 3`
+  (`patternParts`); Materiale's requirement lists a value each pattern
+  refuses (`NOT_A_MATERIAL_EXAMPLES`, selftested against its pattern), the
+  patterns behind the step's «Avansert».
+- TFM leads with the builder; the property row is under it; the property
+  tree opens only by «Endre»; Lokasjon's chip popover is the part pills and
+  a compact source list (no nested mapping step).
+- Systemkode's and Funksjonskode's requirement show their own list; every
+  list is a switch in «Avansert» (`MappingCard`, «Kodeliste»).
 
 ### `scripts/walk-shots.mjs`
 

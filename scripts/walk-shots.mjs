@@ -260,6 +260,8 @@ const MEASURE = `(() => {
     pageScrollX: de.scrollWidth > de.clientWidth + 1,
     walkScrollX: walk ? walk.scrollWidth > walk.clientWidth + 1 : false,
     walkScrollsY: walk ? walk.scrollHeight > walk.clientHeight + 1 : false,
+    titleY: (() => { const h = document.querySelector('[data-walk] h1'); return h ? Math.round(h.getBoundingClientRect().top) : null; })(),
+    confirmInView: (() => { const b = document.querySelector('[data-step-confirm], [data-pofin-accept]'); if (!b) return null; const r = b.getBoundingClientRect(); return r.bottom <= vh && r.top >= 0; })(),
     bar: [...document.querySelectorAll('header button, header a')].filter((b) => b.getClientRects().length > 0).map((b) => (b.textContent || '').trim()).filter(Boolean),
   };
 })()`;
@@ -342,9 +344,9 @@ async function walkOn(state, mode, extras = {}) {
     if (step === "Oppsummering") return;
     n += 1;
     if (mode === "apply") {
+      // Etasjeoppsett: the plane is a choice; pick one if none is, then «Bruk».
+      if ((await exists("[data-plane]")) && !(await exists("[data-plane][aria-checked=true]"))) await click("[data-plane]");
       if (await exists("[data-step-confirm]:not([disabled])")) await click("[data-step-confirm]:not([disabled])");
-      else if (await exists("[data-plane][aria-pressed=true]")) await click("[data-plane][aria-pressed=true]");
-      else if (await exists("[data-plane]")) await click("[data-plane]");
       else await click("[data-step-skip]");
     } else {
       await click("[data-step-skip]");
@@ -472,10 +474,10 @@ try {
 } finally {
   writeFileSync(resolve(OUT, `measure-${STATES.join("")}.json`), JSON.stringify({ rows, errors }, null, 2));
   const pct = (a, b) => (a === null ? "  -" : String(Math.round((100 * a) / b)).padStart(3));
-  console.log("\nvp         state  shot                              w%  h%   top  scrollY  scrollX");
+  console.log("\nvp         state  shot                              w%  h%   top  title  bruk  scrollY  scrollX");
   for (const r of rows) {
     console.log(
-      `${r.vp.padEnd(10)} ${r.state.padEnd(6)} ${r.name.slice(0, 32).padEnd(33)} ${pct(r.w, r.vw)} ${pct(r.h, r.vh)} ${String(r.y ?? "-").padStart(5)}  ${r.walkScrollsY ? "yes" : " no"}      ${r.pageScrollX || r.walkScrollX ? "YES" : " no"}`,
+      `${r.vp.padEnd(10)} ${r.state.padEnd(6)} ${r.name.slice(0, 32).padEnd(33)} ${pct(r.w, r.vw)} ${pct(r.h, r.vh)} ${String(r.y ?? "-").padStart(5)}  ${String(r.titleY ?? "-").padStart(5)}  ${r.confirmInView === null ? "  - " : r.confirmInView ? " in " : "OUT "}  ${r.walkScrollsY ? "yes" : " no"}      ${r.pageScrollX || r.walkScrollX ? "YES" : " no"}`,
     );
   }
   if (errors.length > 0) console.log(`\npage errors:\n${errors.slice(0, 10).join("\n")}`);

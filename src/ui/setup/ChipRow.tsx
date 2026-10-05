@@ -465,13 +465,31 @@ export function ChipRow<T>({
             {off.map((o) => {
               const wanted = sequence[o.token];
               const rest = o.v.slice(o.at);
+              // The part-level diff only where the value nearly fits: at
+              // least its first two pieces take the sequence. Short of that a
+              // lone letter that happens to be a code (the «B» of
+              // «Betongsøyle») is no match, and the value is shown whole with
+              // one mark (2026-10-05, review).
+              if (o.token < 2) {
+                return (
+                  <li key={o.v} data-off-at="whole" className="flex items-center gap-3 font-mono text-[14px]">
+                    <span aria-hidden="true" className="shrink-0 font-sans text-[13px] text-bad">
+                      ✗
+                    </span>
+                    <span className="min-w-0 truncate whitespace-pre text-ink">{o.v}</span>
+                    <span className="ml-auto shrink-0 text-[13px] tabular-nums text-muted">{formatCount(o.n, lang)}</span>
+                  </li>
+                );
+              }
               return (
+                // One mark: the wanted piece set in where the value leaves the
+                // sequence; the value itself stays whole and readable.
                 <li key={o.v} data-off-at={o.at} className="flex items-center gap-3 font-mono text-[14px]">
                   <span className="flex min-w-0 items-center overflow-hidden whitespace-pre">
                     {o.at > 0 ? <span className="shrink-0 text-ink">{o.v.slice(0, o.at)}</span> : null}
                     {wanted !== undefined ? <WantedChip face={face(wanted)} text={exampleOf(wanted)} title={name(wanted)} /> : null}
                     {rest ? (
-                      <span className="min-w-0 truncate text-bad underline decoration-bad decoration-wavy decoration-1 underline-offset-4">
+                      <span className="min-w-0 truncate text-ink">
                         {rest}
                       </span>
                     ) : null}

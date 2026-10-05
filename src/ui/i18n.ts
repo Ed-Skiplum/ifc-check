@@ -341,6 +341,10 @@ const STRINGS = {
   "tfm.shapeOnly": { nb: "Kun format", en: "Shape only" },
   "tfm.text": { nb: "Tekst", en: "Text" },
   "tfm.digits": { nb: "Siffer", en: "Digits" },
+  // What the walk's rules select and count over: the rule builder's own
+  // term for the group (`group.physicalElement`), so the walk's denominators
+  // say what they count (2026-10-05).
+  "walk.selected": { nb: "Fysiske elementer", en: "Physical elements" },
   // The type name builder's letters part (2026-10-05), beside «Siffer».
   "tfm.letters": { nb: "Bokstaver", en: "Letters" },
   "tfm.none": { nb: "Ingen", en: "None" },

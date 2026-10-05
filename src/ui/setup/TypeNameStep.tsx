@@ -47,7 +47,8 @@ import {
   type PartKind,
 } from "../../engine/type-name.ts";
 import { ChipRow, PILL, type ChipFace, type ChipParse } from "./ChipRow";
-import { confirmClass } from "./Walk";
+import { ReqResult, StepConfirm } from "./Walk";
+import type { Requirement } from "../requirements";
 import { LABEL, STEP_TITLE } from "./Mapping";
 import { INPUT, ValuesInput } from "./ValuesInput";
 
@@ -213,9 +214,12 @@ export function TypeNameStep({
   saved,
   typeNames,
   typed,
+  written = null,
   lang,
   onConfirm,
 }: {
+  /** The type-name rule's report row per model, when the ruleset has one. */
+  written?: readonly { model: string; req: Requirement | null }[] | null;
   /** The step's name. */
   name: string;
   /** The ruleset's scheme, or null. */
@@ -320,22 +324,20 @@ export function TypeNameStep({
             </span>
           </div>
         ) : null}
+        {/* The scheme as the ruleset holds it: its report row, the figures
+            the landed strip and the summary print. */}
+        {written && saved && sameScheme(sequence, saved) ? (
+          <div data-result className="flex flex-col gap-2 px-1">
+            <span className={LABEL}>{name}</span>
+            <ReqResult results={written} lang={lang} />
+          </div>
+        ) : null}
         {/* Context, apart: are the elements typed at all (the board's row). */}
         <div data-typed className="flex flex-col gap-2 px-1">
           <span className={LABEL}>{t("req.typeobjekt", lang)}</span>
           {typed}
         </div>
-        <button
-          type="button"
-          autoFocus
-          data-step-confirm
-          data-lead={lead}
-          disabled={!ready}
-          onClick={() => onConfirm(sequence)}
-          className={confirmClass(lead) + " mt-auto disabled:cursor-not-allowed disabled:opacity-40"}
-        >
-          {t("action.apply", lang)} →
-        </button>
+        <StepConfirm lead={lead} disabled={!ready} label={t("action.apply", lang)} onClick={() => onConfirm(sequence)} />
       </div>
     </div>
   );
