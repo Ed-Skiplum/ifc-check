@@ -57,6 +57,17 @@ const EMPTY_RULESET: Ruleset = {
   rules: [],
 };
 
+/** Inside an iframe (skiplum.com/uttun/verktoy/ifc-check): the host's frame
+ *  already names the tool, so the app bar does not name it again. A parent
+ *  that refuses the look counts as a host. */
+const EMBEDDED = (() => {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+})();
+
 export default function App() {
   const [view, setView] = useHashView();
   const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached, requestPsets } =
@@ -508,13 +519,15 @@ export default function App() {
       {models.length === 0 ? (
         <>
           <header className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-1.5 py-1">
-            <button
-              type="button"
-              onClick={() => setView({ page: null })}
-              className="text-[15px] font-semibold tracking-tight text-ink"
-            >
-              {t("app.name", view.lang)}
-            </button>
+            {EMBEDDED ? null : (
+              <button
+                type="button"
+                onClick={() => setView({ page: null })}
+                className="text-[15px] font-semibold tracking-tight text-ink"
+              >
+                {t("app.name", view.lang)}
+              </button>
+            )}
             <div className="ml-auto flex items-center gap-3">
               {accountControl}
               <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
