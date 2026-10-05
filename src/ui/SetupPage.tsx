@@ -84,6 +84,8 @@ import type {
   TfmCheck,
   TfmPart,
   TfmToken,
+  NamePart,
+  TypeNameCheck,
 } from "../ids/types.ts";
 import { STATSBYGG_SEQUENCE, formatSequence, tfmRegexSource } from "../engine/tfm.ts";
 import type { Lang, StringKey } from "./i18n";
@@ -99,8 +101,11 @@ import type { Verdict } from "../engine/types";
 import type { ModelEntry } from "./useModels";
 import { requirements } from "./requirements";
 import { StateChip, TotalChips } from "./setup/chips";
+import { INPUT, ValuesInput } from "./setup/ValuesInput";
 import { previewTfm, rankPartBindings, rankTfmCandidates, type Candidate } from "./setup/candidates";
 import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
+import { TypeNameStep } from "./setup/TypeNameStep";
+import { partName } from "../engine/type-name.ts";
 import { stateLook } from "./alt/req-view";
 import {
   Alternatives,
@@ -132,7 +137,7 @@ type MappingCheck = CodeLookupCheck | CopyObjectCheck;
 
 /** The roles a mapping card edits: every mapping but `tfm`, which is its
  *  own step (`setup/TfmBuilder.tsx`). */
-type CardRole = Exclude<MappingRole, "tfm">;
+type CardRole = Exclude<MappingRole, "tfm" | "type-name">;
 
 function sourceKind(source: CodeSource): SourceKind {
   if ("property" in source) return "property";
@@ -334,9 +339,6 @@ function TemplateButtons({
 const LABEL = "text-[10px] font-semibold tracking-[0.12em] text-gold uppercase";
 const SECONDARY =
   "flex items-center gap-2 border border-line bg-cream px-3 py-1.5 text-[12px] text-ink hover:border-green hover:text-green";
-const INPUT =
-  "border border-line bg-input px-2 py-1 font-mono text-[12px] text-ink " +
-  "disabled:text-muted aria-[invalid=true]:border-bad";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -448,47 +450,6 @@ function CodeRow({
       </button>
     </>
   );
-}
-
-/** Comma-separated codes. The draft keeps what is typed, trailing comma and
- *  all; the rule gets the parsed list on every keystroke. */
-function ValuesInput({
-  values,
-  invalid,
-  onChange,
-}: {
-  values: string[];
-  invalid: boolean;
-  onChange: (next: string[]) => void;
-}) {
-  const joined = values.join(", ");
-  const [draft, setDraft] = useState(joined);
-  // A new list from outside (a loaded file) replaces the draft; the list this
-  // draft itself produced does not.
-  const [seen, setSeen] = useState(joined);
-  if (seen !== joined) {
-    setSeen(joined);
-    if (parseValues(draft).join(", ") !== joined) setDraft(joined);
-  }
-  return (
-    <input
-      type="text"
-      className={INPUT}
-      aria-invalid={invalid}
-      value={draft}
-      onChange={(e) => {
-        setDraft(e.target.value);
-        onChange(parseValues(e.target.value));
-      }}
-    />
-  );
-}
-
-function parseValues(text: string): string[] {
-  return text
-    .split(",")
-    .map((v) => v.trim())
-    .filter((v) => v !== "");
 }
 
 /** The property source, picked from the loaded models: every set with its
@@ -1897,6 +1858,7 @@ export type SetupStep = "start" | "ifc" | MappingRole | LayerStep | "storeys" | 
 const STEPS: SetupStep[] = [
   "start",
   "ifc",
+  "type-name",
   "system-classification",
   "component-classification",
   "copy-object",
@@ -1919,6 +1881,7 @@ export const FIRST_MAPPING_STEP: SetupStep = STEPS[2];
 const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
   start: "action.setup",
   ifc: "action.uploadIfc",
+  "type-name": "check.type-name-placeholder",
   "component-classification": "req.funksjonskode",
   phase: "req.fase",
   materials: "req.materiale-produkt",
@@ -1930,6 +1893,7 @@ const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
 /** The requirement (`requirements.ts`) whose report row is a step's result,
  *  as the IDS tab shows it. */
 const STEP_REQ: Partial<Record<SetupStep, string>> = {
+  "type-name": "typenavn",
   "system-classification": "systemkode",
   "component-classification": "funksjonskode",
   "copy-object": "kopiobjekt",
@@ -2100,6 +2064,20 @@ export function SetupPage({
   );
 
   const ownerNames = useMemo(() => everyOwnerName(ruleset), [ruleset]);
+
+  // The type step: every type Name the models' typed elements reach, with
+  // the elements using it, most first; null with no model profiled.
+  const typeNames = useMemo((): PsetValue[] | null => {
+    const profiled = models.filter((m) => m.profile);
+    if (profiled.length === 0) return null;
+    const counts = new Map<string, number>();
+    for (const m of profiled) {
+      for (const row of m.profile!.rows) {
+        if (row.typed && row.typeName) counts.set(row.typeName, (counts.get(row.typeName) ?? 0) + 1);
+      }
+    }
+    return [...counts].map(([v, n]) => ({ v, n })).sort((a, b) => b.n - a.n || a.v.localeCompare(b.v));
+  }, [models]);
 
   // The TFM step: the saved rule's check, and the properties whose values
   // are strings of its sequence (the standard's when none is saved).
@@ -2675,6 +2653,39 @@ export function SetupPage({
         </Door>
       </div>
     );
+  } else if (current === "type-name") {
+    const rule = mappingRule(ruleset, "type-name");
+    const saved = rule && rule.check.type === "type-name" ? rule.check.sequence : null;
+    const typedResults = results.map(({ model, reqs }) => ({ model, req: reqs.find((r) => r.key === "typeobjekt") ?? null }));
+    const confirmName = (sequence: NamePart[]) => {
+      const check: TypeNameCheck = { type: "type-name", sequence };
+      const written: ExtendedRule = rule
+        ? { ...rule, check }
+        : {
+            id: freshId(ruleset, "type-name"),
+            kind: "extended",
+            name: t("check.type-name-placeholder", lang),
+            select: { entity: { group: "physicalElement" } },
+            check,
+          };
+      delete written.enabled;
+      onChange({ ...ruleset, rules: rule ? ruleset.rules.map((r) => (r === rule ? written : r)) : [...ruleset.rules, written] });
+      setLanded({ from: current, to: next, result: null, live: true });
+      onStep(next);
+    };
+    body = (
+      <div className="flex flex-col gap-5">
+        <TypeNameStep
+          key={saved ? JSON.stringify(saved) : "pofin"}
+          saved={saved}
+          typeNames={typeNames}
+          typed={<ReqResult results={typedResults} lang={lang} />}
+          lang={lang}
+          onConfirm={confirmName}
+        />
+        {nav}
+      </div>
+    );
   } else if (current === "end") {
     // What each step set, as the summary names it.
     const setText = (s: SetupStep): string => {
@@ -2689,6 +2700,10 @@ export function SetupPage({
             [t("setup.standard", lang), ...layerSources(ruleset, slot).map((source) => sourceText(source, lang))].join(" + "),
           )
           .join(" · ");
+      if (s === "type-name") {
+        const r = mappingRule(ruleset, "type-name");
+        return r && r.enabled !== false && r.check.type === "type-name" ? r.check.sequence.map(partName).join(" ") : "–";
+      }
       if (s === "tfm") {
         return tfmRule && tfmRule.enabled !== false && tfmSaved
           ? `${sourceText(tfmSaved.source, lang)} · ${formatSequence(tfmSaved.sequence)}`

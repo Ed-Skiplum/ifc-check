@@ -39,7 +39,7 @@ export type MappingCheck = CodeLookupCheck | CopyObjectCheck;
 
 /** The roles a mapping step proposes a source for; `tfm` ranks its own way
  *  (`rankTfmCandidates`). */
-export type CardRole = Exclude<MappingRole, "tfm">;
+export type CardRole = Exclude<MappingRole, "tfm" | "type-name">;
 
 export interface Candidate {
   set: string;

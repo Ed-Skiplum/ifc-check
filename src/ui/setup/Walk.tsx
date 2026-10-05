@@ -110,7 +110,7 @@ export function Door({ label, float = false, children }: { label: string; float?
   );
 }
 
-function Figure({ label, value, bad = false }: { label: string; value: string; bad?: boolean }) {
+export function Figure({ label, value, bad = false }: { label: string; value: string; bad?: boolean }) {
   return (
     <span className="flex items-baseline gap-2">
       <span className="text-[10px] font-semibold tracking-[0.12em] text-gold uppercase">{label}</span>
