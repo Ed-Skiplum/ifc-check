@@ -33,6 +33,8 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
                  ruleset's `projectLayer` on top (see "The standard layer")
   storey-config.ts  `storey-config`: file storeys against the ruleset's floor
                  config (`storeys`)
+  tfm.ts         the TFM sequence model: compile, parse, agreement (see
+                 "TFM" under the Oppsett walk)
   pset-inventory.ts  every property and quantity set, with fill, examples
                  and category (see "Pset inventory")
   ifc-pset-names.ts  generated: the set names the IFC templates define
@@ -59,7 +61,8 @@ src/ui/          the screen, and the worker that drives the engine
                    (StoreyClassCensus.tsx), type ledger
   forms.tsx        gauge, distribution, KPI row, readouts
   SetupPage.tsx    the project mappings page (`#page=setup`)
-  setup/           its walk: candidates, the proposal card, bar, doors
+  setup/           its walk: candidates, the proposal card, bar, doors,
+                   the TFM string builder
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
   import.ts      IDS 1.0 XML -> ruleset, per specification (see "The IDS view")
   xml-read.ts    the DOM-free XML reader the importer runs on (Node and browser)
@@ -2655,6 +2658,62 @@ Verified: `tsc`, selftest (candidate ranking: a code before its name, MMI
 against the presets, Duplikat objekt with and without values, nothing
 passing). **Not exercised in a browser**: no click of the walk, the doors,
 the focus on «Bruk» or the landing on the IDS tab has been seen.
+
+### TFM (2026-10-05)
+
+edkjo: "we also need a TFM builder there. Tverrfaglig merkesystem. Default
+is the standard" · "a very intuitive string builder" · "other properties
+come into play as components: system, function and location".
+
+- Engine: `src/engine/tfm.ts`, a port of tfm-check's sequence model
+  (`backend/engine/constants.py`, `rules.py`; read, never edited): nine
+  parts, eight separators, the per-part forms, the digit lock on Etasje,
+  Subnr, Løpenummer, Komp.nr, Rom. Default Statsbygg PA 0802, `+ Lokasjon
+  = Systemkode . Løpenummer - Komponent Komp.nr` (`+123456=360.001-JV401`).
+  Tokens are objects (`{part, digits?}`, `{sep}`, `{text}`); the regex is
+  anchored at both ends (tfm-check: start only). A miss says where the
+  string leaves the sequence (longest leading run) and which token follows.
+- Ruleset: an extended rule whose check is `{type: "tfm", source, sequence,
+  bindings?: {Lokasjon}}`; the check type is the `tfm` role, as with
+  copy-object (`MappingRole`, one per ruleset, exemptable). Lint codes
+  `tfm-*`; the schema's `tfmToken`. The workbook has no TFM sheet: the rule
+  rides «Andre regler» as JSON and round-trips (selftest).
+- Check (`evaluate.ts` `tfmSubjects`): per element, shape, then each bound
+  part literally (equal, or a code before a name): Systemkode against the
+  system-classification rule's reading (code and value), Komponent the
+  component-classification rule's, Etasje the element's storey as a level
+  (`matchStoreys` with the model's policy; only a storey that IS a level),
+  Lokasjon `bindings.Lokasjon`. Shape only, with the reason in the row:
+  `no-binding` (Løpenummer, Subnr, Komp.nr, T-suffiks), `unbound` (the step
+  skipped, the rule off, no binding), `not-exposed` (Rom: the graph carries
+  storey containment only; Etasje with the unit unresolved),
+  `not-comparable` (no bound value takes the part's form, e.g. a
+  three-letter NS 3457-8 code against PA 0802's two letters). Nothing is
+  translated between code lists. Findings `empty`, `no-match`,
+  `disagree-<part>`, one per disagreeing part; `failed` counts elements.
+- Report: the row has `mapping: "tfm"`, `dekning` (oppfylt = shape and
+  every compared part agree), `fordeling` per string, and `deler` (per part:
+  `del`, `kilde`, `kun_form`, `samsvar`, `avvik`, `uten_verdi`). The
+  requirement «TFM» is listed in Standardkrav only when the row exists; no
+  `not_configured` row is added for rulesets without one. The board's
+  value doors read `codeLookupSubjects`, which now answers a tfm rule.
+- The step (`setup/TfmBuilder.tsx`, after Etasjeoppsett): pre-pick as the
+  other steps (`rankTfmCandidates`: values parsing against the saved or the
+  standard sequence). A draft until «Bruk»; another candidate swaps the
+  property without moving on. The chip row is the example string; drag,
+  ← →, Delete, click to edit, `+` gaps to insert; Lokasjon's chip lists the
+  properties sharing its segments (`rankPartBindings`) and «Ingen». Live:
+  the evidence (`previewTfm`, shape only) and five values off the sequence.
+  Agreement lands after «Bruk» (`TfmResult`, from the evaluated row).
+  «Avansert»: the compiled regex, the property and Lokasjon typed by hand.
+
+Verified: `tsc`, selftest (Statsbygg and an adapted sequence, the miss
+position, digit lock, literal text, agreement, comparability, the check on a
+synthetic model with all four bindings and Rom, the report row, lint
+refusals, schema, JSON and workbook round trips, the walk's ranking).
+**Not exercised in a browser**: no drag, keyboard move, editor popover,
+insert, reset, live count or landing has been seen; the drag's drop gap
+on wrapped rows is unmeasured.
 
 Verified headlessly: `selftest` asserts each mapping lint refusal, the schema
 refusal of a code-lookup with neither list nor values, a values lookup on a
