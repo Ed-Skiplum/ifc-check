@@ -22,6 +22,9 @@
  * disagreement is a modelling fact. The full property table is reachable since
  * ifcfast 0.5.3 and is what the object panel prints per element; widening this
  * tile to it would make one column per property set on a model with hundreds.
+ * Ledeenhet is not one of them: it is the recommended lead unit the mengdetype
+ * tables give the instances (2026-10-05, edkjo: "in the type aggregation as a
+ * recommended master unit"), never a value the file declares.
  *
  * ── The foot reconciles the three "types" numbers ─────────────────────────
  * This table keys by type NAME. The file declares type OBJECTS, and elements
@@ -204,6 +207,7 @@ export function TypeLedger({ lang, ledger, selected, onFocus }: TypeLedgerProps)
               <Th right>{t("col.triangles", lang)}</Th>
               <Th>PredefinedType</Th>
               <Th>{t("col.materials", lang)}</Th>
+              <Th>{t("col.leadUnit", lang)}</Th>
               <Th>{t("col.properties", lang)}</Th>
             </tr>
           </thead>
@@ -440,6 +444,9 @@ function LedgerRow({
       </td>
       <td className={cell}>
         <DeclaredCell declared={row.materials} flag={flag} label={disagreeLabel} />
+      </td>
+      <td className={cell}>
+        <DeclaredCell declared={row.unit} flag={flag} label={disagreeLabel} />
       </td>
       <td className={cell}>
         <CommonCell row={row} flag={flag} label={disagreeLabel} />
