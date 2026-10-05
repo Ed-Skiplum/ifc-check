@@ -22,14 +22,26 @@ export interface SavedRuleset {
   ruleset: Ruleset;
 }
 
+/** The stored row: the same shape here and in the account's state doc
+ *  (`account/hosted-ruleset.ts`). */
+export function savedRow(saved: SavedRuleset): { format: number; fileName: string; ruleset: Ruleset } {
+  return { format: FORMAT, ...saved };
+}
+
+/** A stored row read back; null for anything this build does not read. */
+export function parseSavedRow(value: unknown): SavedRuleset | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as { format?: number; fileName?: unknown; ruleset?: Ruleset };
+  if (row.format !== FORMAT || typeof row.fileName !== "string") return null;
+  if (!row.ruleset || typeof row.ruleset !== "object" || !Array.isArray(row.ruleset.rules)) return null;
+  return { fileName: row.fileName, ruleset: row.ruleset };
+}
+
 export function readSavedRuleset(): SavedRuleset | null {
   try {
     const raw = globalThis.localStorage?.getItem(KEY);
     if (!raw) return null;
-    const row = JSON.parse(raw) as { format?: number; fileName?: unknown; ruleset?: Ruleset };
-    if (row.format !== FORMAT || typeof row.fileName !== "string") return null;
-    if (!row.ruleset || typeof row.ruleset !== "object" || !Array.isArray(row.ruleset.rules)) return null;
-    return { fileName: row.fileName, ruleset: row.ruleset };
+    return parseSavedRow(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -43,7 +55,7 @@ export function writeSavedRuleset(saved: SavedRuleset | null): void {
     store.removeItem(KEY);
     return;
   }
-  store.setItem(KEY, JSON.stringify({ format: FORMAT, ...saved }));
+  store.setItem(KEY, JSON.stringify(savedRow(saved)));
 }
 
 /** Forget, for a ruleset that was removed; a storage fault costs nothing. */

@@ -164,6 +164,16 @@ import { beregn, SENTINEL } from "../src/mottakskontroll/beregn.ts";
 import { htmlModell, htmlProsjekt } from "../src/mottakskontroll/html.ts";
 import { BLOKKER, ETIKETTER, KPI_TITLER, SEKSJONER, VERDIKT_ORD } from "../src/mottakskontroll/standard.ts";
 import { CACHE_SESSION_GRACE_MS, offered, purgeable } from "../src/storage/session.ts";
+import { kontoBase, me, signInUrl, signOut, type Konto } from "../src/account/konto.ts";
+import {
+  KIND as HOSTED_KIND,
+  TOOL as HOSTED_TOOL,
+  removeFromAccount,
+  rulesetKey,
+  saveToAccount,
+  syncOnSignIn,
+} from "../src/account/hosted-ruleset.ts";
+import { savedRow, type SavedRuleset } from "../src/storage/saved-ruleset.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -2930,6 +2940,8 @@ async function cmdSelftest(): Promise<number> {
   layerStepSelftest(record);
   stepTemplateSelftest(record);
   qtoSelftest(record);
+  await kontoSelftest(record);
+  await hostedRulesetSelftest(record);
   const write = mmiPresetSelftest(record, (codes) =>
     lintCodes(withRules([mappingRule("progress-code", { codes, extract: defaultExtract("progress-code") })])),
   );
@@ -3054,6 +3066,264 @@ function qtoSelftest(record: (name: string, expected: string, actual: string) =>
   record("qto: no quantities received, every measure pending", "true true true", (["volume", "area", "length"] as const).map((m) => String(qtoPending(none, m))).join(" "));
   const within = qtoTable(rows, qtoKeyOf("class", { storeys, materials: true })!, done, new Set(["w1", "s1"]));
   record("qto: within a filter, only its elements", "IfcWall 1 v2 | IfcSlab 1 v8 | total 2", `${within.rows.map((r) => `${r.label} ${r.count} v${r.volume.sum}`).join(" | ")} | total ${within.total.count}`);
+}
+
+/* ------------------------------------------------------- the account */
+
+/** A stand-in for `fetch`: answers from `respond`, records each call. Never
+ *  the real platform. */
+function fakeFetch(respond: (url: string, init: RequestInit) => Response | Promise<Response>) {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init: init ?? {} });
+    return respond(url, init ?? {});
+  }) as typeof fetch;
+  return { fn, calls };
+}
+
+const jsonResponse = (status: number, body: unknown) =>
+  new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** `src/account/konto.ts`: the base URL guard and /api/me's three states. */
+async function kontoSelftest(record: (name: string, expected: string, actual: string) => void): Promise<void> {
+  record(
+    "konto: base is production by default, the staging origin when set, refused when not https",
+    "https://konto.skiplum.com https://test.konto.skiplum.com null null",
+    [
+      kontoBase(undefined),
+      kontoBase("https://test.konto.skiplum.com/"),
+      kontoBase("http://konto.skiplum.com"),
+      kontoBase("https://u:p@konto.skiplum.com"),
+    ].map(String).join(" "),
+  );
+  const base = "https://konto.example";
+  const ask = async (respond: (url: string, init: RequestInit) => Response | Promise<Response>) => {
+    const f = fakeFetch(respond);
+    return { state: await me({ base, fetch: f.fn }), calls: f.calls };
+  };
+  const signedIn = await ask(() =>
+    jsonResponse(200, {
+      user: { id: "u1", email: "a@b.no", name: "<b>Ola</b>" },
+      orgs: [{ id: "o1", name: "x", role: "owner", plan: "hosted", hosted_state: true }],
+    }),
+  );
+  record(
+    "konto: me() signed in reads user and the owned org's hosted_state; the name is kept as text",
+    "signed-in u1 <b>Ola</b> o1 true",
+    signedIn.state.kind === "signed-in"
+      ? `signed-in ${signedIn.state.user.id} ${signedIn.state.user.name} ${signedIn.state.org?.id} ${signedIn.state.org?.hostedState}`
+      : signedIn.state.kind,
+  );
+  record(
+    "konto: me() asks GET /api/me on the configured origin with credentials",
+    "https://konto.example/api/me include GET",
+    `${signedIn.calls[0]?.url} ${signedIn.calls[0]?.init.credentials} ${signedIn.calls[0]?.init.method ?? "GET"}`,
+  );
+  record("konto: me() 401 is signed out", "signed-out", (await ask(() => jsonResponse(401, { error: "unauthenticated" }))).state.kind);
+  record(
+    "konto: me() network/CORS failure, 5xx, or a body off the contract is unavailable, not signed out",
+    "unavailable unavailable unavailable unavailable",
+    [
+      (await ask(() => { throw new TypeError("Failed to fetch"); })).state.kind,
+      (await ask(() => jsonResponse(503, { error: "down" }))).state.kind,
+      (await ask(() => jsonResponse(200, { user: { id: 7 } }))).state.kind,
+      (await ask(() => new Response("<html>", { status: 200 }))).state.kind,
+    ].join(" "),
+  );
+  record(
+    "konto: no hosted_state on the org reads false",
+    "false",
+    String(
+      ((await ask(() => jsonResponse(200, { user: { id: "u", email: "e", name: "" }, orgs: [{ id: "o", role: "owner" }] }))).state as { org?: { hostedState: boolean } }).org?.hostedState,
+    ),
+  );
+  record(
+    "konto: sign-in goes through /api/continue with the page as `to`",
+    "https://konto.example/api/continue?to=https%3A%2F%2Fifc-check.skiplum.com%2F%23model%3Da",
+    signInUrl(base, "https://ifc-check.skiplum.com/#model=a"),
+  );
+  const out = fakeFetch(() => jsonResponse(200, { success: true }));
+  const k: Konto = { base, fetch: out.fn };
+  const ended = await signOut(k);
+  const h = out.calls[0]?.init.headers as Record<string, string> | undefined;
+  record(
+    "konto: sign-out is POST /api/auth/sign-out, JSON, with credentials",
+    "true https://konto.example/api/auth/sign-out POST include application/json",
+    `${ended} ${out.calls[0]?.url} ${out.calls[0]?.init.method} ${out.calls[0]?.init.credentials} ${h?.["content-type"]}`,
+  );
+}
+
+/** An in-memory stand-in for the platform's state routes, with the PUT
+ *  semantics of its `app.ts` in the contract's order (402 hosted, 413,
+ *  baseVersion: 404 / 409 / quota, create: 409 exists / ifAbsent / quota). */
+function fakePlatform(opts: { hosted?: boolean; maxDocs?: number; forbid?: boolean } = {}) {
+  const docs = new Map<string, { project: null; tool: string; kind: string; key: string; data: unknown; version: number; updatedAt: string }>();
+  let clock = Date.parse("2026-10-01T00:00:00Z");
+  const tick = () => new Date((clock += 1000)).toISOString();
+  const f = fakeFetch(async (url, init) => {
+    const u = new URL(url);
+    const method = init.method ?? "GET";
+    const m = /^\/api\/orgs\/([^/]+)\/state(?:\/([^/]+)\/([^/]+)\/([^/]+))?$/.exec(u.pathname);
+    if (!m) return jsonResponse(404, { error: "not found" });
+    if (!m[2]) {
+      const tool = u.searchParams.get("tool");
+      const kind = u.searchParams.get("kind");
+      return jsonResponse(200, [...docs.values()].filter((d) => (!tool || d.tool === tool) && (!kind || d.kind === kind)));
+    }
+    const [tool, kind, key] = [m[2], m[3], decodeURIComponent(m[4])];
+    const id = `${tool}/${kind}/${key}`;
+    const row = docs.get(id);
+    if (method === "GET") return row ? jsonResponse(200, row) : jsonResponse(404, { error: "not found" });
+    if (method === "DELETE") return docs.delete(id) ? new Response(null, { status: 204 }) : jsonResponse(404, { error: "not found" });
+    const body = JSON.parse(String(init.body)) as { data: unknown; baseVersion?: number; ifAbsent?: boolean };
+    if (opts.forbid) return jsonResponse(403, { error: "forbidden" });
+    if (opts.hosted === false) return jsonResponse(402, { error: "plan has no hosted state" });
+    if (typeof body.baseVersion === "number") {
+      if (!row) return jsonResponse(404, { error: "not found" });
+      if (row.version !== body.baseVersion) return jsonResponse(409, { error: "version conflict", version: row.version });
+      const next = { ...row, data: body.data, version: row.version + 1, updatedAt: tick() };
+      docs.set(id, next);
+      return jsonResponse(200, next);
+    }
+    if (row) return body.ifAbsent === true ? jsonResponse(200, row) : jsonResponse(409, { error: "exists", version: row.version });
+    if (docs.size + 1 > (opts.maxDocs ?? 10)) return jsonResponse(402, { error: "quota", what: "state_docs", limit: opts.maxDocs, used: docs.size });
+    const created = { project: null, tool, kind, key, data: body.data, version: 1, updatedAt: tick() };
+    docs.set(id, created);
+    return jsonResponse(201, created);
+  });
+  /** Another device's write, straight into the store. */
+  const seed = (saved: SavedRuleset) => {
+    const key = rulesetKey(saved);
+    const id = `${HOSTED_TOOL}/${HOSTED_KIND}/${key}`;
+    const row = docs.get(id);
+    docs.set(id, { project: null, tool: HOSTED_TOOL, kind: HOSTED_KIND, key, data: savedRow(saved), version: (row?.version ?? 0) + 1, updatedAt: tick() });
+  };
+  return { konto: { base: "https://konto.example", fetch: f.fn } as Konto, calls: f.calls, docs, seed };
+}
+
+/** `src/account/hosted-ruleset.ts`: the saved ruleset following the account. */
+async function hostedRulesetSelftest(record: (name: string, expected: string, actual: string) => void): Promise<void> {
+  const rs = (name: string, rules = 0): SavedRuleset => ({
+    fileName: `${name}.ruleset.json`,
+    ruleset: { formatVersion: 2, name, ifcVersions: ["IFC4"], rules: Array.from({ length: rules }, () => ({}) as Rule) },
+  });
+  const shown = (s: Awaited<ReturnType<typeof syncOnSignIn>>) =>
+    s.kind === "remote" ? `remote ${s.key} ${s.saved.ruleset.rules.length}` : s.kind === "local-only" ? `local-only ${s.reason}` : s.kind;
+
+  // A cold device: nothing in this browser, two configs in the account.
+  {
+    const p = fakePlatform();
+    p.seed(rs("Older", 1));
+    p.seed(rs("Newer", 2));
+    const s = await syncOnSignIn(p.konto, "o1", null);
+    record("hosted ruleset: cold device loads the account's most recently updated config", "remote Newer.ruleset.json 2", shown(s));
+    record(
+      "hosted ruleset: cold device only lists, never writes; org-wide, tool ifc-check, kind ruleset",
+      "GET https://konto.example/api/orgs/o1/state?tool=ifc-check&kind=ruleset",
+      p.calls.map((c) => `${c.init.method ?? "GET"} ${c.url}`).join(" | "),
+    );
+    record("hosted ruleset: an empty account and nothing local is none", "none", shown(await syncOnSignIn(fakePlatform().konto, "o1", null)));
+  }
+
+  // First sign-in with a local copy: adopted with ifAbsent.
+  {
+    const p = fakePlatform();
+    const s = await syncOnSignIn(p.konto, "o1", rs("Mine", 3));
+    const put = p.calls.find((c) => c.init.method === "PUT");
+    const h = put?.init.headers as Record<string, string> | undefined;
+    record("hosted ruleset: first sign-in adopts the browser copy into the account", "remote Mine.ruleset.json 3 v1", `${shown(s)} v${p.docs.get("ifc-check/ruleset/Mine.ruleset.json")?.version}`);
+    record(
+      "hosted ruleset: adoption is PUT …/state/ifc-check/ruleset/<file name> {data, ifAbsent: true}, JSON, with credentials",
+      "https://konto.example/api/orgs/o1/state/ifc-check/ruleset/Mine.ruleset.json true undefined application/json include",
+      `${put?.url} ${JSON.parse(String(put?.init.body)).ifAbsent} ${JSON.parse(String(put?.init.body)).baseVersion} ${h?.["content-type"]} ${put?.init.credentials}`,
+    );
+  }
+
+  // The account already has this key: it wins, untouched.
+  {
+    const p = fakePlatform();
+    p.seed(rs("Mine", 5));
+    const s = await syncOnSignIn(p.konto, "o1", rs("Mine", 1));
+    const row = p.docs.get("ifc-check/ruleset/Mine.ruleset.json");
+    record(
+      "hosted ruleset: what the account already has under the key wins and is not overwritten",
+      "remote Mine.ruleset.json 5 v1",
+      `${shown(s)} v${row?.version}`,
+    );
+  }
+
+  // Saves: baseVersion, then a conflict from another device.
+  {
+    const p = fakePlatform();
+    const first = await saveToAccount(p.konto, "o1", rs("Mine", 1), new Map());
+    record("hosted ruleset: a first save creates (201, v1)", "saved 1", first.kind === "saved" ? `saved ${first.version}` : first.reason);
+    const versions = new Map([["Mine.ruleset.json", 1]]);
+    const second = await saveToAccount(p.konto, "o1", rs("Mine", 2), versions);
+    const last = p.calls.at(-1);
+    record(
+      "hosted ruleset: a later save sends the known version as baseVersion",
+      "saved 2 baseVersion 1",
+      `${second.kind === "saved" ? `saved ${second.version}` : second.reason} baseVersion ${JSON.parse(String(last?.init.body)).baseVersion}`,
+    );
+    p.seed(rs("Mine", 9)); // another device: v3
+    const mine = await saveToAccount(p.konto, "o1", rs("Mine", 4), new Map([["Mine.ruleset.json", 2]]));
+    const after = p.docs.get("ifc-check/ruleset/Mine.ruleset.json");
+    record(
+      "hosted ruleset: a version conflict (409) re-reads and writes the user's edit over it",
+      "saved 4 rules 4 [PUT 409, GET, PUT 200]",
+      `${mine.kind === "saved" ? `saved ${mine.version}` : mine.reason} rules ${(after?.data as { ruleset: { rules: unknown[] } }).ruleset.rules.length} [${p.calls
+        .slice(-3)
+        .map((c) => (c.init.method === "PUT" ? `PUT ${JSON.parse(String(c.init.body)).baseVersion === 2 ? 409 : 200}` : "GET"))
+        .join(", ")}]`,
+    );
+    const p2 = fakePlatform();
+    p2.seed(rs("Mine", 1));
+    const blind = await saveToAccount(p2.konto, "o1", rs("Mine", 6), new Map());
+    record(
+      "hosted ruleset: a create where the account already has the key (409 exists) re-reads and updates",
+      "saved 2",
+      blind.kind === "saved" ? `saved ${blind.version}` : blind.reason,
+    );
+  }
+
+  // Refusals: saved locally only.
+  {
+    const save = async (p: ReturnType<typeof fakePlatform>, saved = rs("Mine", 1)) => {
+      const r = await saveToAccount(p.konto, "o1", saved, new Map());
+      return r.kind === "saved" ? "saved" : `local-only ${r.reason}`;
+    };
+    record("hosted ruleset: 402 no hosted state is saved locally only", "local-only 402 plan has no hosted state", await save(fakePlatform({ hosted: false })));
+    const full = fakePlatform({ maxDocs: 1 });
+    full.seed(rs("Other"));
+    record("hosted ruleset: 402 quota is saved locally only", "local-only 402 quota", await save(full));
+    record("hosted ruleset: 403 is saved locally only", "local-only 403 forbidden", await save(fakePlatform({ forbid: true })));
+    const huge = rs("Huge");
+    huge.ruleset.description = "x".repeat(1024 * 1024);
+    const big = fakePlatform();
+    record("hosted ruleset: over 1 MB is not sent, saved locally only", "local-only 413 document too large 0", `${await save(big, huge)} ${big.calls.length}`);
+    const down = { base: "https://konto.example", fetch: (async () => { throw new TypeError("Failed to fetch"); }) as typeof fetch };
+    const r = await saveToAccount(down, "o1", rs("Mine"), new Map());
+    record("hosted ruleset: the platform unreachable is saved locally only", "local-only 0 Failed to fetch", r.kind === "saved" ? "saved" : `local-only ${r.reason}`);
+    record(
+      "hosted ruleset: sign-in adoption refused (402) keeps the browser copy",
+      "local-only 402 plan has no hosted state",
+      shown(await syncOnSignIn(fakePlatform({ hosted: false }).konto, "o1", rs("Mine"))),
+    );
+  }
+
+  // «Fjern»: the account's copy goes too.
+  {
+    const p = fakePlatform();
+    p.seed(rs("Mine"));
+    const gone = await removeFromAccount(p.konto, "o1", "Mine.ruleset.json");
+    record(
+      "hosted ruleset: remove deletes the account's document (DELETE, credentials)",
+      "null 0 DELETE include",
+      `${gone} ${p.docs.size} ${p.calls.at(-1)?.init.method} ${p.calls.at(-1)?.init.credentials}`,
+    );
+    record("hosted ruleset: the key is the file name, else default", "a.ruleset.json default", `${rulesetKey(rs("a"))} ${rulesetKey({ fileName: " ", ruleset: rs("b").ruleset })}`);
+  }
 }
 
 /* ------------------------------------------------------- MMI presets */
