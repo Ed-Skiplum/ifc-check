@@ -17,6 +17,7 @@ import type { Ruleset } from "./ids/types.ts";
 import { AccountControl, AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
 import { useAccount } from "./account/useAccount";
 import { signInUrl } from "./account/konto";
+import { removeFromAccount, saveToAccount, syncOnSignIn, type Versions } from "./account/hosted-ruleset";
 import { t } from "./ui/i18n";
 import { FIRST_MAPPING_STEP, SetupPage, type SetupStep } from "./ui/SetupPage";
 import { forgetSavedRuleset, readSavedRuleset, writeSavedRuleset } from "./storage/saved-ruleset";
@@ -153,9 +154,62 @@ export default function App() {
     if (saved) applyRuleset(saved.ruleset);
   }, [saved, applyRuleset]);
 
+  /* ── The saved ruleset follows the account ──────────────────────────────
+   *
+   * Signed in with hosted state only (`account/hosted-ruleset.ts`); else
+   * the browser copy is all there is, as before. On sign-in the account's
+   * newest ruleset is put on screen the way the browser copy is on load, so
+   * a returning user lands with the setup in place on any device, unless
+   * the ruleset was touched since the page opened: an edit on screen is never
+   * replaced. A write the platform refused shows its answer in the error band
+   * (`accountError`); the browser copy is saved either way. */
+  const hostedOrg =
+    konto && account.kind === "signed-in" && account.org?.hostedState ? account.org.id : null;
+  const syncedFor = useRef<string | null>(null);
+  const accountVersions = useRef<Versions>(new Map());
+  // The key of the account document on screen: «Fjern» removes that one.
+  const accountKey = useRef<string | null>(null);
+  // Set by any ruleset change after load: sign-in then leaves the screen be.
+  const touched = useRef(false);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  useEffect(() => {
+    // A check that could not reach the platform changes nothing.
+    if (account.kind === "unavailable") return;
+    if (!konto || !hostedOrg) {
+      syncedFor.current = null;
+      accountVersions.current = new Map();
+      accountKey.current = null;
+      setAccountError(null);
+      return;
+    }
+    const who = `${account.kind === "signed-in" ? account.user.id : ""}:${hostedOrg}`;
+    if (syncedFor.current === who) return;
+    syncedFor.current = who;
+    void syncOnSignIn(konto, hostedOrg, readSavedRuleset()).then((sync) => {
+      if (syncedFor.current !== who) return;
+      if (sync.kind === "local-only") {
+        setAccountError(sync.reason || null);
+        return;
+      }
+      accountVersions.current = sync.versions;
+      if (sync.kind !== "remote" || touched.current) return;
+      accountKey.current = sync.key;
+      setRulesetError(null);
+      setRulesetName(sync.saved.fileName);
+      setRuleset(sync.saved.ruleset);
+      applyRuleset(sync.saved.ruleset);
+      try {
+        writeSavedRuleset(sync.saved);
+      } catch {
+        // the account holds it; the browser copy is a convenience here
+      }
+    });
+  }, [konto, hostedOrg, account, applyRuleset]);
+
   /** True once the file loaded. */
   const loadRuleset = useCallback(
     async (file: File): Promise<boolean> => {
+      touched.current = true;
       try {
         const loaded = await readRulesetFile(file);
         setRulesetError(null);
@@ -231,14 +285,24 @@ export default function App() {
   );
 
   const clearRuleset = useCallback(() => {
+    touched.current = true;
     setRulesetName(null);
     setRuleset(null);
     setRulesetError(null);
     applyRuleset(null);
-    // A removed ruleset does not come back on the next load.
+    // A removed ruleset does not come back on the next load: neither the
+    // browser copy nor, signed in, the account's.
     forgetSavedRuleset();
+    const key = accountKey.current;
+    if (konto && hostedOrg && key) {
+      accountKey.current = null;
+      void removeFromAccount(konto, hostedOrg, key).then((reason) => {
+        if (reason === null) accountVersions.current.delete(key);
+        setAccountError(reason);
+      });
+    }
     for (const [id, v] of Object.entries(cross.views)) if (v.scope?.kind === "rule") cross.dispatch(id, { type: "clear" });
-  }, [applyRuleset, cross]);
+  }, [applyRuleset, cross, konto, hostedOrg]);
 
   // The setup page edits the ruleset in place and the board re-evaluates on
   // every change. The evaluator answers a half-filled mapping with its own
@@ -246,6 +310,7 @@ export default function App() {
   // page, and a ruleset with lint errors cannot be downloaded.
   const editRuleset = useCallback(
     (next: Ruleset) => {
+      touched.current = true;
       setRuleset(next);
       setRulesetError(null);
       setRulesetName((name) => name ?? `${next.name || "regelsett"}.ruleset.json`);
@@ -302,10 +367,23 @@ export default function App() {
       pofin={setupPofin}
       onPofin={setSetupPofin}
       onSave={() => {
+        const toSave = ruleset ? { fileName: setupFileName, ruleset } : null;
         try {
-          writeSavedRuleset(ruleset ? { fileName: setupFileName, ruleset } : null);
+          writeSavedRuleset(toSave);
         } catch (error) {
           return error instanceof Error ? error.message : String(error);
+        }
+        touched.current = true;
+        // Signed in with hosted state: the account's copy too, after the
+        // browser's. A refusal is shown; the browser copy stands.
+        if (konto && hostedOrg && toSave) {
+          void saveToAccount(konto, hostedOrg, toSave, accountVersions.current).then((result) => {
+            if (result.kind === "saved") {
+              accountVersions.current.set(result.key, result.version);
+              accountKey.current = result.key;
+              setAccountError(null);
+            } else setAccountError(result.reason || null);
+          });
         }
         // Onto the IDS tab, where the Standardkrav rows show what the setup
         // gives on the model (2026-10-05).
@@ -313,6 +391,14 @@ export default function App() {
         return null;
       }}
     />
+  ) : null;
+
+  // The platform's answer to a refused account write, as the ruleset's own
+  // errors are shown: saved in the browser only.
+  const accountErrorBand = accountError ? (
+    <pre className="m-0 shrink-0 bg-bad px-4 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
+      {accountError}
+    </pre>
   ) : null;
 
   const claims = useMemo(() => kpiClaims(ruleset), [ruleset]);
@@ -437,6 +523,7 @@ export default function App() {
               {rulesetError}
             </pre>
           ) : null}
+          {accountErrorBand}
           {setupPage ?? (
             <Landing
               lang={view.lang}
@@ -479,6 +566,7 @@ export default function App() {
               {rulesetError}
             </pre>
           ) : null}
+          {accountErrorBand}
 
           {setupPage ?? (
           <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">

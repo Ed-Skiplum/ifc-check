@@ -6,6 +6,7 @@
  *   GET  /api/me             session cookie; 401 = signed out
  *   GET  /api/continue?to=   return-URL sign-in (a navigation, not a fetch)
  *   POST /api/auth/sign-out  Better Auth; Origin must be allowlisted
+ *   GET|PUT|DELETE /api/orgs/:org/state[/:tool/:kind/:key]   state docs
  *
  * The session cookie is the platform's own (`__Host-`, HttpOnly): this app
  * never sees, stores or logs it. Every request goes to ONE origin, the
@@ -106,6 +107,128 @@ export async function me(k: Konto): Promise<MeState> {
  *  active app (`app_origin`). */
 export function signInUrl(base: string, here: string): string {
   return `${base}/api/continue?to=${encodeURIComponent(here)}`;
+}
+
+/* ── State documents (contract §2) ─────────────────────────────────────────
+ *
+ * Org-wide only here (no `?project=`): addressed by (tool, kind, key) under
+ * /api/orgs/:org/state. Session + CSRF on every route; `data` is stored and
+ * returned verbatim. */
+
+export interface StateDoc {
+  project: string | null;
+  tool: string;
+  kind: string;
+  key: string;
+  data: unknown;
+  version: number;
+  updatedAt: string;
+}
+
+/** A write's answer. `status` 0 = the platform could not be reached;
+ *  `error` is the platform's own envelope text (or the fetch's). */
+export type PutResult =
+  | { ok: true; status: number; doc: StateDoc }
+  | { ok: false; status: number; error: string };
+
+function readDoc(value: unknown): StateDoc | null {
+  if (!value || typeof value !== "object") return null;
+  const d = value as Record<string, unknown>;
+  if (typeof d.key !== "string" || typeof d.version !== "number") return null;
+  return {
+    project: typeof d.project === "string" ? d.project : null,
+    tool: str(d.tool) ?? "",
+    kind: str(d.kind) ?? "",
+    key: d.key,
+    data: d.data,
+    version: d.version,
+    updatedAt: str(d.updatedAt) ?? "",
+  };
+}
+
+const seg = encodeURIComponent;
+const docPath = (base: string, org: string, tool: string, kind: string, key: string) =>
+  `${base}/api/orgs/${seg(org)}/state/${seg(tool)}/${seg(kind)}/${seg(key)}`;
+
+/** The org's documents of one tool and kind; null when it could not ask. */
+export async function listState(k: Konto, org: string, tool: string, kind: string): Promise<StateDoc[] | null> {
+  try {
+    const res = await k.fetch(`${k.base}/api/orgs/${seg(org)}/state?tool=${seg(tool)}&kind=${seg(kind)}`, {
+      credentials: "include",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as unknown;
+    if (!Array.isArray(body)) return null;
+    return body.map(readDoc).filter((d): d is StateDoc => d !== null);
+  } catch {
+    return null;
+  }
+}
+
+/** One document; null when there is none (404), "error" when it could not
+ *  ask. */
+export async function getState(
+  k: Konto,
+  org: string,
+  tool: string,
+  kind: string,
+  key: string,
+): Promise<StateDoc | null | "error"> {
+  try {
+    const res = await k.fetch(docPath(k.base, org, tool, kind, key), {
+      credentials: "include",
+      headers: { accept: "application/json" },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) return "error";
+    return readDoc(await res.json()) ?? "error";
+  } catch {
+    return "error";
+  }
+}
+
+/** PUT with the contract's semantics: no `baseVersion` creates (`ifAbsent`
+ *  returns an existing doc unchanged), a `baseVersion` updates only that
+ *  version. */
+export async function putState(
+  k: Konto,
+  org: string,
+  tool: string,
+  kind: string,
+  key: string,
+  body: { data: unknown; baseVersion?: number; ifAbsent?: boolean },
+): Promise<PutResult> {
+  let res: Response;
+  try {
+    res = await k.fetch(docPath(k.base, org, tool, kind, key), {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
+  }
+  const json = (await res.json().catch(() => null)) as unknown;
+  if (res.ok) {
+    const doc = readDoc(json);
+    return doc ? { ok: true, status: res.status, doc } : { ok: false, status: res.status, error: "" };
+  }
+  const error = json && typeof json === "object" ? str((json as { error?: unknown }).error) : null;
+  return { ok: false, status: res.status, error: error ?? "" };
+}
+
+/** True once the document is gone (204, or 404: already gone). */
+export async function deleteState(k: Konto, org: string, tool: string, kind: string, key: string): Promise<PutResult | true> {
+  try {
+    const res = await k.fetch(docPath(k.base, org, tool, kind, key), { method: "DELETE", credentials: "include" });
+    if (res.ok || res.status === 404) return true;
+    const json = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    return { ok: false, status: res.status, error: str(json?.error) ?? "" };
+  } catch (error) {
+    return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /** True once the platform ended the session. */
