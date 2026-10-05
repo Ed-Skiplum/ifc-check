@@ -64,7 +64,8 @@ import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, standardO
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
 import { POFIN_TYPE_NAME, nameMatcher } from "../src/engine/type-name.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
-import { defaultCodeList } from "../src/ids/models.ts";
+import { defaultCodeList, roleRule, ruleRole } from "../src/ids/models.ts";
+import { pofinRuleset, withPofin } from "../src/engine/pofin-ruleset.ts";
 import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
 import { evaluateIds, type IdsModelResult } from "../src/ids/ids-report.ts";
@@ -2925,6 +2926,7 @@ async function cmdSelftest(): Promise<number> {
   setupWalkSelftest(record);
   tfmSelftest(record);
   typeNameSelftest(record);
+  pofinSelftest(record);
   layerStepSelftest(record);
   stepTemplateSelftest(record);
   qtoSelftest(record);
@@ -3787,6 +3789,135 @@ function typeNameSelftest(record: Record_): void {
     workbook = error instanceof Error ? error.message : String(error);
   }
   record("type-name workbook round trip (Andre regler): equal", "equal", workbook);
+}
+
+/* ---------------------------------------------------------------- POFIN */
+
+/** The POFIN template (`src/engine/pofin-ruleset.ts`): what it assigns,
+ *  lint, schema, the round trips, the check on a synthetic model, and the
+ *  template laid on a working copy. */
+function pofinSelftest(record: Record_): void {
+  const pofin = pofinRuleset();
+  record(
+    "POFIN template: the roles and the project layer it assigns",
+    "type-name system-classification component-classification copy-object progress-code | ifc-schema IFC4,IFC4X3",
+    `${pofin.rules.map((r) => ruleRole(r)).join(" ")} | ${Object.keys(pofin.projectLayer ?? {}).join(",")} ${pofin.projectLayer?.["ifc-schema"]?.accepted?.join(",")}`,
+  );
+  const warnings = lintRuleset(pofin).filter((i) => i.severity === "warning").map((i) => i.code).join(",") || "none";
+  record("POFIN template lint: no error; IFC4X3 widens the standard layer", "none schema-accepted-widens", `${lintCodes(pofin)} ${warnings}`);
+  const shape = shapeErrors(pofin);
+  record("POFIN template schema: valid", "valid", shape.length === 0 ? "valid" : shape.map((e) => `${e.path} ${e.message}`).join(" | "));
+  const json = JSON.parse(JSON.stringify(pofin)) as Ruleset;
+  record("POFIN template JSON round trip: equal", "equal", rulesetDiff(json, pofin) ?? "equal");
+  let workbook: string;
+  try {
+    workbook = rulesetDiff(readRulesetXlsx(writeRulesetXlsx(pofin)).ruleset, canonicalRuleset(pofin)) ?? "equal";
+  } catch (error) {
+    workbook = error instanceof Error ? error.message : String(error);
+  }
+  // Known, and not the template's: MMI-koder with no row reads back as no
+  // `codes` at all, so a format-only MMI rule (`codes: []`, the walk's own
+  // default too) does not survive the workbook, and the writer refuses.
+  record(
+    "POFIN template workbook round trip: refused on the format-only MMI alone",
+    "the .xlsx export does not round-trip: rules[2].check.codes differs",
+    workbook,
+  );
+  const coded: Ruleset = {
+    ...pofin,
+    rules: pofin.rules.map((r) =>
+      r.kind === "extended" && r.check.type === "code-lookup" && r.mapping === "progress-code"
+        ? { ...r, check: { ...r.check, codes: [{ code: "400", name: "Arbeidsgrunnlag" }] } }
+        : r,
+    ),
+  };
+  let codedBook: string;
+  try {
+    codedBook = rulesetDiff(readRulesetXlsx(writeRulesetXlsx(coded)).ruleset, canonicalRuleset(coded)) ?? "equal";
+  } catch (error) {
+    codedBook = error instanceof Error ? error.message : String(error);
+  }
+  record("POFIN template workbook round trip, with an MMI code listed: equal", "equal", codedBook);
+
+  // Four walls: w1 all POFIN values right, w2 an MMI off the three-digit
+  // form, w3 a type name off the scheme and no NONS_Reference values, w4
+  // owned by RIV (a copy, out of every other rule) and wrong everywhere else.
+  const wall = (guid: string, typeName: string) => ({
+    guid, entity: "IFCWALL", name: guid, predefined_type: null, object_type: null, tag: null,
+    storey_guid: null, parent_guid: null, type_name: typeName, typed: true, materials: [],
+    is_external: null, fire_rating: null, load_bearing: null,
+  });
+  const prop = (guid: string, set: string, name: string, value: string) => ({ guid, pset_name: set, prop_name: name, value });
+  const graph: ModelGraph = {
+    schema: "IFC4",
+    products: [wall("w1", "DUZ.001"), wall("w2", "DUZ.001"), wall("w3", "Vegg 200"), wall("w4", "x")],
+    contained_in: [], aggregates: [], voids: [], buildings: [], sites: [], spaces: [], storeys: [], classifications: [],
+    psets: [
+      prop("w1", "NONS_Reference", "RefPriSysOcc", "2341.001"),
+      prop("w1", "NONS_Reference", "RefCompOcc", "DUZ007"),
+      prop("w1", "NONS_Process", "ProcessStatus", "400"),
+      prop("w2", "NONS_Reference", "RefPriSysOcc", "2341.001"),
+      prop("w2", "NONS_Reference", "RefCompOcc", "DUZ008"),
+      prop("w2", "NONS_Process", "ProcessStatus", "40"),
+      prop("w3", "NONS_Process", "ProcessStatus", "300"),
+      prop("w4", "NONS_Process", "DuplicateOwnedBy", "RIV"),
+      prop("w4", "NONS_Reference", "RefPriSysOcc", "x"),
+      prop("w4", "NONS_Reference", "RefCompOcc", "x"),
+      prop("w4", "NONS_Process", "ProcessStatus", "x"),
+    ],
+  };
+  const summary: ModelSummary = {
+    schema: "IFC4", length_unit: "MILLIMETRE", unit_scale: 0.001, unit_resolved: true,
+    authoring_app: null, project_name: null, duplicate_step_ids: 0, products: 4,
+  };
+  let evaluated: string;
+  try {
+    evaluated = evaluateRuleset(pofin, graph, summary, "P_ARK.ifc")
+      .results.map((r) => `${r.ruleId}:${r.state}:${r.failed}`)
+      .join(" ");
+  } catch (error) {
+    evaluated = `threw ${error instanceof Error ? error.message : String(error)}`;
+  }
+  record(
+    "POFIN template on a synthetic model: the copy is out, the rest read as POFIN states",
+    "type-name:fail:1 system-classification:fail:1 component-classification:fail:1 copy-object:pass:0 progress-code:fail:1",
+    evaluated,
+  );
+  const schemaState = (schema: string) =>
+    reportRows({
+      model: { file: "P_ARK.ifc", schema, sha256: "" },
+      graph: { ...graph, schema } as unknown as IfcGraph,
+      summary: { ...summary, schema } as unknown as IfcSummary,
+      checks: [],
+      ruleset: pofin,
+      evaluation: evaluateRuleset(pofin, graph, summary, "P_ARK.ifc"),
+    }).find((r) => r.id === "ifc-schema")?.state ?? "absent";
+  record("POFIN template: IFC4 and IFC4X3 pass the schema row, IFC2X3 does not", "pass pass warn", ["IFC4", "IFC4X3_ADD2", "IFC2X3"].map(schemaState).join(" "));
+
+  // On a working copy: the same roles replaced, everything else kept.
+  const loaded: Ruleset = {
+    ...SAMPLE_RULESET,
+    name: "Prosjekt",
+    storeys: { plane: "OKFG", tolerance: { aboveMm: 0, belowMm: 0 }, nameWindowMm: null, nearMm: 0, levels: [{ name: "01", elevation: 0 }] },
+    rules: [
+      SAMPLE_RULESET.rules[0],
+      {
+        id: "system-classification", kind: "extended", mapping: "system-classification", name: "Systemkode",
+        select: { entity: { group: "physicalElement" } },
+        check: { type: "code-lookup", list: "ns3451", target: "occurrence", source: { property: { propertySet: "KNM_Project", name: "RefClass_NS3451" } }, extract: "^(.+)$" },
+      },
+    ],
+  };
+  const merged = withPofin(loaded);
+  const system = roleRule(merged, "system-classification");
+  record(
+    "POFIN on a working copy: the name, storeys and other rules stay; a rule of a POFIN role is replaced",
+    `Prosjekt 1 ${SAMPLE_RULESET.rules[0].id} NONS_Reference.RefPriSysOcc 6 none`,
+    `${merged.name} ${merged.storeys?.levels.length} ${merged.rules[0].id} ` +
+      `${system?.check.type === "code-lookup" && "property" in system.check.source ? `${system.check.source.property.propertySet}.${system.check.source.property.name}` : "-"} ` +
+      `${merged.rules.length} ${lintCodes(merged)}`,
+  );
+  record("POFIN on a blank working copy: named POFIN", "POFIN", withPofin({ formatVersion: 2, name: "", ifcVersions: ["IFC4"], rules: [] }).name);
 }
 
 /* ------------------------------------------------------------------ xlsx */

@@ -2604,7 +2604,8 @@ Since 2026-10-01 the page is a walk, one section at a time: a step rail
 (Oppsett, Åpne IFC, the four mapping cards, Etasjeoppsett; freely
 clickable, current filled, configured ✓) beside the step, Forrige / Neste
 and «Lagre oppsett» pinned at the bottom. With no ruleset it opens on the
-choice (Åpne regelsett + Last ned mal, or «Veiled meg»); with one, on Åpne
+choice («POFIN» or «Egendefinert» since 2026-10-05, see "POFIN or
+Egendefinert"; Åpne regelsett + Last ned mal under them); with one, on Åpne
 IFC when no model is on the board, else on the first mapping. A property
 source is picked from the loaded models' sets and properties with element
 counts (`pset-choices.ts`, from `psetInventory` in the model or restore
@@ -2829,6 +2830,62 @@ regex, a pure value list, a hybrid, groups inside a part, the check on a
 synthetic model with members, the report row and requirement, lint
 refusals, schema, JSON and workbook round trips). **Not exercised in a
 browser.**
+
+### POFIN or Egendefinert (2026-10-05)
+
+edkjo: "We could also add "POFIN" as a template where you just say "POFIN"
+as a blanket input and then get assigned the POFIN required properties and
+attributes" · "POFIN vs egendefinert" · "even if you pick POFIN, you should
+be prompted: Gjennomgå/Aksepter oppsett" · "because you might want to seed
+POFIN, but edit one or two things".
+
+- The choice (`start`) leads with «POFIN» and «Egendefinert»; Åpne regelsett
+  and Last ned mal sit under them. «Egendefinert» is the walk as it was (the
+  former «Veiled meg», same action).
+- Engine (`src/engine/pofin-ruleset.ts`, pure): `pofinRuleset()` is what
+  POFIN del 2.1 EIR bygg states and the tool evaluates, in the walk's own
+  rule shapes, each citing its section in `reference`:
+
+  | Item | Rule | POFIN |
+  |---|---|---|
+  | Objekttypenavn | `type-name`, `POFIN_TYPE_NAME` | 3.5.1 |
+  | Systemkode | `system-classification`, `NONS_Reference.RefPriSysOcc`, ns3451 | 3.5.5 |
+  | Forekomst (Funksjonskode's source) | `component-classification`, `NONS_Reference.RefCompOcc`, ns3457-8 | 3.5.3 |
+  | Duplikat objekt | `copy-object`, `NONS_Process.DuplicateOwnedBy`, no values | 3.5.7 |
+  | Prosesstatuskode (MMI) | `progress-code`, `NONS_Process.ProcessStatus`, `codes: []`, `^(\d{3})$` | 3.5.6 |
+  | IFC version | `projectLayer["ifc-schema"].accepted` IFC4, IFC4X3 | IFC-standard |
+
+  Left out: Lokasjon system (Tabell 1: RIV and RIE only, and a rule carries
+  no discipline); Beskrivende navn type (Description on a type object is not
+  readable); Utvendig, Brannmotstand, Akustisk egenskap, U-verdi, Bærende
+  (POFIN gives the classes as examples only); everything with no rule kind
+  (georeferering, mengdeegenskaper, bruttoareal, rom, systemtilhørighet …).
+  No TFM, no floors.
+- «POFIN» lays `withPofin` on the WORKING COPY: the template's rules replace
+  the copy's rules of the same roles, its `ifc-schema` part replaces the
+  copy's, the rest stays (name unless blank, storeys, models, other rules).
+  Opening a ruleset on the choice has no confirm either; nothing is
+  persisted until «Lagre oppsett».
+- Then the `pofin` prompt: one `SummaryRow` (`setup/Walk.tsx`, the summary's
+  row) per item with each model's result, «Gjennomgå» (the walk from the
+  first step, each mapping step pinned to its saved source, so POFIN's, even
+  where the models lack it: `MappingStep pinned`) and «Aksepter oppsett»
+  (`Oppsummering`, which then shows the IFC schema row and counts it).
+- A row of the prompt, or of the summary after «POFIN», opens its step as a
+  detour: the step's answer, «Hopp over» and Forrige return to that screen;
+  the bar leaves the detour. The IFC schema row has no step and no click.
+- The POFIN flag lives in `App` beside the step (the page remounts when the
+  first model lands) and is dropped when Oppsett closes, on «Egendefinert»
+  and on a ruleset opened from the choice.
+
+Verified: `tsc`, selftest (the roles and layer assigned, lint: no error and
+the `schema-accepted-widens` warning for IFC4X3, schema, JSON round trip,
+the check on a synthetic model with a RIV copy, the schema row for IFC4,
+IFC4X3, IFC2X3, `withPofin` on a loaded and a blank copy), and `ids-cli run`
+on KNM_RIV (evaluates; fails, the export carries no NONS sets). The workbook
+refuses the template: MMI-koder with no row reads back with no `codes`, so a
+format-only MMI (`codes: []`, the walk's default too) does not round-trip;
+with a code listed it does (selftest). **Not exercised in a browser.**
 
 ### The .xlsx workbook (2026-09-28)
 

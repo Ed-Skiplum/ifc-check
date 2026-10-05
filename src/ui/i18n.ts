@@ -397,7 +397,12 @@ const STRINGS = {
   "action.addRow": { nb: "Legg til", en: "Add" },
   "action.downloadTemplate": { nb: "Last ned mal", en: "Download template" },
   "action.saveSetup": { nb: "Lagre oppsett", en: "Save setup" },
-  "action.guideMe": { nb: "Veiled meg", en: "Guide me through" },
+  // The choice the walk starts on (2026-10-05): the POFIN template or a
+  // project's own answers, and the two ways on from the template.
+  "setup.pofin": { nb: "POFIN", en: "POFIN" },
+  "setup.custom": { nb: "Egendefinert", en: "Custom" },
+  "action.review": { nb: "Gjennomgå", en: "Review" },
+  "action.acceptSetup": { nb: "Aksepter oppsett", en: "Accept setup" },
   "action.previous": { nb: "Forrige", en: "Previous" },
   "action.next": { nb: "Neste", en: "Next" },
   "field.notInModel": { nb: "Egenskapen er ikke med", en: "Not in the model" },
