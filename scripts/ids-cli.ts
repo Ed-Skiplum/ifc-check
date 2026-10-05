@@ -60,7 +60,7 @@ import {
 import { extractFromExample } from "../src/ids/extract-example.ts";
 import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
-import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, standardOption } from "../src/ui/setup/candidates.ts";
+import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
 import { POFIN_TYPE_NAME, nameMatcher } from "../src/engine/type-name.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
@@ -3711,6 +3711,22 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
       prePick(5, { hits: null, chosen: false }, 0),
       prePick(0, null, 0),
       prePick(5, { hits: 0, chosen: true }, 2),
+    ].join(" "),
+  );
+  record(
+    "walk bar: green only against a loaded model (confirmed here, or a saved source with hits); a saved answer unchecked is neutral",
+    "saved saved open open done done saved saved open done",
+    [
+      segmentState(false, false, { hits: 12 }),
+      segmentState(false, true, { hits: 12 }),
+      segmentState(false, true, null),
+      segmentState(false, false, null),
+      segmentState(true, false, { hits: 12 }),
+      segmentState(true, true, { hits: 0 }),
+      segmentState(true, false, { hits: 0 }),
+      segmentState(true, false, { hits: null }),
+      segmentState(true, false, null),
+      segmentState(true, true, null),
     ].join(" "),
   );
 }

@@ -227,6 +227,27 @@ export function prePick(
   return saved ? "saved" : "standard";
 }
 
+/** A segment of the walk's bar (2026-10-05, edkjo: "is this great UI?" on
+ *  a bar six-tenths green before any model was loaded). The bar does not lie:
+ *
+ *   done   a model is loaded, and the step's answer was confirmed in this
+ *          Oppsett against it, or the ruleset's saved source has hits in it
+ *   saved  the ruleset has an answer for the step not yet checked against a
+ *          model: none is loaded, or its count is 0 or cannot be read (null)
+ *   open   no answer
+ *
+ * With no model loaded nothing is done, whatever the ruleset holds. */
+export type SegmentState = "done" | "saved" | "open";
+
+export function segmentState(
+  modelLoaded: boolean,
+  confirmed: boolean,
+  saved: { hits: number | null } | null,
+): SegmentState {
+  if (modelLoaded && (confirmed || (saved?.hits ?? 0) > 0)) return "done";
+  return saved ? "saved" : "open";
+}
+
 /* -------------------------------------------------------------------- TFM */
 
 /** A property's values read against a TFM sequence: `ok` a string of the
