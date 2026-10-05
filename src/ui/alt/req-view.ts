@@ -61,7 +61,10 @@ export function figures(req: Requirement, lang: Lang): { figure: string; of: str
     return { figure: d.avvik === null ? "—" : formatCount(d.avvik, lang), of: "", label: "req.duplikater" };
   }
   if (d.grunnlag === null) return { figure: "—", of: "" };
-  const present = d.mangler !== null ? d.grunnlag - d.mangler : d.oppfylt;
+  // Etasjedefinisjon: every storey is present (mangler is always 0), so
+  // presence reads 100 % whatever the verdict; the verdict is about the
+  // storeys that match the floor config, `oppfylt`, and so is the figure.
+  const present = req.key === "etasjedefinisjon" ? d.oppfylt : d.mangler !== null ? d.grunnlag - d.mangler : d.oppfylt;
   const of =
     `${present === null ? "—" : formatCount(present, lang)} ${t("req.av", lang)} ${formatCount(d.grunnlag, lang)}` +
     (d.grunnlag_klasse ? ` ${d.grunnlag_klasse}` : "");

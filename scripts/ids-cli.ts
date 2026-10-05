@@ -1280,6 +1280,40 @@ async function cmdSelftest(): Promise<number> {
       "pass 2/2/0 band 2/2/0",
       line("mmi"),
     );
+
+    // The Etasjedefinisjon card's figure is what its verdict is about. Live on
+    // the same model it read 100 %, 1 of 1 on a red Avvik card whose band said
+    // 0 of 1 storeys match: the figure was presence, which a storey always has.
+    const { figures } = await import("../src/ui/alt/req-view.ts");
+    const storeyGraph = {
+      schema: "IFC4", project_name: null, products: [], sites: [], buildings: [], projects: [], spaces: [],
+      contained_in: [], aggregates: [], storey_building: [], voids: [], psets: [], classifications: [], quantities: [],
+      materials: [], type_objects: [],
+      storeys: [{ guid: "s1", name: "1. etg", elevation: 0, building_guid: null }],
+    } as unknown as IfcGraph;
+    const storeySummary = {
+      schema: "IFC4", length_unit: "METRE", unit_scale: 1, unit_resolved: true,
+      authoring_app: null, project_name: null, duplicate_step_ids: 0, products: 0,
+    } as unknown as IfcSummary;
+    const floors = {
+      ...SAMPLE_RULESET,
+      rules: [],
+      storeys: { plane: "OKFG", tolerance: { aboveMm: 0, belowMm: 0 }, nameWindowMm: null, nearMm: 0, levels: [{ name: "Plan 01", elevation: 122.5 }] },
+    } as unknown as Ruleset;
+    const storeyRows = reportRows({
+      model: { file: "floors.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+      graph: storeyGraph,
+      summary: storeySummary,
+      checks: [checkStoreyConfig(storeyGraph, storeySummary, floors, "floors.ifc")],
+      ruleset: floors,
+    });
+    const storeyReq = requirements(storeyRows).find((r) => r.key === "etasjedefinisjon")!;
+    const storeyFigure = figures(storeyReq, "en");
+    record(
+      "Etasjedefinisjon: the card's figure is the storeys that match, the verdict's quantity, not presence",
+      "fail 0% | 0 of 1 IfcBuildingStorey",
+      `${storeyReq.state} ${storeyFigure?.figure} | ${storeyFigure?.of}`,
+    );
   }
 
   // The Overview's classification codes (src/ui/class-codes.ts): presence
