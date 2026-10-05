@@ -3,7 +3,7 @@
 # the 24.15 line it is tested on.
 FROM node:24.15-alpine
 WORKDIR /app
-COPY relay.mjs file-pending.mjs ./
+COPY relay.mjs share.mjs file-pending.mjs ./
 # The database lives on a volume mounted here; owned by node so a fresh
 # named volume starts writable.
 RUN mkdir -p /data && chown node:node /data

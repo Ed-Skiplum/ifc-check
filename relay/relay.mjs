@@ -9,6 +9,8 @@
  *                        src/engine/body-mesh.ts), JSON, at most 4 KB
  *   GET  /ifcfast-miss   what is recorded: signature, reports, status, issue
  *   GET  /health         200 "ok"
+ *   /share ...           the report files the app's Share action uploads;
+ *                        see share.mjs, which this mounts
  *
  * Every accepted report goes into the database first (`openStore`, SQLite
  * through the built-in `node:sqlite`, at `RELAY_DB`): one `ifcfast_miss` row
@@ -42,11 +44,16 @@
  * means log only), PORT (8791), RELAY_ALLOWED_ORIGINS (comma separated,
  * replaces the default list), TRUST_PROXY=1 (take the client IP from
  * X-Forwarded-For, set behind Caddy), GITHUB_API (tests only: a mock GitHub).
+ * Shares: SHARE_DIR (`shares/` beside RELAY_DB), SHARE_STORE_MAX_BYTES (2 GB),
+ * SHARE_PUBLIC_URL (https://ifc-check.skiplum.com/relay, the links' base).
  */
 
+import { createReadStream } from "node:fs";
 import http from "node:http";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
+import { DEFAULT_SHARE_BASE, DEFAULT_STORE_MAX, createShareHandler, openShares } from "./share.mjs";
 
 export const REPO = "EdvardGK/ifcfast";
 export const DEFAULT_ORIGINS = ["https://ifc-check.skiplum.com", "https://skiplum.com", "https://www.skiplum.com"];
@@ -436,10 +443,12 @@ export const githubError = (err) => (err?.status ? `github ${err.status}` : "git
  * The request handler, transport-free so the selftest drives it with a mock
  * GitHub. `store` is `openStore`'s, `token` optional (none: log only),
  * `fetch` the GitHub transport, `now` the clock, `log` gets one line per
- * request and never the token or the client address.
+ * request and never the token or the client address. `share` is
+ * `createShareHandler`'s, optional: without it /share is a 404.
  */
 export function createRelay({
   store,
+  share,
   token,
   fetch: fetchImpl = globalThis.fetch,
   api = "https://api.github.com",
@@ -491,6 +500,7 @@ export function createRelay({
     const path = request.path.split("?")[0].replace(/^\/relay/, "");
 
     if (request.method === "GET" && path === "/health") return reply(200, { ok: true });
+    if (share && (path === "/share" || path.startsWith("/share/"))) return share(request, path);
     if (path !== "/ifcfast-miss") return reply(404, { error: "not found" });
     if (request.method === "OPTIONS") {
       if (!allowed) return reply(403, { error: "origin" });
@@ -544,8 +554,10 @@ export function createRelay({
 
 /* ── the server ─────────────────────────────────────────────────────────── */
 
-export function serve(handle, { port = 8791, trustProxy = false } = {}) {
-  const server = http.createServer((req, res) => {
+/** A small body, whole, as a string; past `MAX_BODY` it is read and dropped
+ *  and stands in as one byte too many, for the handler's 413. */
+function readBody(req) {
+  return new Promise((resolve) => {
     const chunks = [];
     let size = 0;
     let over = false;
@@ -554,19 +566,42 @@ export function serve(handle, { port = 8791, trustProxy = false } = {}) {
       if (size > MAX_BODY) over = true;
       else chunks.push(chunk);
     });
-    req.on("end", async () => {
-      const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
-      const ip = trustProxy && forwarded ? forwarded : (req.socket.remoteAddress ?? "?");
-      const out = await handle({
+    req.on("end", () => resolve(over ? "x".repeat(MAX_BODY + 1) : Buffer.concat(chunks).toString("utf8")));
+    req.on("error", () => resolve(""));
+  });
+}
+
+export function serve(handle, { port = 8791, trustProxy = false } = {}) {
+  const server = http.createServer(async (req, res) => {
+    const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
+    const ip = trustProxy && forwarded ? forwarded : (req.socket.remoteAddress ?? "?");
+    // A new share streams through to disk under its own limit; everything
+    // else is read whole under MAX_BODY, as before.
+    const streamed = req.method === "POST" && (req.url ?? "/").split("?")[0].replace(/^\/relay/, "") === "/share";
+    let out;
+    try {
+      out = await handle({
         method: req.method ?? "GET",
         path: req.url ?? "/",
         headers: req.headers,
         ip,
-        body: over ? "x".repeat(MAX_BODY + 1) : Buffer.concat(chunks).toString("utf8"),
+        body: streamed ? "" : await readBody(req),
+        stream: streamed ? req : undefined,
       });
-      res.writeHead(out.status, out.headers);
-      res.end(out.json === null ? undefined : JSON.stringify(out.json));
-    });
+    } catch {
+      out = { status: 500, headers: { "Content-Type": "application/json" }, json: { error: "internal" } };
+    }
+    // Refused before the body was all read: close, so the rest is not taken.
+    const headers = streamed && !req.complete ? { ...out.headers, Connection: "close" } : out.headers;
+    if (out.file) {
+      const file = createReadStream(out.file);
+      file.on("error", () => res.destroy());
+      res.writeHead(out.status, headers);
+      file.pipe(res);
+      return;
+    }
+    res.writeHead(out.status, headers);
+    res.end(out.json === null || out.json === undefined ? undefined : JSON.stringify(out.json));
   });
   server.listen(port);
   return server;
@@ -580,7 +615,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const port = Number(process.env.PORT ?? 8791);
   const dbPath = process.env.RELAY_DB ?? DEFAULT_DB;
   const store = openStore(dbPath);
-  const handle = createRelay({ store, token, origins, api: process.env.GITHUB_API ?? "https://api.github.com" });
+  const shareDir = process.env.SHARE_DIR ?? join(dirname(dbPath), "shares");
+  const shares = openShares(dbPath, shareDir);
+  const storeMaxEnv = Number(process.env.SHARE_STORE_MAX_BYTES);
+  const storeMax = Number.isFinite(storeMaxEnv) && storeMaxEnv > 0 ? storeMaxEnv : DEFAULT_STORE_MAX;
+  const share = createShareHandler({ shares, origins, base: process.env.SHARE_PUBLIC_URL ?? DEFAULT_SHARE_BASE, storeMax });
+  // The expiry sweep: now, then hourly; every new share runs one too.
+  const sweep = () => {
+    try {
+      shares.sweep(new Date().toISOString(), Date.now());
+    } catch (err) {
+      console.log(`share sweep failed: ${err?.code ?? "error"}`);
+    }
+  };
+  sweep();
+  setInterval(sweep, 60 * 60 * 1000).unref();
+  const handle = createRelay({ store, share, token, origins, api: process.env.GITHUB_API ?? "https://api.github.com" });
   serve(handle, { port, trustProxy: process.env.TRUST_PROXY === "1" });
-  console.log(`ifcfast relay on :${port}, ${token ? "filing" : "log only (no token)"}, db ${dbPath}, origins ${origins.join(" ")}`);
+  console.log(
+    `ifcfast relay on :${port}, ${token ? "filing" : "log only (no token)"}, db ${dbPath}, shares ${shareDir} (max ${storeMax} bytes), origins ${origins.join(" ")}`,
+  );
 }
