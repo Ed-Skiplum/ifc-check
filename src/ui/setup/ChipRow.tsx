@@ -43,6 +43,9 @@ export const PILL =
   "min-h-9 border px-3 py-1 font-mono text-[13px] aria-pressed:border-green aria-pressed:bg-green aria-pressed:text-cream " +
   "border-line bg-input text-ink hover:border-green";
 
+/** A separator as its chip and pill show it: the character, a space as ␣. */
+export const sepGlyph = (sep: string) => (sep === " " ? "␣" : sep);
+
 /** A popover under a chip or a gap. Closes on Escape and on a press outside
  *  `anchor`. */
 function Pop({ anchor, onClose, children }: { anchor: React.RefObject<HTMLElement | null>; onClose: () => void; children: ReactNode }) {
@@ -144,8 +147,8 @@ export function ChipRow<T>({
   name: (token: T) => string;
   /** The chip's editor, in place. */
   editor: (token: T, change: (next: T) => void, remove: () => void) => ReactNode;
-  /** The insert palette at a gap. */
-  palette: (pick: (token: T) => void) => ReactNode;
+  /** The insert palette at a gap (`at`, the index the token lands at). */
+  palette: (pick: (token: T) => void, at: number) => ReactNode;
   /** A token typed into (text): inserting one opens its editor, and one left
    *  empty is dropped when the editor closes. */
   typed: (token: T) => { empty: boolean } | null;
@@ -323,7 +326,7 @@ export function ChipRow<T>({
         </button>
         {here ? (
           <Pop anchor={openRef} onClose={close}>
-            {palette((token) => insert(at, token))}
+            {palette((token) => insert(at, token), at)}
           </Pop>
         ) : null}
       </div>

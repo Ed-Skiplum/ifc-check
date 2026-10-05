@@ -21,10 +21,11 @@
  * The parts a coordinator builds with, in this order (edkjo: "Most people
  * dont know regex … predefined regexes: 2 digit, 3 digit, etc. This should
  * read as a builder"): a code list (NS 3457-8, NS 3451), digits with a
- * count, letters with a count, text, accepted values, and a pattern last.
- * Digits and letters are stored as their pattern (`digitsPart`,
- * `lettersPart`), so the ruleset format is unchanged and a saved `\d{3}`
- * shows as three digits.
+ * count, letters with a count, a separator, text, accepted values, and a
+ * pattern last. Digits and letters are stored as their pattern
+ * (`digitsPart`, `lettersPart`), so the ruleset format is unchanged and a
+ * saved `\d{3}` shows as three digits; a separator is stored as its text
+ * (edkjo: "deletegn should be its own type"), so a saved "." shows as one.
  */
 
 import { useMemo, useState } from "react";
@@ -36,6 +37,7 @@ import type { PsetValue } from "../pset-choices";
 import type { NamePart } from "../../ids/types.ts";
 import { CODE_LISTS } from "../../codelists/index.ts";
 import {
+  NAME_SEPARATORS,
   POFIN_TYPE_NAME,
   POFIN_TYPE_NAME_EXAMPLE,
   digitsPart,
@@ -46,15 +48,15 @@ import {
   sameScheme,
   type PartKind,
 } from "../../engine/type-name.ts";
-import { ChipRow, PILL, type ChipFace, type ChipParse } from "./ChipRow";
+import { ChipRow, PILL, sepGlyph, type ChipFace, type ChipParse } from "./ChipRow";
 import { ReqResult, StepConfirm } from "./Walk";
 import type { Requirement } from "../requirements";
 import { FromSource, LABEL, MappingLayout, Mapped, ToZone } from "./Mapping";
 import { INPUT, ValuesInput } from "./ValuesInput";
 
-/** The order the parts are offered in: lists, digits, letters, text,
- *  accepted values, a pattern last. */
-const KINDS: readonly PartKind[] = ["ns3457-8", "ns3451", "digits", "letters", "text", "values", "regex"];
+/** The order the parts are offered in: lists, digits, letters, separator,
+ *  text, accepted values, a pattern last. */
+const KINDS: readonly PartKind[] = ["ns3457-8", "ns3451", "digits", "letters", "sep", "text", "values", "regex"];
 
 /** The counts offered for digits and letters; null is one or more. */
 const COUNTS: readonly (number | null)[] = [null, 1, 2, 3, 4, 5, 6];
@@ -65,16 +67,18 @@ function blankPart(kind: PartKind): NamePart {
   if (kind === "digits") return digitsPart(3);
   if (kind === "letters") return lettersPart(2);
   if (kind === "regex") return { regex: "\\d+" };
+  if (kind === "sep") return { text: NAME_SEPARATORS[0] };
   return { text: "" };
 }
 
 /** A kind as its pill names it: the list's own label, else the field and
- *  part names the app already has («Siffer», «Tekst», «Godtatte», «Mønster»)
- *  and «Bokstaver». */
+ *  part names the app already has («Siffer», «Tekst», «Godtatte», «Mønster»),
+ *  «Bokstaver» and «Deltegn». */
 function kindLabel(kind: PartKind, lang: Lang): string {
   if (kind === "ns3457-8" || kind === "ns3451") return CODE_LISTS[kind].meta.label;
   if (kind === "digits") return t("tfm.digits", lang);
   if (kind === "letters") return t("tfm.letters", lang);
+  if (kind === "sep") return t("tfm.separator", lang);
   if (kind === "values") return t("field.accepted", lang);
   if (kind === "regex") return t("field.pattern", lang);
   return t("tfm.text", lang);
@@ -87,6 +91,7 @@ export function partLabel(part: NamePart, lang: Lang): string {
   if (shape.kind === "digits" || shape.kind === "letters") return shape.count == null ? label : `${label} · ${shape.count}`;
   if (shape.kind === "values" && "values" in part) return part.values.join(" | ") || label;
   if (shape.kind === "regex" && "regex" in part) return `/${part.regex}/`;
+  if (shape.kind === "sep" && "text" in part) return sepGlyph(part.text);
   if (shape.kind === "text" && "text" in part) return `"${part.text}"`;
   return label;
 }
@@ -121,6 +126,19 @@ function Kinds({ current, lang, onPick }: { current: PartKind | null; lang: Lang
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** Which separator, as TFM's pills show them (`TfmBuilder.tsx`). */
+function Separators({ current, onPick }: { current: string | null; onPick: (sep: string) => void }) {
+  return (
+    <div data-seps className="flex flex-wrap gap-1.5">
+      {NAME_SEPARATORS.map((sep) => (
+        <button key={sep} type="button" aria-pressed={sep === current} className={PILL + " min-w-9"} onClick={() => onPick(sep)}>
+          {sepGlyph(sep)}
+        </button>
+      ))}
     </div>
   );
 }
@@ -168,9 +186,21 @@ function PartEditor({
   onRemove: () => void;
 }) {
   const shape = partShape(part);
+  // Text being typed stays text when it is, for now, one separator long.
+  const [typing, setTyping] = useState(shape.kind === "text");
+  const kind = typing && "text" in part ? "text" : shape.kind;
   return (
     <>
-      <Kinds current={shape.kind} lang={lang} onPick={(k) => k !== shape.kind && onChange(blankPart(k))} />
+      <Kinds
+        current={kind}
+        lang={lang}
+        onPick={(k) => {
+          if (k === kind) return;
+          setTyping(k === "text");
+          onChange(blankPart(k));
+        }}
+      />
+      {kind === "sep" && "text" in part ? <Separators current={part.text} onPick={(text) => onChange({ text })} /> : null}
       {shape.kind === "digits" ? <Count count={shape.count ?? null} make={digitsPart} onChange={onChange} /> : null}
       {shape.kind === "letters" ? <Count count={shape.count ?? null} make={lettersPart} onChange={onChange} /> : null}
       {"values" in part ? (
@@ -192,13 +222,16 @@ function PartEditor({
           className={INPUT + " min-h-9 text-[15px]"}
         />
       ) : null}
-      {"text" in part ? (
+      {kind === "text" && "text" in part ? (
         <input
           type="text"
           autoFocus
           aria-label={kindLabel("text", lang)}
           value={part.text}
-          onChange={(e) => onChange({ text: e.target.value })}
+          onChange={(e) => {
+            setTyping(true);
+            onChange({ text: e.target.value });
+          }}
           className="min-h-9 border border-line bg-input px-2 font-mono text-[15px] text-ink focus:border-green"
         />
       ) : null}
@@ -273,14 +306,29 @@ export function TypeNameStep({
 
   const face = (part: NamePart): ChipFace => {
     const shape = partShape(part);
+    // A separator is its glyph, as TFM's; text is dashed.
     return {
       kind: shape.kind,
-      big: "text" in part ? part.text : undefined,
+      big: "text" in part ? (shape.kind === "sep" ? sepGlyph(part.text) : part.text) : undefined,
       part: !("text" in part),
-      dashed: "text" in part,
+      dashed: shape.kind === "text",
       bound: false,
       sub: "text" in part ? undefined : <span className="text-[11px] whitespace-nowrap text-muted">{partLabel(part, lang)}</span>,
     };
+  };
+
+  // Between two parts that are not separators, the insert offers a separator
+  // first, "." on.
+  const palette = (pick: (part: NamePart) => void, at: number) => {
+    const before = sequence[at - 1];
+    const after = sequence[at];
+    const between = before !== undefined && after !== undefined && partShape(before).kind !== "sep" && partShape(after).kind !== "sep";
+    return (
+      <>
+        <Kinds current={between ? "sep" : null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />
+        {between ? <Separators current={NAME_SEPARATORS[0]} onPick={(text) => pick({ text })} /> : null}
+      </>
+    );
   };
 
   const ready = parse !== null && sequence.length > 0 && sequence.every((p) => !("values" in p) || p.values.length > 0);
@@ -325,9 +373,9 @@ export function TypeNameStep({
               face={face}
               name={(part) => partLabel(part, lang)}
               editor={(part, change, remove) => <PartEditor part={part} lang={lang} onChange={change} onRemove={remove} />}
-              palette={(pick) => <Kinds current={null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />}
+              palette={palette}
               typed={(part) =>
-                "text" in part ? { empty: part.text === "" } : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
+                "text" in part ? (partShape(part).kind === "sep" ? null : { empty: part.text === "" }) : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
               }
               standard={POFIN_TYPE_NAME}
               same={sameScheme}

@@ -340,6 +340,7 @@ const STRINGS = {
   "mapping.tfm": { nb: "TFM", en: "TFM" },
   "tfm.shapeOnly": { nb: "Kun format", en: "Shape only" },
   "tfm.text": { nb: "Tekst", en: "Text" },
+  "tfm.separator": { nb: "Deltegn", en: "Separator" },
   "tfm.digits": { nb: "Siffer", en: "Digits" },
   // What the walk's rules select and count over: the rule builder's own
   // term for the group (`group.physicalElement`), so the walk's denominators

@@ -34,7 +34,7 @@ import { VERDICT_FILL } from "../state-visuals";
 import type { PsetValue } from "../pset-choices";
 import type { ReportRow } from "../../engine/report";
 import type { Requirement } from "../requirements";
-import type { TfmPart, TfmSeparator, TfmToken } from "../../ids/types.ts";
+import type { TfmPart, TfmToken } from "../../ids/types.ts";
 import {
   DIGIT_PARTS,
   STATSBYGG_SEQUENCE,
@@ -45,7 +45,7 @@ import {
   tfmMatcher,
 } from "../../engine/tfm.ts";
 import { ReqResult } from "./Walk";
-import { ChipRow, PILL, type ChipFace, type ChipParse } from "./ChipRow";
+import { ChipRow, PILL, sepGlyph, type ChipFace, type ChipParse } from "./ChipRow";
 import { OptionList, type MapOption } from "./Mapping";
 
 /** What a chip says about its binding. `bound`: the name of what it reads.
@@ -61,8 +61,6 @@ export interface BindingChoice {
    *  first with its count, 0 included. */
   standard?: boolean;
 }
-
-const sepGlyph = (sep: TfmSeparator) => (sep === " " ? "␣" : sep);
 
 function tokenName(token: TfmToken): string {
   if ("part" in token) return token.part;
