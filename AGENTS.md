@@ -2624,7 +2624,7 @@ Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
 | Step | Pre-picked | Confirm |
 |---|---|---|
 | Typenavn (first, 2026-10-05) | the saved scheme, else POFIN Objekttypenavn (see "Typenavn") | «Bruk» |
-| Systemkode, Funksjonskode, MMI, Duplikat objekt | see "The standard first" below: standard, saved, candidate | «Bruk», or a click on a row |
+| Systemkode, Funksjonskode, MMI, Duplikat objekt | see "The standard first" below: standard, saved, candidate | «Bruk»; a pick in OPTIONS only changes FROM (see "The mapping layout") |
 | Fase, Materiale / Produkt | Standard (`STANDARD_SOURCES`), with any project sources after it | «Bruk» keeps the step at the standard |
 | Etasjeoppsett | the saved levels, else the models' own storeys | OKFG or OKBD: the plane is the answer |
 
@@ -2650,11 +2650,12 @@ Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
 - End (`Oppsummering`): per step what was set and each model's report-row
   result; the outcome as a count per verdict over those rows; «Lagre
   oppsett», which saves and opens the IDS tab (`tab=project`).
-- Behind each step's «Avansert»: what is not the mapping (MappingCard with
-  switch, list, Gjelder, values, Uttrekk, Eksempel, MMI presets, codes,
-  template; LayerList; StoreyCard, its template and the models' storeys;
-  TFM's compiled regex). Behind «Last ned» in the bar: the ruleset name and
-  the three downloads.
+- Behind each step's «Avansert»: what is neither the mapping nor the value
+  requirement (since 2026-10-05, see "The mapping layout"): MappingCard with
+  switch, Gjelder, the values list (its «+» codes), Uttrekk, Eksempel, the
+  MMI sheet; StoreyCard, its template and the models' storeys; TFM's
+  compiled regex. The layer steps have no door left. Behind «Last ned» in
+  the bar: the ruleset name and the three downloads.
 
 **The standard first (2026-10-05).** edkjo: "You're assuming that all
 projects use RefClass_NS3451 etc as in KNM. They dont, and hiding the
@@ -2703,6 +2704,52 @@ Verified: `tsc`, selftest (candidate ranking: a code before its name, MMI
 against the presets, Duplikat objekt with and without values, nothing
 passing). **Not exercised in a browser**: no click of the walk, the doors,
 the focus on «Bruk» or the landing on the IDS tab has been seen.
+
+**The mapping layout (2026-10-05).** edkjo: "We want a certain kind of
+information. We map it from property A by default. But we might want to map
+it from property B. We need to see this in a clear UI anyway: What we're
+mapping to + what we're currently mapping from + options for mapping" · "and,
+of course: if there are any quality requirements to the value itself.
+Mapping is the infrastructure, not the validity check."
+
+One component, `src/ui/setup/Mapping.tsx` (`MappingLayout`, `ToZone`,
+`FromSource`, `OptionList`, `Mapped`, `Valid`), four zones always in the
+same place: TO ← FROM │ OPTIONS in one row (stacked with ↑ under `md` and in
+a popover), then the requirement zone on its own surface, headed «Krav»
+(`field.requirement`, the only zone header). The arrow is the relation; no
+other zone text. The result splits the same way and is never merged:
+MAPPED (`kpi.products`, elements carrying FROM of the models' products, red
+at 0) in FROM; VALID (`field.values`, distinct values passing of distinct,
+the elements per state, up to five failing values) in the requirement zone;
+no requirement, no VALID. The walk's column is `max-w-5xl` for the row. A
+step in the layout carries its name in TO, not in a page heading
+(Materiale / Produkt keeps its heading; its two branches are the TOs).
+
+Pick and confirm, one rule for every step: a pick in OPTIONS (click, or ↑ ↓
+then Enter) changes FROM and the counts, never moves on; «Bruk» writes FROM
+and moves on. The mapping steps used to confirm on a click of a row; the TFM
+step already swapped on a pick, so all now follow it.
+
+| Step | TO | FROM | OPTIONS | Requirement (edited there) |
+|---|---|---|---|---|
+| Systemkode, Funksjonskode | name, POFIN example (`PofinSource.example`: 2341.001, DUZ007) | the pre-picked or picked answer, tag «Standard»/«Regelsett»/none | standard (always, 0 / N included), saved, up to 3 candidates; «Endre» = `SourceEditor` | the bundled list as pills; lint wants one, so no «Ingen» |
+| MMI | name, 400 | as above | as above | «Kun format» (`codes: []`, its Uttrekk shown), the presets, the codes table; replacing codes asks |
+| Duplikat objekt | name, RIV | as above | as above | «Ingen» (both lists empty), Kopiverdier, Egne verdier |
+| Fase | name | the cascade: the standard's sources, then + the project's | Standard (always current, a pick keeps the step), «Via MMI» once the MMI codes carry phases, «Endre» = `LayerList` | the accepted phases (`phaseAccepted`), as data |
+| Produkt, Materiale (one layout each) | branch name | as Fase, per branch | as Fase | Produkt «Ingen» (MAPPED only); Materiale ≠ `NOT_A_MATERIAL`, as data |
+| TFM | name, `+123456=360.001-JV401` | the draft's property | the ranked candidates (the draft first when they lack it), «Endre» = the picker | the sequence builder; VALID with no failing list (the chip row lists them) |
+| TFM Lokasjon (chip popover, compact) | Lokasjon, ByggA | the bound property | standard first with its count, the sharing properties, «Ingen», «Endre» = the picker | ⇄ TFM: agreement with the string's own Lokasjon |
+| Typenavn | name, DUZ.001 | Attributt Name, fixed; the Typeobjekt row | none (–) | the scheme's chip row; VALID the type Names on it |
+
+The layer steps' MAPPED and VALID are the report row's, per model
+(`layerSplit`): MAPPED the elements the branch's sources answered for
+(`dekning.kilder`, `gren` on `material-product`) of `grunnlag`; VALID that
+less `avvik` (on `material-product` only a material can be avvik). The
+mapping steps' are the pset inventory's, as before.
+
+Verified: `tsc` (app, node), selftest (458, the examples pass the
+standard's Uttrekk). **Not exercised in a browser**: no pick, keyboard
+move, Enter, popover or stacked width has been seen.
 
 Mengdetype is not a step (2026-10-05, edkjo: "It's not something to check,
 but something to assess … it's not a property or attribute"). The walk, its
@@ -2759,8 +2806,9 @@ come into play as components: system, function and location".
   properties sharing its segments (`rankPartBindings`) and «Ingen». Live:
   the evidence (`previewTfm`, shape only) and five values off the sequence.
   Agreement lands after «Bruk» (`TfmResult`, from the evaluated row).
-  «Avansert»: the compiled regex. The property and Lokasjon, picked or
-  typed by hand, are under «Endre» on the step (2026-10-05).
+  «Avansert»: the compiled regex. The property, picked or typed by hand,
+  is under the step's «Endre»; Lokasjon's under «Endre» in its chip's
+  popover (2026-10-05, "The mapping layout").
 
 Verified: `tsc`, selftest (Statsbygg and an adapted sequence, the miss
 position, digit lock, literal text, agreement, comparability, the check on a
