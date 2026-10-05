@@ -4,7 +4,7 @@
  *
  *   drag a chip          reorder (pointer events; the gap it lands in shows)
  *   ← → on a chip        move it one place
- *   Delete / Backspace   remove it
+ *   Delete / Backspace   remove it (× on the chip with a pointer)
  *   click / Enter        change it in place (`editor`)
  *   + between chips      insert a token there (`palette`)
  *
@@ -210,6 +210,9 @@ export function ChipRow<T>({
 
   const onPointerDown = (index: number) => (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
+    // A press starts a new gesture: a drag that ended without a click (a
+    // touch drag fires none) must not swallow this press's click.
+    suppressClick.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({ index, pointer: event.pointerId, x0: event.clientX, y0: event.clientY, dx: 0, dy: 0, moved: false, slot: index });
   };
@@ -269,19 +272,26 @@ export function ChipRow<T>({
           aria-label={t("action.addRow", lang)}
           aria-expanded={here}
           onClick={() => setOpen(here ? null : { kind: "insert", at })}
-          className="group flex w-4 items-center justify-center self-stretch"
+          className="group flex w-7 cursor-pointer items-center justify-center self-stretch outline-none"
         >
-          <span
-            aria-hidden="true"
-            className={
-              target
-                ? "block h-full w-1 bg-green"
-                : "font-mono text-[13px] leading-none text-line group-hover:text-green group-focus-visible:text-green " +
-                  (here ? "text-green" : "")
-            }
-          >
-            {target ? null : "+"}
-          </span>
+          {target ? (
+            <span aria-hidden="true" className="block h-full w-1 bg-green" />
+          ) : (
+            <span
+              aria-hidden="true"
+              className={
+                "flex h-6 w-6 items-center justify-center border transition-colors motion-reduce:transition-none " +
+                "group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-green " +
+                (here
+                  ? "border-green bg-green text-cream"
+                  : "border-muted bg-input text-ink group-hover:border-green group-hover:bg-green group-hover:text-cream")
+              }
+            >
+              <svg viewBox="0 0 16 16" className="h-3 w-3">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+              </svg>
+            </span>
+          )}
         </button>
         {here ? (
           <Pop anchor={openRef} onClose={close}>
@@ -304,7 +314,7 @@ export function ChipRow<T>({
           wraps.current[i] = el;
           if (editing) openRef.current = el;
         }}
-        className="relative"
+        className="group/chip relative"
       >
         <button
           ref={(el) => {
@@ -329,17 +339,62 @@ export function ChipRow<T>({
           }}
           style={dragging ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : undefined}
           className={
-            "flex min-h-20 cursor-grab touch-none flex-col justify-center gap-1 border-2 bg-input text-left select-none active:cursor-grabbing " +
-            (f.part ? "items-start px-3 py-2 " : "items-center px-2 py-2 ") +
+            "relative flex min-h-20 touch-none flex-col justify-center gap-1 border-2 text-left select-none " +
+            "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green " +
+            (f.part ? "items-start py-2 pr-2.5 pl-2 " : "items-center px-2 py-2 ") +
             (f.dashed ? "border-dashed " : "") +
-            (editing ? "border-green " : f.bound ? "border-green/60 " : "border-line hover:border-green ") +
-            (dragging ? "relative z-20 opacity-90 shadow-lg" : "transition-colors motion-reduce:transition-none")
+            (editing
+              ? "border-green bg-palegreen "
+              : (f.bound ? "border-green/60 " : "border-line ") + "bg-input hover:border-green hover:bg-palegreen ") +
+            (dragging
+              ? "z-20 cursor-grabbing opacity-90 shadow-lg"
+              : "cursor-pointer transition-colors motion-reduce:transition-none")
           }
         >
-          <span className="font-mono text-[22px] leading-none whitespace-pre text-ink">{text}</span>
+          <span className="flex items-center gap-1.5">
+            {/* The drag area's mark: the whole chip drags, this says so. */}
+            <svg aria-hidden="true" viewBox="0 0 6 12" className={"h-3.5 w-1.5 shrink-0 text-muted " + (dragging ? "cursor-grabbing" : "cursor-grab")}>
+              <circle cx="1.25" cy="2" r="1" fill="currentColor" />
+              <circle cx="4.75" cy="2" r="1" fill="currentColor" />
+              <circle cx="1.25" cy="6" r="1" fill="currentColor" />
+              <circle cx="4.75" cy="6" r="1" fill="currentColor" />
+              <circle cx="1.25" cy="10" r="1" fill="currentColor" />
+              <circle cx="4.75" cy="10" r="1" fill="currentColor" />
+            </svg>
+            <span className="font-mono text-[22px] leading-none whitespace-pre text-ink">{text}</span>
+            {/* Opens: the chip is a menu of its own options. */}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              className={
+                "h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none " +
+                (editing ? "rotate-180 text-green" : "text-muted group-hover/chip:text-green")
+              }
+            >
+              <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
           {f.sub ?? null}
           {f.extra ?? null}
         </button>
+        {dragging ? null : (
+          <button
+            type="button"
+            tabIndex={-1}
+            data-tfm-remove={i}
+            aria-label={`${t("action.remove", lang)} ${name(token)}`}
+            onClick={() => remove(i)}
+            className={
+              "absolute -top-3 -right-3 z-10 flex h-6 w-6 cursor-pointer items-center justify-center border border-muted bg-input text-ink " +
+              "transition-colors hover:border-bad hover:bg-bad hover:text-cream motion-reduce:transition-none " +
+              (editing ? "visible" : "invisible group-focus-within/chip:visible group-hover/chip:visible")
+            }
+          >
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3 w-3">
+              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
         {editing ? (
           <Pop anchor={openRef} onClose={closeEditor}>
             {editor(
