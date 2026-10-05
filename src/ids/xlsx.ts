@@ -1357,9 +1357,10 @@ function sheetsToRuleset(sheets: { name: string; rows: Cell[][] }[]): XlsxRulese
           locations.set(`rules[${i}].check.codes[${j}]`, r.ref);
           return orderKeys(decodeItem(r, CODE_COLS, "rules[].check.codes[]", problems, `rules[${i}].check.codes[${j}]`, locations), ["code", "name", "phase"]);
         });
+        // MMI-koder with no row is `codes: []`, a format-only MMI (the Uttrekk
+        // decides). The sheet has no list column, so codes are never absent.
         if (codeRows.length) locations.set(`rules[${i}].check.codes`, codeRows[0].ref);
         else locations.set(`rules[${i}].check.codes`, row.ref);
-        if (codeRows.length === 0) delete check.codes;
         rules[i].check = orderKeys(check, CHECK_KEY_ORDER);
       }
     }

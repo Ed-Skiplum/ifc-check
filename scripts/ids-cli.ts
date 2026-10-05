@@ -3815,13 +3815,14 @@ function pofinSelftest(record: Record_): void {
   } catch (error) {
     workbook = error instanceof Error ? error.message : String(error);
   }
-  // Known, and not the template's: MMI-koder with no row reads back as no
-  // `codes` at all, so a format-only MMI rule (`codes: []`, the walk's own
-  // default too) does not survive the workbook, and the writer refuses.
+  // MMI-koder with no row reads back as `codes: []`: the format-only MMI (the
+  // walk's own default too) survives the workbook.
+  record("POFIN template workbook round trip (the .xlsx download gate): equal", "equal", workbook);
+  const mmi = readRulesetXlsx(writeRulesetXlsx(pofin)).ruleset.rules.find((r) => ruleRole(r) === "progress-code");
   record(
-    "POFIN template workbook round trip: refused on the format-only MMI alone",
-    "the .xlsx export does not round-trip: rules[2].check.codes differs",
-    workbook,
+    "POFIN template workbook: the format-only MMI reads back as codes [] and its extract",
+    `[] ${String.raw`^(\d{3})$`}`,
+    mmi?.kind === "extended" && mmi.check.type === "code-lookup" ? `${JSON.stringify(mmi.check.codes)} ${mmi.check.extract}` : "absent",
   );
   const coded: Ruleset = {
     ...pofin,

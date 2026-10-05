@@ -2883,9 +2883,10 @@ the `schema-accepted-widens` warning for IFC4X3, schema, JSON round trip,
 the check on a synthetic model with a RIV copy, the schema row for IFC4,
 IFC4X3, IFC2X3, `withPofin` on a loaded and a blank copy), and `ids-cli run`
 on KNM_RIV (evaluates; fails, the export carries no NONS sets). The workbook
-refuses the template: MMI-koder with no row reads back with no `codes`, so a
-format-only MMI (`codes: []`, the walk's default too) does not round-trip;
-with a code listed it does (selftest). **Not exercised in a browser.**
+round-trips the template (selftest): MMI-koder with no row reads back as
+`codes: []`, the format-only MMI (the walk's default too); the MMI sheet has
+no list column, so a rule placed there never has `codes` absent (2026-10-05).
+**Not exercised in a browser.**
 
 ### The .xlsx workbook (2026-09-28)
 
