@@ -63,7 +63,7 @@ import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
 import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
 import { NOT_A_MATERIAL, NOT_A_MATERIAL_EXAMPLES } from "../src/engine/standard-sources.ts";
-import { POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher, partExample, partShape } from "../src/engine/type-name.ts";
+import { NAME_SEPARATORS, POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher, partExample, partShape, partSource } from "../src/engine/type-name.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList, roleRule, ruleRole } from "../src/ids/models.ts";
 import { pofinRuleset, withPofin } from "../src/engine/pofin-ruleset.ts";
@@ -4059,11 +4059,38 @@ function typeNameSelftest(record: Record_): void {
   };
   record(
     "type name parts: N digits / N letters read back from their patterns, the rest stays a pattern",
-    "digits:+ digits:3 digits:2 digits:1 letters:+ letters:2 letters:3 regex regex ns3457-8 text values",
+    "digits:+ digits:3 digits:2 digits:1 letters:+ letters:2 letters:3 regex regex ns3457-8 sep text values",
     [
       { regex: "\\d+" }, { regex: "\\d{3}" }, { regex: "[0-9]{2}" }, { regex: "\\d" }, { regex: "[A-ZÆØÅ]+" }, { regex: "[A-ZÆØÅ]{2}" },
-      { regex: "[A-Z]{3}" }, { regex: "\\d{2,3}" }, { regex: "[A-Z]+-\\d{3}" }, { list: "ns3457-8" }, { text: "." }, { values: ["A"] },
+      { regex: "[A-Z]{3}" }, { regex: "\\d{2,3}" }, { regex: "[A-Z]+-\\d{3}" }, { list: "ns3457-8" }, { text: "." }, { text: "ab" }, { values: ["A"] },
     ].map((p) => shape(p as NamePart)).join(" "),
+  );
+  // «Deltegn»: a separator is stored as its text, so it compiles and parses
+  // exactly as that text did; one separator character reads as Deltegn,
+  // anything longer, or not a separator, stays Tekst.
+  record(
+    "type name parts: a separator is one of its set; longer text and other characters stay text",
+    ". - _ / : ␣ + = | text text text text text",
+    [
+      NAME_SEPARATORS.filter((text) => shape({ text }) === "sep").map((text) => (text === " " ? "␣" : text)).join(" "),
+      [{ text: "ab" }, { text: ".." }, { text: "++" }, { text: "" }, { text: "#" }].map(shape).join(" "),
+    ].join(" | "),
+  );
+  record(
+    "type name parts: the POFIN suggestion reads list, Deltegn, digits",
+    "ns3457-8 sep digits:+",
+    POFIN_TYPE_NAME.map(shape).join(" "),
+  );
+  record(
+    "type name parts: a Deltegn compiles to its escaped character and parses as the text part did",
+    "\\. | \\/ | \\+ | DUZ|.|001 off@3:1 | 231|+|7 off@3:1",
+    [
+      partSource({ text: "." }),
+      partSource({ text: "/" }),
+      partSource({ text: "+" }),
+      ["DUZ.001", "DUZ-001"].map((v) => parse([{ list: "ns3457-8" }, { text: "." }, digitsPart(null)], v)).join(" "),
+      ["231+7", "231-7"].map((v) => parse([{ list: "ns3451" }, { text: "+" }, digitsPart(null)], v)).join(" "),
+    ].join(" | "),
   );
   record(
     "type name parts: the builder's digits and letters round-trip and match what they say",

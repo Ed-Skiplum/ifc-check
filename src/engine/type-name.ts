@@ -83,7 +83,13 @@ export function partName(part: NamePart): string {
  *  ruleset format is unchanged; a pattern that is exactly N digits or N
  *  letters, or one or more of them (`count` null), reads back as that part.
  *  Any other pattern stays a pattern. */
-export type PartKind = "ns3457-8" | "ns3451" | "digits" | "letters" | "text" | "values" | "regex";
+export type PartKind = "ns3457-8" | "ns3451" | "digits" | "letters" | "sep" | "text" | "values" | "regex";
+
+/** The separators a «Deltegn» part is one of: TFM's single ones
+ *  (`TFM_SEPARATORS`) and ":". A separator is stored as the text it is
+ *  (`{text: "."}`), so the ruleset format is unchanged; a text part that is
+ *  exactly one of them reads back as a separator, any other text stays text. */
+export const NAME_SEPARATORS: readonly string[] = [".", "-", "_", "/", ":", " ", "+", "="];
 
 export interface PartShape {
   kind: PartKind;
@@ -97,7 +103,7 @@ const LETTERS_RE = /^\[A-Z(?:ÆØÅ)?\](?:\+|\{([1-9][0-9]?)\})?$/;
 export function partShape(part: NamePart): PartShape {
   if ("list" in part) return { kind: part.list };
   if ("values" in part) return { kind: "values" };
-  if ("text" in part) return { kind: "text" };
+  if ("text" in part) return { kind: NAME_SEPARATORS.includes(part.text) ? "sep" : "text" };
   for (const [kind, re] of [["digits", DIGITS_RE], ["letters", LETTERS_RE]] as const) {
     const m = re.exec(part.regex);
     if (m) return { kind, count: m[1] !== undefined ? Number(m[1]) : /[+]$/.test(part.regex) ? null : 1 };

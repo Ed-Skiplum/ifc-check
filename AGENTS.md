@@ -2840,7 +2840,11 @@ is now rendered by `scripts/walk-shots.mjs` (below) and was looked at, at
 - The chip row's inner + gaps show on hover or focus only (the last one
   always); the gap keeps its width, so opening one moves nothing.
 - The type name parts, in order: NS 3457-8, NS 3451, Siffer, Bokstaver,
-  Tekst, Godtatte, Mønster. Siffer and Bokstaver take a count (1+, 1 … 6)
+  Deltegn, Tekst, Godtatte, Mønster. Deltegn is one of `. - _ / : ␣ + =`
+  (`NAME_SEPARATORS`), stored as `{text}`; a text part that is exactly one
+  of them reads back as Deltegn and shows its glyph (TFM's `sepGlyph`); an
+  insert between two non-separators opens on Deltegn, "." pressed.
+  Siffer and Bokstaver take a count (1+, 1 … 6)
   and are stored as the pattern they are, `\d{3}`, `[A-ZÆØÅ]{2}`, `\d+`
   (`digitsPart`, `lettersPart`, `partShape` in `engine/type-name.ts`); a
   saved pattern that is exactly that reads back as the part (`[0-9]{n}` and
@@ -3079,7 +3083,8 @@ one part, regex another part".
   `{values: [...]}` (comma- or line-separated, `setup/ValuesInput.tsx`),
   `{regex}` or `{text}`, edited in the TFM builder's chip row
   (`setup/ChipRow.tsx`, moved out of `TfmBuilder.tsx` unchanged). Offered
-  as NS 3457-8, NS 3451, Siffer, Bokstaver, Tekst, Godtatte, Mønster; Siffer
+  as NS 3457-8, NS 3451, Siffer, Bokstaver, Deltegn, Tekst, Godtatte,
+  Mønster; Deltegn is a one-character `{text}` part; Siffer
   and Bokstaver are `{regex}` parts with a count (see "The design pass"). The
   suggestion and «↺ Standard» is POFIN Objekttypenavn (NS 8360-1),
   `[NS 3457-8] "." /\d+/` (`POFIN_TYPE_NAME`; the number's width is not set
