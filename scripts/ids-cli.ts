@@ -1240,6 +1240,48 @@ async function cmdSelftest(): Promise<number> {
     bare.find((r) => r.id === "phase")?.state ?? "absent",
   );
 
+  // The IDS tab's report line, its badge and the derivation it opens are one
+  // reading. Live on OBF_400520_03_6_ARK (2026-10-05) Kopiobjekt read Bestått 0,
+  // Avvik 80 in red under a Bestått badge, the band Bestått 80, Avvik 0: the
+  // line took the contract's mangler (a blank, which is the file's own object)
+  // as Avvik. The UI modules import extensionless, as Vite resolves them.
+  {
+    await import("./ts-resolve.mjs");
+    const { stdCounts } = await import("../src/ui/alt/req-view.ts");
+    const { buildTrace } = await import("../src/ui/trace.ts");
+    const rows3: [string | null, string | null][] = [["300", "false"], ["999", "true"], ["300", null]];
+    const ruleset = withRules([
+      mappingRule("progress-code", { source: { attribute: "Name" }, codes: codesOf("300") }),
+      copyRule({ copy: ["true"], own: ["false"] }),
+    ]);
+    const evaluation = evaluateRuleset(ruleset, referenceGraph(rows3), summary, "board-line.ifc");
+    const rows = reportRows({
+      model: { file: "board-line.ifc", schema: "IFC4", sha256: "0".repeat(64) },
+      graph: { ...(referenceGraph(rows3) as unknown as IfcGraph), storeys: [], projects: [], storey_building: [] },
+      summary: summary as unknown as IfcSummary,
+      checks: [],
+      ruleset,
+      evaluation,
+    });
+    const entry = { id: "m", fileName: "board-line.ifc", evaluation, board: { rows } } as unknown as Parameters<typeof stdCounts>[1];
+    const line = (key: string) => {
+      const req = requirements(rows).find((r) => r.key === key)!;
+      const c = stdCounts(req, entry);
+      const band = req.focus ? buildTrace(entry, req.focus)?.stats.map((s) => s.value).slice(0, 3).join("/") : "none";
+      return `${req.state} ${c.applicable}/${c.passed}/${c.failed} band ${band}`;
+    };
+    record(
+      "IDS tab: Kopiobjekt's line counts are its badge's and its band's (a blank is the file's own object, not Avvik)",
+      "pass 3/3/0 band 3/3/0",
+      line("kopiobjekt"),
+    );
+    record(
+      "IDS tab: a code-lookup line reads the same counts as before (avvik + mangler = failed)",
+      "pass 2/2/0 band 2/2/0",
+      line("mmi"),
+    );
+  }
+
   // The Overview's classification codes (src/ui/class-codes.ts): presence
   // per system, sorted by code, the bundled list's name for NS 3451, an
   // unknown code marked, absent kept apart from none.

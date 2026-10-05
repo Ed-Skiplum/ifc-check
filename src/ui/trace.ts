@@ -12,7 +12,7 @@
 
 import type { CheckResult, DetailLine, ReasonCode, Verdict } from "../engine/types";
 import { verdictOf } from "../engine/fundamentals";
-import type { ResultState } from "../ids/evaluate.ts";
+import type { ResultState, RuleResult } from "../ids/evaluate.ts";
 import type { StringKey } from "./i18n";
 import type { ModelEntry } from "./useModels";
 import { cellRows, storeyNames, storeyRows } from "./profile";
@@ -218,6 +218,17 @@ export interface Trace {
   rowsComplete: boolean;
 }
 
+/** A rule's Aktuelle · Bestått · Avvik, read off its result: the derivation's
+ *  stats and the IDS tab's report line both read this, so the line, its
+ *  badge (the result's state) and the band it opens are one reading. */
+export function ruleCounts(result: RuleResult): { applicable: number; passed: number; failed: number } {
+  return {
+    applicable: result.applicable,
+    passed: Math.max(0, result.applicable - result.failed),
+    failed: result.failed,
+  };
+}
+
 function checkOf(model: ModelEntry, id: string) {
   return model.report?.checks.find((c) => c.id === id);
 }
@@ -263,6 +274,7 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
     if (!result) return null;
     // A mapping rule is opened by its requirement card: the card's name.
     const card = labelOfFocus(focus, model.board?.rows);
+    const counts = ruleCounts(result);
     return {
       ...base,
       titleKey: card ?? "trace.rule",
@@ -272,9 +284,9 @@ export function buildTrace(model: ModelEntry, focus: Focus): Trace | null {
       reason: result.reason,
       notes: result.notes ?? [],
       stats: [
-        { label: "trace.applicable", value: result.applicable },
-        { label: "trace.passed", value: Math.max(0, result.applicable - result.failed) },
-        { label: "trace.failed", value: result.failed },
+        { label: "trace.applicable", value: counts.applicable },
+        { label: "trace.passed", value: counts.passed },
+        { label: "trace.failed", value: counts.failed },
         { label: "trace.shown", value: result.findings.length },
       ],
       rows: result.findings.map((f) => ({

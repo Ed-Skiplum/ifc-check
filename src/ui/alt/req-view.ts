@@ -10,6 +10,7 @@ import { roleRule } from "../../ids/models.ts";
 import { CODE_LISTS } from "../../codelists/index.ts";
 import type { Verdict } from "../../engine/types";
 import type { Focus } from "../trace";
+import { ruleCounts } from "../trace";
 import type { Lang, StringKey } from "../i18n";
 import type { ModelEntry } from "../useModels";
 import { requirements, type Requirement } from "../requirements";
@@ -264,12 +265,22 @@ export function stdAsk(req: Requirement, ruleset: Ruleset | null): StdAsk | null
   return { sources: row.dekning.kilder, list, extract, values };
 }
 
-/** A Standardkrav row's result counts: Aktuelle the objects judged
- *  (`grunnlag`), Bestått `oppfylt`, Avvik `avvik` + `mangler`. Null where
- *  the row does not count it. */
-export function stdCounts(req: Requirement): { applicable: number | null; passed: number | null; failed: number | null } {
-  const d = req.row?.dekning;
-  if (!d || req.state === "not_configured" || req.state === "not_evaluable") return { applicable: null, passed: null, failed: null };
+/** A Standardkrav row's result counts. A rule's row (a mapping) reads the
+ *  rule's result (`ruleCounts`), as its badge and the derivation it opens do:
+ *  the contract's split counts a blank as `mangler`, which on Kopiobjekt is
+ *  the file's own object and never a finding (`copyVerdict`), so read as
+ *  Avvik it put every object in red under a Bestått badge. A standard-layer
+ *  row: Aktuelle the objects judged (`grunnlag`), Bestått `oppfylt`, Avvik
+ *  `avvik` + `mangler`, its `funn`. Null where the row does not count it. */
+export function stdCounts(
+  req: Requirement,
+  model: ModelEntry,
+): { applicable: number | null; passed: number | null; failed: number | null } {
+  const row = req.row;
+  const d = row?.dekning;
+  if (!row || !d || req.state === "not_configured" || req.state === "not_evaluable") return { applicable: null, passed: null, failed: null };
+  const result = row.mapping ? model.evaluation?.results.find((r) => r.ruleId === row.id) : undefined;
+  if (result) return ruleCounts(result);
   const failed = d.avvik === null && d.mangler === null ? null : (d.avvik ?? 0) + (d.mangler ?? 0);
   return { applicable: d.grunnlag, passed: d.oppfylt, failed };
 }
