@@ -77,7 +77,11 @@ import type {
   StoreyLevel,
   StoreyPlane,
   StoreySetup,
+  TfmCheck,
+  TfmPart,
+  TfmToken,
 } from "../ids/types.ts";
+import { STATSBYGG_SEQUENCE, formatSequence, tfmRegexSource } from "../engine/tfm.ts";
 import type { Lang, StringKey } from "./i18n";
 import { hasString, locale, t } from "./i18n";
 import { Switch } from "./Switch";
@@ -91,11 +95,14 @@ import type { Verdict } from "../engine/types";
 import type { ModelEntry } from "./useModels";
 import { requirements } from "./requirements";
 import { StateChip, TotalChips } from "./setup/chips";
-import type { Candidate } from "./setup/candidates";
+import { previewTfm, rankPartBindings, rankTfmCandidates, type Candidate } from "./setup/candidates";
+import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
 import { stateLook } from "./alt/req-view";
 import {
+  Alternatives,
   CONFIRM,
   Door,
+  Evidence,
   Landed,
   MappingStep,
   ProposalCard,
@@ -1859,6 +1866,7 @@ const STEPS: SetupStep[] = [
   "materials",
   "qto",
   "storeys",
+  "tfm",
   "end",
 ];
 
@@ -1878,6 +1886,7 @@ const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
   materials: "req.materiale-produkt",
   qto: "setup.qto",
   storeys: "setup.storeys",
+  tfm: "req.tfm",
   end: "setup.summary",
 };
 
@@ -1893,6 +1902,7 @@ const STEP_REQ: Partial<Record<SetupStep, string>> = {
   materials: "materiale-produkt",
   qto: "materiale-produkt",
   storeys: "etasjedefinisjon",
+  tfm: "tfm",
 };
 
 function stepLabel(step: SetupStep, lang: Lang): string {
@@ -1949,6 +1959,15 @@ function formatMetres(m: number, lang: Lang): string {
   return Number.isFinite(m) ? m.toLocaleString(locale(lang), { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : "";
 }
 
+/** The TFM step's answer in the making: the property carrying the string,
+ *  the sequence, and Lokasjon's binding (the one bound part with no step of
+ *  its own). Written to the ruleset by «Bruk» only. */
+interface TfmDraft {
+  source: CodeSource | null;
+  sequence: TfmToken[];
+  lokasjon: CodeSource | null;
+}
+
 const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
 const H1 = "m-0 text-2xl font-medium text-ink";
 const PLANES: readonly StoreyPlane[] = ["OKFG", "OKBD"];
@@ -1997,7 +2016,13 @@ export function SetupPage({
   const [kept, setKept] = useState<ReadonlySet<LayerSlot>>(new Set());
   const [exportError, setExportError] = useState<string | null>(null);
   // The step just answered and what it gave, shown on the step it led to.
-  const [landed, setLanded] = useState<{ from: SetupStep; to: SetupStep; result: React.ReactNode } | null>(null);
+  // `live`: the result is the step's report row, read when shown (TFM:
+  // the check runs once the rule is in the ruleset, after the click).
+  const [landed, setLanded] = useState<{ from: SetupStep; to: SetupStep; result: React.ReactNode; live?: boolean } | null>(null);
+  // The TFM step's answer while it is being built: the property, the
+  // sequence, Lokasjon's binding. Null until touched, so the pre-pick follows
+  // the models as they are read; dropped when the step is left.
+  const [tfmDraft, setTfmDraft] = useState<TfmDraft | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const ifcInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
@@ -2038,6 +2063,17 @@ export function SetupPage({
   );
 
   const ownerNames = useMemo(() => everyOwnerName(ruleset), [ruleset]);
+
+  // The TFM step: the saved rule's check, and the properties whose values
+  // are strings of its sequence (the standard's when none is saved).
+  const tfmRule = mappingRule(ruleset, "tfm");
+  const tfmSaved = tfmRule && tfmRule.check.type === "tfm" ? tfmRule.check : null;
+  const tfmRanked = useMemo(
+    () =>
+      current === "tfm" && picker.choices ? rankTfmCandidates(picker.choices, tfmSaved?.sequence ?? STATSBYGG_SEQUENCE) : [],
+    [current, picker.choices, tfmSaved],
+  );
+  if (current !== "tfm" && tfmDraft !== null) setTfmDraft(null);
 
   // Each model's requirements as the IDS tab reads them: a step's result.
   const results = useMemo(
@@ -2394,6 +2430,187 @@ export function SetupPage({
         </Door>
       </div>
     );
+  } else if (current === "tfm") {
+    // Pre-picked: the saved rule, else the best property against the
+    // standard, with the standard's sequence. A model that fits another
+    // order is not guessed at: the default stays, and the counts show it.
+    const top = tfmRanked[0];
+    const draft: TfmDraft = tfmDraft ?? {
+      source: tfmSaved?.source ?? (top ? { property: { propertySet: top.set, name: top.name } } : null),
+      sequence: tfmSaved ? [...tfmSaved.sequence] : [...STATSBYGG_SEQUENCE],
+      lokasjon: tfmSaved?.bindings?.Lokasjon ?? null,
+    };
+    const update = (patch: Partial<TfmDraft>) => setTfmDraft({ ...draft, ...patch });
+    const property = draft.source && "property" in draft.source ? draft.source.property : null;
+    const prop = property
+      ? picker.choices?.find((c) => c.set === property.propertySet)?.props.find((p) => p.name === property.name)
+      : undefined;
+    const lokasjonProp = draft.lokasjon && "property" in draft.lokasjon ? draft.lokasjon.property : null;
+    const missing = property !== null && !prop && !picker.reading && picker.choices !== null;
+    // What each chip is compared with: the step that reads it, as the
+    // evaluator binds it (`evaluate.ts` PART_BINDING).
+    const boundTo = (rule: ExtendedRule | null, step: SetupStep): ChipBinding => {
+      if (!rule || rule.check.type !== "code-lookup") return { kind: "shape" };
+      const source = rule.check.source;
+      return {
+        kind: "bound",
+        label: "property" in source ? source.property.name : sourceText(source, lang),
+        title: `${stepLabel(step, lang)} · ${sourceText(source, lang)}`,
+      };
+    };
+    const binding = (part: TfmPart): ChipBinding | undefined => {
+      switch (part) {
+        case "Systemkode":
+          return boundTo(roleRule(ruleset, "system-classification"), "system-classification");
+        case "Komponent":
+          return boundTo(roleRule(ruleset, "component-classification"), "component-classification");
+        case "Etasje":
+          return (ruleset.storeys?.levels.length ?? 0) > 0
+            ? { kind: "bound", label: stepLabel("storeys", lang), title: stepLabel("storeys", lang) }
+            : { kind: "shape" };
+        case "Lokasjon":
+          return draft.lokasjon
+            ? { kind: "bound", label: lokasjonProp?.name ?? sourceText(draft.lokasjon, lang), title: sourceText(draft.lokasjon, lang) }
+            : { kind: "shape" };
+        case "Rom":
+          return { kind: "shape" };
+        default:
+          return undefined;
+      }
+    };
+    const clean = draft.sequence.filter((token) => !("text" in token) || token.text !== "");
+    const ready = draft.source !== null && clean.some((token) => "part" in token);
+    const confirmTfm = () => {
+      if (!ready || draft.source === null) return;
+      const check: TfmCheck = {
+        type: "tfm",
+        source: draft.source,
+        sequence: clean,
+        ...(draft.lokasjon ? { bindings: { Lokasjon: draft.lokasjon } } : {}),
+      };
+      const written: ExtendedRule = tfmRule
+        ? { ...tfmRule, check }
+        : { id: freshId(ruleset, "tfm"), kind: "extended", name: t("req.tfm", lang), select: { entity: { group: "physicalElement" } }, check };
+      delete written.enabled;
+      onChange({ ...ruleset, rules: tfmRule ? ruleset.rules.map((r) => (r === tfmRule ? written : r)) : [...ruleset.rules, written] });
+      setTfmDraft(null);
+      setLanded({ from: current, to: next, result: null, live: true });
+      onStep(next);
+    };
+    const blankProperty = { propertySet: "", name: "" };
+    const others = tfmRanked.filter((c) => !(property && c.set === property.propertySet && c.name === property.name)).slice(0, 3);
+    body = (
+      <div className="flex flex-col gap-5">
+        {draft.source === null ? (
+          <div className="flex flex-col gap-4">
+            {picker.reading ? (
+              <span className="text-[13px] text-muted">{t("file.parsing", lang)}</span>
+            ) : picker.choices !== null ? (
+              <div data-no-candidate className="flex items-center gap-3">
+                <StateChip state="no-match" lang={lang} />
+                <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
+              </div>
+            ) : null}
+            {picker.choices !== null ? (
+              <PropertyPicker
+                value={blankProperty}
+                choices={picker.choices}
+                reading={picker.reading}
+                errors={picker.errors}
+                total={picker.total}
+                manual={false}
+                invalidSet={false}
+                invalidName={false}
+                lang={lang}
+                onChange={(p) => update({ source: { property: p } })}
+                onNext={() => {}}
+              />
+            ) : null}
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-3">
+          <ProposalCard
+            key={property ? `${property.propertySet}\u0000${property.name}` : "tfm"}
+            head={property ? property.propertySet : draft.source ? sourceText(draft.source, lang) : undefined}
+            title={property ? property.name : undefined}
+            missing={missing}
+            actions={
+              <button
+                type="button"
+                autoFocus
+                data-step-confirm
+                disabled={!ready}
+                onClick={confirmTfm}
+                className={CONFIRM + " disabled:cursor-not-allowed disabled:opacity-40 sm:self-end"}
+              >
+                {t("action.apply", lang)} →
+              </button>
+            }
+          >
+            {prop ? <Evidence prop={prop} preview={previewTfm(clean, prop.values)} total={picker.total} lang={lang} /> : null}
+            <TfmBuilder
+              sequence={draft.sequence}
+              values={prop?.values ?? []}
+              binding={binding}
+              lokasjonChoices={picker.choices && prop ? rankPartBindings(picker.choices, clean, prop.values, "Lokasjon") : []}
+              lokasjon={lokasjonProp ? { set: lokasjonProp.propertySet, name: lokasjonProp.name } : null}
+              lang={lang}
+              onSequence={(sequence) => update({ sequence })}
+              onLokasjon={(b) => update({ lokasjon: b ? { property: { propertySet: b.set, name: b.name } } : null })}
+            />
+          </ProposalCard>
+          {/* Another property is another source for the same builder, not a
+              way on: the sequence is half the answer. */}
+          <Alternatives
+            candidates={others}
+            lang={lang}
+            onPick={(c) => update({ source: { property: { propertySet: c.set, name: c.name } } })}
+          />
+        </div>
+        {nav}
+        <Door label={t("setup.advanced", lang)}>
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-1">
+              <span className={LABEL}>{t("field.pattern", lang)}</span>
+              <code data-tfm-regex className="block bg-input px-2 py-1 font-mono text-[12px] break-all text-ink">
+                {tfmRegexSource(clean)}
+              </code>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className={LABEL}>{t("req.tfm", lang)}</span>
+              <PropertyPicker
+                value={property ?? blankProperty}
+                choices={picker.choices}
+                reading={picker.reading}
+                errors={picker.errors}
+                total={picker.total}
+                invalidSet={false}
+                invalidName={false}
+                lang={lang}
+                onChange={(p) => update({ source: p.propertySet === "" && p.name === "" ? null : { property: p } })}
+                onNext={() => {}}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              {/* A part name, a term of art the same in both languages. */}
+              <span className={LABEL}>Lokasjon</span>
+              <PropertyPicker
+                value={lokasjonProp ?? blankProperty}
+                choices={picker.choices}
+                reading={picker.reading}
+                errors={picker.errors}
+                total={picker.total}
+                invalidSet={false}
+                invalidName={false}
+                lang={lang}
+                onChange={(p) => update({ lokasjon: p.propertySet === "" && p.name === "" ? null : { property: p } })}
+                onNext={() => {}}
+              />
+            </div>
+          </div>
+        </Door>
+      </div>
+    );
   } else if (current === "end") {
     // What each step set, as the summary names it.
     const setText = (s: SetupStep): string => {
@@ -2408,6 +2625,11 @@ export function SetupPage({
             [t("setup.standard", lang), ...layerSources(ruleset, slot).map((source) => sourceText(source, lang))].join(" + "),
           )
           .join(" · ");
+      if (s === "tfm") {
+        return tfmRule && tfmRule.enabled !== false && tfmSaved
+          ? `${sourceText(tfmSaved.source, lang)} · ${formatSequence(tfmSaved.sequence)}`
+          : "–";
+      }
       if (isMappingStep(s)) {
         const r = mappingRule(ruleset, s);
         return r && r.enabled !== false ? sourceText(checkOf(r, s).source, lang) : "–";
@@ -2468,7 +2690,7 @@ export function SetupPage({
       </div>
     );
   } else {
-    const r = current as CardRole;
+    const r = current;
     const c = check ?? checkOf(rule, r);
     const confirmCandidate = (candidate: Candidate) => {
       const property = { propertySet: candidate.set, name: candidate.name };
@@ -2629,7 +2851,7 @@ export function SetupPage({
 
         {landed !== null && landed.to === current ? (
           <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
-            {landed.result}
+            {landed.live ? <TfmResult results={resultOf(landed.from)} lang={lang} /> : landed.result}
           </Landed>
         ) : null}
 
