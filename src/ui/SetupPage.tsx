@@ -46,12 +46,21 @@
  * source is. Gjelder defaults to Typer where the evaluator reads a type,
  * which is an attribute source (the type's Name); a property is read per
  * occurrence.
+ *
+ * Pull me through (2026-10-05). edkjo: "Too many clicks and options/traces
+ * from the original basic config page." A step is now one question with its
+ * answer pre-picked (`setup/Walk.tsx`): the saved source, else the loaded
+ * models' best candidate (`setup/candidates.ts`), the standard on a layer
+ * step, the models' storeys on Etasjeoppsett. «Bruk» takes it and moves on,
+ * its result lands on the next step and the bar fills; the summary at the
+ * end saves and opens the IDS tab. The cards below are unchanged and sit
+ * behind each step's «Avansert» door; the file actions behind «Last ned».
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import { CODE_LISTS, CODE_LIST_IDS } from "../codelists/index.ts";
 import { hasErrors, lintRuleset } from "../ids/lint.ts";
-import { anyRoleRule, defaultCodeList, defaultExtract, roleRule } from "../ids/models.ts";
+import { anyRoleRule, defaultCodeList, defaultExtract, everyOwnerName, roleRule } from "../ids/models.ts";
 import { STANDARD_SOURCES, type LayerSlot } from "../engine/standard-sources.ts";
 import { layerJudge, layerPath, layerSources, previewLayer, withLayerSources } from "./layer-steps";
 import { MMI_PRESETS, matchingPreset, presetCodes, type MmiPresetId } from "../codelists/mmi-presets.ts";
@@ -75,11 +84,26 @@ import { Switch } from "./Switch";
 import { CONFIG_TEMPLATE_FILE } from "../ids/config-template.ts";
 import { formatCount } from "./format";
 import { mergeChoices, type PsetChoice, type PsetProp, type PsetValue } from "./pset-choices";
-import { previewExtract, type ExtractPreview, type ExtractState } from "./extract-preview";
+import { previewExtract, type ExtractPreview } from "./extract-preview";
 import { extractFromExample } from "../ids/extract-example.ts";
 import { VERDICT_FILL, VERDICT_GLYPH } from "./state-visuals";
 import type { Verdict } from "../engine/types";
 import type { ModelEntry } from "./useModels";
+import { requirements } from "./requirements";
+import { StateChip, TotalChips } from "./setup/chips";
+import type { Candidate } from "./setup/candidates";
+import { stateLook } from "./alt/req-view";
+import {
+  CONFIRM,
+  Door,
+  Landed,
+  MappingStep,
+  ProposalCard,
+  ReqResult,
+  StepNav,
+  WalkProgress,
+  type CurrentSource,
+} from "./setup/Walk";
 import {
   extractedCodes,
   hasLevel,
@@ -476,8 +500,15 @@ function PropertyPicker({
   onChange,
   onNext,
   children,
+  total = null,
+  manual: manualOption = true,
 }: {
   value: { propertySet: string; name: string };
+  /** The models' products: a property they lack reads `0 / total`. */
+  total?: number | null;
+  /** List «Egenskapen er ikke med». The walk's own picker leaves it to the
+   *  door, where the fields can be typed in without the step changing. */
+  manual?: boolean;
   /** null: no model on the board, so nothing to pick from. */
   choices: PsetChoice[] | null;
   reading: boolean;
@@ -521,7 +552,7 @@ function PropertyPicker({
   type Option = { kind: "prop"; set: string; name: string } | { kind: "manual" };
   const options: Option[] = [
     ...groups.flatMap((c) => c.props.map((p): Option => ({ kind: "prop", set: c.set, name: p.name }))),
-    { kind: "manual" },
+    ...(manualOption ? [{ kind: "manual" } as const] : []),
   ];
   // Each group's first index in `options`.
   const starts = groups.map((_, g) => groups.slice(0, g).reduce((n, c) => n + c.props.length, 0));
@@ -607,7 +638,12 @@ function PropertyPicker({
             <span className="shrink-0 font-mono text-[13px] tabular-nums">{formatCount(prop.n, lang)}</span>
           ) : reading ? (
             <span className="shrink-0 text-[11px] text-muted">{t("file.parsing", lang)}</span>
-          ) : null}
+          ) : (
+            // Why it is red: no element of the models carries it.
+            <span data-missing-count className="shrink-0 font-mono text-[13px] tabular-nums">
+              {total === null ? formatCount(0, lang) : `${formatCount(0, lang)} / ${formatCount(total, lang)}`}
+            </span>
+          )}
           <button
             type="button"
             onClick={change}
@@ -691,16 +727,18 @@ function PropertyPicker({
                 })}
               </div>
             ))}
-            <div
-              id={optionId(options.length - 1)}
-              role="option"
-              aria-selected={fieldsOpen && !found}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick({ kind: "manual" })}
-              className={row(fieldsOpen && !found, options.length - 1) + (groups.length > 0 ? " mt-1 border-t border-line" : "")}
-            >
-              <span>{t("field.notInModel", lang)}</span>
-            </div>
+            {manualOption ? (
+              <div
+                id={optionId(options.length - 1)}
+                role="option"
+                aria-selected={fieldsOpen && !found}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick({ kind: "manual" })}
+                className={row(fieldsOpen && !found, options.length - 1) + (groups.length > 0 ? " mt-1 border-t border-line" : "")}
+              >
+                <span>{t("field.notInModel", lang)}</span>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -734,33 +772,6 @@ function PropertyPicker({
         </div>
       ) : null}
     </div>
-  );
-}
-
-/** Which elements a state covers, as the shared verdict fill and glyph:
- *  a valid code, no match, a code not in the list, and (a capped list only)
- *  the elements whose values are not listed. */
-const EXTRACT_VERDICT: Record<ExtractState | "rest", Verdict> = {
-  ok: "pass",
-  "no-match": "fail",
-  "not-in-list": "warn",
-  rest: "na",
-};
-
-function StateChip({ state, count, lang }: { state: ExtractState | "rest"; count?: number; lang: Lang }) {
-  const verdict = EXTRACT_VERDICT[state];
-  return (
-    <span
-      data-state={state}
-      className={
-        "inline-flex items-center justify-center gap-1.5 font-mono text-[12px] tabular-nums " +
-        VERDICT_FILL[verdict] +
-        (count === undefined ? " h-5 w-5" : " px-2 py-0.5")
-      }
-    >
-      <span aria-hidden="true">{VERDICT_GLYPH[verdict]}</span>
-      {count === undefined ? null : <span>{formatCount(count, lang)}</span>}
-    </span>
   );
 }
 
@@ -979,7 +990,7 @@ function MappingCard({
   /** Names the step's template file. */
   rulesetName: string;
   /** What the property picker lists, from the loaded models. */
-  picker: { choices: PsetChoice[] | null; reading: boolean; errors: string[] };
+  picker: Picker;
   onToggle: () => void;
   onCheck: (next: MappingCheck) => void;
   /** Double-click on the card while it is off. */
@@ -1154,6 +1165,7 @@ function MappingCard({
           choices={picker.choices}
           reading={picker.reading}
           errors={picker.errors}
+          total={picker.total}
           invalidSet={invalid("source.property.propertySet")}
           invalidName={invalid("source.property.name")}
           lang={lang}
@@ -1277,7 +1289,9 @@ function MappingCard({
   );
 }
 
-type Picker = { choices: PsetChoice[] | null; reading: boolean; errors: string[] };
+/** What the pickers list, and the models' products: `total`, null with no
+ *  model read. */
+type Picker = { choices: PsetChoice[] | null; reading: boolean; errors: string[]; total: number | null };
 
 /** The standard layer's sources for a cascade, read before any project
  *  source (`standard-sources.ts`). A pick keeps the step at the standard:
@@ -1408,6 +1422,7 @@ function LayerSourceCard({
           choices={picker.choices}
           reading={picker.reading}
           errors={picker.errors}
+          total={picker.total}
           invalidSet={invalid(".property.propertySet")}
           invalidName={invalid(".property.name")}
           lang={lang}
@@ -1826,8 +1841,8 @@ const LAYER_SLOTS: Record<LayerStep, readonly LayerSlot[]> = {
  *  config file and the guided walk; `ifc` opens a model, so the property
  *  pickers have something to list. Then edkjo's Type-first order (2026-10-01:
  *  "System, Function, Copy, MMI, Phase, Materials, QTO: these are my main
- *  things"), and Etasjeoppsett last. */
-export type SetupStep = "start" | "ifc" | MappingRole | LayerStep | "storeys";
+ *  things"), Etasjeoppsett, and `end`: what was set, what it gives, Save. */
+export type SetupStep = "start" | "ifc" | MappingRole | LayerStep | "storeys" | "end";
 
 const STEPS: SetupStep[] = [
   "start",
@@ -1840,7 +1855,11 @@ const STEPS: SetupStep[] = [
   "materials",
   "qto",
   "storeys",
+  "end",
 ];
+
+/** The questions the bar counts: not the choice before them, not the end. */
+const WALK: SetupStep[] = STEPS.slice(1, -1);
 
 /** Where the walk goes once a model is on the board. */
 export const FIRST_MAPPING_STEP: SetupStep = STEPS[2];
@@ -1855,6 +1874,21 @@ const STEP_LABEL: Partial<Record<SetupStep, StringKey>> = {
   materials: "req.materiale-produkt",
   qto: "setup.qto",
   storeys: "setup.storeys",
+  end: "setup.summary",
+};
+
+/** The requirement (`requirements.ts`) whose report row is a step's result,
+ *  as the IDS tab shows it. Mengdetype is what switches Materiale / Produkt,
+ *  so its result is that row. */
+const STEP_REQ: Partial<Record<SetupStep, string>> = {
+  "system-classification": "systemkode",
+  "component-classification": "funksjonskode",
+  "copy-object": "kopiobjekt",
+  "progress-code": "mmi",
+  phase: "fase",
+  materials: "materiale-produkt",
+  qto: "materiale-produkt",
+  storeys: "etasjedefinisjon",
 };
 
 function stepLabel(step: SetupStep, lang: Lang): string {
@@ -1866,59 +1900,54 @@ function isLayerStep(step: SetupStep): step is LayerStep {
   return step in LAYER_SLOTS;
 }
 
-const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
+const MAPPING_ROLES: readonly SetupStep[] = [
+  "system-classification",
+  "component-classification",
+  "copy-object",
+  "progress-code",
+];
 
-/** The step rail: every step, freely clickable. The current one is filled,
- *  a configured one (the current one too) carries a check in place of its
- *  number. Above the step
- *  on a narrow screen, beside it from md up. */
-function StepRail({
-  current,
-  done,
-  lang,
-  onStep,
-}: {
-  current: SetupStep;
-  done: (step: SetupStep) => boolean;
-  lang: Lang;
-  onStep: (step: SetupStep) => void;
-}) {
-  return (
-    <nav className="shrink-0 md:w-56">
-      <ol className="m-0 flex list-none gap-1 overflow-x-auto p-0 md:flex-col md:overflow-visible">
-        {STEPS.map((step, i) => {
-          const here = step === current;
-          // Marked the moment the step is done, the current one included.
-          const ok = done(step);
-          return (
-            <li key={step} className="shrink-0">
-              <button
-                type="button"
-                aria-current={here ? "step" : undefined}
-                onClick={() => onStep(step)}
-                className={
-                  "flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] " +
-                  (here ? "bg-green text-cream" : "text-ink hover:bg-panel")
-                }
-              >
-                <span
-                  aria-hidden="true"
-                  className={
-                    "w-4 shrink-0 text-center font-mono text-[11px] tabular-nums " +
-                    (here ? "text-cream" : ok ? "text-green" : "text-muted")
-                  }
-                >
-                  {i === 0 ? "" : ok ? "✓" : i}
-                </span>
-                <span className="whitespace-nowrap">{stepLabel(step, lang)}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
-  );
+function isMappingStep(step: SetupStep): step is MappingRole {
+  return MAPPING_ROLES.includes(step);
 }
+
+/** The rule's check, or the blank one a first answer starts from. */
+function checkOf(rule: ExtendedRule | null, role: MappingRole): MappingCheck {
+  return rule && (rule.check.type === "code-lookup" || rule.check.type === "copy-object") ? rule.check : blankCheck(role);
+}
+
+/** A source as the step and the summary name it. */
+function sourceText(source: PhaseSource, lang: Lang): string {
+  if ("progressCode" in source) return t("setup.viaMmi", lang);
+  if ("property" in source) return `${source.property.propertySet}.${source.property.name}`;
+  if ("attribute" in source) return `${t("field.source.attribute", lang)} ${source.attribute}`;
+  if ("classification" in source)
+    return [t("field.source.classification", lang), source.classification.system ?? ""].join(" ").trim();
+  return t("field.source.material", lang);
+}
+
+/** The source a rule holds, as the step pre-picks it; null when it holds
+ *  none (no rule, or a property not filled in). */
+function currentSource(rule: ExtendedRule | null, check: MappingCheck, lang: Lang): CurrentSource | null {
+  if (rule === null) return null;
+  const source = check.source;
+  if ("property" in source) {
+    const { propertySet, name } = source.property;
+    return propertySet === "" && name === "" ? null : { kind: "property", set: propertySet, name };
+  }
+  if ("attribute" in source) return { kind: "other", head: t("field.source.attribute", lang), title: source.attribute };
+  if ("classification" in source)
+    return { kind: "other", head: t("field.source.classification", lang), title: source.classification.system ?? "" };
+  return { kind: "other", head: t("field.source", lang), title: t("field.source.material", lang) };
+}
+
+function formatMetres(m: number, lang: Lang): string {
+  return Number.isFinite(m) ? m.toLocaleString(locale(lang), { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : "";
+}
+
+const TILE = "flex min-h-44 flex-col border border-line bg-panel p-6 text-left";
+const H1 = "m-0 text-2xl font-medium text-ink";
+const PLANES: readonly StoreyPlane[] = ["OKFG", "OKBD"];
 
 export function SetupPage({
   lang,
@@ -1963,6 +1992,8 @@ export function SetupPage({
   // the workbook), so it holds for this Oppsett.
   const [kept, setKept] = useState<ReadonlySet<LayerSlot>>(new Set());
   const [exportError, setExportError] = useState<string | null>(null);
+  // The step just answered and what it gave, shown on the step it led to.
+  const [landed, setLanded] = useState<{ from: SetupStep; to: SetupStep; result: React.ReactNode } | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const ifcInput = useRef<HTMLInputElement>(null);
   const blocked = hasErrors(lint);
@@ -1972,19 +2003,20 @@ export function SetupPage({
   const firstStep: SetupStep = models.length === 0 ? "ifc" : FIRST_MAPPING_STEP;
   const current: SetupStep = step ?? (rulesetLoaded ? firstStep : "start");
   const at = STEPS.indexOf(current);
-  const last = at === STEPS.length - 1;
 
   // The picker's list: every model that has answered, merged. null while no
   // model is on the board; reading while one is still being read or asked.
-  const picker = useMemo(() => {
+  const picker = useMemo((): Picker => {
     const answered = models.filter((m) => m.psets !== undefined).map((m) => m.psets!);
     const reading = models.some(
       (m) => m.state === "queued" || m.state === "parsing" || (m.state === "ready" && !m.psets && !m.psetsError),
     );
+    const profiled = models.filter((m) => m.profile);
     return {
       choices: answered.length > 0 ? mergeChoices(answered) : models.length > 0 && reading ? [] : null,
       reading,
       errors: models.filter((m) => m.psetsError).map((m) => `${m.fileName}: ${m.psetsError}`),
+      total: profiled.length > 0 ? profiled.reduce((n, m) => n + m.profile!.rows.length, 0) : null,
     };
   }, [models]);
 
@@ -2001,9 +2033,27 @@ export function SetupPage({
     [models],
   );
 
+  const ownerNames = useMemo(() => everyOwnerName(ruleset), [ruleset]);
+
+  // Each model's requirements as the IDS tab reads them: a step's result.
+  const results = useMemo(
+    () => models.filter((m) => m.board).map((m) => ({ model: m.fileName, reqs: requirements(m.board!.rows) })),
+    [models],
+  );
+  const resultOf = (s: SetupStep) => {
+    const key = STEP_REQ[s];
+    return key ? results.map(({ model, reqs }) => ({ model, req: reqs.find((r) => r.key === key) ?? null })) : [];
+  };
+
+  // The mapping step's rule and check, held still across renders so the
+  // candidates are ranked once per answer, not once per keystroke elsewhere.
+  const role = isMappingStep(current) ? current : null;
+  const rule = role ? mappingRule(ruleset, role) : null;
+  const check = useMemo(() => (role ? checkOf(rule, role) : null), [rule, role]);
+
   const layerIssues = (slot: LayerSlot) => lint.filter((i) => i.ruleId === null && i.path.startsWith(layerPath(slot)));
   const done = (s: SetupStep): boolean => {
-    if (s === "start") return false;
+    if (s === "start" || s === "end") return false;
     if (isLayerStep(s))
       return LAYER_SLOTS[s].every(
         (slot) => (kept.has(slot) || layerSources(ruleset, slot).length > 0) && !hasErrors(layerIssues(slot)),
@@ -2011,8 +2061,8 @@ export function SetupPage({
     if (s === "ifc") return models.some((m) => m.state === "ready");
     if (s === "storeys")
       return (ruleset.storeys?.levels.length ?? 0) > 0 && !hasErrors(lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys")));
-    const rule = mappingRule(ruleset, s);
-    return rule !== null && rule.enabled !== false && !hasErrors(lint.filter((i) => i.ruleId === rule.id));
+    const r = mappingRule(ruleset, s);
+    return r !== null && r.enabled !== false && !hasErrors(lint.filter((i) => i.ruleId === r.id));
   };
 
   const newRule = (role: MappingRole): ExtendedRule => ({
@@ -2053,63 +2103,80 @@ export function SetupPage({
     });
   };
 
+  const setStoreys = (storeys: StoreySetup | undefined) => {
+    const next: Ruleset = { ...ruleset, storeys };
+    if (storeys === undefined) delete next.storeys;
+    onChange(next);
+  };
+
   const save = () => {
     setExportError(null);
     const error = onSave();
     if (error !== null) setExportError(error);
   };
 
-  // One primary per step: the choice tiles on the first, «Åpne IFC» while
-  // no model is open, «Lagre oppsett» on the last, Neste otherwise.
-  const nextPrimary = current !== "start" && !(current === "ifc" && models.length === 0);
-  const next = () => (last ? save() : onStep(STEPS[at + 1]));
+  // The way on. An answer moves on by itself and its result lands on the
+  // next step; «Hopp over» moves on and changes nothing.
+  const next = STEPS[at + 1] ?? current;
+  const back = at > 0 ? () => onStep(STEPS[at - 1]) : undefined;
+  const advance = (result: React.ReactNode) => {
+    setLanded({ from: current, to: next, result });
+    onStep(next);
+  };
+  const skip = () => onStep(next);
+  const nav = <StepNav lang={lang} onBack={back} forward={t("action.skip", lang)} onForward={skip} />;
 
   let body: React.ReactNode;
   if (current === "start") {
     body = (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className={TILE + " gap-4 has-[button:hover]:border-green"}>
+      <>
+        <h1 className={H1}>{t("action.setup", lang)}</h1>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className={TILE + " gap-4 has-[button:hover]:border-green"}>
+            <button
+              type="button"
+              onClick={() => openInput.current?.click()}
+              className="flex flex-1 flex-col items-start justify-center gap-2 text-left"
+            >
+              <span className="text-lg font-medium text-ink">{t("action.openRuleset", lang)}</span>
+              <span className="font-mono text-[11px] tracking-wide text-muted">{t("accept.ruleset", lang)}</span>
+            </button>
+            <a
+              href={`${import.meta.env.BASE_URL}${CONFIG_TEMPLATE_FILE}`}
+              download={CONFIG_TEMPLATE_FILE}
+              className={SECONDARY + " w-fit"}
+            >
+              {t("action.downloadTemplate", lang)}
+            </a>
+            <input
+              ref={openInput}
+              type="file"
+              accept=".json,.xlsx,.ids,.xml"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void onOpen(file).then((ok) => ok && onStep(firstStep));
+                event.target.value = "";
+              }}
+            />
+          </div>
           <button
             type="button"
-            onClick={() => openInput.current?.click()}
-            className="flex flex-1 flex-col items-start justify-center gap-2 text-left"
+            autoFocus
+            onClick={() => onStep(firstStep)}
+            className={TILE + " items-start justify-center bg-green text-cream hover:bg-ink"}
           >
-            <span className="text-lg font-medium text-ink">{t("action.openRuleset", lang)}</span>
-            <span className="font-mono text-[11px] tracking-wide text-muted">{t("accept.ruleset", lang)}</span>
+            <span className="text-lg font-medium">{t("action.guideMe", lang)} →</span>
           </button>
-          <a
-            href={`${import.meta.env.BASE_URL}${CONFIG_TEMPLATE_FILE}`}
-            download={CONFIG_TEMPLATE_FILE}
-            className={SECONDARY + " w-fit"}
-          >
-            {t("action.downloadTemplate", lang)}
-          </a>
-          <input
-            ref={openInput}
-            type="file"
-            accept=".json,.xlsx,.ids,.xml"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void onOpen(file).then((ok) => ok && onStep(firstStep));
-              event.target.value = "";
-            }}
-          />
         </div>
-        <button
-          type="button"
-          onClick={() => onStep(firstStep)}
-          className={TILE + " items-start justify-center hover:border-green"}
-        >
-          <span className="text-lg font-medium text-ink">{t("action.guideMe", lang)}</span>
-        </button>
-      </div>
+      </>
     );
   } else if (current === "ifc") {
     body = (
       <div className="flex flex-col gap-4">
         <button
           type="button"
+          autoFocus={models.length === 0}
           onClick={() => ifcInput.current?.click()}
           className={
             "flex min-h-44 flex-col items-start justify-center gap-2 p-6 text-left " +
@@ -2144,161 +2211,410 @@ export function SetupPage({
             ))}
           </ul>
         ) : null}
+        <StepNav
+          lang={lang}
+          onBack={back}
+          forward={t(models.length > 0 ? "action.next" : "action.skip", lang)}
+          onForward={skip}
+        />
       </div>
     );
   } else if (isLayerStep(current)) {
     const slots = LAYER_SLOTS[current];
     const mmi = roleRule(ruleset, "progress-code")?.check;
     const mmiPhases = mmi?.type === "code-lookup" && (mmi.codes ?? []).some((c) => c.phase);
+    const result = resultOf(current);
+    // «Bruk»: every cascade of the step at the standard, with the project's
+    // sources, if any, after it.
+    const keep = () => {
+      setKept((was) => new Set([...was, ...slots]));
+      advance(<ReqResult results={result} lang={lang} />);
+    };
     body = (
-      <div key={current} className="flex flex-col gap-6">
-        {slots.map((slot) => {
-          const sources = layerSources(ruleset, slot);
-          return (
-            <LayerList
-              key={slot}
-              slot={slot}
-              label={slots.length > 1 ? t(slot === "product" ? "field.product" : "field.material", lang) : undefined}
-              sources={sources}
-              kept={kept.has(slot)}
-              picker={picker}
-              issues={layerIssues(slot)}
-              judge={layerJudge(slot, ruleset)}
-              viaMmi={slot === "phase" && mmiPhases && !sources.some((s) => "progressCode" in s)}
-              lang={lang}
-              onChange={(next) => onChange(withLayerSources(ruleset, slot, next))}
-              onKeep={() =>
-                setKept((was) => {
-                  const now = new Set(was);
-                  if (now.has(slot) && sources.length === 0) now.delete(slot);
-                  else now.add(slot);
-                  return now;
-                })
-              }
-              onNext={next}
-            />
-          );
-        })}
+      <div className="flex flex-col gap-5">
+        <ProposalCard key={current} title={t("setup.standard", lang)} confirm={t("action.apply", lang)} onConfirm={keep}>
+          <div className="flex flex-col gap-3">
+            {slots.map((slot) => (
+              <div key={slot} data-layer-pick={slot} className="flex flex-col gap-1">
+                {slots.length > 1 ? (
+                  <span className={LABEL}>{t(slot === "product" ? "field.product" : "field.material", lang)}</span>
+                ) : null}
+                {STANDARD_SOURCES[slot].map((name) => (
+                  <span key={name} className="truncate font-mono text-[13px] text-ink">
+                    {name}
+                  </span>
+                ))}
+                {layerSources(ruleset, slot).map((source, i) => (
+                  <span key={i} className="truncate font-mono text-[13px] text-ink">
+                    + {sourceText(source, lang)}
+                  </span>
+                ))}
+              </div>
+            ))}
+            <ReqResult results={result} lang={lang} />
+          </div>
+        </ProposalCard>
+        {nav}
+        <Door label={t("setup.advanced", lang)}>
+          <div key={current} className="flex flex-col gap-6">
+            {slots.map((slot) => {
+              const sources = layerSources(ruleset, slot);
+              return (
+                <LayerList
+                  key={slot}
+                  slot={slot}
+                  label={slots.length > 1 ? t(slot === "product" ? "field.product" : "field.material", lang) : undefined}
+                  sources={sources}
+                  kept={kept.has(slot)}
+                  picker={picker}
+                  issues={layerIssues(slot)}
+                  judge={layerJudge(slot, ruleset)}
+                  viaMmi={slot === "phase" && mmiPhases && !sources.some((s) => "progressCode" in s)}
+                  lang={lang}
+                  onChange={(nextSources) => onChange(withLayerSources(ruleset, slot, nextSources))}
+                  onKeep={() =>
+                    setKept((was) => {
+                      const now = new Set(was);
+                      if (now.has(slot) && sources.length === 0) now.delete(slot);
+                      else now.add(slot);
+                      return now;
+                    })
+                  }
+                  onNext={keep}
+                />
+              );
+            })}
+          </div>
+        </Door>
       </div>
     );
   } else if (current === "storeys") {
-    const setStoreys = (storeys: StoreySetup | undefined) => {
-      const next: Ruleset = { ...ruleset, storeys };
-      if (storeys === undefined) delete next.storeys;
-      onChange(next);
+    const saved = ruleset.storeys?.levels ?? [];
+    // The saved levels when there are some, else the models' own.
+    const levels = saved.length > 0 ? saved : fromModels;
+    const plane = ruleset.storeys?.plane;
+    const matched = fromModels.filter((l) => hasLevel(levels, l)).length;
+    const figure = (
+      <span className="flex items-baseline gap-2">
+        <span className={LABEL}>{t("kpi.storeys", lang)}</span>
+        <span className="font-mono text-[13px] tabular-nums text-ink">
+          {fromModels.length > 0
+            ? `${formatCount(matched, lang)} / ${formatCount(fromModels.length, lang)}`
+            : formatCount(levels.length, lang)}
+        </span>
+      </span>
+    );
+    // One click: the plane is the answer, the levels come with it.
+    const take = (p: StoreyPlane) => {
+      const setup = setupWithLevels(ruleset.storeys, levels);
+      if (setup) setStoreys({ ...setup, plane: p });
+      advance(figure);
     };
-    const levels = ruleset.storeys?.levels ?? [];
     body = (
-      <div className="flex flex-col gap-4">
-        <StoreyCard
-          setup={ruleset.storeys}
-          issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
-          lang={lang}
-          onChange={setStoreys}
-        />
-        <TemplateButtons
-          fileName={templateFileName(ruleset.name, "etasjer")}
-          lang={lang}
-          onDownload={async () => {
-            const { writeLevelsXlsx } = await import("../ids/xlsx.ts");
-            return writeLevelsXlsx(levelsTemplate(levels, fromModels), ruleset.storeys?.plane);
-          }}
-          onUpload={async (bytes) => {
-            const { readLevelsXlsx } = await import("../ids/xlsx.ts");
-            setStoreys(setupWithLevels(ruleset.storeys, readLevelsXlsx(bytes)));
-          }}
-        />
-        {fromModels.length > 0 ? (
-          <ModelStoreys
-            fromModels={fromModels}
-            levels={levels}
-            lang={lang}
-            onAdd={(extra) => setStoreys(setupWithLevels(ruleset.storeys, withLevels(levels, extra)))}
-          />
+      <div className="flex flex-col gap-5">
+        {levels.length > 0 ? (
+          <ProposalCard
+            key="storeys"
+            actions={
+              <div className="flex flex-wrap gap-2 sm:self-end">
+                {PLANES.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    autoFocus={p === plane}
+                    data-plane={p}
+                    aria-pressed={p === plane}
+                    onClick={() => take(p)}
+                    className={
+                      p === plane
+                        ? CONFIRM
+                        : "flex min-h-12 items-center justify-center gap-3 border-2 border-green bg-panel px-8 text-[15px] font-medium text-ink hover:bg-green hover:text-cream"
+                    }
+                  >
+                    {p} →
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            {figure}
+            <div className="flex max-h-64 flex-col overflow-auto border border-line bg-input py-1">
+              {levels.map((level, i) => (
+                <div
+                  key={`${i}\u0000${level.name}`}
+                  data-storey={level.name}
+                  className="grid items-center gap-3 px-3 py-1 text-[12px] text-ink [grid-template-columns:minmax(0,1fr)_7rem]"
+                >
+                  <span className="min-w-0 truncate font-mono">{level.name}</span>
+                  <span className="text-right font-mono tabular-nums text-muted">{formatMetres(level.elevation, lang)}</span>
+                </div>
+              ))}
+            </div>
+          </ProposalCard>
+        ) : (
+          <div data-no-candidate className="flex items-center gap-3">
+            <StateChip state="no-match" lang={lang} />
+            <span className="text-[15px] text-ink">{t("setup.noMatch", lang)}</span>
+          </div>
+        )}
+        {nav}
+        <Door label={t("setup.advanced", lang)}>
+          <div className="flex flex-col gap-4">
+            <StoreyCard
+              setup={ruleset.storeys}
+              issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))}
+              lang={lang}
+              onChange={setStoreys}
+            />
+            <TemplateButtons
+              fileName={templateFileName(ruleset.name, "etasjer")}
+              lang={lang}
+              onDownload={async () => {
+                const { writeLevelsXlsx } = await import("../ids/xlsx.ts");
+                return writeLevelsXlsx(levelsTemplate(saved, fromModels), ruleset.storeys?.plane);
+              }}
+              onUpload={async (bytes) => {
+                const { readLevelsXlsx } = await import("../ids/xlsx.ts");
+                setStoreys(setupWithLevels(ruleset.storeys, readLevelsXlsx(bytes)));
+              }}
+            />
+            {fromModels.length > 0 ? (
+              <ModelStoreys
+                fromModels={fromModels}
+                levels={saved}
+                lang={lang}
+                onAdd={(extra) => setStoreys(setupWithLevels(ruleset.storeys, withLevels(saved, extra)))}
+              />
+            ) : null}
+          </div>
+        </Door>
+      </div>
+    );
+  } else if (current === "end") {
+    // What each step set, as the summary names it.
+    const setText = (s: SetupStep): string => {
+      if (s === "ifc") return models.map((m) => m.fileName).join(", ");
+      if (s === "storeys") {
+        const n = ruleset.storeys?.levels.length ?? 0;
+        return n > 0 ? `${formatCount(n, lang)} ${t("kpi.storeys", lang)} · ${ruleset.storeys?.plane ?? ""}` : "–";
+      }
+      if (isLayerStep(s))
+        return LAYER_SLOTS[s]
+          .map((slot) =>
+            [t("setup.standard", lang), ...layerSources(ruleset, slot).map((source) => sourceText(source, lang))].join(" + "),
+          )
+          .join(" · ");
+      if (isMappingStep(s)) {
+        const r = mappingRule(ruleset, s);
+        return r && r.enabled !== false ? sourceText(checkOf(r, s).source, lang) : "–";
+      }
+      return "";
+    };
+    // The outcome: every requirement the walk set, once, on every model.
+    const tally: Record<Verdict, number> = { pass: 0, warn: 0, fail: 0, na: 0 };
+    for (const key of new Set(WALK.map((s) => STEP_REQ[s]).filter((k) => k !== undefined))) {
+      for (const { reqs } of results) {
+        const req = reqs.find((r) => r.key === key);
+        if (req) tally[stateLook(req.state, lang).verdict] += 1;
+      }
+    }
+    body = (
+      <div className="flex flex-col gap-6">
+        <ol data-summary className="m-0 flex list-none flex-col border border-line bg-panel p-0">
+          {WALK.map((s) => (
+            <li key={s} className="border-b border-line last:border-b-0">
+              <button
+                type="button"
+                onClick={() => onStep(s)}
+                className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-input"
+              >
+                <span
+                  aria-hidden="true"
+                  className={"w-4 shrink-0 text-center font-mono text-[12px] " + (done(s) ? "text-green" : "text-muted")}
+                >
+                  {done(s) ? "✓" : "–"}
+                </span>
+                <span className="w-48 shrink-0 text-[14px] text-ink">{stepLabel(s, lang)}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{setText(s)}</span>
+                <ReqResult results={resultOf(s)} lang={lang} />
+              </button>
+            </li>
+          ))}
+        </ol>
+        {results.length > 0 ? (
+          <div data-overall className="flex flex-wrap items-center gap-2">
+            {(["pass", "warn", "fail", "na"] as const).map((v) =>
+              tally[v] > 0 ? (
+                <span
+                  key={v}
+                  title={t(`verdict.${v}`, lang)}
+                  className={"inline-flex items-center gap-2 px-3 py-1 font-mono text-[15px] tabular-nums " + VERDICT_FILL[v]}
+                >
+                  <span aria-hidden="true">{VERDICT_GLYPH[v]}</span>
+                  <span>{formatCount(tally[v], lang)}</span>
+                </span>
+              ) : null,
+            )}
+          </div>
         ) : null}
+        <button type="button" autoFocus data-step-confirm onClick={save} className={CONFIRM + " sm:self-end"}>
+          {t("action.saveSetup", lang)} →
+        </button>
+        <StepNav lang={lang} onBack={back} />
       </div>
     );
   } else {
-    const role = current;
-    const rule = mappingRule(ruleset, role);
+    const r = current;
+    const c = check ?? checkOf(rule, r);
+    const confirmCandidate = (candidate: Candidate) => {
+      const property = { propertySet: candidate.set, name: candidate.name };
+      const classification = r === "system-classification" || r === "component-classification";
+      setCheck(
+        r,
+        c.type === "code-lookup"
+          ? {
+              ...c,
+              source: { property },
+              ...(candidate.extract !== undefined ? { extract: candidate.extract } : {}),
+              // A property is read per occurrence (`typeSubjects`).
+              ...(classification && !("property" in c.source) ? { target: "occurrence" as const } : {}),
+            }
+          : { ...c, source: { property } },
+      );
+      advance(<TotalChips preview={candidate.preview} lang={lang} />);
+    };
+    const confirmCurrent = (preview: ExtractPreview | null) => {
+      if (rule !== null && rule.enabled === false) toggle(r);
+      advance(preview ? <TotalChips preview={preview} lang={lang} /> : null);
+    };
     body = (
-      <MappingCard
-        key={role}
-        role={role}
-        rule={rule}
-        issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
-        lang={lang}
-        rulesetName={ruleset.name}
-        picker={picker}
-        onToggle={() => toggle(role)}
-        onCheck={(check) => setCheck(role, check)}
-        onAskEnable={() => setAsking(role)}
-        onNext={next}
-      />
+      <div className="flex flex-col gap-5">
+        <MappingStep
+          key={r}
+          role={r}
+          check={c}
+          current={currentSource(rule, c, lang)}
+          choices={picker.choices}
+          reading={picker.reading}
+          total={picker.total}
+          ownerNames={ownerNames}
+          lang={lang}
+          onCandidate={confirmCandidate}
+          onCurrent={confirmCurrent}
+          fallback={
+            picker.choices !== null ? (
+              <PropertyPicker
+                value={{ propertySet: "", name: "" }}
+                choices={picker.choices}
+                reading={picker.reading}
+                errors={picker.errors}
+                total={picker.total}
+                manual={false}
+                invalidSet={false}
+                invalidName={false}
+                lang={lang}
+                onChange={(property) => setCheck(r, { ...c, source: { property } })}
+                onNext={() => {}}
+              />
+            ) : null
+          }
+        />
+        {nav}
+        <Door label={t("setup.advanced", lang)}>
+          <MappingCard
+            key={r}
+            role={r}
+            rule={rule}
+            issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
+            lang={lang}
+            rulesetName={ruleset.name}
+            picker={picker}
+            onToggle={() => toggle(r)}
+            onCheck={(nextCheck) => setCheck(r, nextCheck)}
+            onAskEnable={() => setAsking(r)}
+            onNext={() => confirmCurrent(null)}
+          />
+        </Door>
+      </div>
     );
   }
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-4 pb-10">
-      {/* ONE bounded container for the header, the rail and the step, so
-          their edges align at every width. */}
-      <div className="mx-auto flex w-full max-w-[1136px] flex-1 flex-col gap-6">
-        <div className="flex flex-wrap items-end gap-3">
-          <h1 className="m-0 mr-auto text-base font-medium text-ink">{t("action.setup", lang)}</h1>
-          <Field label={t("label.ruleset", lang)}>
-            <input
-              type="text"
-              className={INPUT + " w-64"}
-              aria-invalid={nameIssue && (nameTouched || attempted)}
-              value={ruleset.name}
-              onBlur={() => setNameTouched(true)}
-              onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
+      {/* ONE bounded column: the bar, what just landed, the question. */}
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+        <div className="flex items-center gap-4">
+          {current === "start" ? (
+            <div className="flex-1" />
+          ) : (
+            <WalkProgress
+              steps={WALK}
+              current={current === "end" ? null : current}
+              done={done}
+              label={(s) => stepLabel(s, lang)}
+              onStep={onStep}
             />
-          </Field>
-          <button
-            type="button"
-            aria-disabled={blocked}
-            onClick={() => {
-              setAttempted(true);
-              if (!blocked) downloadRuleset(ruleset, fileName);
-            }}
-            className={downloadClass(blocked)}
-          >
-            <span>{t("action.download", lang)}</span>
-            <span className="font-mono text-[11px]">{fileName}</span>
-          </button>
-          <button
-            type="button"
-            aria-disabled={blocked}
-            onClick={() => {
-              setAttempted(true);
-              if (blocked) return;
-              setExportError(null);
-              downloadXlsx(ruleset, xlsxName(fileName)).catch((error: unknown) =>
-                setExportError(error instanceof Error ? error.message : String(error)),
-              );
-            }}
-            className={downloadClass(blocked)}
-          >
-            <span>{t("action.download", lang)}</span>
-            <span className="font-mono text-[11px]">{xlsxName(fileName)}</span>
-          </button>
-          <button
-            type="button"
-            aria-disabled={blocked || !hasIds}
-            onClick={() => {
-              setAttempted(true);
-              if (blocked || !hasIds) return;
-              setExportError(null);
-              downloadIds(ruleset, idsName(fileName)).catch((error: unknown) =>
-                setExportError(error instanceof Error ? error.message : String(error)),
-              );
-            }}
-            className={downloadClass(blocked || !hasIds)}
-          >
-            <span>{t("action.download", lang)}</span>
-            <span className="font-mono text-[11px]">{idsName(fileName)}</span>
-          </button>
+          )}
+          {/* The file actions, one door: the ruleset's name and its three
+              downloads, as the header had them. */}
+          <Door label={t("action.download", lang)} float>
+            <div className="flex flex-col items-start gap-3">
+              <Field label={t("label.ruleset", lang)}>
+                <input
+                  type="text"
+                  className={INPUT + " w-64"}
+                  aria-invalid={nameIssue && (nameTouched || attempted)}
+                  value={ruleset.name}
+                  onBlur={() => setNameTouched(true)}
+                  onChange={(e) => onChange({ ...ruleset, name: e.target.value })}
+                />
+              </Field>
+              <button
+                type="button"
+                aria-disabled={blocked}
+                onClick={() => {
+                  setAttempted(true);
+                  if (!blocked) downloadRuleset(ruleset, fileName);
+                }}
+                className={downloadClass(blocked)}
+              >
+                <span>{t("action.download", lang)}</span>
+                <span className="font-mono text-[11px]">{fileName}</span>
+              </button>
+              <button
+                type="button"
+                aria-disabled={blocked}
+                onClick={() => {
+                  setAttempted(true);
+                  if (blocked) return;
+                  setExportError(null);
+                  downloadXlsx(ruleset, xlsxName(fileName)).catch((error: unknown) =>
+                    setExportError(error instanceof Error ? error.message : String(error)),
+                  );
+                }}
+                className={downloadClass(blocked)}
+              >
+                <span>{t("action.download", lang)}</span>
+                <span className="font-mono text-[11px]">{xlsxName(fileName)}</span>
+              </button>
+              <button
+                type="button"
+                aria-disabled={blocked || !hasIds}
+                onClick={() => {
+                  setAttempted(true);
+                  if (blocked || !hasIds) return;
+                  setExportError(null);
+                  downloadIds(ruleset, idsName(fileName)).catch((error: unknown) =>
+                    setExportError(error instanceof Error ? error.message : String(error)),
+                  );
+                }}
+                className={downloadClass(blocked || !hasIds)}
+              >
+                <span>{t("action.download", lang)}</span>
+                <span className="font-mono text-[11px]">{idsName(fileName)}</span>
+              </button>
+            </div>
+          </Door>
         </div>
 
         {exportError !== null ? (
@@ -2307,38 +2623,16 @@ export function SetupPage({
           </pre>
         ) : null}
 
-        <div className="flex flex-1 flex-col gap-6 md:flex-row md:items-start md:gap-8">
-          <StepRail current={current} done={done} lang={lang} onStep={onStep} />
-          <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-1 flex-col">
-            {body}
-            {/* The way on, at the end of the step: the next step by name, or
-                «Lagre oppsett» on the last. Back is the quiet one. */}
-            {current === "start" ? null : (
-              <div data-step-nav className="mt-6 flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => onStep(STEPS[at - 1])}
-                  className="px-1 py-2 text-[13px] text-muted hover:text-ink"
-                >
-                  {t("action.previous", lang)}
-                </button>
-                <button
-                  type="button"
-                  data-step-next
-                  onClick={next}
-                  className={
-                    "ml-auto flex min-h-12 items-center gap-3 px-6 text-[15px] font-medium " +
-                    (nextPrimary
-                      ? "bg-green text-cream hover:bg-ink"
-                      : "border border-line bg-panel text-ink hover:border-green hover:text-green")
-                  }
-                >
-                  {last ? t("action.saveSetup", lang) : `${t("action.next", lang)}: ${stepLabel(STEPS[at + 1], lang)} →`}
-                </button>
-              </div>
-            )}
-          </section>
-        </div>
+        {landed !== null && landed.to === current ? (
+          <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
+            {landed.result}
+          </Landed>
+        ) : null}
+
+        <section aria-label={stepLabel(current, lang)} className="flex min-w-0 flex-col gap-5">
+          {current === "start" ? null : <h1 className={H1}>{stepLabel(current, lang)}</h1>}
+          {body}
+        </section>
       </div>
 
       {asking ? (

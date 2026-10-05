@@ -48,7 +48,9 @@ import { CODE_LISTS } from "../src/codelists/index.ts";
 import { compileExtract, evaluateRuleset } from "../src/ids/evaluate.ts";
 import { extractFromExample } from "../src/ids/extract-example.ts";
 import { previewExtract } from "../src/ui/extract-preview.ts";
-import { mergeChoices } from "../src/ui/pset-choices.ts";
+import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
+import { rankCandidates } from "../src/ui/setup/candidates.ts";
+import type { CodeLookupCheck, CopyObjectCheck, MappingRole } from "../src/ids/types.ts";
 import { defaultCodeList } from "../src/ids/models.ts";
 import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
@@ -3164,6 +3166,50 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
     "system-classification:ns3451 component-classification:ns3457-8",
     `system-classification:${defaultCodeList("system-classification")} component-classification:${defaultCodeList("component-classification")}`,
   );
+
+  // The walk's proposals (src/ui/setup/candidates.ts): ranked by the step's
+  // own check over the values, never by a name.
+  const choice = (set: string, name: string, values: [string, number][]): PsetChoice => {
+    const n = values.reduce((sum, [, k]) => sum + k, 0);
+    return { set, objects: n, props: [{ name, n, valued: n, values: values.map(([v, k]) => ({ v, n: k })), distinct: values.length, exact: true }] };
+  };
+  const ranked = (choices: PsetChoice[], role: MappingRole, check: CodeLookupCheck | CopyObjectCheck) =>
+    rankCandidates(choices, role, check, [])
+      .map((c) => `${c.set}.${c.name}:${c.preview.totals.ok}${c.extract && c.extract !== (check as CodeLookupCheck).extract ? `@${c.extract}` : ""}`)
+      .join(" ") || "none";
+  const blankProp = { property: { propertySet: "", name: "" } };
+  const sys: CodeLookupCheck = { type: "code-lookup", source: blankProp, list: "ns3451", target: "occurrence", extract: defaultExtract("system-classification") };
+  record(
+    "walk candidates Systemkode: the code before its name is found, a name-free property beside it",
+    "Klass.NS3451:12@^(\\d{3}).* Other.Kode:3",
+    ranked(
+      [choice("Klass", "NS3451", [["231 Bærevegger", 10], ["232 Ikke-bærende", 2]]), choice("Other", "Kode", [["231", 3]]), choice("Dim", "Text", [["Vegg", 40]])],
+      "system-classification",
+      sys,
+    ),
+  );
+  const mmi: CodeLookupCheck = { type: "code-lookup", source: blankProp, codes: [], extract: defaultExtract("progress-code") };
+  record(
+    "walk candidates MMI: with no codes, ranked by the presets' codes, so a width sinks",
+    "P.MMI:8 Dim.Width:52",
+    ranked([choice("Dim", "Width", [["123", 50], ["300", 2]]), choice("P", "MMI", [["300", 5], ["400", 3]])], "progress-code", mmi),
+  );
+  record(
+    "walk candidates Duplikat objekt: a new rule names no value, so nothing is proposed",
+    "none",
+    ranked([choice("NONS_Process", "DuplicateOwnedBy", [["ARK", 5]])], "copy-object", { type: "copy-object", source: blankProp, copy: [], own: [] }),
+  );
+  record(
+    "walk candidates Duplikat objekt: values the rule names are known",
+    "NONS_Process.DuplicateOwnedBy:5",
+    ranked([choice("NONS_Process", "DuplicateOwnedBy", [["ARK", 5], ["X", 1]]), choice("S", "Y", [["Z", 9]])], "copy-object", {
+      type: "copy-object",
+      source: blankProp,
+      copy: ["ark"],
+      own: [],
+    }),
+  );
+  record("walk candidates: no property passing is no proposal", "none", ranked([choice("Dim", "Text", [["Vegg", 40]])], "system-classification", sys));
 }
 
 /* ------------------------------------------------------------------ xlsx */

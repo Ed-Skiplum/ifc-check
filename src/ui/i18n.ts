@@ -360,6 +360,12 @@ const STRINGS = {
   "setup.qto": { nb: "Mengdetype", en: "Quantity type" },
   "setup.standard": { nb: "Standard", en: "Standard" },
   "setup.viaMmi": { nb: "Via MMI", en: "Via MMI" },
+  // The walk (2026-10-05): the door every config control sits behind, the
+  // way on without an answer, a step with no candidate, and the end.
+  "setup.advanced": { nb: "Avansert", en: "Advanced" },
+  "action.skip": { nb: "Hopp over", en: "Skip" },
+  "setup.noMatch": { nb: "Ingen treff", en: "No matches" },
+  "setup.summary": { nb: "Oppsummering", en: "Summary" },
   "field.product": { nb: "Produkt", en: "Product" },
   "field.material": { nb: "Materiale", en: "Material" },
   "field.storeyName": { nb: "Navn", en: "Name" },

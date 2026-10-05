@@ -287,7 +287,9 @@ export default function App() {
         } catch (error) {
           return error instanceof Error ? error.message : String(error);
         }
-        setView({ page: null });
+        // Onto the IDS tab, where the Standardkrav rows show what the setup
+        // gives on the model (2026-10-05).
+        setView({ page: null, tab: "project", type: null });
         return null;
       }}
     />
