@@ -1,6 +1,8 @@
-/** Oppsett's project-layer steps (Fase, Materiale / Produkt, Mengdetype):
- *  each edits one cascade of the ruleset's `projectLayer`, the sources read
- *  after the standard layer's (`src/engine/standard-sources.ts`).
+/** Oppsett's project-layer steps (Fase, Materiale / Produkt): each edits one
+ *  cascade of the ruleset's `projectLayer`, the sources read after the
+ *  standard layer's (`src/engine/standard-sources.ts`). The `mengdetype`
+ *  cascade has no step since 2026-10-05; these functions still read and
+ *  write it, so a saved list round-trips.
  *
  * Pure. What a step writes is exactly the ruleset shape lint accepts: an
  * empty list is left out, an entry with nothing left in it is left out, and
