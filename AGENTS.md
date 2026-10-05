@@ -59,6 +59,7 @@ src/ui/          the screen, and the worker that drives the engine
                    (StoreyClassCensus.tsx), type ledger
   forms.tsx        gauge, distribution, KPI row, readouts
   SetupPage.tsx    the project mappings page (`#page=setup`)
+  setup/           its walk: candidates, the proposal card, bar, doors
 src/ids/         ruleset model, IDS emitter, evaluator, XSD validator
   import.ts      IDS 1.0 XML -> ruleset, per specification (see "The IDS view")
   xml-read.ts    the DOM-free XML reader the importer runs on (Node and browser)
@@ -2609,6 +2610,51 @@ worker, asked for only once Oppsett opens), type-to-filter, arrows, Enter;
 writes the ruleset to localStorage (`storage/saved-ruleset.ts`), restored on
 load, forgotten when the ruleset is removed, and returns to the board.
 Type-checked only; **not exercised in a browser.**
+
+Since 2026-10-05 the walk pulls (edkjo: "too many clicks and options/traces
+from the original basic config page"). Each step is one question under the
+step's name, its answer pre-picked, and «Bruk» takes it and moves on; no
+Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
+`chips.tsx` (the state chip, moved out of `SetupPage.tsx`).
+
+| Step | Pre-picked | Confirm |
+|---|---|---|
+| Systemkode, Funksjonskode, MMI, Duplikat objekt | the rule's saved source; else the top candidate, with up to 3 more as one-click rows | «Bruk», or a click on a row |
+| Fase, Materiale / Produkt, Mengdetype | Standard (`STANDARD_SOURCES`), with any project sources after it | «Bruk» keeps the step at the standard |
+| Etasjeoppsett | the saved levels, else the models' own storeys | OKFG or OKBD: the plane is the answer |
+
+- Candidates: every property in the pset inventory, run through the step's
+  own check (`previewExtract`; Duplikat objekt `copyVerdict`), scored
+  passing elements × the share of valued elements passing. Systemkode and
+  Funksjonskode also try the Uttrekk `extractFromExample` gives for the first
+  word of the most frequent value (a code before its name), and write it on
+  confirm. MMI with no codes listed ranks against every preset's codes, so a
+  width of 300 sinks; the evidence shown is the rule's own format check. A
+  new Duplikat objekt rule names no value and so has no candidate. Nothing
+  passing: «Ingen treff» and the picker (without «Egenskapen er ikke med»).
+- Evidence on a proposal: Produkter `carrying / models' products`, Verdier
+  `passing / distinct`, the state chips. A saved property the models lack is
+  red with `0 / N`, on the card and in the picker's card.
+- The bar: one segment per step (filled when done, a click jumps), `n / N`
+  beside it. On confirm, the next step opens under a strip naming the
+  confirmed step with its result: the chips on a mapping step, the report
+  row's state and figure (`requirements.ts`, as the IDS tab) on a layer step,
+  `matched / model storeys` on Etasjeoppsett. `pick-in` animation, off under
+  prefers-reduced-motion.
+- «Hopp over» moves on and changes nothing; Forrige goes back.
+- End (`Oppsummering`): per step what was set and each model's report-row
+  result; the outcome as a count per verdict over those rows; «Lagre
+  oppsett», which saves and opens the IDS tab (`tab=project`).
+- Behind each step's «Avansert»: the step's old body, whole (MappingCard with
+  switch, list, Gjelder, Kildetype, picker, values, Uttrekk, Eksempel, MMI
+  presets, codes, template; LayerList; StoreyCard, its template and the
+  models' storeys). Behind «Last ned» in the bar: the ruleset name and the
+  three downloads.
+
+Verified: `tsc`, selftest (candidate ranking: a code before its name, MMI
+against the presets, Duplikat objekt with and without values, nothing
+passing). **Not exercised in a browser**: no click of the walk, the doors,
+the focus on «Bruk» or the landing on the IDS tab has been seen.
 
 Verified headlessly: `selftest` asserts each mapping lint refusal, the schema
 refusal of a code-lookup with neither list nor values, a values lookup on a
