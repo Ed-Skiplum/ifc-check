@@ -3562,3 +3562,37 @@ count; distinct values differ only as above. On KNM_ARK / RIV / RIB with
 KNM_RIB is the one model at hand with type-folded rows (3 owners, 8 sets).
 No real model at hand carries a set the loaded ruleset requires, so `krevd`
 is proven on the synthetic graph only.
+
+## Account (konto.skiplum.com)
+
+Sign-in is the Skiplum account platform (`skiplum/internal/platform`, its
+`docs/app-contract.md`), not sprucelab, not Supabase. Base URL: the Vite env
+`VITE_KONTO_URL`, default production `https://konto.skiplum.com`; staging is
+`VITE_KONTO_URL=https://test.konto.skiplum.com`. `kontoBase` refuses anything
+but an https origin (http only on localhost), and every call goes to that one
+origin with `credentials: "include"`.
+
+- `src/account/konto.ts` (pure, `fetch` passed in, selftested): `me()` =
+  `GET /api/me`; 401 is signed out, a network/CORS failure, a non-2xx or a
+  body off the contract is `unavailable` (not signed out). The body is read
+  as untrusted: only `user.{id,email,name}` and the owned org's `id` and
+  `hosted_state`, type-checked; the name renders as text. Sign-in is a link
+  to `/api/continue?to=<this page>` (`target="_top"`: the platform's pages
+  cannot be framed inside the skiplum.com embed). Sign-out is
+  `POST /api/auth/sign-out` (JSON `{}`).
+- `src/account/useAccount.ts`: asks once on load and on every window focus,
+  never awaited before the first render. Unknown until it answers.
+- `AccountControl` (`src/ui/AppBar.tsx`), on both bars next to Oppsett:
+  signed out «Logg inn», signed in the name (else e-mail) and «Logg ut»,
+  unavailable nothing.
+- The cookie is the platform's (`__Host-`, HttpOnly). Nothing here reads,
+  stores or logs a token or a cookie. CSRF on the platform = the Origin
+  allowlist plus a JSON content type on writes; a browser `fetch` from an
+  allowlisted origin carries both, there is no token.
+
+Unverified: nothing has run against the real platform or in a browser. Live
+it needs, on the platform side: this app's origin in `ALLOWED_ORIGINS`
+(`wrangler.jsonc`, per environment; it is also Better Auth's
+`trustedOrigins`, which sign-out checks), and the origin registered for
+`ifc-check` in `app_origin` (a migration, like `sql/006_app_origins.sql`);
+until then `/api/continue` answers 400.

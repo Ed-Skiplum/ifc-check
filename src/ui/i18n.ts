@@ -397,6 +397,8 @@ const STRINGS = {
   "action.addRow": { nb: "Legg til", en: "Add" },
   "action.downloadTemplate": { nb: "Last ned mal", en: "Download template" },
   "action.saveSetup": { nb: "Lagre oppsett", en: "Save setup" },
+  "action.signIn": { nb: "Logg inn", en: "Sign in" },
+  "action.signOut": { nb: "Logg ut", en: "Sign out" },
   // The choice the walk starts on (2026-10-05): the POFIN template or a
   // project's own answers, and the two ways on from the template.
   "setup.pofin": { nb: "POFIN", en: "POFIN" },

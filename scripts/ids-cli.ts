@@ -164,6 +164,7 @@ import { beregn, SENTINEL } from "../src/mottakskontroll/beregn.ts";
 import { htmlModell, htmlProsjekt } from "../src/mottakskontroll/html.ts";
 import { BLOKKER, ETIKETTER, KPI_TITLER, SEKSJONER, VERDIKT_ORD } from "../src/mottakskontroll/standard.ts";
 import { CACHE_SESSION_GRACE_MS, offered, purgeable } from "../src/storage/session.ts";
+import { kontoBase, me, signInUrl, signOut, type Konto } from "../src/account/konto.ts";
 
 process.stdout.setDefaultEncoding?.("utf8");
 
@@ -2930,6 +2931,7 @@ async function cmdSelftest(): Promise<number> {
   layerStepSelftest(record);
   stepTemplateSelftest(record);
   qtoSelftest(record);
+  await kontoSelftest(record);
   const write = mmiPresetSelftest(record, (codes) =>
     lintCodes(withRules([mappingRule("progress-code", { codes, extract: defaultExtract("progress-code") })])),
   );
@@ -3054,6 +3056,92 @@ function qtoSelftest(record: (name: string, expected: string, actual: string) =>
   record("qto: no quantities received, every measure pending", "true true true", (["volume", "area", "length"] as const).map((m) => String(qtoPending(none, m))).join(" "));
   const within = qtoTable(rows, qtoKeyOf("class", { storeys, materials: true })!, done, new Set(["w1", "s1"]));
   record("qto: within a filter, only its elements", "IfcWall 1 v2 | IfcSlab 1 v8 | total 2", `${within.rows.map((r) => `${r.label} ${r.count} v${r.volume.sum}`).join(" | ")} | total ${within.total.count}`);
+}
+
+/* ------------------------------------------------------- the account */
+
+/** A stand-in for `fetch`: answers from `respond`, records each call. Never
+ *  the real platform. */
+function fakeFetch(respond: (url: string, init: RequestInit) => Response | Promise<Response>) {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init: init ?? {} });
+    return respond(url, init ?? {});
+  }) as typeof fetch;
+  return { fn, calls };
+}
+
+const jsonResponse = (status: number, body: unknown) =>
+  new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** `src/account/konto.ts`: the base URL guard and /api/me's three states. */
+async function kontoSelftest(record: (name: string, expected: string, actual: string) => void): Promise<void> {
+  record(
+    "konto: base is production by default, the staging origin when set, refused when not https",
+    "https://konto.skiplum.com https://test.konto.skiplum.com null null",
+    [
+      kontoBase(undefined),
+      kontoBase("https://test.konto.skiplum.com/"),
+      kontoBase("http://konto.skiplum.com"),
+      kontoBase("https://u:p@konto.skiplum.com"),
+    ].map(String).join(" "),
+  );
+  const base = "https://konto.example";
+  const ask = async (respond: (url: string, init: RequestInit) => Response | Promise<Response>) => {
+    const f = fakeFetch(respond);
+    return { state: await me({ base, fetch: f.fn }), calls: f.calls };
+  };
+  const signedIn = await ask(() =>
+    jsonResponse(200, {
+      user: { id: "u1", email: "a@b.no", name: "<b>Ola</b>" },
+      orgs: [{ id: "o1", name: "x", role: "owner", plan: "hosted", hosted_state: true }],
+    }),
+  );
+  record(
+    "konto: me() signed in reads user and the owned org's hosted_state; the name is kept as text",
+    "signed-in u1 <b>Ola</b> o1 true",
+    signedIn.state.kind === "signed-in"
+      ? `signed-in ${signedIn.state.user.id} ${signedIn.state.user.name} ${signedIn.state.org?.id} ${signedIn.state.org?.hostedState}`
+      : signedIn.state.kind,
+  );
+  record(
+    "konto: me() asks GET /api/me on the configured origin with credentials",
+    "https://konto.example/api/me include GET",
+    `${signedIn.calls[0]?.url} ${signedIn.calls[0]?.init.credentials} ${signedIn.calls[0]?.init.method ?? "GET"}`,
+  );
+  record("konto: me() 401 is signed out", "signed-out", (await ask(() => jsonResponse(401, { error: "unauthenticated" }))).state.kind);
+  record(
+    "konto: me() network/CORS failure, 5xx, or a body off the contract is unavailable, not signed out",
+    "unavailable unavailable unavailable unavailable",
+    [
+      (await ask(() => { throw new TypeError("Failed to fetch"); })).state.kind,
+      (await ask(() => jsonResponse(503, { error: "down" }))).state.kind,
+      (await ask(() => jsonResponse(200, { user: { id: 7 } }))).state.kind,
+      (await ask(() => new Response("<html>", { status: 200 }))).state.kind,
+    ].join(" "),
+  );
+  record(
+    "konto: no hosted_state on the org reads false",
+    "false",
+    String(
+      ((await ask(() => jsonResponse(200, { user: { id: "u", email: "e", name: "" }, orgs: [{ id: "o", role: "owner" }] }))).state as { org?: { hostedState: boolean } }).org?.hostedState,
+    ),
+  );
+  record(
+    "konto: sign-in goes through /api/continue with the page as `to`",
+    "https://konto.example/api/continue?to=https%3A%2F%2Fifc-check.skiplum.com%2F%23model%3Da",
+    signInUrl(base, "https://ifc-check.skiplum.com/#model=a"),
+  );
+  const out = fakeFetch(() => jsonResponse(200, { success: true }));
+  const k: Konto = { base, fetch: out.fn };
+  const ended = await signOut(k);
+  const h = out.calls[0]?.init.headers as Record<string, string> | undefined;
+  record(
+    "konto: sign-out is POST /api/auth/sign-out, JSON, with credentials",
+    "true https://konto.example/api/auth/sign-out POST include application/json",
+    `${ended} ${out.calls[0]?.url} ${out.calls[0]?.init.method} ${out.calls[0]?.init.credentials} ${h?.["content-type"]}`,
+  );
 }
 
 /* ------------------------------------------------------- MMI presets */

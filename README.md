@@ -25,6 +25,18 @@ npm run build      # type-checks, then emits dist/
 npm run preview    # serves dist/
 ```
 
+## Account platform
+
+Sign-in uses the Skiplum account platform. The build talks to production
+(`https://konto.skiplum.com`) unless `VITE_KONTO_URL` says otherwise:
+
+```
+VITE_KONTO_URL=https://test.konto.skiplum.com npm run build   # staging
+```
+
+Only an https origin (or http on localhost) is accepted; anything else turns
+the account off. See AGENTS.md "Account (konto.skiplum.com)".
+
 ## Layout
 
 ```

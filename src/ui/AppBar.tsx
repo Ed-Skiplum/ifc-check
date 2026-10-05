@@ -7,6 +7,7 @@ import { BcfExport } from "./BcfExport";
 import { PdfExport } from "./PdfExport";
 import type { Ruleset } from "../ids/types.ts";
 import type { ModelEntry } from "./useModels";
+import type { MeState } from "../account/konto";
 
 export function LangToggle({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void }) {
   return (
@@ -26,6 +27,44 @@ export function LangToggle({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) 
           {code}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** The account, on the bar's right. Signed out: «Logg inn», to the
+ *  platform's sign-in and back here. Signed in: the name (else the e-mail),
+ *  as text, and «Logg ut». The platform unavailable: nothing. */
+export function AccountControl({
+  lang,
+  account,
+  signInHref,
+  onSignOut,
+}: {
+  lang: Lang;
+  account: MeState;
+  signInHref: string | null;
+  onSignOut: () => void;
+}) {
+  const control = "border border-line bg-input px-2 py-1 text-[12px] text-ink hover:border-green hover:text-green";
+  if (account.kind === "signed-out") {
+    return signInHref ? (
+      // _top: inside the skiplum.com embed the platform's page cannot be
+      // framed (it sends X-Frame-Options), so sign-in takes the whole window.
+      <a href={signInHref} target="_top" className={control}>
+        {t("action.signIn", lang)}
+      </a>
+    ) : null;
+  }
+  if (account.kind !== "signed-in") return null;
+  const who = account.user.name.trim() || account.user.email;
+  return (
+    <div className="flex items-center gap-2">
+      <span title={who} className="max-w-[24ch] truncate text-[12px] text-ink">
+        {who}
+      </span>
+      <button type="button" onClick={onSignOut} className={control}>
+        {t("action.signOut", lang)}
+      </button>
     </div>
   );
 }
@@ -70,6 +109,8 @@ interface AppBarProps {
   onClearRuleset: () => void;
   setupOpen: boolean;
   onSetup: () => void;
+  /** The account control (`AccountControl`), placed with Oppsett. */
+  account: React.ReactNode;
 }
 
 export function AppBar({
@@ -85,6 +126,7 @@ export function AppBar({
   onClearRuleset,
   setupOpen,
   onSetup,
+  account,
 }: AppBarProps) {
   const ifcInput = useRef<HTMLInputElement>(null);
 
@@ -181,6 +223,7 @@ export function AppBar({
       )}
 
       <div className="ml-auto flex items-center gap-3">
+        {account}
         <SetupToggle lang={lang} open={setupOpen} onToggle={onSetup} />
         <LangToggle lang={lang} onLang={onLang} />
       </div>

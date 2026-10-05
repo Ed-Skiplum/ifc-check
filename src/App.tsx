@@ -14,7 +14,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Ruleset } from "./ids/types.ts";
-import { AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
+import { AccountControl, AppBar, LangToggle, SetupToggle } from "./ui/AppBar";
+import { useAccount } from "./account/useAccount";
+import { signInUrl } from "./account/konto";
 import { t } from "./ui/i18n";
 import { FIRST_MAPPING_STEP, SetupPage, type SetupStep } from "./ui/SetupPage";
 import { forgetSavedRuleset, readSavedRuleset, writeSavedRuleset } from "./storage/saved-ruleset";
@@ -72,6 +74,16 @@ export default function App() {
   // views of one selection. Held per model id, so two files on screen do not
   // share a filter.
   const cross = useCrossFilter();
+  // The Skiplum account: asked on load and on focus, never awaited.
+  const { konto, account, signOut } = useAccount();
+  const accountControl = (
+    <AccountControl
+      lang={view.lang}
+      account={account}
+      signInHref={konto ? signInUrl(konto.base, window.location.href) : null}
+      onSignOut={signOut}
+    />
+  );
 
   /* ── One model on the board at a time ───────────────────────────────────
    *
@@ -415,6 +427,7 @@ export default function App() {
               {t("app.name", view.lang)}
             </button>
             <div className="ml-auto flex items-center gap-3">
+              {accountControl}
               <SetupToggle lang={view.lang} open={setupOpen} onToggle={toggleSetup} />
               <LangToggle lang={view.lang} onLang={(lang) => setView({ lang })} />
             </div>
@@ -454,6 +467,7 @@ export default function App() {
             onClearRuleset={clearRuleset}
             setupOpen={setupOpen}
             onSetup={toggleSetup}
+            account={accountControl}
           />
 
           {setupPage ? null : (
