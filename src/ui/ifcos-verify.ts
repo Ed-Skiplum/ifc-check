@@ -6,9 +6,12 @@
  * checks are on screen (`verifyNomesh`). Runs are queued and go one at a
  * time, since Pyodide plus an opened model is a couple of GB; the file is
  * read again from the `File` the user dropped and handed to
- * `ifcos-worker.ts`, which answers in batches. A model restored from the
- * cache after a reload has no file this session: that is `unavailable`, said
- * as such, never a pass. The settled state goes back to the model worker
+ * `ifcos-worker.ts`, which answers in batches. A finished run is stored with
+ * the cached model (`storeVerification`), and a model whose verdicts are
+ * stored takes them from there, so a model restored after a reload is still
+ * verified. One restored without them (cached before they were kept, or by
+ * another verifier) has no file this session: that is `unavailable`, said as
+ * such, never a pass. The settled state goes back to the model worker
  * (`NomeshVerification`), which re-runs the checks with it.
  *
  * Where ifcopenshell found geometry ifcfast did not, one ifcfast issue per
@@ -34,7 +37,9 @@ import {
   type IssueFacts,
   type NomeshVerification,
 } from "../engine/body-mesh";
+import { readVerification, storeVerification } from "../storage/model-cache";
 import type { IfcosResponse, IfcosStage } from "./ifcos-worker";
+import { VERIFIER } from "./ifcos-verifier";
 import type { Lang } from "./i18n";
 import { t } from "./i18n";
 import { formatCount } from "./format";
@@ -118,6 +123,8 @@ interface Job {
   file: File;
   guids: string[];
   settled: (verification: NomeshVerification) => void;
+  /** Where a finished run is stored, when the model is in the cache. */
+  cacheKey: string | null;
 }
 
 const queue: Job[] = [];
@@ -184,7 +191,13 @@ async function run(job: Job) {
     } else if (message.kind === "failed") {
       finish(job, { status: "failed", stage: message.stage, error: message.message });
     } else {
-      finish(job, { status: "done", version: message.version, verdicts: current.verdicts ?? {}, progress: current.progress });
+      const verdicts = current.verdicts ?? {};
+      finish(job, { status: "done", version: message.version, verdicts, progress: current.progress });
+      if (job.cacheKey !== null) {
+        void storeVerification({ cacheKey: job.cacheKey, verifier: VERIFIER, version: message.version, verdicts }).catch(
+          () => {},
+        );
+      }
     }
   };
   worker.postMessage({ kind: "verify", bytes, guids: job.guids }, [bytes]);
@@ -194,14 +207,22 @@ async function run(job: Job) {
  * Start the second check for a model. `settled` receives the verification
  * once it is final (done, failed, unavailable), to hand to the model worker.
  * `file` absent = a model restored from the cache after a reload.
+ *
+ * `cacheKey`: the model's key in the cache (`storage/model-cache.ts`). A run
+ * that finishes is stored under it, and a model whose verdicts are stored,
+ * by this same verifier and for every element asked, takes them instead of
+ * running ifcopenshell again. That is what lets a model restored after a
+ * reload, which has no file, still be verified.
  */
 export function verifyNomesh(
   modelId: string,
   file: File | undefined,
   input: NomeshInput,
   settled: (verification: NomeshVerification) => void,
+  cacheKey: string | null = null,
 ) {
-  inputs.set(modelId, { file, input, settled });
+  const held = { file, input, settled, cacheKey };
+  inputs.set(modelId, held);
   const current = runs.get(modelId);
   if (current && current.status !== "failed" && current.status !== "unavailable") return;
   const unavailable = (why: string) => {
@@ -210,23 +231,57 @@ export function verifyNomesh(
     settled(verificationOf(next));
   };
   if ("unavailable" in input) return unavailable(input.unavailable);
-  if (input.guids.length === 0) {
+  const guids = input.guids;
+  if (guids.length === 0) {
     // Nothing without a mesh: nothing for ifcopenshell to confirm.
     const next: IfcosRun = { status: "done", verdicts: {}, progress: { done: 0, total: 0 } };
     set(modelId, next);
     settled(verificationOf(next));
     return;
   }
-  if (!file) return unavailable("no-file");
-  set(modelId, { status: "queued", progress: { done: 0, total: input.guids.length } });
-  queue.push({ modelId, file, guids: input.guids, settled });
-  pump();
+  const start = () => {
+    if (!file) return unavailable("no-file");
+    set(modelId, { status: "queued", progress: { done: 0, total: guids.length } });
+    queue.push({ modelId, file, guids, settled, cacheKey });
+    pump();
+  };
+  if (cacheKey === null) return start();
+  set(modelId, { status: "queued", progress: { done: 0, total: guids.length } });
+  void readVerification(cacheKey, VERIFIER)
+    .catch(() => null)
+    .then((stored) => {
+      // Removed, or started again, while the store was read.
+      if (inputs.get(modelId) !== held) return;
+      const verdicts = stored && guids.every((guid) => stored.verdicts[guid] !== undefined) ? stored.verdicts : null;
+      if (!stored || !verdicts) return start();
+      const next: IfcosRun = {
+        status: "done",
+        version: stored.version,
+        verdicts: Object.fromEntries(guids.map((guid) => [guid, verdicts[guid]])),
+        progress: { done: guids.length, total: guids.length },
+      };
+      set(modelId, next);
+      settled(verificationOf(next));
+    });
+}
+
+/** Store a model's finished run, for a model that reached the cache after
+ *  its run finished (the store refuses a model it does not hold). */
+export function keepVerification(modelId: string, cacheKey: string) {
+  const run = runs.get(modelId);
+  if (run?.status !== "done" || run.version === undefined || !run.verdicts) return;
+  void storeVerification({ cacheKey, verifier: VERIFIER, version: run.version, verdicts: run.verdicts }).catch(() => {});
 }
 
 /** What each model was started with, so a failed run can be run again. */
 const inputs = new Map<
   string,
-  { file: File | undefined; input: NomeshInput; settled: (verification: NomeshVerification) => void }
+  {
+    file: File | undefined;
+    input: NomeshInput;
+    settled: (verification: NomeshVerification) => void;
+    cacheKey: string | null;
+  }
 >();
 
 /** Run a failed second check again (the control in the derivation band). */
@@ -234,7 +289,7 @@ export function retryNomesh(modelId: string) {
   const held = inputs.get(modelId);
   const current = runs.get(modelId);
   if (!held || current?.status !== "failed") return;
-  verifyNomesh(modelId, held.file, held.input, held.settled);
+  verifyNomesh(modelId, held.file, held.input, held.settled, held.cacheKey);
 }
 
 /* ── filing ─────────────────────────────────────────────────────────────── */
@@ -425,14 +480,22 @@ export function fileIssues(modelId: string, facts: readonly IssueFacts[]) {
 
 export const BODY_NO_MESH_FOCUS = "check:body-no-mesh";
 
+/** What stands in for a verdict ifcopenshell has not given: the run's
+ *  failure, «ikke verifisert» with why when it cannot run, else «ikke
+ *  verifisert» (queued or running). */
+export function unverifiedMark(run: IfcosRun | undefined, lang: Lang): string {
+  if (run?.status === "failed") return t("ifcos.failed", lang);
+  if (run?.status === "unavailable") {
+    return `${t("nomesh.unverified", lang)}: ${run.why === "no-file" ? t("ifcos.noFile", lang) : (run.why ?? "")}`;
+  }
+  return t("nomesh.unverified", lang);
+}
+
 /** One element's verdict, appended to its row's reason; «ikke verifisert»
  *  until ifcopenshell has answered for it, or the run's failure. */
 export function ifcosVerdictText(run: IfcosRun | undefined, guid: string, lang: Lang): string {
   const verdict = run?.verdicts?.[guid];
-  if (!verdict) {
-    if (run?.status === "failed") return t("ifcos.failed", lang);
-    return t("nomesh.unverified", lang);
-  }
+  if (!verdict) return unverifiedMark(run, lang);
   if (verdict.kind === "geometry") {
     return (
       `${t("ifcos.geometry", lang)} · ${formatCount(verdict.vertices, lang)} ${t("ifcos.vertices", lang)} · ` +

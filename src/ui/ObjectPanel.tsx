@@ -73,7 +73,7 @@ import {
   type PlacementContext,
 } from "../engine/placement";
 import { buildSpaceLocator, countSpaces, type SpaceLocator } from "../bcf/spaces";
-import { useIfcosRun, type IfcosRun } from "./ifcos-verify";
+import { unverifiedMark, useIfcosRun, type IfcosRun } from "./ifcos-verify";
 
 const LABEL_WIDTH = "14ch";
 
@@ -465,7 +465,7 @@ function noGeometryState(rows: ProductRowLite[], run: IfcosRun | undefined, lang
   if (verdicts.some((v) => v?.kind === "geometry")) return `${t("nomesh.miss", lang)} · ${t("ifcos.geometry", lang)}`;
   if (verdicts.some((v) => v?.kind === "error")) return `${t("object.noGeometry", lang)} (${t("ifcos.error", lang)})`;
   if (verdicts.every((v) => v?.kind === "none")) return t("object.noGeometry", lang);
-  const mark = run?.status === "failed" ? t("ifcos.failed", lang) : t("nomesh.unverified", lang);
+  const mark = unverifiedMark(run, lang);
   return `${t("object.noGeometry", lang)} (${mark})`;
 }
 

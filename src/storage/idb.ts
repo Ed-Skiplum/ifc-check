@@ -13,7 +13,7 @@
 const DB_NAME = "ifc-check";
 /** Bumped only when the STORES change. The record shape is versioned
  *  separately, inside each record — see `CACHE_FORMAT` in model-cache.ts. */
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /** Parsed models, keyed by ifcfast's own `cache_key`. Large records. */
 export const MODELS = "models";
@@ -25,6 +25,10 @@ export const META = "meta";
 export const DROPKEYS = "dropkeys";
 /** One record: what was on the board last, in order. */
 export const BOARD = "board";
+/** The second check's verdicts per `cache_key` (`readVerification` in
+ *  model-cache.ts): small, and written after the model record, so apart from
+ *  it. Added in version 2. */
+export const VERDICTS = "verdicts";
 
 let handle: Promise<IDBDatabase | null> | null = null;
 
@@ -58,8 +62,19 @@ function openDatabase(): Promise<IDBDatabase | null> {
         db.createObjectStore(DROPKEYS, { keyPath: "dropKey" });
       }
       if (!db.objectStoreNames.contains(BOARD)) db.createObjectStore(BOARD, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(VERDICTS)) db.createObjectStore(VERDICTS, { keyPath: "cacheKey" });
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // A newer build opened in another tab: let it upgrade instead of
+      // leaving it without a cache. This tab then goes without, as for any
+      // storage fault.
+      db.onversionchange = () => {
+        db.close();
+        handle = Promise.resolve(null);
+      };
+      resolve(db);
+    };
     request.onerror = () => resolve(null);
     // Another tab holds an older version open. Nothing to do but go without.
     request.onblocked = () => resolve(null);

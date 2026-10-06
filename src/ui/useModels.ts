@@ -58,7 +58,7 @@ import { collectBoxes, unshiftBoxes, type ElementBox } from "../engine/placement
 import type { RestoreWorkerRequest } from "../storage/restore-worker";
 import type { ModelProfile } from "./profile";
 import type { ModelWorkerResponse } from "./model-worker";
-import { clearIfcosRun, fileIssues, verifyNomesh } from "./ifcos-verify";
+import { clearIfcosRun, fileIssues, keepVerification, verifyNomesh } from "./ifcos-verify";
 import type { ElementQuantity } from "../engine/quantities";
 import type { PsetChoice } from "./pset-choices";
 
@@ -337,6 +337,8 @@ function createController(setModels: SetModels): Controller {
         if (!stored || !live.has(id)) return;
         keys.set(id, cacheKey);
         saveBoard();
+        // A second check that finished before the record landed.
+        keepVerification(id, cacheKey);
       })
       .catch(() => {});
   }
@@ -374,12 +376,21 @@ function createController(setModels: SetModels): Controller {
         feed(id, worker);
         // And the second check behind those: ifcopenshell on every element
         // ifcfast left unmeshed, off the main thread, after the first paint.
+        // Keyed by the cache key, so a finished run is kept with the model
+        // and a restored model (no file) takes its stored verdicts.
         const nomesh = message.nomesh;
+        const verifiedKey = cacheKeyOf(message.report.summary);
         setTimeout(() => {
           if (!live.has(id)) return;
-          verifyNomesh(id, dropped.get(id), nomesh, (verification) => {
-            if (workers.get(id) === worker) worker.postMessage({ kind: "nomesh", verification });
-          });
+          verifyNomesh(
+            id,
+            dropped.get(id),
+            nomesh,
+            (verification) => {
+              if (workers.get(id) === worker) worker.postMessage({ kind: "nomesh", verification });
+            },
+            verifiedKey,
+          );
         }, 250);
       } else if (message.kind === "measured") {
         if (message.complete || message.base) {
