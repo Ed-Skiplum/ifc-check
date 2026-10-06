@@ -10,7 +10,8 @@
  *   main     before a model and with nothing picked: one drop target for IFC
  *            and IDS together; else the selected requirement: its name, n / N,
  *            Forrige / Neste, delete; the Krav row (what it maps TO); then
- *            Kilde (what it maps FROM now) above I modellen (the model's data)
+ *            I modellen (the model's data) with Kilde (what it maps FROM now,
+ *            its values) narrow beside it
  *
  * One centered column that scrolls, as in HEY, Basecamp and Fizzy (edkjo, same
  * day: "a centered column rather than a full width UI"); the sidebar sticks.
@@ -320,7 +321,7 @@ export function OppsettPage({
 
   return (
     <main data-oppsett className="min-h-0 flex-1 overflow-auto" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-      <div className="mx-auto flex w-full max-w-[1160px] items-start gap-6 px-6 py-8">
+      <div className="mx-auto flex w-full max-w-[1280px] items-start gap-6 px-6 py-8">
       <Sidebar
         lang={lang}
         models={models}
@@ -809,12 +810,12 @@ function Body({
     };
     const judged = prop ? shownValues(judgeValues(rule, prop.values, ownerNames)) : null;
     return (
-      <div data-columns className="flex min-w-0 flex-col gap-4">
-        <div className={TILE}>
-          <Kilde title={sourceTitle} tag={tag} figure={figure} loaded={loaded} values={judged} lang={lang} />
-        </div>
+      <div data-columns className="grid min-w-0 items-start gap-4 [grid-template-columns:minmax(0,1fr)_300px]">
         <div className={TILE}>
           <InModel picker={picker} current={key} pinned={pinned} usedBy={usedBy} lang={lang} onPick={pick} onJump={onJump} />
+        </div>
+        <div className={TILE + " sticky top-0"}>
+          <Kilde title={sourceTitle} tag={tag} figure={figure} loaded={loaded} values={judged} lang={lang} />
         </div>
       </div>
     );
