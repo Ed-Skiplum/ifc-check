@@ -44,7 +44,7 @@ import { basename, join } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
 import { validateXML } from "xmllint-wasm";
 
-import { CODE_LISTS } from "../src/codelists/index.ts";
+import { CODE_LISTS, CODE_LIST_IDS } from "../src/codelists/index.ts";
 import { codeLookupSubjects, compileExtract, evaluateRuleset } from "../src/ids/evaluate.ts";
 import {
   STATSBYGG_EXAMPLE,
@@ -60,7 +60,7 @@ import {
 import { extractFromExample } from "../src/ids/extract-example.ts";
 import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
-import { prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
+import { LIST_EXAMPLES, prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
 import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
 import { NOT_A_MATERIAL, NOT_A_MATERIAL_EXAMPLES } from "../src/engine/standard-sources.ts";
 import { NAME_SEPARATORS, POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher, partExample, partShape, partSource } from "../src/engine/type-name.ts";
@@ -3759,6 +3759,15 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
       prePick(0, null, 0),
       prePick(5, { hits: 0, chosen: true }, 2),
     ].join(" "),
+  );
+  record(
+    "walk Krav line: each list's three example codes are in the list and not reserved",
+    "ns3457-8 3 ok | ns3451 3 ok",
+    CODE_LIST_IDS.map((id) => {
+      const list = CODE_LISTS[id];
+      const ok = LIST_EXAMPLES[id].filter((c) => c in list.codes && !(list.reserved ?? []).includes(c)).length;
+      return `${id} ${ok} ${ok === 3 && LIST_EXAMPLES[id].length === 3 ? "ok" : "BAD"}`;
+    }).join(" | "),
   );
   record(
     "walk bar: green only against a loaded model (confirmed here, or a saved source with hits); a saved answer unchecked is neutral",

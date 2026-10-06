@@ -374,6 +374,10 @@ const STRINGS = {
   // The project-layer steps: Fase and Materiale / Produkt are the board's
   // Standardkrav names (req.*).
   "setup.standard": { nb: "Standard", en: "Standard" },
+  // A mapping step's three cards (2026-10-05): the standard, the model's
+  // best candidate, a property picked by hand.
+  "setup.foundInModel": { nb: "Funnet i modellen", en: "Found in model" },
+  "setup.chooseSelf": { nb: "Velg selv", en: "Choose yourself" },
   "setup.viaMmi": { nb: "Via MMI", en: "Via MMI" },
   // The walk (2026-10-05): the door every config control sits behind, the
   // way on without an answer, a step with no candidate, and the end.

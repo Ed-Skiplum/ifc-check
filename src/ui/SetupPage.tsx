@@ -124,7 +124,7 @@ import type { ModelEntry } from "./useModels";
 import { requirements } from "./requirements";
 import { StateChip } from "./setup/chips";
 import { INPUT, ValuesInput } from "./setup/ValuesInput";
-import { previewTfm, rankPartBindings, rankTfmCandidates, segmentState, type Candidate } from "./setup/candidates";
+import { LIST_EXAMPLES, previewTfm, rankPartBindings, rankTfmCandidates, segmentState, type Candidate } from "./setup/candidates";
 import { TfmBuilder, TfmResult, type ChipBinding } from "./setup/TfmBuilder";
 import { TypeNameStep, partLabel, type TypeNameSource } from "./setup/TypeNameStep";
 import { isWalkSelected } from "../engine/walk-selection.ts";
@@ -137,7 +137,6 @@ import {
   Door,
   IfcDrop,
   Landed,
-  MappingStep,
   ReqResult,
   STAGE_WIDTH,
   StepConfirm,
@@ -146,6 +145,7 @@ import {
   WalkProgress,
   type CurrentSource,
 } from "./setup/Walk";
+import { MappingStep } from "./setup/MappingCards";
 import { FromSource, MappingLayout, Mapped, OptionCount, OptionList, PANEL, STEP_TITLE, ToZone, Valid, type MapOption } from "./setup/Mapping";
 import { PILL } from "./setup/ChipRow";
 import type { Requirement } from "./requirements";
@@ -976,114 +976,6 @@ function ExampleField({
   );
 }
 
-/** What a mapping step reads, on the step itself (2026-10-05, edkjo: "hiding
- *  the mapping behind avansert is a bad move"): the source kind, then any
- *  property of the models from the picker, or one they lack typed in, or an
- *  attribute or classification system. */
-function SourceEditor({
-  role,
-  check,
-  issues,
-  picker,
-  lang,
-  onCheck,
-  onNext,
-}: {
-  role: CardRole;
-  check: MappingCheck;
-  issues: LintIssue[];
-  picker: Picker;
-  lang: Lang;
-  onCheck: (next: MappingCheck) => void;
-  onNext: () => void;
-}) {
-  const source = check.source;
-  const kind = sourceKind(source);
-  const classification = role === "system-classification" || role === "component-classification";
-  const invalid = (suffix: string) => issues.some((i) => i.path.includes(`.check.${suffix}`));
-  const sourceIssues = issues.filter((i) => /\.check\.source(?=[.[]|$)/.test(i.path));
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label={t("field.source", lang)}>
-          <select
-            className={INPUT}
-            value={kind}
-            onChange={(e) => {
-              const next = e.target.value as SourceKind;
-              // Type leads: Typer wherever the evaluator can check a type,
-              // which is its Name, an attribute (`typeSubjects`). A property
-              // or classification is read per occurrence.
-              const target = next === "attribute" ? "type" : "occurrence";
-              onCheck(
-                check.type === "code-lookup" && classification
-                  ? { ...check, source: blankSource(next), target }
-                  : { ...check, source: blankSource(next) },
-              );
-            }}
-          >
-            {SOURCE_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {t(`field.source.${k}` as StringKey, lang)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {"attribute" in source ? (
-          <Field label={t("field.source.attribute", lang)}>
-            <input
-              type="text"
-              className={INPUT}
-              aria-invalid={invalid("source")}
-              value={source.attribute}
-              onChange={(e) => onCheck({ ...check, source: { attribute: e.target.value } })}
-            />
-          </Field>
-        ) : null}
-        {"classification" in source ? (
-          <Field label={t("field.system", lang)}>
-            <input
-              type="text"
-              className={INPUT}
-              value={source.classification.system ?? ""}
-              onChange={(e) =>
-                onCheck({
-                  ...check,
-                  source: {
-                    classification: e.target.value === "" ? {} : { system: e.target.value },
-                  },
-                })
-              }
-            />
-          </Field>
-        ) : null}
-      </div>
-      {"property" in source ? (
-        <PropertyPicker
-          value={source.property}
-          choices={picker.choices}
-          reading={picker.reading}
-          errors={picker.errors}
-          total={picker.total}
-          invalidSet={invalid("source.property.propertySet")}
-          invalidName={invalid("source.property.name")}
-          lang={lang}
-          onChange={(property) =>
-            onCheck(
-              // A property is read per occurrence (`typeSubjects`).
-              check.type === "code-lookup" && classification
-                ? { ...check, source: { property }, target: "occurrence" }
-                : { ...check, source: { property } },
-            )
-          }
-          onNext={onNext}
-        />
-      ) : null}
-      <IssueLines issues={sourceIssues} lang={lang} />
-    </div>
-  );
-}
-
 function MappingCard({
   role,
   rule,
@@ -1195,8 +1087,8 @@ function MappingCard({
         </div>
       ) : null}
 
-      {/* The source itself is the step's own (`SourceEditor`, «Endre»);
-          here, the values it reads. */}
+      {/* The source itself is the step's own («Velg selv»,
+          `MappingCards.tsx`); here, the values it reads. */}
       {prop ? (
         <ValuesPanel
           prop={prop}
@@ -2279,6 +2171,9 @@ const H1 = STEP_TITLE;
  *  and it never wins; measured 1280 px wide at 2560 before), so a wide
  *  screen gives its width to the step's zones. The bar and the step share it. */
 const FRAME = "max-w-5xl 2xl:max-w-7xl min-[137.5rem]:max-w-[100rem]";
+/** A mapping step's one column (2026-10-05): the requirement, the three
+ *  cards, the actions, «Avansert», 1152 px at most, the frame's below. */
+const COLUMN = "mx-auto w-full max-w-[72rem]";
 const PLANES: readonly StoreyPlane[] = ["OKFG", "OKBD"];
 
 export function SetupPage({
@@ -2677,6 +2572,8 @@ export function SetupPage({
   const inTo = isMappingStep(current) || current === "type-name" || current === "tfm" || current === "phase";
 
   let body: React.ReactNode;
+  // Under the step's action row (a mapping step's «Avansert»).
+  let after: React.ReactNode = null;
   if (current === "start") {
     // «POFIN»: the template on the working copy, nothing saved.
     const takePofin = () => {
@@ -3333,64 +3230,105 @@ export function SetupPage({
       void preview;
       advanceLive();
     };
+    // «Velg selv»: the source picked or typed, written as the source editor
+    // wrote it. Type leads for an attribute (the type's Name is what the
+    // evaluator can read on a type); a property or classification is read
+    // per occurrence (`typeSubjects`).
+    const confirmManual = (source: CodeSource) => {
+      const classification = r === "system-classification" || r === "component-classification";
+      const target = "attribute" in source ? ("type" as const) : ("occurrence" as const);
+      setCheck(r, c.type === "code-lookup" && classification ? { ...c, source, target } : { ...c, source });
+      advanceLive();
+    };
+    const ruleIssues = rule && rule.enabled !== false ? lint.filter((i) => i.ruleId === rule.id) : [];
+    // What the value must be, as data: the list and three of its codes.
+    const ownChips = (values: readonly string[]) =>
+      values.slice(0, 3).map((v) => (
+        <span key={v} className="max-w-48 truncate bg-input px-1.5 py-0.5 font-mono text-[12px] text-ink">
+          {v}
+        </span>
+      ));
+    let krav: { pill: string; chips: readonly string[]; more?: React.ReactNode; bad?: boolean };
+    if (c.type === "copy-object") {
+      krav =
+        c.copy.length === 0 && c.own.length === 0
+          ? { pill: t("tfm.none", lang), chips: [] }
+          : c.copy.length === 0
+            ? { pill: t("field.own", lang), chips: c.own.slice(0, 3) }
+            : {
+                pill: t("field.copy", lang),
+                chips: c.copy.slice(0, 3),
+                more:
+                  c.own.length > 0 ? (
+                    <span className="flex flex-wrap items-center gap-1">
+                      <span className={LABEL + " mr-2"}>{t("field.own", lang)}</span>
+                      {ownChips(c.own)}
+                    </span>
+                  ) : undefined,
+              };
+    } else if (r === "progress-code") {
+      const codes = c.codes ?? [];
+      const preset = matchingPreset(codes);
+      krav =
+        codes.length === 0
+          ? { pill: t("tfm.shapeOnly", lang), chips: patternParts(c.extract, lang) ?? [c.extract] }
+          : { pill: preset ? presetName(preset) : "MMI", chips: codes.slice(0, 3).map((e) => e.code) };
+    } else {
+      const list = c.list ?? defaultCodeList(r === "component-classification" ? r : "system-classification");
+      krav = { pill: CODE_LISTS[list].meta.label, chips: LIST_EXAMPLES[list] };
+    }
+    krav.bad = ruleIssues.some((i) => /\.check\.(list|codes|copy|own)(?=[.[]|$)/.test(i.path));
     body = (
-      <div className="flex flex-col gap-4">
-        <MappingStep
+      <MappingStep
+        key={r}
+        role={r}
+        check={c}
+        current={currentSource(rule, c, lang)}
+        choices={picker.choices}
+        reading={picker.reading}
+        errors={picker.errors}
+        total={picker.total}
+        ownerNames={ownerNames}
+        lang={lang}
+        name={stepLabel(r, lang)}
+        form={POFIN_SOURCES[ROLE_STANDARD[r]].example}
+        pinned={pofin}
+        krav={krav}
+        requirement={
+          <MappingRequirement role={r} check={c} issues={ruleIssues} lang={lang} onCheck={(nextCheck) => setCheck(r, nextCheck)} />
+        }
+        sourceIssues={
+          <IssueLines
+            issues={(rule ? lint.filter((i) => i.ruleId === rule.id) : []).filter((i) => /\.check\.source(?=[.[]|$)/.test(i.path))}
+            lang={lang}
+          />
+        }
+        onCandidate={confirmCandidate}
+        onCurrent={confirmCurrent}
+        onStandard={(option) => {
+          setCheck(r, option.check);
+          advanceLive();
+        }}
+        onManual={confirmManual}
+      />
+    );
+    // Under the action row: what is neither the mapping nor the value
+    // requirement, as before.
+    after = (
+      <Door label={t("setup.advanced", lang)}>
+        <MappingCard
           key={r}
           role={r}
-          check={c}
-          current={currentSource(rule, c, lang)}
-          choices={picker.choices}
-          reading={picker.reading}
-          total={picker.total}
-          ownerNames={ownerNames}
+          rule={rule}
+          issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
           lang={lang}
-          name={stepLabel(r, lang)}
-          form={POFIN_SOURCES[ROLE_STANDARD[r]].example}
-          pinned={pofin}
-          written={rule !== null && rule.enabled !== false ? resultOf(r) : null}
-          requirement={
-            <MappingRequirement
-              role={r}
-              check={c}
-              issues={rule && rule.enabled !== false ? lint.filter((i) => i.ruleId === rule.id) : []}
-              lang={lang}
-              onCheck={(nextCheck) => setCheck(r, nextCheck)}
-            />
-          }
-          onCandidate={confirmCandidate}
-          onCurrent={confirmCurrent}
-          onStandard={(option) => {
-            setCheck(r, option.check);
-            advanceLive();
-          }}
-          editor={
-            <SourceEditor
-              role={r}
-              check={c}
-              issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
-              picker={picker}
-              lang={lang}
-              onCheck={(nextCheck) => setCheck(r, nextCheck)}
-              onNext={() => confirmCurrent(null)}
-            />
-          }
+          rulesetName={ruleset.name}
+          picker={picker}
+          onToggle={() => toggle(r)}
+          onCheck={(nextCheck) => setCheck(r, nextCheck)}
+          onAskEnable={() => setAsking(r)}
         />
-        <Door label={t("setup.advanced", lang)}>
-          <MappingCard
-            key={r}
-            role={r}
-            rule={rule}
-            issues={rule ? lint.filter((i) => i.ruleId === rule.id) : []}
-            lang={lang}
-            rulesetName={ruleset.name}
-            picker={picker}
-            onToggle={() => toggle(r)}
-            onCheck={(nextCheck) => setCheck(r, nextCheck)}
-            onAskEnable={() => setAsking(r)}
-          />
-        </Door>
-      </div>
+      </Door>
     );
   }
 
@@ -3484,9 +3422,11 @@ export function SetupPage({
         <div className="shrink-0 px-3 pt-2">
           <div data-landed-slot className={"mx-auto flex min-h-12 w-full flex-col justify-center " + FRAME}>
             {landed !== null && landed.to === current ? (
-              <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
-                {landed.live ? <TfmResult results={resultOf(landed.from)} lang={lang} /> : landed.result}
-              </Landed>
+              <div className={role ? COLUMN : "w-full"}>
+                <Landed key={landed.from} label={stepLabel(landed.from, lang)}>
+                  {landed.live ? <TfmResult results={resultOf(landed.from)} lang={lang} /> : landed.result}
+                </Landed>
+              </div>
             ) : null}
           </div>
         </div>
@@ -3502,7 +3442,7 @@ export function SetupPage({
       <div data-walk className="min-h-0 flex-1 overflow-auto px-3 pb-3 [container-type:size] [scrollbar-gutter:stable_both-edges]">
         <div className={"mx-auto flex min-h-full w-full flex-col " + FRAME}>
           <div aria-hidden="true" className={stage ? "min-h-6 flex-[2_1_0%]" : "h-4 shrink-0"} />
-          <div data-walk-content className="flex min-w-0 flex-col gap-4">
+          <div data-walk-content data-column={role ? "" : undefined} className={"flex min-w-0 flex-col gap-4" + (role ? " " + COLUMN : "")}>
             {exportError !== null ? (
               <pre className="m-0 bg-bad px-3 py-2 font-mono text-[12px] leading-snug whitespace-pre-wrap text-cream">
                 {exportError}
@@ -3548,6 +3488,7 @@ export function SetupPage({
                 <div ref={setSlot} data-confirm-slot className="flex flex-wrap items-center gap-3" />
               </div>
             )}
+            {after}
           </div>
           {stage ? <div aria-hidden="true" className="min-h-6 flex-[3_1_0%]" /> : null}
         </div>

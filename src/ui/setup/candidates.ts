@@ -26,6 +26,7 @@
  * that passes by accident (a width that reads as a code) sinks.
  */
 
+import type { CodeListId } from "../../codelists/index.ts";
 import { MMI_PRESETS } from "../../codelists/mmi-presets.ts";
 import { agrees, partTexts, tfmMatcher } from "../../engine/tfm.ts";
 import { extractFromExample } from "../../ids/extract-example.ts";
@@ -208,6 +209,14 @@ export function rankCandidates(
     )
     .slice(0, limit);
 }
+
+/** Three codes of each bundled list, as a mapping step's «Krav» line shows
+ *  what the value must be (2026-10-05). In the list and not reserved
+ *  (selftest). */
+export const LIST_EXAMPLES: Record<CodeListId, readonly string[]> = {
+  ns3451: ["23", "31", "26"],
+  "ns3457-8": ["DUZ", "JVZ", "LBA"],
+};
 
 /* ------------------------------------------------------------ the standard */
 

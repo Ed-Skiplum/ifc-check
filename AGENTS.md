@@ -2626,7 +2626,7 @@ Neste. `src/ui/setup/`: `candidates.ts` (pure), `Walk.tsx` (the pieces),
 | Step | Pre-picked | Confirm |
 |---|---|---|
 | Typenavn (first, 2026-10-05) | the saved scheme, else POFIN Objekttypenavn (see "Typenavn") | «Bruk» |
-| Systemkode, Funksjonskode, MMI, Duplikat objekt | see "The standard first" below: standard, saved, candidate | «Bruk»; a pick in OPTIONS only changes FROM (see "The mapping layout") |
+| Systemkode, Funksjonskode, MMI, Duplikat objekt | see "The standard first" below: standard, saved, candidate | «Bruk»; a click on a card only selects it (see "The three cards") |
 | Fase, Materiale / Produkt | Standard (`STANDARD_SOURCES`), with any project sources after it | «Bruk» keeps the step at the standard |
 | Etasjeoppsett | the saved levels, else the models' own storeys | OKFG or OKBD: the plane is the answer |
 
@@ -2963,6 +2963,56 @@ distance between UI elements and navigation" · "also, misaligned boxes").**
   (state `s`: fresh, skip; summary ○ and «–»; state `c` the same on a saved
   ruleset; state `b` under POFIN the template's rule stays, ●).
 
+**The three cards (2026-10-05, the four mapping steps only).** edkjo on the
+TO ← FROM │ OPTIONS + Krav composition: "I still dont see the UI with
+Requirement vs Default vs Manually map to what is in the model. Not a clear
+UI, and it's like you've cornered yourself in big boxes with bad content and
+lots of whitespace." Systemkode, Funksjonskode, MMI and Duplikat objekt now
+draw `src/ui/setup/MappingCards.tsx` (`MappingStep`, moved out of
+`Walk.tsx`); the other steps keep `MappingLayout` unchanged. Top to bottom,
+in one column (`COLUMN`, `max-w-[72rem]`, the frame's width below that; the
+landed strip shares it, the bar keeps the frame), 16 px between blocks:
+
+- The step's name with the POFIN form example beside it (2341.001), then
+  one line: «Krav», a pill naming what the value must be (the code list's
+  label; MMI «Kun format» / the preset's name / «MMI» for own codes;
+  Duplikat «Ingen», «Kopiverdier», «Egne verdier»), then three of its codes
+  as chips (`LIST_EXAMPLES` in `candidates.ts`, selftested in the list and
+  not reserved; MMI the format's parts or the first three codes; Duplikat
+  the values). The pill opens `MappingRequirement` in a panel over the page
+  (`KravLine`; Escape or a press outside closes it, a dialog it opens does
+  not). Lint errors on the list, codes or values outline the pill red.
+- Three cards, one row (stacked under `md`), tops aligned, each as tall as
+  it holds (`items-start`), radio semantics (`role=radio`, the one
+  selection outline `outline-ink`): «Standard» (the POFIN source),
+  «Funnet i modellen» (the best-ranked candidate, up to two more as rows
+  `name · n / N` that make it the card's pick; «Ingen treff» and disabled
+  with none), «Velg selv» (the pset inventory searched inline, the list open
+  while the field has focus, «Egenskapen er ikke med» opening the two
+  fields; Kildetype as a select in the card's head for an attribute or a
+  classification system). Each shows the source raw, «Fysiske elementer»
+  n / N (red at 0, not on Duplikat) and «Verdier» passing / distinct (none
+  when the property has no values), up to five values.
+- The saved source goes where it is: on the standard card when it is the
+  standard, on the model card when it ranks, else on «Velg selv»; tagged
+  «Regelsett» in the card's head. The pre-pick (`prePick`) is unchanged and
+  picks the card. A click selects a card (a candidate row also sets the
+  model card's pick); «Bruk» writes the selected card's source and moves on
+  (a «Velg selv» pick is a draft until then, `onManual`). Nothing advances
+  on a card click.
+- The action row right under the cards; «Avansert» (`MappingCard`, as
+  before) under the action row (`after` in `SetupPage`).
+
+Gone from the step: the per-state chips, the failing values and the report
+row under Krav (the landed strip and the summary still print the row), the
+«Endre» source editor (`SourceEditor`; its pieces are in «Velg selv»). New
+strings: `setup.foundInModel`, `setup.chooseSelf`.
+
+Measured (walk-shots round11, local dev server): no scroll at 1440×900 on
+any of the four steps, Avansert closed; content block 356–504 px there
+(702 with Avansert open on Systemkode); card tops aligned and the three
+gaps 16/16/16 on every shot. **Not seen on the deployed site.**
+
 ### `scripts/walk-shots.mjs`
 
 ```bash
@@ -2974,7 +3024,8 @@ Starts the Vite dev server in-process (port 5191, its own cache dir
 one page; stops only those. Reduced motion is emulated. States from cleared
 storage: `a` choice, «Egendefinert», the IFC stage, OBF ARK (Sophies Minde,
 873 kB) dropped, every step's primary to Oppsummering, plus a chip's
-popover, the insert menu, «Endre», «Avansert», TFM's Lokasjon popover and
+popover, the insert menu, on Systemkode the Krav panel, «Velg selv» with
+"Ref" typed and then a pick, «Avansert», TFM's Lokasjon popover and
 the IFC step with a model; `b` a model on the board, «POFIN», the prompt,
 «Aksepter oppsett», then again «POFIN» → «Gjennomgå» skipped through; `c`
 `tests/fixtures/private/*knm*.ruleset.json` saved in localStorage, KNM_RIB
@@ -2983,7 +3034,10 @@ is shot at every viewport to `C:/workspace/toolkit/ifc-check/tmp/walk-pass/
 <round>/<WxH>/<state>-<nn>-<step>.png` (the main checkout's tmp, so a
 worktree's shots outlive it) and measured: the content block
 (`[data-walk-content]`) against the viewport, top offset, whether the walk
-scrolls, horizontal scroll (exit 1). A table on stdout,
+scrolls, horizontal scroll (exit 1), and on a mapping step the cards' tops,
+heights, widths and the gaps Krav → cards → actions → «Avansert» (the box
+grid lets the cards' bottoms differ; the bar is held to the frame, not the
+column). A table on stdout,
 `measure-<states>.json` beside the shots. It proves what renders locally,
 not the deployed site.
 
