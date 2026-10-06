@@ -24,6 +24,7 @@ interface Ruleset {
   disciplines?: Discipline[];
   models?: ModelFact[];
   projectLayer?: ProjectLayer;
+  ignore?: string[];                  // requirement ids that do not apply to the project
   rules: Rule[];                      // kind "ids" | kind "extended"
 }
 
@@ -120,6 +121,7 @@ IDS rules (`IdsRule`, the six facets, `IdsValue`) are unchanged.
 | `Discipline` | #7 point 8: fagkoder, and models without a report (`report: false`). |
 | `ModelFact` | #7 point 8: per model label, its discipline, group, owner names and exemptions. Label = file name without extension, exact. |
 | `exempt` | ids are report row ids: a fundamental, `storey-config`, `mesh-placement`, `body-no-mesh`, `ifc-schema`, `phase`, `material-product`, a mapping role, or a non-mapping rule's id. The row is `not_applicable` for that model. |
+| `ignore` | the same ids, for the whole project (Prosjekt, column Ignorert): the row is `not_applicable` on every model, the requirement's own config kept. |
 
 ### Engine and report
 

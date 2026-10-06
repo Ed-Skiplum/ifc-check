@@ -29,6 +29,10 @@ export function modelFact(ruleset: Ruleset | null | undefined, fileName: string)
   return ruleset?.models?.find((m) => m.label === label) ?? null;
 }
 
+/** The reason a requirement the setup ignores (`Ruleset.ignore`) carries:
+ *  in a rule result, a check, a report row and the IDS export's exclusions. */
+export const IGNORED_REASON = "ignored in the setup (ignore)";
+
 /** The copy-object comparison key: case and whitespace do not count. */
 export function ownerKey(value: string): string {
   return value.replace(/\s+/g, "").toLocaleLowerCase("nb");

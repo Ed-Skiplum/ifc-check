@@ -40,6 +40,7 @@ export const CONFIG_TEMPLATE: Ruleset = {
     phase: { reference: P, sources: [property()] },
     "material-product": { reference: P, mengdetype: [property()], product: [property()] },
   },
+  ignore: [P],
   rules: [
     {
       id: P,

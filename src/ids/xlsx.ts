@@ -168,6 +168,7 @@ const PROJECT_COLS: Col[] = [
   { field: "name", label: "field.name", kind: "text", example: "EKS", required: true },
   { field: "description", label: "field.description", kind: "text", example: "BEP 2.0" },
   { field: "ifcVersions", label: "field.ifcVersions", kind: "list", allowed: IFC_VERSIONS, example: "IFC2X3, IFC4", required: true },
+  { field: "ignore", label: "oppsett.ignored", kind: "list", example: "phase" },
   { field: "info.title", label: "field.info.title", kind: "text" },
   { field: "info.version", label: "field.info.version", kind: "text", example: "1.0" },
   { field: "info.description", label: "field.info.description", kind: "text" },
@@ -405,7 +406,7 @@ const RULE_KEY_ORDER = [
 const CHECK_KEY_ORDER = ["type", "list", "codes", "target", "source", "extract", "minLevel", "copy", "own"];
 const RULESET_KEY_ORDER = [
   "$schema", "formatVersion", "name", "description", "ifcVersions", "info", "storeys",
-  "disciplines", "models", "projectLayer", "rules",
+  "disciplines", "models", "projectLayer", "ignore", "rules",
 ];
 
 /* --------------------------------------------------------- the cell codec */
@@ -1013,6 +1014,7 @@ function readmeSheet(): SheetData {
     ["Accepted and recommended IFC schema", "Standardkrav", "Krav ifc-schema, Godtatte, Anbefalte"],
     ["Where phase, mengdetype, product or material is read", "Kilder", "Krav, Kildetype"],
     ["Model file: discipline, report group, no report, exemptions", "Modeller, Fag", "Modell, Fagkode, Gruppe, Gjelder ikke; Rapport"],
+    ["Requirement that does not apply to the project", "Prosjekt", "Ignorert (requirement ids, as Gjelder ikke)"],
     ["Every element typed, unique attribute, type used N times, header or unit fact", "Andre regler", "one JSON rule per row (docs: AGENTS.md Rulesets)"],
   ];
   for (const r of map) rows.push(r);

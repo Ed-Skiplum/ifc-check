@@ -1142,6 +1142,23 @@ function checkModels(ctx: Ctx, ruleset: Ruleset): void {
       }
     });
   });
+
+  // The setup's ignore list names the same ids. An id that names nothing
+  // (a rule since deleted) is a warning: it ignores nothing.
+  const ignored = new Set<string>();
+  (ruleset.ignore ?? []).forEach((id, j) => {
+    if (ignored.has(id)) add(ctx, "error", `ignore[${j}]`, "ignore-duplicate", `"${id}" appears twice`);
+    else if (!exemptable.has(id)) {
+      add(
+        ctx,
+        "warning",
+        `ignore[${j}]`,
+        "ignore-unknown",
+        `"${id}" is not a requirement id: a report row id, a mapping role or a non-mapping rule's id`,
+      );
+    }
+    ignored.add(id);
+  });
 }
 
 export function lintRuleset(ruleset: Ruleset): LintIssue[] {

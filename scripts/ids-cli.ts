@@ -5170,6 +5170,112 @@ function configSelftest(record: Record_): void {
       lintCodes(ruleset({ disciplines: [{ code: "A" }], models: [{ label: "A1", discipline: "A", ownerNames: ["CUT"] }, { label: "A2", discipline: "A", ownerNames: [" cut", " "] }] })),
     );
   }
+
+  // The setup's ignore list (edkjo 2026-10-06: "Fase isn't a requirement in
+  // this model … per project, not per model"): the exempt path, on every
+  // model, with its own reason; the requirement's config kept.
+  {
+    const sys = {
+      id: "systemkode",
+      kind: "extended",
+      mapping: "system-classification",
+      name: "Systemkode",
+      check: { type: "code-lookup", list: "ns3451", source: { attribute: "Name" }, extract: "^(.+)$" },
+    };
+    const ids = {
+      id: "brann",
+      kind: "ids",
+      name: "Brann",
+      applicability: { entity: { group: "physicalElement" } },
+      requirements: { property: [{ propertySet: "Pset_WallCommon", baseName: "FireRating", cardinality: "required" }] },
+    };
+    const setup = (ignore?: string[]) =>
+      ruleset({
+        disciplines: [{ code: "RIE" }],
+        models: [{ label: "X_RIE", discipline: "RIE" }, { label: "X_RIE_Utsparinger", discipline: "RIE", exempt: ["phase"] }],
+        rules: [sys, ids],
+        ...(ignore ? { ignore } : {}),
+      });
+    const g = base({ products: [product("a")] });
+    const rowsOf = (rs: Ruleset, file: string) => {
+      const evaluation = evaluateRuleset(rs, g as unknown as ModelGraph, summary as unknown as ModelSummary, file);
+      const checks = exemptChecks(runFundamentals(g, summary), rs, file);
+      return reportRows({ model: { file, schema: "IFC4", sha256: "" }, graph: g, summary, checks, ruleset: rs, evaluation });
+    };
+    const read = (rs: Ruleset, file: string, id: string) => {
+      const row = rowsOf(rs, file).find((r) => r.id === id || r.mapping === id);
+      return row ? `${row.state}${row.state === "not_applicable" ? `(${row.grunn})` : ""}` : "absent";
+    };
+    const files = ["X_RIE.ifc", "X_RIE_Utsparinger.ifc", "Other.ifc"];
+    const ignored = setup(["phase", "system-classification", "brann", "element-named"]);
+    record(
+      "ignore: an ignored phase is not_applicable on every model, with its reason (over the model's own exemption)",
+      files.map(() => "not_applicable(ignored in the setup (ignore))").join(" "),
+      files.map((f) => read(ignored, f, "phase")).join(" "),
+    );
+    record(
+      "ignore: an ignored mapping role (Systemkode), IDS rule and fundamental are not_applicable",
+      "not_applicable(ignored in the setup (ignore)) not_applicable(ignored in the setup (ignore)) not_applicable(ignored in the setup (ignore))",
+      ["system-classification", "brann", "element-named"].map((id) => read(ignored, "X_RIE.ifc", id)).join(" "),
+    );
+    record(
+      "ignore: un-ignored, every verdict comes back as it was",
+      ["phase", "system-classification", "brann", "element-named"].map((id) => read(setup(), "X_RIE.ifc", id)).join(" "),
+      ["phase", "system-classification", "brann", "element-named"].map((id) => read(setup([]), "X_RIE.ifc", id)).join(" "),
+    );
+    record(
+      "ignore: un-ignored, the model's own exemption still holds",
+      "not_applicable(does not apply to model X_RIE_Utsparinger (models[].exempt))",
+      read(setup(), "X_RIE_Utsparinger.ifc", "phase"),
+    );
+    record(
+      "ignore: an ignored rule's result says ignored, not exempt",
+      "ignored ignored",
+      evaluateRuleset(ignored, g as unknown as ModelGraph, summary as unknown as ModelSummary, "X_RIE.ifc")
+        .results.map((r) => r.detail)
+        .join(" "),
+    );
+    const noHome = ruleset({ ignore: ["progress-code"] });
+    record(
+      "ignore: a role with no IFC home and no mapping, ignored, is not_applicable rather than not_configured",
+      "not_applicable not_configured",
+      `${rowsOf(noHome, "m.ifc").find((r) => r.mapping === "progress-code")?.state} ${rowsOf(noHome, "m.ifc").find((r) => r.mapping === "copy-object")?.state}`,
+    );
+    record(
+      "ignore: lint warns on an id that names nothing, refuses a duplicate, accepts the rest",
+      "warning:ignore-unknown error:ignore-duplicate",
+      lintRuleset(setup(["phase", "nope", "phase"]))
+        .filter((i) => i.code.startsWith("ignore"))
+        .map((i) => `${i.severity}:${i.code}`)
+        .join(" "),
+    );
+    record(
+      "ignore: the IDS export leaves an ignored rule out, with its reason",
+      "brann:ignored:ignored in the setup (ignore) | included:",
+      (() => {
+        const { included, excluded } = partitionRules(ignored);
+        return `${excluded.filter((e) => e.ruleId === "brann").map((e) => `${e.ruleId}:${e.code}:${e.reason}`).join(",")} | included:${included.map((r) => r.id).join(",")}`;
+      })(),
+    );
+    const json = JSON.parse(JSON.stringify(ignored)) as Ruleset;
+    record(
+      "ignore: JSON round trip equal, and valid against the JSON Schema",
+      "equal valid",
+      `${rulesetDiff(json, ignored) === null ? "equal" : "differs"} ${shapeErrors(json).length === 0 ? "valid" : shapeErrors(json).map((e) => `${e.path} ${e.message}`).join(" | ")}`,
+    );
+    record(
+      "ignore: the JSON Schema refuses a duplicate and an empty list",
+      "invalid invalid",
+      [setup(["phase", "phase"]), setup([])].map((rs) => (shapeErrors(rs).length > 0 ? "invalid" : "valid")).join(" "),
+    );
+    let book: string;
+    try {
+      book = rulesetDiff(readRulesetXlsx(writeRulesetXlsx(ignored)).ruleset, canonicalRuleset(ignored)) ?? "equal";
+    } catch (error) {
+      book = error instanceof Error ? error.message : String(error);
+    }
+    record("ignore: workbook round trip equal (Prosjekt, Ignorert)", "equal", book);
+  }
 }
 
 function lintCodes(ruleset: Ruleset): string {

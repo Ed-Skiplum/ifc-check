@@ -9,10 +9,12 @@
 
 import { emitIdsXml } from "./emit.ts";
 import { hasErrors, lintRuleset } from "./lint.ts";
+import { IGNORED_REASON, ruleRole } from "./models.ts";
 import type { ExtendedCheckType, IdsRule, LintIssue, Rule, Ruleset } from "./types.ts";
 
 export type ExclusionCode =
   | "disabled"
+  | "ignored"
   | `not-expressible:${ExtendedCheckType}`
   | "not-expressible:unknown";
 
@@ -89,6 +91,7 @@ export function partitionRules(ruleset: Ruleset): {
 } {
   const included: IdsRule[] = [];
   const excluded: ExcludedRule[] = [];
+  const ignored = new Set(ruleset.ignore ?? []);
   for (const rule of ruleset.rules) {
     if (!isEnabled(rule)) {
       excluded.push({
@@ -97,6 +100,10 @@ export function partitionRules(ruleset: Ruleset): {
         code: "disabled",
         reason: "rule is disabled",
       });
+      continue;
+    }
+    if (ignored.has(ruleRole(rule) ?? rule.id)) {
+      excluded.push({ ruleId: rule.id, name: rule.name, code: "ignored", reason: IGNORED_REASON });
       continue;
     }
     if (rule.kind === "ids") {

@@ -30,6 +30,7 @@ import type { ReportRow } from "../engine/report.ts";
 import type { IfcSummary } from "../engine/types";
 import { matchStoreys, resolveStoreyRules, type StoreyMatch } from "../engine/storey-config.ts";
 import { modelFact, modelLabel, roleRule, storeyPolicy } from "../ids/models.ts";
+import { notApplicable } from "../ids/evaluate.ts";
 import type { MappingRole, Ruleset } from "../ids/types.ts";
 import type { ModelProfile } from "../ui/profile.ts";
 import { fmtPct, n_, p_, pct } from "./fmt.ts";
@@ -482,7 +483,7 @@ export function beregnModell(input: ModellInput, ruleset: Ruleset | null): Model
   const label = modelLabel(input.fileName);
   const guid = lesGuid(rowOf(rows, { id: "guid-unique" }));
   const etasjer = lesEtasjer(input, ruleset, rowOf(rows, { id: "storey-config" }));
-  const exempt = new Set(modelFact(ruleset, input.fileName)?.exempt ?? []);
+  const exempt = notApplicable(ruleset, input.fileName);
   const blokker: Blokk[] = BLOKKER.map((def) => {
     const base = { id: def.id, tittel: def.tittel, seksjon: def.seksjon, krav_tekst: def.krav_tekst, aapne: [] };
     switch (def.id) {

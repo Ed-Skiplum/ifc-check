@@ -2429,7 +2429,13 @@ group?, ownerNames?, exempt?}]` are the per-model facts (`src/ids/models.ts`).
 `label` is the IFC file name without extension, exact. `exempt` names report
 row ids (`REQUIREMENT_IDS`, a mapping role, a non-mapping rule id): those
 come back `not_applicable` with `grunn` "does not apply to model X" in
-`run`, the checks (`src/engine/exempt.ts`) and `report`. Every rule and
+`run`, the checks (`src/engine/exempt.ts`) and `report`. `ignore` (top
+level) names the same ids for the whole project: every model's row is
+`not_applicable` with `grunn` "ignored in the setup (ignore)", the
+requirement's own config kept, an ignored rule left out of the IDS export
+(`excluded`, code `ignored`). One lookup serves both (`notApplicable` in
+`src/ids/evaluate.ts`). Lint warns on an id that names nothing and refuses a
+duplicate. Every rule and
 project-layer part may carry `reference` (the citation); `description` says
 what it checks. `enabled` is present only as `false`.
 
@@ -3522,7 +3528,8 @@ copy-object exclusions reach the fundamentals as in the browser worker.
   `koder` (`{kode, navn, fase?}`) on the progress-code row;
   `referanseplan` and `toleranse_mm` (`{over, under}`) on `storey-config`.
 - An exempt requirement (`models[].exempt`) is `not_applicable`, `grunn`
-  "does not apply to model X (models[].exempt)", coverage null.
+  "does not apply to model X (models[].exempt)", coverage null. An ignored
+  one (`ignore`) the same, `grunn` "ignored in the setup (ignore)".
 - `state`: a fundamental maps through `verdictOf` (`na` → `not_applicable`).
   A rule keeps its own state. `not_configured` = no home in the IFC standard
   and no project config: `storey-config` with no floor list, and a row per
