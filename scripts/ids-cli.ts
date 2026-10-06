@@ -60,8 +60,9 @@ import {
 import { extractFromExample } from "../src/ids/extract-example.ts";
 import { previewExtract } from "../src/ui/extract-preview.ts";
 import { mergeChoices, type PsetChoice } from "../src/ui/pset-choices.ts";
-import { LIST_EXAMPLES, prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
-import { POFIN_SOURCES } from "../src/engine/pofin-standard.ts";
+import { LEVEL_EXAMPLES, LIST_EXAMPLES, listExamples, prePick, rankCandidates, rankPartBindings, rankTfmCandidates, segmentState, standardOption } from "../src/ui/setup/candidates.ts";
+import { judgeValues } from "../src/ui/oppsett/judge.ts";
+import { POFIN_SOURCES, ROLE_STANDARD } from "../src/engine/pofin-standard.ts";
 import { NOT_A_MATERIAL, NOT_A_MATERIAL_EXAMPLES } from "../src/engine/standard-sources.ts";
 import { NAME_SEPARATORS, POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher, partExample, partShape, partSource } from "../src/engine/type-name.ts";
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
@@ -938,6 +939,89 @@ async function cmdSelftest(): Promise<number> {
     "true",
     String(nsResult.detail.endsWith("1 not in the list, 1 reserved")),
   );
+
+  // NS 3451's level (2026-10-06, edkjo: Reduzer and most tools need 3+): a
+  // listed code shorter than `minLevel` fails with `level`; unset, as before.
+  {
+    const levelGraph: ModelGraph = {
+      ...graph,
+      products: [wall("l1", "23"), wall("l2", "222"), wall("l3", "2"), wall("l4", "2341")],
+    };
+    const levelRule = (minLevel?: number, list = "ns3451") =>
+      mappingRule("system-classification", { list, extract: "^(\\d+)$", ...(minLevel === undefined ? {} : { minLevel }) });
+    const levelRun = (minLevel?: number) => {
+      const r = evaluateRuleset(withRules([levelRule(minLevel)]), levelGraph, { ...summary, products: 4 }, "ns3451-level").results[0];
+      return `${r.state} ${r.applicable}/${r.failed} [${r.findings.map((f) => `${f.guid}:${f.code}:${f.value}`).join(", ")}]`;
+    };
+    record("ns3451 level 3+: 23 and 2 fail as level, 222 and 2341 pass", "fail 4/2 [l1:level:23, l3:level:2]", levelRun(3));
+    record("ns3451 level 2: 2 fails as level, 23 passes", "fail 4/1 [l3:level:2]", levelRun(2));
+    record("ns3451 level unset: every listed code passes, as before", "pass 4/0 []", levelRun());
+    const level3 = evaluateRuleset(withRules([levelRule(3)]), levelGraph, { ...summary, products: 4 }, "ns3451-level").results[0];
+    record(
+      "ns3451 level 3+: the finding names the level, the detail and coverage count it",
+      'code "23" from ObjectType "23" is level 2; NS 3451 level 3 or deeper is required | true | 2 2',
+      `${level3.findings[0]?.reason} | ${String(level3.detail.endsWith("2 below level 3"))} | ${level3.coverage?.met} ${level3.coverage?.deviating}`,
+    );
+    const lintAll = (ruleset: Ruleset) =>
+      lintRuleset(ruleset).filter((i) => /min-level/.test(i.code)).map((i) => `${i.severity}:${i.code}`).join(",") || "none";
+    record(
+      "ns3451 level lint: 3 on ns3451 clean, on ns3457-8 a warning, 4 an error",
+      "none | warning:min-level-list | error:min-level-invalid",
+      [
+        withRules([levelRule(3)]),
+        withRules([mappingRule("component-classification", { list: "ns3457-8", minLevel: 3 })]),
+        withRules([levelRule(4)]),
+      ].map(lintAll).join(" | "),
+    );
+    record(
+      "ns3451 level schema: 2 and 3 valid, 4 rejected",
+      "valid valid rejected",
+      [2, 3, 4].map((n) => (shapeErrors(withRules([levelRule(n)])).length === 0 ? "valid" : "rejected")).join(" "),
+    );
+    const levelSet = withRules([levelRule(3)]);
+    const levelJson = JSON.parse(JSON.stringify(levelSet)) as Ruleset;
+    record(
+      "ns3451 level JSON round trip: equal, minLevel kept",
+      "equal 3",
+      `${rulesetDiff(levelJson, levelSet) === null ? "equal" : "differs"} ${(levelJson.rules[0] as ExtendedRule).check.type === "code-lookup" ? ((levelJson.rules[0] as ExtendedRule).check as CodeLookupCheck).minLevel : "-"}`,
+    );
+    let levelBook: string;
+    try {
+      const bytes = writeRulesetXlsx(levelSet);
+      const back = readRulesetXlsx(bytes).ruleset;
+      // Andre regler carries a rule as JSON; on Klassifikasjon minLevel is a cell.
+      const sheets = Object.entries(unzipSync(bytes)).filter(([name]) => name.startsWith("xl/worksheets/")).map(([, data]) => strFromU8(data)).join("");
+      levelBook = `${rulesetDiff(back, canonicalRuleset(levelSet)) ?? "equal"} ${sheets.includes("&quot;minLevel&quot;") ? "as JSON" : "on its sheet"}`;
+    } catch (error) {
+      levelBook = error instanceof Error ? error.message : String(error);
+    }
+    record("ns3451 level workbook round trip: equal, on Klassifikasjon (not Andre regler)", "equal on its sheet", levelBook);
+    record(
+      "ns3451 level examples: in the list, not reserved, of the level's length",
+      "2:22,24,23 ok | 3:222,241,242 ok",
+      ([2, 3] as const)
+        .map((n) => {
+          const ok = LEVEL_EXAMPLES[n].every(
+            (c) => c in CODE_LISTS.ns3451.codes && !(CODE_LISTS.ns3451.reserved ?? []).includes(c) && c.length === n,
+          );
+          return `${n}:${LEVEL_EXAMPLES[n].join(",")} ${ok ? "ok" : "BAD"}`;
+        })
+        .join(" | "),
+    );
+    record(
+      "ns3451 level examples follow the level; unset keeps the list's",
+      "23,31,26 | 22,24,23 | 222,241,242",
+      [undefined, 2, 3].map((minLevel) => listExamples({ list: "ns3451", minLevel }).join(",")).join(" | "),
+    );
+    const judgeRule = levelRule(3) as unknown as Rule;
+    record(
+      "ns3451 level: the Kilde value table judges against the level",
+      "23:false 222:true 2:false",
+      judgeValues(judgeRule, [{ v: "23", n: 2 }, { v: "222", n: 3 }, { v: "2", n: 1 }], [])
+        .map((j) => `${j.v}:${String(j.ok)}`)
+        .join(" "),
+    );
+  }
 
   // The synthetic graph above carries NO property table, which is the "caller
   // supplied none" case and must stay not_evaluable rather than quietly
@@ -3657,6 +3741,33 @@ function setupWalkSelftest(record: (name: string, expected: string, actual: stri
     }),
   );
   record("walk candidates: no property passing is no proposal", "none", ranked([choice("Dim", "Text", [["Vegg", 40]])], "system-classification", sys));
+  {
+    // NS 3451's level: a property holding only two-digit codes is a strong
+    // Forslag with no level and under 2, and no candidate under 3+.
+    const twoDigit = [choice("Klass", "NS3451", [["22", 6], ["24", 4]])];
+    const strongOf = (check: CodeLookupCheck) =>
+      rankCandidates(twoDigit, "system-classification", check, [])
+        .map((c) => `${c.set}.${c.name}:${c.preview.totals.ok}${c.strong ? " strong" : ""}`)
+        .join(" ") || "none";
+    record(
+      "walk candidates Systemkode, level: two-digit codes are strong unset and under 2, none under 3+",
+      "Klass.NS3451:10 strong | Klass.NS3451:10 strong | none",
+      [undefined, 2, 3].map((minLevel) => strongOf({ ...sys, ...(minLevel === undefined ? {} : { minLevel }) })).join(" | "),
+    );
+    const std = POFIN_SOURCES[ROLE_STANDARD["system-classification"]];
+    const stdProp = "property" in std.source ? std.source.property : { propertySet: "", name: "" };
+    const stdChoices = [choice(stdProp.propertySet, stdProp.name, [["23.001", 4], ["231.001", 6]])];
+    record(
+      "standard option Systemkode, level 3+: the standard's preview fails the two-digit code",
+      "6 4 | 10 0",
+      [{ ...sys, minLevel: 3 }, sys]
+        .map((check) => {
+          const p = standardOption("system-classification", check, stdChoices, []).preview;
+          return `${p?.totals.ok} ${p?.totals["not-in-list"]}`;
+        })
+        .join(" | "),
+    );
+  }
   // Rendered 2026-10-05: `MMI.MMI dato` (20.05.2025 reads as NS 3451 class 20
   // in the standard's form) was pre-picked as Systemkode, and on a Revit
   // export `BaseQuantities.CrossSectionArea` passed as NS 3451.

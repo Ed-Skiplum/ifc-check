@@ -9,7 +9,7 @@
  * schemas. */
 
 import { useState, type ReactNode } from "react";
-import { CODE_LISTS } from "../../codelists/index.ts";
+import { CODE_LISTS, type CodeListId } from "../../codelists/index.ts";
 import { matchingPreset } from "../../codelists/mmi-presets.ts";
 import { NOT_A_MATERIAL_EXAMPLES, phaseAccepted } from "../../engine/standard-sources.ts";
 import { POFIN_SOURCES } from "../../engine/pofin-standard.ts";
@@ -34,7 +34,7 @@ import type {
 import { t, type Lang } from "../i18n";
 import type { PsetValue } from "../pset-choices";
 import { IssueLines, MappingRequirement, PropertyPicker, patternParts, presetName, type Picker } from "../SetupPage";
-import { LIST_EXAMPLES, rankPartBindings } from "../setup/candidates";
+import { LEVEL_LABEL, NS3451_LEVELS, listExamples, rankPartBindings, type Ns3451Level } from "../setup/candidates";
 import { PILL } from "../setup/ChipRow";
 import { TfmBuilder, type ChipBinding } from "../setup/TfmBuilder";
 import { TypeNameScheme, partLabel } from "../setup/TypeNameStep";
@@ -46,6 +46,8 @@ import { canon, facetValueRule, keyOf, literalFacets, ruleReading, ruleValueRule
  *  three of its values. */
 export interface KravData {
   pill: string;
+  /** NS 3451: the level the rule requires, after the list pill. */
+  level?: string;
   chips: readonly string[];
   /** What an IDS rule applies to, when it is not the physical elements. */
   scope?: string;
@@ -66,7 +68,11 @@ export function valueRuleData(rule: ValueRule, lang: Lang): KravData {
     case "any":
       return { pill: t("oppsett.anyValue", lang), chips: [] };
     case "list":
-      return { pill: CODE_LISTS[rule.list as keyof typeof CODE_LISTS]?.meta.label ?? rule.list, chips: LIST_EXAMPLES[rule.list as keyof typeof LIST_EXAMPLES] ?? [] };
+      return {
+        pill: CODE_LISTS[rule.list as keyof typeof CODE_LISTS]?.meta.label ?? rule.list,
+        level: levelText(rule.list, rule.minLevel, lang),
+        chips: listExamples({ list: rule.list as CodeListId, minLevel: rule.minLevel }),
+      };
     case "values":
       return { pill: t("field.enumeration", lang), chips: more(rule.values) };
     case "pattern":
@@ -80,6 +86,12 @@ export function valueRuleData(rule: ValueRule, lang: Lang): KravData {
     case "prohibited":
       return { pill: t("field.cardinality", lang), chips: ["prohibited"] };
   }
+}
+
+/** The level pill's text: «Nivå 2» or «Nivå 3+» on NS 3451, else none. */
+function levelText(list: string | undefined, minLevel: number | undefined, lang: Lang): string | undefined {
+  if (list !== "ns3451" || minLevel === undefined || !(NS3451_LEVELS as readonly number[]).includes(minLevel)) return undefined;
+  return t(LEVEL_LABEL[minLevel as Ns3451Level], lang);
 }
 
 function more(values: readonly string[]): string[] {
@@ -120,7 +132,9 @@ export function kravData(item: ReqItem, rule: Rule | null, ruleset: Ruleset, lan
       : { pill: t("field.own", lang), chips: more(check.own) };
   }
   if (check.type === "code-lookup") {
-    if (check.list !== undefined) return { pill: CODE_LISTS[check.list].meta.label, chips: LIST_EXAMPLES[check.list] };
+    if (check.list !== undefined) {
+      return { pill: CODE_LISTS[check.list].meta.label, level: levelText(check.list, check.minLevel, lang), chips: listExamples(check) };
+    }
     const codes = check.codes ?? [];
     if (codes.length === 0) return { pill: t("tfm.shapeOnly", lang), chips: patternParts(check.extract, lang) ?? [check.extract] };
     const preset = matchingPreset(codes);
@@ -136,6 +150,7 @@ export function KravLineData({ data }: { data: KravData }) {
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-1.5">
       {data.pill ? <span className={PILL_DATA}>{data.pill}</span> : null}
+      {data.level ? <span className={PILL_DATA}>{data.level}</span> : null}
       {data.chips.map((c, i) => (
         <span key={`${i}\u0000${c}`} className={DATUM} title={c}>
           {c}
@@ -251,10 +266,33 @@ export function KravEditor({
         issues={issues}
         lang={lang}
         onCheck={(next) => onChange(replaceRule(ruleset, { ...rule, check: next }))}
+        listExtra={
+          check.type === "code-lookup" && check.list === "ns3451" ? (
+            <LevelPills check={check} lang={lang} onCheck={(next) => onChange(replaceRule(ruleset, { ...rule, check: next }))} />
+          ) : null
+        }
       />
     );
   }
   return null;
+}
+
+/** NS 3451's level: «Nivå 2» or «Nivå 3+», a toggle; neither is any level. */
+function LevelPills({ check, lang, onCheck }: { check: CodeLookupCheck; lang: Lang; onCheck: (next: CodeLookupCheck) => void }) {
+  const set = (level: Ns3451Level) => {
+    const rest: CodeLookupCheck = { ...check };
+    delete rest.minLevel;
+    onCheck(check.minLevel === level ? rest : { ...rest, minLevel: level });
+  };
+  return (
+    <>
+      {NS3451_LEVELS.map((level) => (
+        <button key={level} type="button" data-level={level} aria-pressed={check.minLevel === level} onClick={() => set(level)} className={PILL}>
+          {t(LEVEL_LABEL[level], lang)}
+        </button>
+      ))}
+    </>
+  );
 }
 
 /** IFC-skjema: the accepted schema families, replacing the standard's. */

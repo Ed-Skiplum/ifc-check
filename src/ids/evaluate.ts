@@ -71,7 +71,7 @@ export interface Finding {
    *  elements that use it, so a filter on the finding reaches the model. */
   members?: string[];
   /** Stable key for why it failed, so a consumer branches on it rather than
-   *  on `reason`: `empty` · `no-match` · `not-in-list` · `reserved` (code-lookup),
+   *  on `reason`: `empty` · `no-match` · `not-in-list` · `reserved` · `level` (code-lookup),
    *  `no-type`, `duplicate`, `type-usage`, `value` (model-metadata),
    *  `requirement` (an ids rule), `occurrence-bounds`. */
   code?: string;
@@ -1123,14 +1123,18 @@ function sourceLabel(source: CodeSource): string {
 /** What a code-lookup checks codes against: a bundled list, or the project's
  *  own `values`. One code path for both, so the findings read the same.
  *  On the progress-code (MMI) rule an empty project list checks the format
- *  alone: every code the Uttrekk takes out is in it. */
+ *  alone: every code the Uttrekk takes out is in it.
+ *  `shallow`: a listed code below the rule's `minLevel` (NS 3451 only; a
+ *  code's level is its number of digits). Never true without `minLevel`. */
 export function resolveLookup(check: CodeLookupCheck, role?: CodeLookupRole | null): {
   label: string;
   has: (code: string) => boolean;
   reserved: (code: string) => boolean;
+  shallow: (code: string) => boolean;
+  minLevel?: number;
 } {
   if (role === "progress-code" && check.codes !== undefined && check.codes.length === 0) {
-    return { label: `the format ${check.extract} (no codes listed)`, has: () => true, reserved: () => false };
+    return { label: `the format ${check.extract} (no codes listed)`, has: () => true, reserved: () => false, shallow: () => false };
   }
   if (check.codes !== undefined) {
     const allowed = new Set(check.codes.map((c) => c.code));
@@ -1138,6 +1142,7 @@ export function resolveLookup(check: CodeLookupCheck, role?: CodeLookupRole | nu
       label: `the project's codes (${check.codes.map((c) => c.code).join(", ")})`,
       has: (c) => allowed.has(c),
       reserved: () => false,
+      shallow: () => false,
     };
   }
   const list =
@@ -1150,7 +1155,14 @@ export function resolveLookup(check: CodeLookupCheck, role?: CodeLookupRole | nu
     );
   }
   const reserved = new Set(list.reserved ?? []);
-  return { label: list.meta.label, has: (c) => Object.hasOwn(list.codes, c), reserved: (c) => reserved.has(c) };
+  const minLevel = check.list === "ns3451" && check.minLevel !== undefined ? check.minLevel : undefined;
+  return {
+    label: list.meta.label,
+    has: (c) => Object.hasOwn(list.codes, c),
+    reserved: (c) => reserved.has(c),
+    shallow: (c) => minLevel !== undefined && c.length < minLevel,
+    ...(minLevel !== undefined ? { minLevel } : {}),
+  };
 }
 
 function codeLookup(
@@ -1214,6 +1226,7 @@ function codeLookup(
   let noMatch = 0;
   let unknown = 0;
   let reservedHits = 0;
+  let shallowHits = 0;
   const findings: Finding[] = [];
   const tally = new Map<string | null, ValueCount>();
   for (const subject of subjects) {
@@ -1238,6 +1251,10 @@ function codeLookup(
         reservedHits += 1;
         reason = `code "${code}" from ${label} "${value}" is reserved in ${listLabel}`;
         why = "reserved";
+      } else if (lookup.shallow(code)) {
+        shallowHits += 1;
+        reason = `code "${code}" from ${label} "${value}" is level ${code.length}; ${listLabel} level ${lookup.minLevel} or deeper is required`;
+        why = "level";
       }
     }
     countValue(
@@ -1275,12 +1292,15 @@ function codeLookup(
     findings: cap(findings, maxFindings),
     detail:
       `${subjects.length - findings.length} of ${subjects.length} ${noun} carry a code from ` +
-      `${listLabel}; ${missing} empty, ${noMatch} no match, ${unknown} not in the list` +
-      (reservedHits > 0 ? `, ${reservedHits} reserved` : ""),
+      `${listLabel}` +
+      (lookup.minLevel !== undefined ? ` at level ${lookup.minLevel} or deeper` : "") +
+      `; ${missing} empty, ${noMatch} no match, ${unknown} not in the list` +
+      (reservedHits > 0 ? `, ${reservedHits} reserved` : "") +
+      (shallowHits > 0 ? `, ${shallowHits} below level ${lookup.minLevel}` : ""),
     notes: notes.length ? notes : undefined,
     coverage: {
       met: subjects.length - findings.length,
-      deviating: noMatch + unknown + reservedHits,
+      deviating: noMatch + unknown + reservedHits + shallowHits,
       missing,
       sourceHits: subjects.length - missing,
     },

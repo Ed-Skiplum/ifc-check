@@ -244,6 +244,7 @@ const CLASSIFICATION_SHEET: RuleSheet = {
     ...ruleHead({ id: "component-classification", name: "Komponentklasse" }),
     { field: "rules[].check.list", label: "field.list", kind: "text", allowed: CODE_LIST_IDS, example: "ns3457-8", required: true },
     { field: "rules[].check.target", label: "field.target", kind: "text", allowed: ["occurrence", "type"], example: "type" },
+    { field: "rules[].check.minLevel", label: "field.minLevel", kind: "number", example: "3" },
     ...sourceCols("rules[].check.source", "attribute"),
     { field: "rules[].check.extract", label: "field.extract", kind: "text", example: "^([A-Z]{2,3})-\\d{2}$", required: true },
     ...RULE_TAIL,
@@ -401,7 +402,7 @@ const RULE_KEY_ORDER = [
   "id", "kind", "mapping", "name", "description", "reference", "instructions", "enabled",
   "ifcVersions", "identifier", "select", "applicability", "requirements", "check",
 ];
-const CHECK_KEY_ORDER = ["type", "list", "codes", "target", "source", "extract", "copy", "own"];
+const CHECK_KEY_ORDER = ["type", "list", "codes", "target", "source", "extract", "minLevel", "copy", "own"];
 const RULESET_KEY_ORDER = [
   "$schema", "formatVersion", "name", "description", "ifcVersions", "info", "storeys",
   "disciplines", "models", "projectLayer", "rules",

@@ -24,6 +24,7 @@ import type { Ruleset } from "../../ids/types.ts";
 import { t } from "../i18n";
 import { AskPart, ReportLine, ReqBlock, type DoorProps } from "./Requirements";
 import { stateLook, stdAsk, stdCounts } from "./req-view";
+import { LEVEL_LABEL } from "../setup/candidates";
 
 export { MmiChart, CodeTreemap, MeasureSwitch } from "./Charts";
 export { ReqBlock, ReqCard } from "./Requirements";
@@ -63,7 +64,12 @@ function StdAsk({ req, ruleset, lang }: { req: Requirement; ruleset: Ruleset | n
           ))}
         </AskPart>
       ) : null}
-      {ask?.list ? <AskPart label={t("field.list", lang)}>{ask.list}</AskPart> : null}
+      {ask?.list ? (
+        <AskPart label={t("field.list", lang)}>
+          {ask.list}
+          {ask.minLevel !== null ? ` · ${t(LEVEL_LABEL[ask.minLevel], lang)}` : ""}
+        </AskPart>
+      ) : null}
       {ask?.extract ? <AskPart label={t("field.extract", lang)}>{ask.extract}</AskPart> : null}
       {ask?.values ? <AskPart label={t(ask.values.label, lang)}>{ask.values.values.join(" · ")}</AskPart> : null}
       {req.row?.grunn && req.state === "not_evaluable" ? (

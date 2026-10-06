@@ -118,7 +118,7 @@ export function ruleReading(ruleset: Ruleset, key: string, except?: string): Rul
  *  there". */
 export type ValueRule =
   | { kind: "any" }
-  | { kind: "list"; list: string }
+  | { kind: "list"; list: string; minLevel?: number }
   | { kind: "values"; values: string[] }
   | { kind: "pattern"; pattern: string }
   | { kind: "tfm"; sequence: string }
@@ -157,7 +157,11 @@ export function ruleValueRule(rule: Rule, key: string): ValueRule {
   }
   const check = rule.check;
   if (check.type === "code-lookup") {
-    if (check.list !== undefined) return { kind: "list", list: check.list };
+    if (check.list !== undefined) {
+      return check.list === "ns3451" && check.minLevel !== undefined
+        ? { kind: "list", list: check.list, minLevel: check.minLevel }
+        : { kind: "list", list: check.list };
+    }
     if ((check.codes ?? []).length > 0) return { kind: "values", values: sortedUnique((check.codes ?? []).map((c) => c.code)) };
     return { kind: "pattern", pattern: check.extract };
   }
