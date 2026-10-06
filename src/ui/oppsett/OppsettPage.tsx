@@ -44,7 +44,6 @@ import { modelLevels, withLevels } from "../step-templates";
 import { LayerList, ModelStoreys, StoreyCard, setupWithLevels, type Picker } from "../SetupPage";
 import { CONFIRM, IfcDrop } from "../setup/Walk";
 import { rankCandidates, rankTfmCandidates, standardOption, type CardRole } from "../setup/candidates";
-import { roleRule } from "../../ids/models.ts";
 import {
   addableKinds,
   freshId,
@@ -64,6 +63,7 @@ import { LAYER_LABEL, ROLE_LABEL, itemStatus, requirementItems, rowOf, sumHits, 
 import { BUTTON, ConflictBlock, KravEditor, KravLineData, kravData } from "./Krav";
 import { InModel, Kilde, type PinnedOption, type SourceTag } from "./Columns";
 import { judgeValues, shownValues } from "./judge";
+import { PhaseBody } from "./Phase";
 
 export interface OppsettState {
   /** The requirement on screen (`ReqItem.id`); null = none picked. */
@@ -899,10 +899,25 @@ function Body({
     );
   }
 
-  if (item.kind === "phase" || item.kind === "materials") {
-    const slots = item.kind === "phase" ? (["phase"] as const) : (["product", "material"] as const);
-    const mmi = roleRule(ruleset, "progress-code")?.check;
-    const mmiPhases = mmi?.type === "code-lookup" && (mmi.codes ?? []).some((c) => c.phase);
+  if (item.kind === "phase") {
+    return (
+      <PhaseBody
+        lang={lang}
+        ruleset={ruleset}
+        source={item.source}
+        lint={lint}
+        loaded={loaded}
+        figure={figure}
+        rows={reports.map((r) => rowOf(item, r.rows))}
+        picker={picker}
+        tile={TILE}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (item.kind === "materials") {
+    const slots = ["product", "material"] as const;
     return (
       <div className={TILE}>
         <Kilde title={item.source} tag={null} figure={figure} loaded={loaded} values={null} lang={lang}>
@@ -912,13 +927,13 @@ function Body({
               <LayerList
                 key={slot}
                 slot={slot}
-                label={slots.length > 1 ? t(slot === "product" ? "field.product" : "field.material", lang) : undefined}
+                label={t(slot === "product" ? "field.product" : "field.material", lang)}
                 sources={sources}
                 kept
                 picker={picker}
                 issues={lint.filter((i) => i.ruleId === null && i.path.startsWith(layerPath(slot)))}
                 judge={layerJudge(slot, ruleset)}
-                viaMmi={slot === "phase" && mmiPhases && !sources.some((s) => "progressCode" in s)}
+                viaMmi={false}
                 lang={lang}
                 onChange={(next) => onChange(withLayerSources(ruleset, slot, next))}
                 onNext={() => {}}
