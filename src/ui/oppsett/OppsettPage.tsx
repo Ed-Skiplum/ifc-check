@@ -10,7 +10,10 @@
  *   main     before a model and with nothing picked: one drop target for IFC
  *            and IDS together; else the selected requirement: its name, n / N,
  *            Forrige / Neste, delete; the Krav row (what it maps TO); then
- *            Kilde (what it maps FROM now) beside I modellen (the model's data)
+ *            Kilde (what it maps FROM now) above I modellen (the model's data)
+ *
+ * One centered column that scrolls, as in HEY, Basecamp and Fizzy (edkjo, same
+ * day: "a centered column rather than a full width UI"); the sidebar sticks.
  *
  * Every edit goes to the ruleset at once (`onChange`, which re-evaluates), so
  * every figure on the page is the report row the worker wrote. An IDS dropped
@@ -316,7 +319,8 @@ export function OppsettPage({
   const empty = !loaded && selected === null;
 
   return (
-    <main data-oppsett className="flex min-h-0 flex-1 gap-4 overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+    <main data-oppsett className="min-h-0 flex-1 overflow-auto" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+      <div className="mx-auto flex w-full max-w-[1160px] items-start gap-6 px-6 py-8">
       <Sidebar
         lang={lang}
         models={models}
@@ -330,7 +334,7 @@ export function OppsettPage({
         onAdd={add}
         onSave={save}
       />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-4">
         {state.unreadable.length > 0 ? (
           <div data-unreadable className="alt-card flex shrink-0 items-start gap-3 px-4 py-2 ring-2 ring-bad">
             <span className="alt-label shrink-0 pt-0.5">{t("oppsett.unreadable", lang)}</span>
@@ -350,7 +354,7 @@ export function OppsettPage({
           <pre className="m-0 shrink-0 rounded-[10px] bg-bad px-3 py-2 font-mono text-[12px] whitespace-pre-wrap text-cream">{saveError}</pre>
         ) : null}
         {empty || selected === null ? (
-          <div data-stage className="alt-card flex min-h-0 flex-1 items-center justify-center p-8 [container-type:size]">
+          <div data-stage className="alt-card flex h-[60vh] items-center justify-center p-8 [container-type:size]">
             <div className="w-[min(100%,calc(72cqh*1.6))]">
               <IfcDrop
                 label={t("oppsett.drop", lang)}
@@ -390,6 +394,7 @@ export function OppsettPage({
             onJump={jumpToRule}
           />
         )}
+      </div>
       </div>
     </main>
   );
@@ -447,7 +452,7 @@ function Sidebar({
   const addLabel = (kind: AddKind) =>
     kind === "property" ? t("field.source.property", lang) : kind === "storeys" ? t(LAYER_LABEL.storeys, lang) : t(ROLE_LABEL[kind], lang);
   return (
-    <aside data-sidebar className="alt-card flex w-[320px] shrink-0 flex-col overflow-hidden">
+    <aside data-sidebar className="alt-card sticky top-0 flex max-h-[calc(100dvh-8rem)] w-[280px] shrink-0 flex-col overflow-hidden">
       {models.length > 0 ? (
         <ul data-models className="alt-head m-0 flex shrink-0 list-none flex-col gap-1 px-3 py-2">
           {models.map((m) => (
@@ -499,7 +504,7 @@ function Sidebar({
         })}
       </ol>
       <div className="alt-head relative flex shrink-0 items-center gap-2 px-3 py-3 [box-shadow:inset_0_1px_0_var(--d-hair)]" ref={pop}>
-        <button type="button" data-add aria-expanded={adding} onClick={() => setAdding((was) => !was)} className={BUTTON + " flex-1 justify-center"}>
+        <button type="button" data-add aria-expanded={adding} onClick={() => setAdding((was) => !was)} className={BUTTON + " flex-1 justify-center whitespace-nowrap"}>
           + {t("oppsett.add", lang)}
         </button>
         <button
@@ -612,7 +617,7 @@ function Wizard({
   const figure = sumHits(rows);
 
   return (
-    <section data-wizard={item.id} aria-label={itemName(item, lang)} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+    <section data-wizard={item.id} aria-label={itemName(item, lang)} className="flex min-w-0 flex-col gap-4">
       <div className="alt-card flex shrink-0 flex-col">
         <div className="flex items-center gap-4 px-5 pt-4 pb-3">
           <h1 data-wizard-name className="m-0 min-w-0 truncate text-[28px] leading-tight font-semibold tracking-tight text-ink" title={itemName(item, lang)}>
@@ -673,7 +678,7 @@ function Wizard({
           {editor !== null ? (
             <div data-krav className="flex min-w-0 flex-col gap-2 rounded-[8px] px-3 py-2 [box-shadow:inset_0_0_0_1px_var(--d-hair)]">
               <span className="alt-label">{t("field.requirement", lang)}</span>
-              <div data-krav-editor className="max-h-[45vh] min-w-0 overflow-auto">
+              <div data-krav-editor className="min-w-0">
                 {editor}
               </div>
             </div>
@@ -747,7 +752,7 @@ function Body({
   onChange: (next: Ruleset) => void;
   onJump: (ruleId: string) => void;
 }) {
-  const TILE = "alt-card flex min-h-0 min-w-0 flex-col overflow-hidden";
+  const TILE = "alt-card flex max-h-[70vh] min-h-0 min-w-0 flex-col overflow-hidden";
 
   /* A property mapping: Kilde beside I modellen. */
   if (rule && (isMappingRule(rule) || item.property)) {
@@ -804,7 +809,7 @@ function Body({
     };
     const judged = prop ? shownValues(judgeValues(rule, prop.values, ownerNames)) : null;
     return (
-      <div data-columns className="grid min-h-0 flex-1 gap-4 [grid-template-columns:minmax(0,5fr)_minmax(0,7fr)]">
+      <div data-columns className="flex min-w-0 flex-col gap-4">
         <div className={TILE}>
           <Kilde title={sourceTitle} tag={tag} figure={figure} loaded={loaded} values={judged} lang={lang} />
         </div>
@@ -818,7 +823,7 @@ function Body({
   /* Typenavn: the type's Name, its values against the scheme. */
   if (rule && rule.kind === "extended" && rule.check.type === "type-name") {
     return (
-      <div className={TILE + " flex-1"}>
+      <div className={TILE}>
         <Kilde title="Type.Name" tag={null} figure={figure} loaded={loaded} values={shownValues(judgeValues(rule, typeNames, ownerNames))} lang={lang} />
       </div>
     );
@@ -827,7 +832,7 @@ function Body({
   /* An IDS rule that is not one property: its figure, Krav read-only above. */
   if (rule) {
     return (
-      <div className={TILE + " flex-1"}>
+      <div className={TILE}>
         <Kilde title={item.source} tag={null} figure={figure} loaded={loaded} values={null} lang={lang} />
       </div>
     );
@@ -835,7 +840,7 @@ function Body({
 
   if (item.kind === "ifc-schema") {
     return (
-      <div className={TILE + " flex-1"}>
+      <div className={TILE}>
         <Kilde title="FILE_SCHEMA" tag={null} figure={figure} loaded={loaded} values={null} lang={lang}>
           {reports.length > 0 ? (
             <ul className="m-0 flex list-none flex-col gap-1 p-0">
@@ -865,7 +870,7 @@ function Body({
     const mmi = roleRule(ruleset, "progress-code")?.check;
     const mmiPhases = mmi?.type === "code-lookup" && (mmi.codes ?? []).some((c) => c.phase);
     return (
-      <div className={TILE + " flex-1"}>
+      <div className={TILE}>
         <Kilde title={item.source} tag={null} figure={figure} loaded={loaded} values={null} lang={lang}>
           {slots.map((slot) => {
             const sources = layerSources(ruleset, slot);
@@ -899,7 +904,7 @@ function Body({
       onChange(next);
     };
     return (
-      <div className={TILE + " flex-1"}>
+      <div className={TILE}>
         <Kilde title={item.source} tag={null} figure={figure} loaded={loaded} values={null} lang={lang}>
           <StoreyCard setup={ruleset.storeys} issues={lint.filter((i) => i.ruleId === null && i.path.startsWith("storeys"))} lang={lang} onChange={setStoreys} />
           {fromModels.length > 0 ? (
