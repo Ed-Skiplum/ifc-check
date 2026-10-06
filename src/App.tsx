@@ -19,8 +19,9 @@ import { useAccount } from "./account/useAccount";
 import { signInUrl } from "./account/konto";
 import { removeFromAccount, saveToAccount, syncOnSignIn, type Versions } from "./account/hosted-ruleset";
 import { t } from "./ui/i18n";
+import { BUTTON } from "./ui/oppsett/Krav";
 import { EMPTY_OPPSETT, OppsettPage, type OppsettState } from "./ui/oppsett/OppsettPage";
-import { forgetSavedRuleset, readSavedRuleset, writeSavedRuleset } from "./storage/saved-ruleset";
+import { forgetSavedRuleset } from "./storage/saved-ruleset";
 import { kpiClaims } from "./ui/claims";
 import { chooseFocus, useCrossFilter, type ModelView } from "./ui/cross-filter";
 import { originOfFocus } from "./ui/origins";
@@ -72,13 +73,15 @@ export default function App() {
   const [view, setView] = useHashView();
   const { models, addFiles, removeModel, clearModels, clearCache, applyRuleset, applyIds, openCached, requestPsets } =
     useModels();
-  // The ruleset «Lagre oppsett» kept, read once, before the first render.
-  const [saved] = useState(readSavedRuleset);
+  // No browser copy of the ruleset (edkjo 2026-10-06: a setup from an earlier
+  // session came back unasked). One left by an older build is dropped; a
+  // click that would lose the setup asks first (`guardReset`).
+  useEffect(() => forgetSavedRuleset(), []);
   // The Prosjekt tab's `.ids`: run as written, apart from the ruleset.
   const [ids, setIds] = useState<IdsSession | null>(null);
   const [idsError, setIdsError] = useState<string | null>(null);
-  const [ruleset, setRuleset] = useState<Ruleset | null>(saved?.ruleset ?? null);
-  const [rulesetName, setRulesetName] = useState<string | null>(saved?.fileName ?? null);
+  const [ruleset, setRuleset] = useState<Ruleset | null>(null);
+  const [rulesetName, setRulesetName] = useState<string | null>(null);
   const [rulesetError, setRulesetError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(0);
   // Cross-filter and selection live HERE, above both the boards and the
@@ -159,21 +162,14 @@ export default function App() {
     } else delete root.dataset.design;
   }, [view.design]);
 
-  // The saved ruleset goes to the models as a loaded one would; the models
-  // restored from the cache are evaluated against it as they arrive.
-  useEffect(() => {
-    if (saved) applyRuleset(saved.ruleset);
-  }, [saved, applyRuleset]);
-
   /* ── The saved ruleset follows the account ──────────────────────────────
    *
    * Signed in with hosted state only (`account/hosted-ruleset.ts`); else
-   * the browser copy is all there is, as before. On sign-in the account's
-   * newest ruleset is put on screen the way the browser copy is on load, so
-   * a returning user lands with the setup in place on any device, unless
-   * the ruleset was touched since the page opened: an edit on screen is never
-   * replaced. A write the platform refused shows its answer in the error band
-   * (`accountError`); the browser copy is saved either way. */
+   * nothing is kept past the page. On sign-in the account's newest ruleset
+   * is put on screen, so a returning user lands with the setup in place on
+   * any device, unless the ruleset was touched since the page opened: an
+   * edit on screen is never replaced. A write the platform refused shows its
+   * answer in the error band (`accountError`). */
   const hostedOrg =
     konto && account.kind === "signed-in" && account.org?.hostedState ? account.org.id : null;
   const syncedFor = useRef<string | null>(null);
@@ -182,6 +178,22 @@ export default function App() {
   const accountKey = useRef<string | null>(null);
   // Set by any ruleset change after load: sign-in then leaves the screen be.
   const touched = useRef(false);
+  // An edit not yet downloaded. Nothing keeps it past the page, so a click
+  // that would replace or remove it asks first (offering the file), and so
+  // does leaving the page (edkjo 2026-10-06).
+  const unsaved = useRef(false);
+  const [pendingReset, setPendingReset] = useState<(() => void) | null>(null);
+  const guardReset = useCallback((action: () => void) => {
+    if (unsaved.current) setPendingReset(() => action);
+    else action();
+  }, []);
+  useEffect(() => {
+    const leave = (event: BeforeUnloadEvent) => {
+      if (unsaved.current) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", leave);
+    return () => window.removeEventListener("beforeunload", leave);
+  }, []);
   const [accountError, setAccountError] = useState<string | null>(null);
   useEffect(() => {
     // A check that could not reach the platform changes nothing.
@@ -196,7 +208,7 @@ export default function App() {
     const who = `${account.kind === "signed-in" ? account.user.id : ""}:${hostedOrg}`;
     if (syncedFor.current === who) return;
     syncedFor.current = who;
-    void syncOnSignIn(konto, hostedOrg, readSavedRuleset()).then((sync) => {
+    void syncOnSignIn(konto, hostedOrg, null).then((sync) => {
       if (syncedFor.current !== who) return;
       if (sync.kind === "local-only") {
         setAccountError(sync.reason || null);
@@ -209,11 +221,6 @@ export default function App() {
       setRulesetName(sync.saved.fileName);
       setRuleset(sync.saved.ruleset);
       applyRuleset(sync.saved.ruleset);
-      try {
-        writeSavedRuleset(sync.saved);
-      } catch {
-        // the account holds it; the browser copy is a convenience here
-      }
     });
   }, [konto, hostedOrg, account, applyRuleset]);
 
@@ -223,6 +230,7 @@ export default function App() {
       touched.current = true;
       try {
         const loaded = await readRulesetFile(file);
+        unsaved.current = false;
         setRulesetError(null);
         setRulesetName(loaded.fileName);
         setRuleset(loaded.ruleset);
@@ -276,8 +284,8 @@ export default function App() {
   // The main page's ruleset slot and drop: an `.ids` goes to the IDS view (the
   // same loader as the IDS tile), a `.json`/`.xlsx` to the ruleset.
   const takeRulesetFile = useCallback(
-    (file: File) => void (isIdsFile(file) ? loadIds(file) : loadRuleset(file)),
-    [loadIds, loadRuleset],
+    (file: File) => (isIdsFile(file) ? void loadIds(file) : guardReset(() => void loadRuleset(file))),
+    [loadIds, loadRuleset, guardReset],
   );
 
   const takeFiles = useCallback(
@@ -297,13 +305,13 @@ export default function App() {
 
   const clearRuleset = useCallback(() => {
     touched.current = true;
+    unsaved.current = false;
     setRulesetName(null);
     setRuleset(null);
     setRulesetError(null);
     applyRuleset(null);
-    // A removed ruleset does not come back on the next load: neither the
-    // browser copy nor, signed in, the account's.
-    forgetSavedRuleset();
+    // A removed ruleset does not come back on the next load: signed in, the
+    // account's copy goes too.
     const key = accountKey.current;
     if (konto && hostedOrg && key) {
       accountKey.current = null;
@@ -322,6 +330,7 @@ export default function App() {
   const editRuleset = useCallback(
     (next: Ruleset) => {
       touched.current = true;
+      unsaved.current = true;
       setRuleset(next);
       setRulesetError(null);
       setRulesetName((name) => name ?? `${next.name || "regelsett"}.ruleset.json`);
@@ -378,14 +387,8 @@ export default function App() {
       dragging={dragging > 0}
       onSave={() => {
         const toSave = ruleset ? { fileName: setupFileName, ruleset } : null;
-        try {
-          writeSavedRuleset(toSave);
-        } catch (error) {
-          return error instanceof Error ? error.message : String(error);
-        }
         touched.current = true;
-        // Signed in with hosted state: the account's copy too, after the
-        // browser's. A refusal is shown; the browser copy stands.
+        // Signed in with hosted state: the account's copy. A refusal is shown.
         if (konto && hostedOrg && toSave) {
           void saveToAccount(konto, hostedOrg, toSave, accountVersions.current).then((result) => {
             if (result.kind === "saved") {
@@ -551,7 +554,7 @@ export default function App() {
               rulesetName={rulesetName}
               rulesetError={rulesetError}
               onRulesetFile={takeRulesetFile}
-              onClearRuleset={clearRuleset}
+              onClearRuleset={() => guardReset(clearRuleset)}
               onSetup={toggleSetup}
               onOpenCached={openCached}
             />
@@ -573,7 +576,7 @@ export default function App() {
             onClearCache={clearCache}
             ruleset={ruleset}
             rulesetName={rulesetName}
-            onClearRuleset={clearRuleset}
+            onClearRuleset={() => guardReset(clearRuleset)}
             setupOpen={setupOpen}
             onSetup={toggleSetup}
             account={accountControl}
@@ -669,6 +672,51 @@ export default function App() {
 
         </>
       )}
+      {pendingReset ? (
+        <div data-reset-ask className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4">
+          <div role="alertdialog" aria-labelledby="reset-ask" className="alt-card flex max-w-md flex-col gap-4 p-5">
+            <p id="reset-ask" className="m-0 text-[15px] text-ink">{t("reset.ask", view.lang)}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  if (ruleset) {
+                    const url = URL.createObjectURL(new Blob([JSON.stringify(ruleset, null, 2) + "\n"], { type: "application/json" }));
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = setupFileName;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 0);
+                  }
+                  unsaved.current = false;
+                  const action = pendingReset;
+                  setPendingReset(null);
+                  action();
+                }}
+                className={BUTTON}
+              >
+                {t("action.yes", view.lang)}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  unsaved.current = false;
+                  const action = pendingReset;
+                  setPendingReset(null);
+                  action();
+                }}
+                className={BUTTON}
+              >
+                {t("action.no", view.lang)}
+              </button>
+              <button type="button" onClick={() => setPendingReset(null)} className={BUTTON}>
+                {t("action.cancel", view.lang)}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
