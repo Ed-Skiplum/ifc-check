@@ -426,6 +426,26 @@ const STRINGS = {
   "action.addAll": { nb: "Legg til alle", en: "Add all" },
   "action.upload": { nb: "Last opp", en: "Upload" },
 
+  /* --------------------------------------------------------- oppsett v2 */
+  "oppsett.add": { nb: "Legg til krav", en: "Add requirement" },
+  "action.save": { nb: "Lagre", en: "Save" },
+  "action.delete": { nb: "Slett", en: "Delete" },
+  "oppsett.source": { nb: "Kilde", en: "Source" },
+  "oppsett.inModel": { nb: "I modellen", en: "In the model" },
+  "oppsett.fromModel": { nb: "Fra modellen", en: "From the model" },
+  "oppsett.suggestion": { nb: "Forslag", en: "Suggestion" },
+  "oppsett.usedBy": { nb: "Brukt av", en: "Used by" },
+  "oppsett.notInModel": { nb: "Ikke i modellen", en: "Not in the model" },
+  "oppsett.noSource": { nb: "Ingen kilde", en: "No source" },
+  "oppsett.keepIds": { nb: "Behold IDS", en: "Keep IDS" },
+  "oppsett.keepCurrent": { nb: "Behold nåværende", en: "Keep current" },
+  "oppsett.current": { nb: "Nåværende", en: "Current" },
+  "oppsett.anyValue": { nb: "Utfylt", en: "Any value" },
+  "oppsett.drop": { nb: "Slipp IFC og IDS", en: "Drop IFC and IDS" },
+  "accept.ifcIds": { nb: "IFC · IFCZIP · IDS", en: "IFC · IFCZIP · IDS" },
+  "oppsett.search": { nb: "Søk", en: "Search" },
+  "oppsett.unreadable": { nb: "Ikke lest", en: "Not read" },
+
   /* ------------------------------------- lint, at the field on Oppsett */
   // Keyed `lint.<issue code>` (src/ids/lint.ts). A code with no entry shows
   // the issue's own message.

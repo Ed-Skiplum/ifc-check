@@ -217,6 +217,19 @@ function matchesValue(constraint: IdsValue, value: string | null): boolean {
   return matchesRestriction(constraint.restriction, value);
 }
 
+/** An IDS value constraint against one value read as text, as the
+ *  evaluator compares a string-typed property. Null when the constraint
+ *  cannot be used here (a pattern JavaScript refuses). For a list of values
+ *  shown beside a requirement (Oppsett), not for the verdict. */
+export function idsValueMatches(constraint: IdsValue, value: string): boolean | null {
+  try {
+    return matchesValue(constraint, value);
+  } catch (error) {
+    if (error instanceof Unsupported) return null;
+    throw error;
+  }
+}
+
 /** How a property value compares, by the IFC type it was written as.
  *
  * ifcfast renders a STEP value as text: an IfcBoolean `.T.` is `True`, a

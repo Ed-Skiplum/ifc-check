@@ -203,7 +203,7 @@ function blankCheck(role: CardRole): MappingCheck {
 }
 
 /** An MMI preset's name: a proper name, the same in nb and en. */
-function presetName(id: MmiPresetId): string {
+export function presetName(id: MmiPresetId): string {
   return MMI_PRESETS.find((p) => p.id === id)?.name ?? id;
 }
 
@@ -271,7 +271,7 @@ function issueText(issue: LintIssue, lang: Lang): string {
 
 /** The issues of one field, under it. `subject` names the row an issue is
  *  on (a code, a storey), when it is on one. */
-function IssueLines({
+export function IssueLines({
   issues,
   lang,
   subject,
@@ -494,7 +494,7 @@ function CodeRow({
  * the list. A step that opens on a source already set shows the card too, in
  * the bad colour and without a count when the model lacks it. Enter on the
  * card is the step's next. */
-function PropertyPicker({
+export function PropertyPicker({
   value,
   choices,
   reading,
@@ -1160,7 +1160,7 @@ function MappingCard({
  *  (`codes: []`, the Uttrekk's format alone, shown), a preset, or the
  *  project's own codes. Duplikat objekt: the copy and own values, «Ingen»
  *  when both are empty. Its issues print here. */
-function MappingRequirement({
+export function MappingRequirement({
   role,
   check,
   issues,
@@ -1290,7 +1290,7 @@ function MappingRequirement({
  *  plain parts (`^(0|\d{3})$` reads «0» or «Siffer · 3»), each as the type
  *  name builder's chip would name it; null when the pattern is not that
  *  simple (it then stays behind «Avansert»). */
-function patternParts(pattern: string, lang: Lang): string[] | null {
+export function patternParts(pattern: string, lang: Lang): string[] | null {
   const m = /^\^\((.*)\)\$$/.exec(pattern) ?? /^\^(.*)\$$/.exec(pattern);
   if (!m) return null;
   const parts = m[1].split("|");
@@ -1309,7 +1309,7 @@ function patternParts(pattern: string, lang: Lang): string[] | null {
 
 /** What the pickers list, and the models' products: `total`, null with no
  *  model read. */
-type Picker = { choices: PsetChoice[] | null; reading: boolean; errors: string[]; total: number | null };
+export type Picker = { choices: PsetChoice[] | null; reading: boolean; errors: string[]; total: number | null };
 
 /** The standard layer's sources for a cascade, read before any project
  *  source (`standard-sources.ts`). A pick keeps the step at the standard:
@@ -1459,7 +1459,7 @@ function LayerSourceCard({
  *  they are read, then the next one. A cascade with no project source opens
  *  on the picker; «Legg til» opens it again. On Fase, «Via MMI» adds the
  *  phase the MMI code implies, once the MMI step's codes carry phases. */
-function LayerList({
+export function LayerList({
   slot,
   label,
   sources,
@@ -1744,7 +1744,7 @@ function LayerBranch({
  *  The plane has no default; a new config matches exactly (tolerance 0 and 0,
  *  a same-named storey at any distance, another name at the same mm), and the
  *  workbook or JSON sets the tolerances. An empty list is no config. */
-function StoreyCard({
+export function StoreyCard({
   setup,
   issues,
   lang,
@@ -1834,7 +1834,7 @@ function StoreyCard({
 /** `setup` with these levels. No levels is no config; a first level starts
  *  one that matches exactly and has no plane, which lint refuses until one
  *  is chosen. */
-function setupWithLevels(setup: StoreySetup | undefined, levels: StoreyLevel[]): StoreySetup | undefined {
+export function setupWithLevels(setup: StoreySetup | undefined, levels: StoreyLevel[]): StoreySetup | undefined {
   if (levels.length === 0) return undefined;
   return setup
     ? { ...setup, levels }
@@ -1849,7 +1849,7 @@ function setupWithLevels(setup: StoreySetup | undefined, levels: StoreyLevel[]):
 
 /** The loaded models' own storeys (`step-templates.ts` `modelLevels`): «+» on
  *  one adds it as a level, «Legg til alle» every one the table lacks. */
-function ModelStoreys({
+export function ModelStoreys({
   fromModels,
   levels,
   lang,
@@ -2123,7 +2123,7 @@ function checkOf(rule: ExtendedRule | null, role: CardRole): MappingCheck {
 }
 
 /** A source as the step and the summary name it. */
-function sourceText(source: PhaseSource, lang: Lang): string {
+export function sourceText(source: PhaseSource, lang: Lang): string {
   if ("progressCode" in source) return t("setup.viaMmi", lang);
   if ("property" in source) return `${source.property.propertySet}.${source.property.name}`;
   if ("attribute" in source) return `${t("field.source.attribute", lang)} ${source.attribute}`;
