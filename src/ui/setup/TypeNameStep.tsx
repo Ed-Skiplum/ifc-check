@@ -242,6 +242,85 @@ function PartEditor({
   );
 }
 
+/** The scheme as a row of chips that reads as a sample name, edited in
+ *  place (`ChipRow.tsx`), the type Names off it under the row. Shared by the
+ *  walk's step and Oppsett v2's Krav editor. */
+export function TypeNameScheme({
+  sequence,
+  values,
+  offHead,
+  lang,
+  onSequence,
+}: {
+  sequence: NamePart[];
+  /** The loaded models' type Names, with the elements using each. */
+  values: readonly PsetValue[];
+  offHead?: React.ReactNode;
+  lang: Lang;
+  onSequence: (next: NamePart[]) => void;
+}) {
+  const parse = useMemo(() => {
+    try {
+      const matcher = nameMatcher(sequence);
+      return (value: string): ChipParse => {
+        const parsed = matcher.parse(value);
+        return parsed.ok ? parsed : { ok: false, at: parsed.at, token: parsed.part };
+      };
+    } catch {
+      return null;
+    }
+  }, [sequence]);
+
+  const face = (part: NamePart): ChipFace => {
+    const shape = partShape(part);
+    // A separator is its glyph, as TFM's; text is dashed.
+    return {
+      kind: shape.kind,
+      big: "text" in part ? (shape.kind === "sep" ? sepGlyph(part.text) : part.text) : undefined,
+      part: !("text" in part),
+      dashed: shape.kind === "text",
+      bound: false,
+      sub: "text" in part ? undefined : <span className="text-[11px] whitespace-nowrap text-muted">{partLabel(part, lang)}</span>,
+    };
+  };
+
+  // Between two parts that are not separators, the insert offers a separator
+  // first, "." on.
+  const palette = (pick: (part: NamePart) => void, at: number) => {
+    const before = sequence[at - 1];
+    const after = sequence[at];
+    const between = before !== undefined && after !== undefined && partShape(before).kind !== "sep" && partShape(after).kind !== "sep";
+    return (
+      <>
+        <Kinds current={between ? "sep" : null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />
+        {between ? <Separators current={NAME_SEPARATORS[0]} onPick={(text) => pick({ text })} /> : null}
+      </>
+    );
+  };
+
+  return (
+    <ChipRow
+      sequence={sequence}
+      values={values}
+      parse={parse}
+      exampleOf={partExample}
+      face={face}
+      name={(part) => partLabel(part, lang)}
+      editor={(part, change, remove) => <PartEditor part={part} lang={lang} onChange={change} onRemove={remove} />}
+      palette={palette}
+      typed={(part) =>
+        "text" in part ? (partShape(part).kind === "sep" ? null : { empty: part.text === "" }) : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
+      }
+      standard={POFIN_TYPE_NAME}
+      same={sameScheme}
+      lang={lang}
+      onSequence={onSequence}
+      offHead={offHead}
+      countLabel={t("walk.selected", lang)}
+    />
+  );
+}
+
 /** Where the type name is read: the Name attribute of the element's type
  *  object, per IFC type class found (IfcWallType.Name), the elements whose
  *  type carries one of the elements the rule selects. */
@@ -304,33 +383,6 @@ export function TypeNameStep({
       ? t("label.ruleset", lang)
       : null;
 
-  const face = (part: NamePart): ChipFace => {
-    const shape = partShape(part);
-    // A separator is its glyph, as TFM's; text is dashed.
-    return {
-      kind: shape.kind,
-      big: "text" in part ? (shape.kind === "sep" ? sepGlyph(part.text) : part.text) : undefined,
-      part: !("text" in part),
-      dashed: shape.kind === "text",
-      bound: false,
-      sub: "text" in part ? undefined : <span className="text-[11px] whitespace-nowrap text-muted">{partLabel(part, lang)}</span>,
-    };
-  };
-
-  // Between two parts that are not separators, the insert offers a separator
-  // first, "." on.
-  const palette = (pick: (part: NamePart) => void, at: number) => {
-    const before = sequence[at - 1];
-    const after = sequence[at];
-    const between = before !== undefined && after !== undefined && partShape(before).kind !== "sep" && partShape(after).kind !== "sep";
-    return (
-      <>
-        <Kinds current={between ? "sep" : null} lang={lang} onPick={(kind) => pick(blankPart(kind))} />
-        {between ? <Separators current={NAME_SEPARATORS[0]} onPick={(text) => pick({ text })} /> : null}
-      </>
-    );
-  };
-
   const ready = parse !== null && sequence.length > 0 && sequence.every((p) => !("values" in p) || p.values.length > 0);
   // The scheme works on the loaded models, or there are none to say so.
   const lead = typeNames === null || values.length === 0 || matching > 0;
@@ -365,20 +417,9 @@ export function TypeNameStep({
         requirement={
           <div data-scheme={lead ? "found" : "missing"} className="flex flex-col gap-4">
             {tag ? <span className={LABEL}>{tag}</span> : null}
-            <ChipRow
+            <TypeNameScheme
               sequence={sequence}
               values={values}
-              parse={parse}
-              exampleOf={partExample}
-              face={face}
-              name={(part) => partLabel(part, lang)}
-              editor={(part, change, remove) => <PartEditor part={part} lang={lang} onChange={change} onRemove={remove} />}
-              palette={palette}
-              typed={(part) =>
-                "text" in part ? (partShape(part).kind === "sep" ? null : { empty: part.text === "" }) : "values" in part ? { empty: part.values.length === 0 } : "regex" in part ? { empty: part.regex === "" } : null
-              }
-              standard={POFIN_TYPE_NAME}
-              same={sameScheme}
               lang={lang}
               onSequence={setSequence}
               // The rows are type Names off the scheme, headed by the count of
@@ -398,7 +439,6 @@ export function TypeNameStep({
                   </span>
                 ) : undefined
               }
-              countLabel={t("walk.selected", lang)}
             />
             {/* The scheme as the ruleset holds it: its report row, the figures
                 the landed strip and the summary print. */}

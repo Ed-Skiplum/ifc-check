@@ -67,6 +67,7 @@ import { NAME_SEPARATORS, POFIN_TYPE_NAME, digitsPart, lettersPart, nameMatcher,
 import type { CodeLookupCheck, CopyObjectCheck, ExtendedRule, MappingRole, NamePart, TfmCheck, TfmPart, TfmToken } from "../src/ids/types.ts";
 import { defaultCodeList, roleRule, ruleRole } from "../src/ids/models.ts";
 import { pofinRuleset, withPofin } from "../src/engine/pofin-ruleset.ts";
+import { oppsettSelftest } from "./oppsett-selftest.ts";
 import { importIds, parseIdsXml, type ImportedIds } from "../src/ids/import.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
 import { evaluateIds, type IdsModelResult } from "../src/ids/ids-report.ts";
@@ -2938,6 +2939,7 @@ async function cmdSelftest(): Promise<number> {
   tfmSelftest(record);
   typeNameSelftest(record);
   pofinSelftest(record);
+  oppsettSelftest(record, shapeErrors);
   layerStepSelftest(record);
   stepTemplateSelftest(record);
   qtoSelftest(record);

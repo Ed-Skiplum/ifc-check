@@ -19,7 +19,7 @@ import { useAccount } from "./account/useAccount";
 import { signInUrl } from "./account/konto";
 import { removeFromAccount, saveToAccount, syncOnSignIn, type Versions } from "./account/hosted-ruleset";
 import { t } from "./ui/i18n";
-import { FIRST_MAPPING_STEP, SetupPage, type SetupStep } from "./ui/SetupPage";
+import { EMPTY_OPPSETT, OppsettPage, type OppsettState } from "./ui/oppsett/OppsettPage";
 import { forgetSavedRuleset, readSavedRuleset, writeSavedRuleset } from "./storage/saved-ruleset";
 import { kpiClaims } from "./ui/claims";
 import { chooseFocus, useCrossFilter, type ModelView } from "./ui/cross-filter";
@@ -329,57 +329,53 @@ export default function App() {
     },
     [applyRuleset],
   );
+  // Oppsett's POFIN seed when no ruleset exists: the working copy appears
+  // as an edit would, without counting as one, so the account's ruleset
+  // still lands on sign-in.
+  const seedRuleset = useCallback(
+    (next: Ruleset) => {
+      setRuleset(next);
+      setRulesetError(null);
+      setRulesetName((name) => name ?? `${next.name || "regelsett"}.ruleset.json`);
+      applyRuleset(next);
+    },
+    [applyRuleset],
+  );
   const setupOpen = view.page === "setup";
   const toggleSetup = useCallback(
     () => setView({ page: setupOpen ? null : "setup" }),
     [setView, setupOpen],
   );
-  // The step Oppsett is on, held here: the page remounts when the first
-  // model lands (the empty and the board layouts are two trees). null =
-  // the page picks its first step. Each opening starts afresh.
-  const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
-  // «POFIN» was picked on the choice: held here with the step, for the same
-  // remount, and dropped with it.
-  const [setupPofin, setSetupPofin] = useState(false);
+  // Oppsett's own state (the requirement on screen, the IDS conflicts
+  // waiting on a choice, the specs an IDS drop could not read), held here:
+  // the page remounts when the first model lands (the empty and the board
+  // layouts are two trees), and a conflict must outlive that. Dropped when
+  // Oppsett closes.
+  const [oppsett, setOppsett] = useState<OppsettState>(EMPTY_OPPSETT);
   const [setupWasOpen, setSetupWasOpen] = useState(setupOpen);
   if (setupWasOpen !== setupOpen) {
     setSetupWasOpen(setupOpen);
-    if (!setupOpen) {
-      setSetupStep(null);
-      setSetupPofin(false);
-    }
+    if (!setupOpen) setOppsett(EMPTY_OPPSETT);
   }
   // The picker's sets are computed only once Oppsett has been opened.
   useEffect(() => {
     if (setupOpen) requestPsets();
   }, [setupOpen, requestPsets]);
-  // The IFC step done once a model is read: the walk moves on to the first
-  // mapping by itself. On the default entry (no step held) the page's own
-  // first step turns over with it.
-  const anyReady = models.some((m) => m.state === "ready");
-  const hadReady = useRef(anyReady);
-  useEffect(() => {
-    if (anyReady && !hadReady.current) setSetupStep((s) => (s === "ifc" ? FIRST_MAPPING_STEP : s));
-    hadReady.current = anyReady;
-  }, [anyReady]);
   const setupFileName = rulesetName && /\.json$/i.test(rulesetName)
     ? rulesetName
     : `${(rulesetName ?? ruleset?.name ?? "regelsett").replace(/\.(ids|xml|xlsx)$/i, "")}.ruleset.json`;
   const setupPage = setupOpen ? (
-    <SetupPage
+    <OppsettPage
       lang={view.lang}
       ruleset={ruleset ?? EMPTY_RULESET}
       rulesetLoaded={ruleset !== null}
-      fileName={setupFileName}
       models={models}
-      step={setupStep}
-      onStep={setSetupStep}
+      state={oppsett}
+      onState={setOppsett}
       onChange={editRuleset}
-      onOpen={loadRuleset}
+      onSeed={seedRuleset}
       onFiles={takeFiles}
       dragging={dragging > 0}
-      pofin={setupPofin}
-      onPofin={setSetupPofin}
       onSave={() => {
         const toSave = ruleset ? { fileName: setupFileName, ruleset } : null;
         try {

@@ -137,12 +137,15 @@ export function IfcDrop({
   dragging,
   busy,
   onFiles,
+  fileTypes = ".ifc,.ifczip",
 }: {
   label: string;
   accept: string;
   dragging: boolean;
   busy: boolean;
   onFiles: (files: File[]) => void;
+  /** The file dialog's `accept`. */
+  fileTypes?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -190,7 +193,7 @@ export function IfcDrop({
         ref={input}
         type="file"
         multiple
-        accept=".ifc,.ifczip"
+        accept={fileTypes}
         className="hidden"
         onChange={(event) => {
           onFiles(Array.from(event.target.files ?? []));
