@@ -267,8 +267,11 @@ const GRID = `(() => {
   }
   rows.forEach((row, i) => {
     row.sort((a, c) => a.r.left - c.r.left);
+    // A mapping step's three cards align their tops and are each as tall
+    // as they hold (2026-10-05): bottoms may differ there.
+    const cards = row.every((b) => b.el.closest('[data-cards]'));
     const bottoms = row.map((b) => b.r.bottom);
-    if (Math.max(...bottoms) - Math.min(...bottoms) > T) fails.push('row ' + i + ' bottoms ' + bottoms.map(Math.round).join('/'));
+    if (!cards && Math.max(...bottoms) - Math.min(...bottoms) > T) fails.push('row ' + i + ' bottoms ' + bottoms.map(Math.round).join('/'));
     const gaps = row.slice(1).map((b, k) => b.r.left - row[k].r.right);
     if (gaps.length > 1 && Math.max(...gaps) - Math.min(...gaps) > T) fails.push('row ' + i + ' gaps ' + gaps.map(Math.round).join('/'));
     const last = row[row.length - 1].r;
@@ -279,12 +282,15 @@ const GRID = `(() => {
     if (Math.abs(left - f.left) > T) fails.push('row ' + i + ' left ' + Math.round(left) + ' vs ' + Math.round(f.left));
   });
   const vgaps = rows.slice(1).map((row, i) => Math.round(row[0].r.top - Math.max(...rows[i].map((b) => b.r.bottom))));
+  // A mapping step's column is narrower than the frame the bar spans.
+  const frame = content.hasAttribute('data-column') ? content.parentElement.getBoundingClientRect() : f;
   if (vgaps.length > 1 && Math.max(...vgaps) - Math.min(...vgaps) > T) fails.push('row gaps ' + vgaps.join('/'));
   for (const [name, sel] of [['bar', '[data-walk-progress]'], ['actions', '[data-walk-actions]']]) {
     const el = document.querySelector(sel);
     if (!el || !vis(el)) continue;
     const r = (name === 'bar' ? el.parentElement : el).getBoundingClientRect();
-    if (Math.abs(r.left - f.left) > T || Math.abs(r.right - f.right) > T) fails.push(name + ' edges ' + Math.round(r.left) + '..' + Math.round(r.right) + ' vs ' + Math.round(f.left) + '..' + Math.round(f.right));
+    const e = name === 'bar' ? frame : f;
+    if (Math.abs(r.left - e.left) > T || Math.abs(r.right - e.right) > T) fails.push(name + ' edges ' + Math.round(r.left) + '..' + Math.round(r.right) + ' vs ' + Math.round(e.left) + '..' + Math.round(e.right));
   }
   return { pass: fails.length === 0, fails, rows: rows.length, vgaps };
 })()`;
@@ -320,6 +326,24 @@ const MEASURE = `(() => {
       return a.getBoundingClientRect().top < sec.getBoundingClientRect().bottom - 1;
     })(),
     grid: ${GRID},
+    // A mapping step's cards: tops, heights, and the gaps between its blocks
+    // (requirement -> cards -> actions -> Avansert), each meant to be 16 px.
+    cards: (() => {
+      const cs = [...document.querySelectorAll('[data-cards] > [data-card]')];
+      if (cs.length === 0) return null;
+      const rs = cs.map((c) => c.getBoundingClientRect());
+      const krav = document.querySelector('[data-krav]')?.getBoundingClientRect();
+      const act = document.querySelector('[data-walk-actions]')?.getBoundingClientRect();
+      const door = document.querySelector('[data-walk-content] > details[data-door]')?.getBoundingClientRect();
+      const grid = document.querySelector('[data-cards]').getBoundingClientRect();
+      return {
+        tops: rs.map((r) => Math.round(r.top)),
+        heights: rs.map((r) => Math.round(r.height)),
+        widths: rs.map((r) => Math.round(r.width)),
+        selected: cs.find((c) => c.getAttribute('data-selected') === 'true')?.getAttribute('data-card') ?? null,
+        gaps: [krav ? Math.round(grid.top - krav.bottom) : null, act ? Math.round(act.top - grid.bottom) : null, act && door ? Math.round(door.top - act.bottom) : null],
+      };
+    })(),
     bar: [...document.querySelectorAll('header button, header a')].filter((b) => b.getClientRects().length > 0).map((b) => (b.textContent || '').trim()).filter(Boolean),
   };
 })()`;
@@ -449,10 +473,26 @@ async function stateA(url) {
       }
     },
     Systemkode: async (name) => {
-      if (await exists("[data-source-edit]")) {
-        await click("[data-source-edit]");
-        await shoot("a", `${name}-x-endre`);
-        await click("[data-source-edit]");
+      // The requirement's controls, opened from the Krav pill.
+      if (await exists("[data-krav-pill]")) {
+        await click("[data-krav-pill]");
+        await shoot("a", `${name}-x-krav`);
+        await click("[data-krav-pill]");
+      }
+      // Velg selv active, the search filled: the list under the field.
+      if (await exists('[data-card="manual"] [data-search] input')) {
+        await evaluate(`document.querySelector('[data-card="manual"] [data-search] input').focus()`);
+        await send("Input.insertText", { text: "Ref" });
+        await settle();
+        await shoot("a", `${name}-x-velg-selv-sok`);
+        // A pick: the card shows the property's evidence.
+        if (await exists('[data-search-list] [role=option]')) {
+          await evaluate(`(() => { const o = document.querySelector('[data-search-list] [role=option]'); o.dispatchEvent(new MouseEvent('mousedown', {bubbles: true})); o.click(); })()`);
+          await settle();
+          await shoot("a", `${name}-x-velg-selv-valgt`);
+        }
+        // Back to the pre-pick for Bruk.
+        await click('[data-card="standard"] [role=radio]');
       }
       if (await exists("[data-walk] details[data-door]")) {
         await evaluate(`document.querySelector('[data-walk] details[data-door]').open = true`);
@@ -558,14 +598,20 @@ try {
 } finally {
   writeFileSync(resolve(OUT, `measure-${STATES.join("")}.json`), JSON.stringify({ rows, errors }, null, 2));
   const pct = (a, b) => (a === null ? "  -" : String(Math.round((100 * a) / b)).padStart(3));
-  console.log("\nvp         state  shot                              w%  h%  title  bruk  act-gap  scrollY  scrollX  grid");
+  console.log("\nvp         state  shot                              w%  h%  blockH title  bruk  act-gap  scrollY  scrollX  grid");
   for (const r of rows) {
     console.log(
-      `${r.vp.padEnd(10)} ${r.state.padEnd(6)} ${r.name.slice(0, 32).padEnd(33)} ${pct(r.w, r.vw)} ${pct(r.h, r.vh)}  ${String(r.titleY ?? "-").padStart(5)}  ${r.confirmInView === null ? "  - " : r.confirmInView ? " in " : "OUT "}  ${String(r.actionsGap ?? "-").padStart(5)}${r.actionsStuck ? "s" : " "}  ${r.walkScrollsY ? "yes" : " no"}      ${r.pageScrollX || r.walkScrollX ? "YES" : " no"}      ${r.grid?.pass ? "pass" : "FAIL " + (r.grid?.fails ?? []).join("; ")}`,
+      `${r.vp.padEnd(10)} ${r.state.padEnd(6)} ${r.name.slice(0, 32).padEnd(33)} ${pct(r.w, r.vw)} ${pct(r.h, r.vh)}  ${String(r.h ?? "-").padStart(5)} ${String(r.titleY ?? "-").padStart(5)}  ${r.confirmInView === null ? "  - " : r.confirmInView ? " in " : "OUT "}  ${String(r.actionsGap ?? "-").padStart(5)}${r.actionsStuck ? "s" : " "}  ${r.walkScrollsY ? "yes" : " no"}      ${r.pageScrollX || r.walkScrollX ? "YES" : " no"}      ${r.grid?.pass ? "pass" : "FAIL " + (r.grid?.fails ?? []).join("; ")}`,
     );
   }
   const gridFails = rows.filter((r) => r.grid && !r.grid.pass).length;
   console.log(`\ngrid: ${rows.length - gridFails} pass, ${gridFails} fail of ${rows.length} screens`);
+  console.log("\nmapping cards: vp, shot, selected, tops, heights, widths, gaps (krav-cards, cards-actions, actions-Avansert)");
+  for (const r of rows.filter((r) => r.cards)) {
+    const c = r.cards;
+    const topsOk = Math.max(...c.tops) - Math.min(...c.tops) <= 1;
+    console.log(`${r.vp.padEnd(10)} ${(r.state + "-" + r.name).slice(0, 40).padEnd(41)} ${String(c.selected).padEnd(9)} tops ${topsOk ? "aligned" : "MISALIGNED " + c.tops.join("/")}  h ${c.heights.join("/")}  w ${c.widths.join("/")}  gaps ${c.gaps.join("/")}`);
+  }
   for (const c of checks) console.log(`check ${c.ok ? "ok  " : "FAIL"} ${c.name}: ${c.got}`);
   if (errors.length > 0) console.log(`\npage errors:\n${errors.slice(0, 10).join("\n")}`);
   try {
