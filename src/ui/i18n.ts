@@ -441,6 +441,8 @@ const STRINGS = {
   "oppsett.usedBy": { nb: "Brukt av", en: "Used by" },
   "oppsett.notInModel": { nb: "Ikke i modellen", en: "Not in the model" },
   "oppsett.noSource": { nb: "Ingen kilde", en: "No source" },
+  "oppsett.ignore": { nb: "Ignorer", en: "Ignore" },
+  "oppsett.ignored": { nb: "Ignorert", en: "Ignored" },
   "oppsett.keepIds": { nb: "Behold IDS", en: "Keep IDS" },
   "oppsett.keepCurrent": { nb: "Behold nåværende", en: "Keep current" },
   "oppsett.current": { nb: "Nåværende", en: "Current" },

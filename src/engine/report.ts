@@ -30,7 +30,7 @@ import { elementMaterialNames, physicalProducts, verdictOf } from "./fundamental
 import { standardLayerRows } from "./standard-layer.ts";
 import { resolveStoreyRules } from "./storey-config.ts";
 import type { CheckResult, Finding, IfcGraph, IfcSummary } from "./types";
-import { exemptReason, type ModelResult, type RuleResult, type ValueCount, type Finding as RuleFinding } from "../ids/evaluate.ts";
+import { notApplicable, type ModelResult, type RuleResult, type ValueCount, type Finding as RuleFinding } from "../ids/evaluate.ts";
 import { modelFact, modelLabel, roleRule, ruleRole, storeyPolicy } from "../ids/models.ts";
 import type { CodeSource, MappingRole, Rule, Ruleset, Selector, StoreyPlane } from "../ids/types.ts";
 
@@ -772,23 +772,23 @@ export function reportRows(input: ReportInput): ReportRow[] {
   const excludedList = input.evaluation?.excludedGuids;
   const excluded = excludedList && excludedList.length ? new Set(excludedList) : undefined;
   const rows = input.checks.map((check) => fundamentalRow(check, input, model, excluded));
-  // The standard layer's rows for a requirement this model is exempt from are
-  // not_applicable with the reason, as its checks and rules are.
-  const exempt = new Set(modelFact(input.ruleset, input.model.file)?.exempt ?? []);
+  // The standard layer's rows for a requirement this model is exempt from, or
+  // the setup ignores, are not_applicable with the reason, as its checks and
+  // rules are.
+  const off = notApplicable(input.ruleset, input.model.file);
+  const offRow = (id: string, mapping: MappingRole | undefined, grunn: string): ReportRow => ({
+    model,
+    id,
+    ...(mapping ? { mapping } : {}),
+    state: "not_applicable",
+    grunn,
+    dekning: { ...NULL_COVERAGE, kilder: [] },
+    fordeling: null,
+    funn: [],
+  });
   for (const row of standardLayerRows({ model, graph: input.graph, excluded, ruleset: input.ruleset })) {
-    rows.push(
-      exempt.has(row.id)
-        ? {
-            model,
-            id: row.id,
-            state: "not_applicable",
-            grunn: exemptReason(model.label),
-            dekning: { ...NULL_COVERAGE, kilder: [] },
-            fordeling: null,
-            funn: [],
-          }
-        : row,
-    );
+    const reason = off.get(row.id);
+    rows.push(reason !== undefined ? offRow(row.id, undefined, reason) : row);
   }
 
   const rules = input.ruleset?.rules ?? [];
@@ -799,6 +799,11 @@ export function reportRows(input: ReportInput): ReportRow[] {
 
   for (const role of NO_IFC_HOME) {
     if (roleRule(input.ruleset, role)) continue;
+    const reason = off.get(role);
+    if (reason !== undefined) {
+      rows.push(offRow(role, role, reason));
+      continue;
+    }
     rows.push({
       model,
       id: role,

@@ -359,6 +359,15 @@ export const RULESET_JSON_SCHEMA = {
         },
       },
     },
+    ignore: {
+      type: "array",
+      minItems: 1,
+      uniqueItems: true,
+      items: { type: "string", minLength: 1 },
+      description:
+        "Requirements that do not apply to this project, by report row id (as models[].exempt " +
+        "names them): not_applicable on every model. The requirement's own config is kept.",
+    },
     rules: { type: "array", items: { $ref: "#/$defs/rule" } },
   },
 

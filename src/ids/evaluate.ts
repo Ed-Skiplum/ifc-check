@@ -23,7 +23,7 @@
 
 import { entityNameValue } from "./emit.ts";
 import { isEnabled } from "./export.ts";
-import { copyVerdict, everyOwnerName, modelFact, modelLabel, roleRule, ruleRole, storeyPolicy } from "./models.ts";
+import { IGNORED_REASON, copyVerdict, everyOwnerName, modelFact, modelLabel, roleRule, ruleRole, storeyPolicy } from "./models.ts";
 import { CODE_LISTS, CODE_LIST_IDS, type CodeList } from "../codelists/index.ts";
 import { agrees, fitsPart, tfmMatcher } from "../engine/tfm.ts";
 import { matchStoreys, resolveStoreyRules } from "../engine/storey-config.ts";
@@ -163,6 +163,22 @@ export interface ModelResult {
  *  report row. */
 export function exemptReason(label: string): string {
   return `does not apply to model ${label} (models[].exempt)`;
+}
+
+/** The requirements that do not apply to this model, by report row id (a
+ *  REQUIREMENT_ID, a mapping role or a non-mapping rule's id), each with its
+ *  reason: the setup's `ignore`, on every model, then the model's own
+ *  `exempt`. One lookup for the evaluator, the checks and the report, so an
+ *  ignored and an exempt requirement come out the same way. */
+export function notApplicable(ruleset: Ruleset | null | undefined, fileName: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const id of ruleset?.ignore ?? []) out.set(id, IGNORED_REASON);
+  const exempt = modelFact(ruleset, fileName)?.exempt ?? [];
+  if (exempt.length > 0) {
+    const reason = exemptReason(modelLabel(fileName));
+    for (const id of exempt) if (!out.has(id)) out.set(id, reason);
+  }
+  return out;
 }
 
 export interface EvaluateOptions {
@@ -1394,7 +1410,8 @@ function copyObjectFilter(
   if (!rule || !isEnabled(rule) || rule.check.type !== "copy-object") return null;
   const check = rule.check;
   const base = { ruleId: rule.id, ruleName: rule.name, kind: rule.kind } as const;
-  if (modelFact(ruleset, modelName)?.exempt?.includes("copy-object")) {
+  const notApplicableReason = notApplicable(ruleset, modelName).get("copy-object");
+  if (notApplicableReason !== undefined) {
     return {
       rule,
       excluded: new Set(),
@@ -1404,8 +1421,8 @@ function copyObjectFilter(
         applicable: 0,
         failed: 0,
         findings: [],
-        detail: "exempt",
-        reason: exemptReason(modelLabel(modelName)),
+        detail: notApplicableReason === IGNORED_REASON ? "ignored" : "exempt",
+        reason: notApplicableReason,
       },
     };
   }
@@ -2250,7 +2267,8 @@ export function evaluateRuleset(
       ? allProducts.filter((p) => !filter.excluded.has(p.guid))
       : allProducts;
   const exempt = modelFact(ruleset, modelName)?.exempt ?? [];
-  const isExempt = (rule: Rule) => exempt.includes(ruleRole(rule) ?? rule.id);
+  const off = notApplicable(ruleset, modelName);
+  const offReason = (rule: Rule) => off.get(ruleRole(rule) ?? rule.id);
 
   // IDS rules also select the declared type objects (`typeObjectRows`). The
   // extended rules keep the element universe they always had: a code-lookup
@@ -2263,7 +2281,7 @@ export function evaluateRuleset(
     .map((rule): RuleResult =>
       filter && rule === filter.rule
         ? filter.result
-        : isExempt(rule)
+        : offReason(rule) !== undefined
           ? {
               ruleId: rule.id,
               ruleName: rule.name,
@@ -2272,8 +2290,8 @@ export function evaluateRuleset(
               applicable: 0,
               failed: 0,
               findings: [],
-              detail: "exempt",
-              reason: exemptReason(modelLabel(modelName)),
+              detail: offReason(rule) === IGNORED_REASON ? "ignored" : "exempt",
+              reason: offReason(rule)!,
             }
           : evaluateRule(rule, rule.kind === "ids" ? withTypes : products, summary, byGuid, index, ruleset, maxFindings, graph, modelName),
     );

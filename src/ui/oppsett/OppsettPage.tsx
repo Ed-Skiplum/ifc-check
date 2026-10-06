@@ -9,9 +9,10 @@
  *            source, origin); «Legg til krav» and «Lagre» at the foot
  *   main     before a model and with nothing picked: one drop target for IFC
  *            and IDS together; else the selected requirement: its name, n / N,
- *            Forrige / Neste, delete; the Krav row (what it maps TO); then
- *            I modellen (the model's data) with Kilde (what it maps FROM now,
- *            its values) narrow beside it
+ *            Forrige / Neste, Ignorer, delete; the Krav row (what it maps TO);
+ *            then I modellen (the model's data) with Kilde (what it maps FROM
+ *            now, its values) narrow beside it. An ignored requirement shows
+ *            the header alone, greyed in the sidebar, its config kept.
  *
  * One centered column that scrolls, as in HEY, Basecamp and Fizzy (edkjo, same
  * day: "a centered column rather than a full width UI"); the sidebar sticks.
@@ -59,7 +60,7 @@ import {
   type Conflict,
   type Unreadable,
 } from "./merge";
-import { LAYER_LABEL, ROLE_LABEL, itemStatus, requirementItems, rowOf, sumHits, type ItemStatus, type ReqItem } from "./items";
+import { LAYER_LABEL, ROLE_LABEL, itemStatus, requirementItems, rowOf, sumHits, withIgnored, type ItemStatus, type ReqItem } from "./items";
 import { BUTTON, ConflictBlock, KravEditor, KravLineData, kravData } from "./Krav";
 import { InModel, Kilde, type PinnedOption, type SourceTag } from "./Columns";
 import { judgeValues, shownValues } from "./judge";
@@ -177,7 +178,9 @@ export function OppsettPage({
   const select = (id: string | null) => onState((was) => ({ ...was, selected: id }));
   const jumpToRule = (ruleId: string) => select(`rule:${ruleId}`);
 
-  const blocked = state.conflicts.length > 0;
+  // A conflict holds «Lagre» unless its rule is ignored.
+  const ignoredRules = new Set(items.filter((i) => i.ignored && i.ruleId).map((i) => i.ruleId));
+  const blocked = state.conflicts.some((c) => !ignoredRules.has(c.ruleId));
   const save = () => {
     if (blocked) return;
     setSaveError(null);
@@ -300,6 +303,9 @@ export function OppsettPage({
       next = { ...shown, projectLayer: layer };
       if (Object.keys(layer).length === 0) delete next.projectLayer;
     } else next = withLayerSources(withLayerSources(shown, "product", []), "material", []);
+    // An item that leaves the list leaves the ignore list too; a standard-layer
+    // item stays listed and keeps it.
+    if (item.ignored && (item.kind === "rule" || item.kind === "storeys")) next = withIgnored(next, item, false);
     onChange(next);
     const after = items[at + 1] ?? items[at - 1] ?? null;
     onState((was) => ({
@@ -391,6 +397,7 @@ export function OppsettPage({
             onPrev={() => go(-1)}
             onNext={() => go(1)}
             onDelete={() => remove(selected)}
+            onIgnore={() => onChange(withIgnored(shown, selected, !selected.ignored))}
             onResolve={resolve}
             onJump={jumpToRule}
           />
@@ -409,6 +416,7 @@ function Dot({ status }: { status: ItemStatus }) {
     fail: "bg-bad",
     saved: "bg-[repeating-linear-gradient(135deg,var(--color-muted)_0_2px,transparent_2px_4px)] ring-1 ring-muted",
     open: "ring-1 ring-muted",
+    ignored: "bg-muted",
   };
   return <span aria-hidden="true" data-status={status} className={"block size-2.5 shrink-0 rounded-full " + look[status]} />;
 }
@@ -470,16 +478,21 @@ function Sidebar({
       <ol data-requirements className="m-0 flex min-h-0 flex-1 list-none flex-col gap-0.5 overflow-auto p-1.5">
         {items.map((item) => {
           const rows = rowsOf(item);
-          const figure = loaded ? sumHits(rows) : null;
+          const figure = loaded && !item.ignored ? sumHits(rows) : null;
           const chosen = item.id === selected;
           return (
             <li key={item.id}>
               <button
                 type="button"
                 data-req={item.id}
+                data-ignored={item.ignored || undefined}
                 aria-current={chosen || undefined}
                 onClick={() => onSelect(item.id)}
-                className={"flex w-full flex-col gap-0.5 rounded-[8px] px-2.5 py-2 text-left " + (chosen ? "alt-chosen" : "alt-hover")}
+                className={
+                  "flex w-full flex-col gap-0.5 rounded-[8px] px-2.5 py-2 text-left " +
+                  (chosen ? "alt-chosen" : "alt-hover") +
+                  (item.ignored ? " opacity-50" : "")
+                }
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <Dot status={itemStatus(item, loaded, rows)} />
@@ -494,9 +507,13 @@ function Sidebar({
                   </span>
                 </span>
                 <span className="flex min-w-0 items-center gap-2 pl-[18px]">
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted" title={item.source ?? undefined}>
-                    {item.source ?? t("oppsett.noSource", lang)}
-                  </span>
+                  {item.ignored ? (
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">{t("oppsett.ignored", lang)}</span>
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted" title={item.source ?? undefined}>
+                      {item.source ?? t("oppsett.noSource", lang)}
+                    </span>
+                  )}
                   {item.origin ? <span className="alt-src shrink-0">{item.origin === "POFIN" ? t("setup.pofin", lang) : t("filter.kind.ids", lang)}</span> : null}
                 </span>
               </button>
@@ -572,6 +589,7 @@ function Wizard({
   onPrev,
   onNext,
   onDelete,
+  onIgnore,
   onResolve,
   onJump,
 }: {
@@ -596,6 +614,8 @@ function Wizard({
   onPrev: () => void;
   onNext: () => void;
   onDelete: () => void;
+  /** Ignore the item for the project, or take it back. */
+  onIgnore: () => void;
   onResolve: (id: string, keep: "ids" | "current") => void;
   onJump: (ruleId: string) => void;
 }) {
@@ -620,7 +640,7 @@ function Wizard({
   return (
     <section data-wizard={item.id} aria-label={itemName(item, lang)} className="flex min-w-0 flex-col gap-4">
       <div className="alt-card flex shrink-0 flex-col">
-        <div className="flex items-center gap-4 px-5 pt-4 pb-3">
+        <div className={"flex items-center gap-4 px-5 pt-4 " + (item.ignored ? "pb-4" : "pb-3")}>
           <h1 data-wizard-name className="m-0 min-w-0 truncate text-[28px] leading-tight font-semibold tracking-tight text-ink" title={itemName(item, lang)}>
             {itemName(item, lang)}
           </h1>
@@ -640,6 +660,15 @@ function Wizard({
               {t("action.next", lang)} →
             </button>
           )}
+          <button
+            type="button"
+            data-ignore
+            aria-pressed={item.ignored}
+            onClick={onIgnore}
+            className={BUTTON + " aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-cream"}
+          >
+            {t("oppsett.ignore", lang)}
+          </button>
           <div className="relative" ref={trash}>
             <button
               type="button"
@@ -675,6 +704,7 @@ function Wizard({
             ) : null}
           </div>
         </div>
+        {item.ignored ? null : (
         <div className="flex flex-col gap-3 px-5 pb-4">
           {editor !== null ? (
             <div data-krav className="flex min-w-0 flex-col gap-2 rounded-[8px] px-3 py-2 [box-shadow:inset_0_0_0_1px_var(--d-hair)]">
@@ -693,7 +723,9 @@ function Wizard({
             ? conflicts.map((c) => <ConflictBlock key={c.id} conflict={c} current={rule} lang={lang} onKeep={(keep) => onResolve(c.id, keep)} />)
             : null}
         </div>
+        )}
       </div>
+      {item.ignored ? null : (
       <Body
         lang={lang}
         item={item}
@@ -711,6 +743,7 @@ function Wizard({
         onChange={onChange}
         onJump={onJump}
       />
+      )}
     </section>
   );
 }

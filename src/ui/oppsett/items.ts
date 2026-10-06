@@ -10,6 +10,9 @@
  * Materiale / Produkt are the standard layer: their report rows exist on
  * every model whatever the ruleset says, so they are always listed, and
  * deleting one clears the project's layer on it (back to the standard).
+ * Any item can be ignored for the project (`Ruleset.ignore`, edkjo
+ * 2026-10-06: "Fase isn't a requirement in this model … per project, not per
+ * model"): it stays listed, its config kept, its rows not_applicable.
  *
  * Every figure a row shows comes from the report row the worker built
  * (`engine/report.ts`), found here by `rowMatch`.
@@ -51,6 +54,26 @@ export interface ReqItem {
   conflict: boolean;
   /** Edited as a custom property (an IDS rule with one literal property). */
   property: boolean;
+  /** The setup ignores it (`Ruleset.ignore` names `ignoreIdOf(item)`). */
+  ignored: boolean;
+}
+
+/** The id `Ruleset.ignore` names an item by: its report row id, as
+ *  `ModelFact.exempt` takes it (a mapping rule by its role). */
+export function ignoreIdOf(item: Pick<ReqItem, "kind" | "role" | "ruleId">): string {
+  if (item.kind === "rule") return item.role ?? item.ruleId ?? "";
+  return item.kind === "materials" ? "material-product" : item.kind === "storeys" ? "storey-config" : item.kind;
+}
+
+/** The ruleset with the item ignored or not. Nothing else changes, so
+ *  un-ignoring gives the item back as it was; an empty list is left out. */
+export function withIgnored(ruleset: Ruleset, item: ReqItem, ignored: boolean): Ruleset {
+  const id = ignoreIdOf(item);
+  const rest = (ruleset.ignore ?? []).filter((x) => x !== id);
+  const ignore = ignored ? [...rest, id] : rest;
+  const next: Ruleset = { ...ruleset, ignore };
+  if (ignore.length === 0) delete next.ignore;
+  return next;
 }
 
 /** The walk's names for the roles (`SetupPage.tsx` STEP_LABEL). */
@@ -142,6 +165,7 @@ export function requirementItems(ruleset: Ruleset, conflicts: readonly Conflict[
       origin: originOf(rule.reference),
       conflict: conflicted.has(rule.id),
       property: isPropertyRequirement(rule),
+      ignored: false,
     };
   };
   const layerItem = (kind: LayerKind): ReqItem | null => {
@@ -171,6 +195,7 @@ export function requirementItems(ruleset: Ruleset, conflicts: readonly Conflict[
       origin: originOf(reference),
       conflict: false,
       property: false,
+      ignored: false,
     };
   };
 
@@ -185,7 +210,8 @@ export function requirementItems(ruleset: Ruleset, conflicts: readonly Conflict[
     }
   }
   for (const rule of ruleset.rules) if (rule.kind === "ids") out.push(ruleItem(rule));
-  return out;
+  const ignored = new Set(ruleset.ignore ?? []);
+  return out.map((item) => (ignored.has(ignoreIdOf(item)) ? { ...item, ignored: true } : item));
 }
 
 /** The report row an item reads, on one model's rows. */
@@ -194,7 +220,7 @@ export function rowOf(item: ReqItem, rows: readonly ReportRow[]): ReportRow | nu
     if (item.role) return rows.find((r) => r.mapping === item.role) ?? null;
     return rows.find((r) => r.id === item.ruleId && !r.mapping) ?? null;
   }
-  const id = item.kind === "materials" ? "material-product" : item.kind === "storeys" ? "storey-config" : item.kind;
+  const id = ignoreIdOf(item);
   return rows.find((r) => r.id === id && !r.mapping) ?? null;
 }
 
@@ -231,10 +257,12 @@ export function sumHits(rows: readonly (ReportRow | null)[]): { hits: number; of
 /** A row's dot: the walk bar's states (`segmentState`), with red for a row
  *  that fails on a loaded model. `open`: nothing set; `saved`: set, not yet
  *  checked against a model (none loaded, 0 hits, or not countable);
- *  `done`: hits on a loaded model; `fail`: a model's row fails. */
-export type ItemStatus = "open" | "saved" | "done" | "fail";
+ *  `done`: hits on a loaded model; `fail`: a model's row fails; `ignored`:
+ *  the setup ignores it, whatever its rows say. */
+export type ItemStatus = "open" | "saved" | "done" | "fail" | "ignored";
 
 export function itemStatus(item: ReqItem, loaded: boolean, rows: readonly (ReportRow | null)[]): ItemStatus {
+  if (item.ignored) return "ignored";
   const configured = item.source !== null;
   if (!configured) return "open";
   if (loaded && rows.some((r) => r?.state === "fail")) return "fail";

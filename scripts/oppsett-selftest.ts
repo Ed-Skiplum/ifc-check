@@ -26,7 +26,7 @@ import {
   splitSpec,
   withSource,
 } from "../src/ui/oppsett/merge.ts";
-import { itemStatus, requirementItems, rowOf, sumHits } from "../src/ui/oppsett/items.ts";
+import { ignoreIdOf, itemStatus, requirementItems, rowOf, sumHits, withIgnored } from "../src/ui/oppsett/items.ts";
 
 type Record_ = (name: string, expected: string, actual: string) => void;
 
@@ -294,5 +294,29 @@ export function oppsettSelftest(record: Record_, shapeErrors: (ruleset: unknown)
     "oppsett: a status with no model is never green",
     "saved open",
     `${itemStatus(items[1], false, [])} ${itemStatus({ ...items[1], source: null }, false, [])}`,
+  );
+
+  // Ignorer: every item can be ignored for the project by its report row id;
+  // it stays listed, its status neutral; un-ignoring gives the ruleset back.
+  record(
+    "oppsett: each sidebar item's ignore id is its report row id (a mapping by its role)",
+    "type-name system-classification component-classification copy-object progress-code phase material-product ifc-schema",
+    items.map(ignoreIdOf).join(" "),
+  );
+  const phaseItem = items.find((i) => i.id === "phase")!;
+  const sysItem = items.find((i) => i.role === "system-classification")!;
+  const off = withIgnored(withIgnored(two.ruleset, phaseItem, true), sysItem, true);
+  const offItems = requirementItems(off, two.conflicts);
+  record(
+    "oppsett: ignored items stay listed, marked, their status neutral whatever the rows say",
+    `${items.length} rule:${sysItem.ruleId},phase ignored`,
+    `${offItems.length} ${offItems.filter((i) => i.ignored).map((i) => i.id).join(",")} ${itemStatus(offItems.find((i) => i.id === "phase")!, true, [{ state: "fail" } as never])}`,
+  );
+  record("oppsett: the ignore list in the ruleset", "phase,system-classification", (off.ignore ?? []).join(","));
+  const back = withIgnored(withIgnored(off, phaseItem, false), sysItem, false);
+  record(
+    "oppsett: un-ignoring restores the ruleset unchanged, the list left out when empty",
+    "equal false",
+    `${JSON.stringify(back) === JSON.stringify(two.ruleset) ? "equal" : "differs"} ${"ignore" in back}`,
   );
 }

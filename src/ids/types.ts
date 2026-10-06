@@ -525,6 +525,10 @@ export interface Ruleset {
   /** This project's layer on the standard requirements, keyed by the
    *  requirement's report id. Absent = the standard layer alone. */
   projectLayer?: ProjectLayer;
+  /** Requirements that do not apply to this project: report row ids, as
+   *  `ModelFact.exempt` names them, on every model. Each row comes back
+   *  not_applicable; the requirement's own config is kept. */
+  ignore?: string[];
   rules: Rule[];
 }
 
