@@ -593,7 +593,6 @@ function Wizard({
   onResolve: (id: string, keep: "ids" | "current") => void;
   onJump: (ruleId: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const trash = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -672,27 +671,18 @@ function Wizard({
         </div>
         <div className="flex flex-col gap-3 px-5 pb-4">
           {editor !== null ? (
-            <button
-              type="button"
-              data-krav
-              aria-expanded={editing}
-              onClick={() => setEditing((was) => !was)}
-              className={"flex w-full min-w-0 items-center gap-3 rounded-[8px] px-3 py-2 text-left " + (editing ? "alt-chosen" : "alt-hover [box-shadow:inset_0_0_0_1px_var(--d-hair)]")}
-            >
-              <span className="alt-label shrink-0">{t("field.requirement", lang)}</span>
-              <KravLineData data={data} />
-            </button>
+            <div data-krav className="flex min-w-0 flex-col gap-2 rounded-[8px] px-3 py-2 [box-shadow:inset_0_0_0_1px_var(--d-hair)]">
+              <span className="alt-label">{t("field.requirement", lang)}</span>
+              <div data-krav-editor className="max-h-[45vh] min-w-0 overflow-auto">
+                {editor}
+              </div>
+            </div>
           ) : (
             <div data-krav className="flex min-w-0 items-center gap-3 rounded-[8px] px-3 py-2 [box-shadow:inset_0_0_0_1px_var(--d-hair)]">
               <span className="alt-label shrink-0">{t("field.requirement", lang)}</span>
               <KravLineData data={data} />
             </div>
           )}
-          {editing && editor !== null ? (
-            <div data-krav-editor className="max-h-[45vh] overflow-auto rounded-[8px] p-3 [box-shadow:inset_0_0_0_1px_var(--d-hair)]">
-              {editor}
-            </div>
-          ) : null}
           {rule
             ? conflicts.map((c) => <ConflictBlock key={c.id} conflict={c} current={rule} lang={lang} onKeep={(keep) => onResolve(c.id, keep)} />)
             : null}

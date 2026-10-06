@@ -321,7 +321,6 @@ async function run(url) {
   await click('[data-add-kind="property"]');
   await click("[data-groups] [data-set] > button");
   await click("[data-groups] [data-set] [data-prop]:not([data-taken])");
-  await click("[data-krav]");
   await sleep(1500);
   await shoot("03-egenskap");
 

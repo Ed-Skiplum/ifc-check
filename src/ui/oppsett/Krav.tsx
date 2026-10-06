@@ -1,6 +1,6 @@
-/** The Krav row of Oppsett v2 (what a requirement maps TO): one line as
- *  data, the value rule and up to three example values; a click opens the
- *  editor under it. A conflict from an IDS drop shows both rules here with
+/** The Krav row of Oppsett v2 (what a requirement maps TO): its editor,
+ *  always open; a requirement without one shows a line of data instead, the
+ *  value rule and up to three example values. A conflict from an IDS drop shows both rules here with
  *  the two ways to keep one.
  *
  * The editors are the walk's own where one exists: the mapping cards'
