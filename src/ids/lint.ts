@@ -811,6 +811,20 @@ function checkCodeLookup(ctx: Ctx, path: string, check: CodeLookupCheck, role: C
       `extract has ${groups} capture groups; it needs exactly one, the code`,
     );
   }
+  if (check.minLevel !== undefined) {
+    const level = check.minLevel as unknown;
+    if (level !== 2 && level !== 3) {
+      add(ctx, "error", `${path}.check.minLevel`, "min-level-invalid", `minLevel ${JSON.stringify(level)} is neither 2 nor 3`);
+    } else if (check.list !== "ns3451") {
+      add(
+        ctx,
+        "warning",
+        `${path}.check.minLevel`,
+        "min-level-list",
+        `minLevel applies to list ns3451 only; it is ignored on ${hasList ? `list ${String(check.list)}` : "the project's own codes"}`,
+      );
+    }
+  }
 }
 
 export const MAPPING_ROLES: MappingRole[] = [

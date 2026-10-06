@@ -1,8 +1,9 @@
 /** What a code-lookup rule's `extract` makes of the property's real values,
  *  judged the way `codeLookup` (`src/ids/evaluate.ts`) judges an element:
  *  the first capture group is the code, an empty or absent one is no match,
- *  and the code must be in the rule's list (bundled or the project's own) and
- *  not reserved there. On MMI an empty list checks the format alone.
+ *  and the code must be in the rule's list (bundled or the project's own),
+ *  not reserved there, and at the rule's `minLevel` or deeper (NS 3451). On
+ *  MMI an empty list checks the format alone.
  *
  * Pure. An invalid pattern or an unknown list throws the evaluator's own
  * error, so the step shows that error instead of a stale preview.
@@ -13,7 +14,7 @@ import type { CodeLookupCheck, CodeLookupRole } from "../ids/types.ts";
 import type { PsetValue } from "./pset-choices.ts";
 
 /** `ok` a valid code · `no-match` the pattern yields no code · `not-in-list`
- *  a code the list lacks or reserves. */
+ *  a code the list lacks or reserves, or one below the rule's level. */
 export type ExtractState = "ok" | "no-match" | "not-in-list";
 
 export interface ExtractRow extends PsetValue {
@@ -28,7 +29,7 @@ export interface ExtractPreview {
 }
 
 export function previewExtract(
-  check: Pick<CodeLookupCheck, "extract" | "list" | "codes">,
+  check: Pick<CodeLookupCheck, "extract" | "list" | "codes" | "minLevel">,
   values: PsetValue[],
   role?: CodeLookupRole | null,
 ): ExtractPreview {
@@ -40,7 +41,7 @@ export function previewExtract(
     const state: ExtractState =
       code === undefined || code === ""
         ? "no-match"
-        : !lookup.has(code) || lookup.reserved(code)
+        : !lookup.has(code) || lookup.reserved(code) || lookup.shallow(code)
           ? "not-in-list"
           : "ok";
     totals[state] += value.n;

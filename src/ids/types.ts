@@ -282,6 +282,11 @@ export interface CodeLookupCheck {
   /** JavaScript regular expression with exactly one capture group; the group
    *  is the code. Not anchored implicitly. */
   extract: string;
+  /** NS 3451 only (`list: "ns3451"`): the least level of detail a code must
+   *  carry, as its number of digits. 2 takes 22 and 222 and fails 2; 3 takes
+   *  222 and 2341 and fails 22. Absent: any listed code of any level. A code
+   *  in the list but shorter fails with code `level`. 2 or 3 (lint). */
+  minLevel?: number;
 }
 
 /** Which objects are this file's own and which are copies of another

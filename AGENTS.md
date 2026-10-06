@@ -2486,6 +2486,17 @@ built to avoid.
   is an owner ruling nobody has made; until a ruleset can express it, a
   reserved-code finding fails the rule like any other finding and sits in
   `coverage.deviating`.
+- **`minLevel`** (2026-10-06, edkjo: Reduzer and most tools reading NS 3451
+  need 3+), `ns3451` only: a code's level is its number of digits, and a
+  listed code below `minLevel` fails with finding code `level` (`code "23"
+  ... is level 2; NS 3451 level 3 or deeper is required`), counted in the
+  detail line (`, 1 below level 3`) and in `coverage.deviating`. 2 or 3
+  (lint `min-level-invalid`); set with another list or `codes` it is
+  ignored, lint warning `min-level-list`. Absent: any listed code passes, as
+  before. Checked after `reserved`; `extract` is untouched. The Oppsett Krav
+  editor sets it with `Nivå 2` / `Nivå 3+`; the value table and the
+  candidate ranking judge through the same `resolveLookup`. xlsx:
+  Klassifikasjon column `Nivå`. IDS export excludes code-lookup as before.
 - `extract` is a JavaScript regex (not XSD, not implicitly anchored) with
   exactly one capture group, the code. Lint rejects zero or several groups.
 - `source` is one of `{attribute}`, `{property: {propertySet, name}}`,
@@ -2506,8 +2517,9 @@ built to avoid.
   the member elements in `finding.members` (the cross-filter uses them).
   `select` is optional for this check; omitted selects everything.
 - Findings per subject: `<attr> is empty` · `does not match <extract>` ·
-  `code "X" ... is not in <list>` · `code "X" ... is reserved in <list>`.
-  The detail line counts all four.
+  `code "X" ... is not in <list>` · `code "X" ... is reserved in <list>` ·
+  `code "X" ... is level n; ...` (with `minLevel`).
+  The detail line counts all of them.
 
 What a type subject cannot be, and why: the parser exposes a type object only
 through the product rows that use it (`typed` + `type_name`). There is no type
@@ -3549,7 +3561,7 @@ copy-object exclusions reach the fundamentals as in the browser worker.
 - `funn`: every finding, uncapped. `grunn` is a code, never prose: the
   engine's ReasonCode (yellow and red split into `storey-mismatch-yellow` /
   `-red`), or the rule finding's code (`empty`, `no-match`, `not-in-list`,
-  `no-type`, `duplicate`, `type-usage`, `value`, `requirement`,
+  `reserved`, `level`, `no-type`, `duplicate`, `type-usage`, `value`, `requirement`,
   `occurrence-bounds`), or `material-product`'s (`product-missing`,
   `material-missing`, `material-unusable`, `mengdetype-undecided`).
 - `aapne`: on `material-product` only, the open mengdetype rulings (below).

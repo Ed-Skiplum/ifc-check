@@ -34,6 +34,7 @@ import { copyVerdict, defaultExtract } from "../../ids/models.ts";
 import { POFIN_SOURCES, ROLE_STANDARD, type PofinSource } from "../../engine/pofin-standard.ts";
 import type { CodeEntry, CodeLookupCheck, CopyObjectCheck, MappingRole, TfmPart, TfmToken } from "../../ids/types.ts";
 import { previewExtract, type ExtractPreview, type ExtractState } from "../extract-preview.ts";
+import type { StringKey } from "../i18n.ts";
 import type { PsetChoice, PsetProp, PsetValue } from "../pset-choices.ts";
 
 export type MappingCheck = CodeLookupCheck | CopyObjectCheck;
@@ -217,6 +218,31 @@ export const LIST_EXAMPLES: Record<CodeListId, readonly string[]> = {
   ns3451: ["23", "31", "26"],
   "ns3457-8": ["DUZ", "JVZ", "LBA"],
 };
+
+/** The NS 3451 levels a rule can require (`minLevel`): 2, early sketching,
+ *  or 3+, what Reduzer and most tools reading the table need (edkjo
+ *  2026-10-06). */
+export const NS3451_LEVELS = [2, 3] as const;
+export type Ns3451Level = (typeof NS3451_LEVELS)[number];
+
+export const LEVEL_LABEL: Record<Ns3451Level, StringKey> = { 2: "oppsett.level2", 3: "oppsett.level3" };
+
+/** Three NS 3451 codes at each level, as the Krav line shows them. In the
+ *  list, not reserved, and of the level's length (selftest). */
+export const LEVEL_EXAMPLES: Record<Ns3451Level, readonly string[]> = {
+  2: ["22", "24", "23"],
+  3: ["222", "241", "242"],
+};
+
+/** The examples a code-lookup with a bundled list shows: its level's when
+ *  it requires one, else the list's. */
+export function listExamples(check: Pick<CodeLookupCheck, "list" | "minLevel">): readonly string[] {
+  if (check.list === undefined) return [];
+  if (check.list === "ns3451" && check.minLevel !== undefined) {
+    return LEVEL_EXAMPLES[check.minLevel as Ns3451Level] ?? LIST_EXAMPLES.ns3451;
+  }
+  return LIST_EXAMPLES[check.list] ?? [];
+}
 
 /* ------------------------------------------------------------ the standard */
 

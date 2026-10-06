@@ -1166,12 +1166,15 @@ export function MappingRequirement({
   issues,
   lang,
   onCheck,
+  listExtra,
 }: {
   role: CardRole;
   check: MappingCheck;
   issues: LintIssue[];
   lang: Lang;
   onCheck: (next: MappingCheck) => void;
+  /** After the code list pills, in their row (Oppsett: NS 3451's level). */
+  listExtra?: React.ReactNode;
 }) {
   // The MMI codes waiting on the replace ask, and what they are named by.
   const [replacing, setReplacing] = useState<{ title: string; codes: CodeEntry[] } | null>(null);
@@ -1274,12 +1277,18 @@ export function MappingRequirement({
             key={id}
             type="button"
             aria-pressed={check.list === id}
-            onClick={() => onCheck({ ...check, list: id, codes: undefined })}
+            onClick={() => {
+              // The level is NS 3451's; another list drops it.
+              const next: CodeLookupCheck = { ...check, list: id, codes: undefined };
+              if (id !== "ns3451") delete next.minLevel;
+              onCheck(next);
+            }}
             className={PILL}
           >
             {CODE_LISTS[id].meta.label}
           </button>
         ))}
+        {listExtra}
       </div>
       <IssueLines issues={at("list")} lang={lang} />
     </div>

@@ -8,6 +8,7 @@ import type { ReportRow, ReportSource, ReportState, ReportValue } from "../../en
 import type { Applicability, Cardinality, EntityFacet, IdsValue, Requirements, Ruleset } from "../../ids/types.ts";
 import { roleRule } from "../../ids/models.ts";
 import { CODE_LISTS } from "../../codelists/index.ts";
+import { NS3451_LEVELS, type Ns3451Level } from "../setup/candidates";
 import type { Verdict } from "../../engine/types";
 import type { Focus } from "../trace";
 import { ruleCounts } from "../trace";
@@ -244,6 +245,8 @@ export function barLook(bars: readonly Bar[]): (bar: Bar) => BarLook {
 export interface StdAsk {
   sources: ReportSource[];
   list: string | null;
+  /** NS 3451: the rule's least level (`minLevel`), null when unset. */
+  minLevel: Ns3451Level | null;
   extract: string | null;
   values: { label: StringKey; values: string[] } | null;
 }
@@ -254,18 +257,20 @@ export function stdAsk(req: Requirement, ruleset: Ruleset | null): StdAsk | null
   const rule = row.mapping ? roleRule(ruleset, row.mapping) : null;
   const check = rule?.check;
   let list: string | null = null;
+  let minLevel: Ns3451Level | null = null;
   let extract: string | null = null;
   let values: StdAsk["values"] = null;
   if (check?.type === "code-lookup") {
     extract = check.extract;
     if (check.list !== undefined) list = CODE_LISTS[check.list]?.meta.label ?? check.list;
+    if (check.list === "ns3451" && (NS3451_LEVELS as readonly number[]).includes(check.minLevel ?? 0)) minLevel = check.minLevel as Ns3451Level;
     else if (check.codes?.length) list = check.codes.map((c) => c.code).join(" · ");
   } else if (check?.type === "copy-object") {
     values = { label: "field.copy", values: check.copy };
   } else if (row.godtatte?.length) {
     values = { label: "field.accepted", values: row.godtatte };
   }
-  return { sources: shownSources(row), list, extract, values };
+  return { sources: shownSources(row), list, minLevel, extract, values };
 }
 
 /** A Standardkrav row's result counts. A rule's row (a mapping) reads the

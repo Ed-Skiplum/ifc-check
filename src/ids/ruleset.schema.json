@@ -1306,6 +1306,13 @@
               "type": "string",
               "minLength": 1,
               "description": "JavaScript regular expression with exactly one capture group, the code. Not anchored implicitly."
+            },
+            "minLevel": {
+              "enum": [
+                2,
+                3
+              ],
+              "description": "List ns3451 only: the least level a code must carry, as its number of digits (2 takes 22 and 222, 3 takes 222 and 2341). A listed code below it fails. Absent: any listed code. Lint warns when set with another list."
             }
           }
         },
