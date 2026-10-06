@@ -13,22 +13,21 @@
  *   error     create_shape raised on an element that declares a Body (its
  *             message, as ifcopenshell wrote it)
  *
+ * The URLs and the verdict rules' version are in `ifcos-verifier.ts`: a
+ * change to `verdict()` below bumps `VERDICT_RULES` there.
+ *
  * Nothing is guessed: a stage that fails (Pyodide, the wheel, opening the
  * file) is reported as that stage's failure with its message. The worker is
  * terminated after one run; Pyodide plus an opened model is too much memory
  * to keep.
  */
 
-/** Pyodide 0.28 is the pyodide_2025_0 ABI (CPython 3.13) the wheel is built for. */
-export const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.28.3/full/";
-export const IFCOPENSHELL_WHEEL =
-  "https://ifcopenshell.github.io/wasm-wheels/ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl";
-
 /** Elements per batch: one progress message, one yield to the worker's
  *  event loop, per batch. */
 const BATCH = 100;
 
 import type { IfcosVerdict } from "../engine/body-mesh";
+import { IFCOPENSHELL_WHEEL, PYODIDE_URL } from "./ifcos-verifier";
 
 export type IfcosStage = "pyodide" | "wheel" | "open" | "shapes";
 

@@ -34,7 +34,7 @@ import {
 } from "./mesh-stream";
 import { ModelScene, type Mode } from "./scene";
 import { registerDock, setDockEmpty } from "./dock";
-import { useIfcosRun, type IfcosRun } from "../ui/ifcos-verify";
+import { unverifiedMark, useIfcosRun, type IfcosRun } from "../ui/ifcos-verify";
 
 declare global {
   interface Window {
@@ -109,7 +109,7 @@ function nomeshOf(missing: readonly string[], run: IfcosRun | undefined) {
     else if (v.kind === "geometry") miss += 1;
     else errors += 1;
   }
-  return { done, failed: run?.status === "failed", none, miss, errors };
+  return { done, run, none, miss, errors };
 }
 
 /** «Uten geometri N» and its marks: N is ifcfast's count with «ikke
@@ -122,7 +122,7 @@ function nomeshText(
 ): { full: string; short: string } {
   const label = t("viewer.outside", lang);
   if (!state.done) {
-    const mark = state.failed ? t("ifcos.failed", lang) : t("nomesh.unverified", lang);
+    const mark = unverifiedMark(state.run, lang);
     return { full: `${label} ${formatCount(count, lang)} (${mark})`, short: `∅ ${formatCount(count, lang)}?` };
   }
   const extra =

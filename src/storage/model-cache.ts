@@ -33,6 +33,14 @@
  * recomputed from the stored graph on restore, by the same function the parse
  * path calls.
  *
+ * The one stored answer is the second check's (`readVerification`): which
+ * elements ifcopenshell found geometry for. It needs the dropped file, which
+ * a refresh does not have, so without it every restored model would read
+ * «ikke verifisert» for good. It is ifcopenshell's answer on these bytes, not
+ * a check result, and it is used only when the verifier that wrote it
+ * (`VERIFIER` in `ui/ifcos-verifier.ts`) is the one this build runs; the
+ * checks are still recomputed from it like from the graph.
+ *
  * View state is not here either: language, selection and drill target live in
  * the URL hash (`ui/useHashView.ts`), where they belong.
  *
@@ -46,9 +54,10 @@
  * second open tab keeps its models and a closed tab's go.
  */
 
+import type { IfcosVerdict } from "../engine/body-mesh";
 import type { IfcGraph, IfcSummary } from "../engine/types";
 import type { MeshBatch, MeshBudget } from "../viewer/mesh-stream";
-import { ask, BOARD, DROPKEYS, META, MODELS, transact } from "./idb.ts";
+import { ask, BOARD, DROPKEYS, META, MODELS, transact, VERDICTS } from "./idb.ts";
 import { offered, purgeable, sessionId } from "./session.ts";
 
 /**
@@ -307,10 +316,11 @@ function validate(raw: unknown): CachedModel | null {
 async function forget(cacheKeys: string[]): Promise<void> {
   if (cacheKeys.length === 0) return;
   const gone = new Set(cacheKeys);
-  await transact([MODELS, META, DROPKEYS], "readwrite", async (tx) => {
+  await transact([MODELS, META, DROPKEYS, VERDICTS], "readwrite", async (tx) => {
     for (const key of gone) {
       tx.objectStore(MODELS).delete(key);
       tx.objectStore(META).delete(key);
+      tx.objectStore(VERDICTS).delete(key);
     }
     const links = await ask<DropKeyRow[]>(tx.objectStore(DROPKEYS).getAll());
     for (const link of links) {
@@ -519,6 +529,43 @@ export async function readByFile(file: File): Promise<FileLookup> {
   return { dropKey, model };
 }
 
+/** The second check's answer for one cached model: ifcopenshell's verdict
+ *  per element ifcfast streamed no mesh for, and who gave it. */
+export interface StoredVerification {
+  cacheKey: string;
+  /** `VERIFIER` (`ui/ifcos-verifier.ts`) of the build that ran it. */
+  verifier: string;
+  /** ifcopenshell's own version, as the run reported it. */
+  version: string;
+  verdicts: Record<string, IfcosVerdict>;
+  storedAt: number;
+}
+
+/** The stored verdicts for a model, when the same verifier wrote them; null
+ *  otherwise (none, another verifier, unreadable, no storage). */
+export async function readVerification(cacheKey: string, verifier: string): Promise<StoredVerification | null> {
+  const raw = await transact([VERDICTS], "readonly", (tx) =>
+    ask<unknown>(tx.objectStore(VERDICTS).get(cacheKey)),
+  );
+  if (raw === null || raw === undefined || typeof raw !== "object") return null;
+  const row = raw as StoredVerification;
+  if (row.cacheKey !== cacheKey || row.verifier !== verifier) return null;
+  if (typeof row.version !== "string" || row.verdicts === null || typeof row.verdicts !== "object") return null;
+  return row;
+}
+
+/** Keep a finished second check with its model. Only for a model that is in
+ *  the store: a row for one that is not would never be cleaned up. */
+export async function storeVerification(row: Omit<StoredVerification, "storedAt">): Promise<boolean> {
+  const written = await transact([META, VERDICTS], "readwrite", async (tx) => {
+    const meta = await ask<MetaRow | undefined>(tx.objectStore(META).get(row.cacheKey));
+    if (!meta) return false;
+    tx.objectStore(VERDICTS).put({ ...row, storedAt: now() } satisfies StoredVerification);
+    return true;
+  });
+  return written === true;
+}
+
 /** This tab session's board. Reading it counts as a use, so its time moves. */
 export async function readBoard(): Promise<BoardEntry[]> {
   const session = sessionId();
@@ -558,11 +605,12 @@ export async function clearBoard(): Promise<void> {
 
 /** Forget everything, models included. */
 export async function clearCache(): Promise<void> {
-  await transact([MODELS, META, DROPKEYS, BOARD], "readwrite", async (tx) => {
+  await transact([MODELS, META, DROPKEYS, BOARD, VERDICTS], "readwrite", async (tx) => {
     tx.objectStore(MODELS).clear();
     tx.objectStore(META).clear();
     tx.objectStore(DROPKEYS).clear();
     tx.objectStore(BOARD).clear();
+    tx.objectStore(VERDICTS).clear();
     return true;
   });
 }
