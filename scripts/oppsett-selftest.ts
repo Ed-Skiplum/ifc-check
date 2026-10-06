@@ -5,7 +5,23 @@
  *  and the custom property requirement evaluating with a report row. */
 
 import type { IfcGraph, IfcSummary } from "../src/engine/types.ts";
-import type { IdsRule, IdsValue, Rule, Ruleset } from "../src/ids/types.ts";
+import type { CodeEntry, IdsRule, IdsValue, Rule, Ruleset } from "../src/ids/types.ts";
+import { phaseAccepted } from "../src/engine/standard-sources.ts";
+import {
+  assignCodes,
+  codesOf,
+  deletePhase,
+  mmiCodes,
+  otherPhaseSources,
+  phaseMode,
+  phaseNameTaken,
+  phaseRows,
+  renamePhase,
+  unassigned,
+  withMmiCodes,
+  withOtherPhaseSources,
+  withPhaseMode,
+} from "../src/ui/oppsett/phase-mmi.ts";
 import type { ModelGraph, ModelSummary } from "../src/ids/model.ts";
 import { emitIdsXml } from "../src/ids/emit.ts";
 import { importIds } from "../src/ids/import.ts";
@@ -318,5 +334,141 @@ export function oppsettSelftest(record: Record_, shapeErrors: (ruleset: unknown)
     "oppsett: un-ignoring restores the ruleset unchanged, the list left out when empty",
     "equal false",
     `${JSON.stringify(back) === JSON.stringify(two.ruleset) ? "equal" : "differs"} ${"ignore" in back}`,
+  );
+
+  phaseMmiSelftest(record, wall, summary);
+}
+
+/** Fase through MMI (`phase-mmi.ts`): the switch, the phase table's edits,
+ *  and the result linting clean and evaluating on a synthetic model. */
+function phaseMmiSelftest(
+  record: Record_,
+  wall: (guid: string, entity?: string) => ModelGraph["products"][number],
+  summary: ModelSummary,
+): void {
+  const pofin = pofinRuleset();
+  const phasesOf = (codes: CodeEntry[]) => phaseRows(codes, []).map((p) => `${p}:${codesOf(codes, p).map((c) => c.code).join(",")}`).join(" ");
+  const errorCodes = (r: Ruleset) => lintRuleset(r).filter((i) => i.severity === "error").map((i) => i.code);
+
+  // MMI on POFIN: its format-only rule takes «MMI for gjenbruk».
+  const mmi = withPhaseMode(pofin, "mmi");
+  record("fase/mmi: Status is the default on POFIN", "status", phaseMode(pofin));
+  record(
+    "fase/mmi: MMI on POFIN fills the format-only rule from «MMI for gjenbruk» and adds the MMI source",
+    "mmi 22 Ny:000,100,125,150,175,200,225,250,275,300,325,350,375,400,425,450,475,500,600 Bevares:700 MMI 800:800 Gjenvinning/avfall:900",
+    `${phaseMode(mmi)} ${mmiCodes(mmi).length} ${phasesOf(mmiCodes(mmi))}`,
+  );
+  record("fase/mmi: … and lints with no error (no progress-code-no-phase)", "", errorCodes(mmi).join(" "));
+  record(
+    "fase/mmi: … the accepted phases take the table's",
+    "NEW EXISTING DEMOLISH TEMPORARY Ny Bevares MMI 800 Gjenvinning/avfall",
+    phaseAccepted(mmi).join(" "),
+  );
+  record("fase/mmi: MMI twice is MMI once", JSON.stringify(mmi), JSON.stringify(withPhaseMode(mmi, "mmi")));
+  const offAgain = withPhaseMode(mmi, "status");
+  record(
+    "fase/mmi: Status drops the MMI source, keeps the codes' phases, lints clean",
+    "status false 22 ",
+    `${phaseMode(offAgain)} ${offAgain.projectLayer?.phase !== undefined} ${mmiCodes(offAgain).filter((c) => c.phase).length} ${errorCodes(offAgain).join(" ")}`,
+  );
+
+  // No MMI rule: added as «Legg til krav» adds it; a disabled one enabled.
+  const added = withPhaseMode(base([]), "mmi");
+  const first = added.rules[0];
+  record(
+    "fase/mmi: MMI with no MMI rule adds POFIN's, filled, and lints clean",
+    "progress-code progress-code 22 ",
+    `${added.rules.map((r) => r.id).join(" ")} ${first?.kind === "extended" ? first.mapping : ""} ${mmiCodes(added).length} ${errorCodes(added).join(" ")}`,
+  );
+  const disabled = { ...pofin, rules: pofin.rules.map((r) => (r.id === "progress-code" ? { ...r, enabled: false } : r)) } as Ruleset;
+  const enabled = withPhaseMode(disabled, "mmi");
+  record(
+    "fase/mmi: a disabled MMI rule is enabled",
+    "true ",
+    `${enabled.rules.find((r) => r.id === "progress-code")?.enabled !== false} ${errorCodes(enabled).join(" ")}`,
+  );
+  // Codes already set are kept, not replaced by the preset.
+  const own = withPhaseMode(withMmiCodes(pofin, [{ code: "100", name: "A" }, { code: "200", name: "B", phase: "Ny" }]), "mmi");
+  record("fase/mmi: codes already set are kept", "Ny:200", phasesOf(mmiCodes(own)));
+
+  // The table's edits.
+  const codes: CodeEntry[] = [
+    { code: "100", name: "A", phase: "Ny" },
+    { code: "200", name: "B", phase: "Ny" },
+    { code: "700", name: "C", phase: "Bevares" },
+    { code: "900", name: "D" },
+  ];
+  record("fase/mmi: rows: the page's order, then the codes' phases", "Tom Ny Bevares", phaseRows(codes, ["Tom", "Ny"]).join(" "));
+  record("fase/mmi: unassigned codes", "900", unassigned(codes).map((c) => c.code).join(","));
+  const moved = assignCodes(codes, ["200", "900"], "Bevares");
+  record("fase/mmi: assign moves codes out of their phase into one", "Ny:100 Bevares:200,700,900", phasesOf(moved));
+  const freed = assignCodes(moved, ["700"], null);
+  record("fase/mmi: assign to none leaves no phase key", "false Ny:100 Bevares:200,900", `${"phase" in freed.find((c) => c.code === "700")!} ${phasesOf(freed)}`);
+  const renamed = renamePhase(codes, "Ny", "Nybygg");
+  record("fase/mmi: rename renames the phase on every code carrying it", "Nybygg:100,200 Bevares:700", phasesOf(renamed));
+  const deleted = deletePhase(codes, "Ny");
+  record("fase/mmi: delete un-assigns the phase's codes", "Bevares:700 | 100,200,900", `${phasesOf(deleted)} | ${unassigned(deleted).map((c) => c.code).join(",")}`);
+  record(
+    "fase/mmi: a name another row has is taken, ignoring case and space; its own is not",
+    "true false false",
+    `${phaseNameTaken(["Ny", "Bevares"], 1, " ny ")} ${phaseNameTaken(["Ny", "Bevares"], 0, "Ny")} ${phaseNameTaken(["Ny", "Bevares"], 1, "Rives")}`,
+  );
+  // A renamed table still lints clean and the new name is accepted.
+  const renamedSet = withMmiCodes(mmi, renamePhase(mmiCodes(mmi), "Bevares", "Eksisterende bevares"));
+  record(
+    "fase/mmi: a renamed phase lints clean and is the accepted one",
+    " true false",
+    `${errorCodes(renamedSet).join(" ")} ${phaseAccepted(renamedSet).includes("Eksisterende bevares")} ${phaseAccepted(renamedSet).includes("Bevares")}`,
+  );
+  // The other phase sources keep the MMI source where it stood.
+  const withProp = withPhaseMode(
+    { ...pofin, projectLayer: { ...pofin.projectLayer, phase: { sources: [{ property: { propertySet: "A", name: "B" } }] } } },
+    "mmi",
+  );
+  const swapped = withOtherPhaseSources(withProp, [{ property: { propertySet: "C", name: "D" } }, { property: { propertySet: "E", name: "F" } }]);
+  record(
+    "fase/mmi: editing the other sources keeps the MMI source after the ones before it",
+    '[{"property":{"propertySet":"A","name":"B"}}] [{"property":{"propertySet":"C","name":"D"}},{"progressCode":{}},{"property":{"propertySet":"E","name":"F"}}]',
+    `${JSON.stringify(otherPhaseSources(withProp))} ${JSON.stringify(swapped.projectLayer?.phase?.sources)}`,
+  );
+
+  // Fase evaluates through MMI on a synthetic model: 700 is Bevares (the MMI
+  // source answered), 123 is in no phase (avvik), a Status NEW decides
+  // first, nothing at all is mangler.
+  const graph: ModelGraph = {
+    schema: "IFC4",
+    products: [wall("m1"), wall("m2"), wall("m3"), wall("m4"), wall("m5")],
+    contained_in: [], aggregates: [], voids: [], buildings: [], sites: [], spaces: [], storeys: [], classifications: [],
+    psets: [
+      { guid: "m1", pset_name: "NONS_Process", prop_name: "ProcessStatus", value: "700" },
+      { guid: "m2", pset_name: "NONS_Process", prop_name: "ProcessStatus", value: "700" },
+      { guid: "m3", pset_name: "NONS_Process", prop_name: "ProcessStatus", value: "123" },
+      { guid: "m4", pset_name: "Pset_WallCommon", prop_name: "Status", value: "NEW" },
+      { guid: "m4", pset_name: "NONS_Process", prop_name: "ProcessStatus", value: "900" },
+    ],
+  };
+  let text = "threw";
+  try {
+    const evaluation = evaluateRuleset(mmi, graph, summary, "T_ARK.ifc");
+    const rows = reportRows({
+      model: { file: "T_ARK.ifc", schema: "IFC4", sha256: "" },
+      graph: graph as unknown as IfcGraph,
+      summary: summary as unknown as IfcSummary,
+      checks: [],
+      ruleset: mmi,
+      evaluation,
+    });
+    const row = rowOf(requirementItems(mmi, []).find((i) => i.id === "phase")!, rows);
+    const d = row?.dekning;
+    text = row
+      ? `${d?.oppfylt}/${d?.avvik}/${d?.mangler} ${d?.kilder.map((k) => `${k.lag}=${k.n}`).join(",")} ${(row.fordeling ?? []).map((f) => `${f.verdi}:${f.n}${f.flagg ? `:${f.flagg}` : ""}`).join(" ")}`
+      : "absent";
+  } catch (error) {
+    text = `threw ${error instanceof Error ? error.message : String(error)}`;
+  }
+  record(
+    "fase/mmi: Fase evaluates through MMI on a synthetic model",
+    "3/1/1 standard=1,prosjekt=3 Bevares:2 null:1:mangler 123:1:avvik NEW:1",
+    text,
   );
 }
