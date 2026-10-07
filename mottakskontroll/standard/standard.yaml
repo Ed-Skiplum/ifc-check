@@ -285,8 +285,9 @@ blokker:
   - id: typeobjekt
     seksjon: ifc_helse
     tittel: Typeobjekt
-    krav_tekst: alle IfcProduct har typeobjekt med navn
-    # Every IfcProduct in the file, not only the counted set (edkjo 2026-09-24).
+    krav_tekst: alle IfcProduct utenom romlig struktur har typeobjekt med navn
+    # Every IfcProduct in the file, not only the counted set (edkjo 2026-09-24), minus the
+    # spatial structure (IfcSite/IfcBuilding/IfcBuildingStorey/IfcSpace/zones).
     grunnlag: alle_ifcproduct
     sted: {ifc: typeobjekt, navn: IfcRelDefinesByType}
 

@@ -364,8 +364,11 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             objekter[e.GlobalId] = [e.is_a(), (getattr(e, "Name", None) or "").strip(), typenavn,
                                     (st.Name or "").strip() if st is not None else ""]
 
-    # 1 typeobjekt: over every IfcProduct in the file, not only the counted set
+    # 1 typeobjekt: over every IfcProduct in the file, not only the counted set, except the
+    # spatial structure (site, building, storey, space, zones): a building has no type to miss.
     alle = f.by_type("IfcProduct")
+    typbare = [pr for pr in alle
+               if not (pr.is_a("IfcSpatialStructureElement") or pr.is_a("IfcSpatialElement"))]
     typer_alle = collections.Counter()
     utypet_klasse = collections.Counter()
     # Every property and quantity set on every IfcProduct, own or through its type, unfiltered.
@@ -395,7 +398,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
                         c_[t_[:60]] += 1
 
     tb = b["typeobjekt"]
-    for pr in alle:
+    for pr in typbare:
         tt = ue.get_type(pr)
         if tt is None:
             tb.sett("mangler")
@@ -665,7 +668,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     typede = sum(tr["instanser"] for tr in typeliste)
     en = sum(1 for tr in typeliste if tr["instanser"] == 1)
     return {
-        "label": label, "fil": sti.name, "sha256": B.sha(sti), "n": n, "n_alle": len(alle),
+        "label": label, "fil": sti.name, "sha256": B.sha(sti), "n": n, "n_alle": len(typbare),
         "tellegrunnlag": info["grunnlag"], "ett_sted": True,
         "typer_alle": [[k, nn, c] for (k, nn), c in typer_alle.most_common()],
         "psett": [{"navn": pn, "objekter": pset_tall[pn]["n"],

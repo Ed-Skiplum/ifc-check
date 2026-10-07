@@ -167,6 +167,13 @@ class Register:
         self.faggrupper: dict[str, list[str]] = y.get("faggrupper") or {}
         self.pr_id = {k["id"]: k for k in self.krav}
         self.blokker: list[dict] = y.get("blokker") or []
+        # Fase through MMI phasing reads the same property as MMI: as a requirement of its own it
+        # repeats MMI's Dekning and Gyldig and lists every MMI deviation twice. It is a rollup of the
+        # MMI reading instead, a Fase line inside the MMI block, and has no block or verdict.
+        fase = next((b for b in self.blokker if b["id"] == "fase" and b.get("mmi_fase")), None)
+        if fase:
+            self.blokker = [{**b, "fase_kart": fase["mmi_fase"], "fase_tittel": fase["tittel"]}
+                            if b["id"] == "mmi" else b for b in self.blokker if b["id"] != "fase"]
         self.kpi_band: list[str] = y.get("kpi_band") or []
         self.seksjoner: list[dict] = y.get("seksjoner") or []
         self.skjema: dict = y.get("skjema") or {}
@@ -1070,6 +1077,10 @@ class Modellberegning:
         if bid == "etasjedefinisjon":
             return self.krav_etasjedefinisjon(bdef, base)
         rad = self.lesing(bid, bdef, bdef["sted"])
+        if bdef.get("fase_kart"):
+            rad["fase_tittel"] = bdef["fase_tittel"]
+            rad["fase_fordeling"] = fase_fra_mmi(
+                [(e["raa"], e["n"]) for e in rad["fordeling_alle"] if "raa" in e], bdef["fase_kart"])
         verdikt = rad_verdikt(self.reg, rad)
         ut = {**base, "rader": [rad], "verdikt": verdikt, "status": VERDIKT_STATUS[verdikt],
               "mock": rad["mock"] or rad.get("mock_verdikt", False), "dekning": rad["dekning"],
@@ -1914,6 +1925,10 @@ def html_rad(r_: dict, terskler: dict) -> str:
         ut.append(f'<div class="rad-l"><span class="lab">{esc(E("fordeling"))}</span>'
                   f'<span class="fordeling">{n_(unike)} {esc(E("unike_verdier"))}'
                   f'{"<span class=mock>" + esc(E("mock")) + "</span>" if mock else ""}</span></div>')
+        if r_.get("fase_fordeling") is not None:
+            # The phase rollup of the MMI values (forventet.mmi.fase): a reading, no verdict.
+            ut.append(f'<div class="rad-l"><span class="lab">{esc(r_["fase_tittel"])}</span>'
+                      f'<span class="fordeling">{html_fordeling_tekst(r_["fase_fordeling"])}</span></div>')
     return "".join(ut)
 
 
