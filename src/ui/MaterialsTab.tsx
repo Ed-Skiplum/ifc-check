@@ -3,6 +3,8 @@
  * 2026-09-26 (owner: "the types and materials tabs need to be galleries, not
  * rows"):
  *
+ *   (tabs above the facet row, 2026-10-07: the switch sat among the filters
+ *   and read as one; edkjo: "one is an ingredient, the other a recipe")
  *   Materialer   one card per material name: a swatch, the name, how many
  *                elements, and the types that carry it (a class's untyped
  *                elements by the class name), each a link to its Typer
@@ -57,6 +59,7 @@ import type { Catalogue, LayerSetCard, Link, MaterialCard, TypeCard } from "./ty
 import type { Reveal } from "./TypesTab";
 import { css } from "./chart-colors.ts";
 import { FacetBar } from "./FacetBar";
+import { tablistKeys } from "./keys";
 import { elementItems, narrow, type ElementFacets, type FacetId, type FacetSelection } from "./facets";
 import { BAR_MM, layerFill, layerSection, materialCategory, sectionFrame, sectionOrientation, type LayerCategory } from "./layer-section.ts";
 
@@ -191,35 +194,32 @@ export function MaterialsTab({
 
   return (
     <section ref={fillRef} style={{ height: fillHeight ?? undefined }} className="flex h-[clamp(22rem,62vh,54rem)] min-h-0 min-w-0 shrink-0 flex-col overflow-hidden">
+      <div role="tablist" onKeyDown={tablistKeys} className="obj-tabs flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-2 py-1">
+        {(
+          [
+            ["materials", t("col.materials", lang)],
+            ["sets", "Layer sets"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={view === id}
+            tabIndex={view === id ? 0 : -1}
+            onClick={() => setView(id)}
+            className="obj-tab shrink-0 px-2 py-0.5 text-[11px] font-semibold tracking-[0.04em] whitespace-nowrap uppercase"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <FacetBar
         lang={lang}
         facets={MATERIAL_FACETS}
         items={view === "materials" ? materialItems : setItems}
         sel={facetSel}
         onChange={setFacetSel}
-        lead={
-          <div role="group" className="flex shrink-0 overflow-hidden rounded-[6px] border border-line">
-            {(
-              [
-                ["materials", t("col.materials", lang)],
-                ["sets", "Layer sets"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={view === id}
-                onClick={() => setView(id)}
-                className={
-                  "px-2 py-0.5 text-[11px] " +
-                  (view === id ? "bg-ink text-panel" : "bg-input text-muted hover:text-ink")
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        }
         trail={
           <span className="font-mono text-[10px] tabular-nums text-muted">
             {view === "materials"
