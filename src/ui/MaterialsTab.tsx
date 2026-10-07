@@ -30,13 +30,20 @@
  * The collections and the links are `type-links.ts`'s, computed once per
  * profile by the panel (2026-09-28); this file only draws them.
  *
- * The swatch is neutral: the engine gives no IfcMaterial surface colour (the
- * mesh colour is per PRODUCT and falls back to a per-class palette, so it is
- * not the material's), and a colour that is not the file's would be made up.
+ * The swatch is the material's CATEGORY look, the fill and hatch a layer of
+ * that material has in Layer sets (`layer-section.ts`: `materialCategory`
+ * from the name, `layerFill`), so a material looks the same in both views
+ * (2026-10-07). It is not a surface colour: the engine gives no IfcMaterial
+ * colour (the mesh colour is per PRODUCT and falls back to a per-class
+ * palette), and one that is not the file's would be made up.
  *
- * The names are the engine's (`ProductRowLite.materials`: layer-set materials
- * plus a direct `IfcMaterial`, the same set `element-material` judges). The
- * layers are the engine's rows as they are, grouped per element.
+ * The names are the engine's (`ProductRowLite.materials`: every named
+ * `materialsJson()` row, direct, list and layer, instance or type, plus the
+ * layer-set column; the same set `element-material` judges). So every
+ * material in a layer set is a card here, its count the elements that carry
+ * it (selftest). Constituent and profile sets (role `unknown`) carry no name
+ * and are no card. The layers are the engine's rows as they are, grouped per
+ * element.
  *
  * What the demo had that is not here:
  *   · the layer set's NAME. The wasm graph's `layer_set` is null, so a row is
@@ -310,7 +317,11 @@ export function MaterialCardView({
       data={{ "data-material-card": line.name, "data-revealed": revealed ? "" : undefined }}
       holds={line.guids}
     >
-      <div className="gallery-swatch m-2.5 mb-0 h-10 shrink-0 rounded-[8px]" />
+      <div
+        className="m-2.5 mb-0 h-10 shrink-0 rounded-[8px] border border-ink/40"
+        style={{ background: layerBackground(line.name, materialCategory(line.name)) }}
+        data-layer-category={materialCategory(line.name)}
+      />
       <div className="flex min-h-0 flex-1 flex-col gap-1 px-2.5 pt-1.5 pb-2">
         <div className="flex items-baseline gap-2">
           <span className="line-clamp-2 min-w-0 flex-1 font-mono text-[11.5px] leading-snug break-all text-ink">
