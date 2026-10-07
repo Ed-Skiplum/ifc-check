@@ -70,8 +70,9 @@ const RULES: [LayerCategory, RegExp][] = [
   ["gypsum", w("gips|gypsum|plasterboard|plaster")],
   ["concrete", w("betong|påstøp|avretting|concrete|screed")],
   ["masonry", w("tegl|murverk|mur|lettklinker|leca|blokk|brick|masonry|block")],
-  ["wood", w("tre|treverk|trelast|kledning|bindingsverk|stender|osb|spon|kryssfiner|clt|limtre|massivtre|wood|timber|plywood")],
+  // Metal before wood: «Stenderverk stål» is steel studs, not timber.
   ["metal", w("stål|aluminium|alu|metall|steel|metal")],
+  ["wood", w("tre|treverk|trelast|kledning|bindingsverk|stender|osb|spon|kryssfiner|clt|limtre|massivtre|wood|timber|plywood")],
   ["air", w("luft|lufting|hulrom|air|cavity")],
 ];
 
