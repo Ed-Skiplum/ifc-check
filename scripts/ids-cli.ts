@@ -2136,6 +2136,56 @@ async function cmdSelftest(): Promise<number> {
     record("type_guid carried per card", "T-V1", wall ? wall.typeGuids.join(",") : "");
   }
 
+  // Materialer = ingredients, Layer sets = recipes (2026-10-07): every
+  // IfcMaterial that reaches an element through a resolved assignment is a
+  // Materialer card, through the same path the app builds its profile on
+  // (graph → profileOf → withTypeFacts → catalogue). "Mur" reaches w-2 only
+  // through a TYPE-level layer set and is absent from `ProductRow.materials`;
+  // "Lim" only through a list, "Eik" only directly; the `unknown` row (a
+  // constituent set ifcfast does not resolve) has no name and is no card.
+  {
+    const prod = (guid: string, entity: string, materials: string[]) => ({
+      guid, entity, name: null, predefined_type: null, object_type: null, tag: null, storey_guid: null,
+      parent_guid: null, type_name: null, type_source: "none", typed: false, type_guid: null, materials,
+      layer_set: null, is_external: null, fire_rating: null, load_bearing: null,
+    });
+    const mrow = (guid: string, role: string, i: number, name: string | null, mm: number | null, source: string) => ({
+      guid, role, layer_index: i, material_name: name, layer_thickness_mm: mm, category: null, fraction: null, source,
+    });
+    const graph = {
+      schema: "IFC2X3", project_name: null,
+      products: [prod("w-1", "IfcWall", ["Betong", "Gips"]), prod("w-2", "IfcWall", []), prod("f-1", "IfcFurnishingElement", []), prod("b-1", "IfcBeam", [])],
+      storeys: [], sites: [], buildings: [], projects: [], spaces: [], contained_in: [], aggregates: [], storey_building: [], voids: [],
+      materials: [
+        mrow("w-1", "layer", 0, "Betong", 200, "instance"),
+        mrow("w-1", "layer", 1, "Gips", 13, "instance"),
+        mrow("w-2", "layer", 0, "Mur", 108, "type"),
+        mrow("w-2", "layer", 1, "Gips", 13, "type"),
+        mrow("f-1", "direct", 0, "Eik", null, "instance"),
+        mrow("f-1", "list", 0, "Lim", null, "type"),
+        mrow("b-1", "unknown", 0, null, null, "instance"),
+      ],
+    } as unknown as IfcGraph;
+    const cat = typeCatalogue(withTypeFacts(profileOf(graph), graph));
+    record(
+      "materials: every resolved IfcMaterial is a card (layer, type-level layer, list, direct); no card for an unresolved set",
+      "Gips×2,Betong×1,Eik×1,Lim×1,Mur×1",
+      cat.materials.map((m) => `${m.name}×${m.guids.length}`).sort((a, b) => Number(b.split("×")[1]) - Number(a.split("×")[1]) || a.localeCompare(b)).join(","),
+    );
+    // A layer material's card counts the elements of the sets it is in.
+    const perSet = new Map<string, Set<string>>();
+    for (const set of cat.sets ?? []) for (const l of set.layers) for (const g of set.guids) {
+      if (!l.material) continue;
+      if (!perSet.has(l.material)) perSet.set(l.material, new Set());
+      perSet.get(l.material)!.add(g);
+    }
+    record(
+      "materials: a layer material's count agrees with the Layer sets it is in",
+      "Betong=1/1 Gips=2/2 Mur=1/1",
+      [...perSet].sort(([a], [b]) => a.localeCompare(b)).map(([n, s]) => `${n}=${cat.materials.find((m) => m.name === n)?.guids.length ?? 0}/${s.size}`).join(" "),
+    );
+  }
+
   // The Typer type page (2026-09-28): `typePage` and `typeCodes` on a
   // synthetic model where every answer is known. Four walls of type V1 (w-a,
   // w-d on L1, w-c on L2, w-b in no storey), a slab with no type.
