@@ -888,18 +888,19 @@ def antall_unike(rad: dict) -> int:
 
 
 def gyldig(rad: dict) -> tuple[int, int, list] | None:
-    """Validity (edkjo 2026-09-25): where the requirement is tied to accepted values (a list or a
-    range), the share of the UNIQUE values found that are valid, x of n unique values. None where no
-    list or range is declared. The storey span of Objekter i etasje is a range per object with no
-    value list, so it stays a share of the contained objects."""
+    """Validity: where the requirement is tied to accepted values (a list or a range), the share of
+    the objects carrying the property (Dekning's x) whose value is valid, x of n objects. Weighted by
+    objects, not unique values (2026-10-08): one empty value on 0.25 % of the objects read 50 % as
+    «1 of 2 unique values». None where no list or range is declared. The storey span of Objekter i
+    etasje is a range per object with no value list, a share of the contained objects as well."""
     sp = rad.get("spenn")
     if sp:
         tot = sp["oppfylt"] + sp["avvik"] + sp["mangler"]
         return sp["oppfylt"], tot, []
     if rad.get("gyldighet") is None:
         return None
-    verdier = unike_verdier(rad)
-    return sum(1 for _, _, ok in verdier if ok), len(verdier), [(v_, n) for v_, n, ok in verdier if not ok]
+    gy = rad["gyldighet"]
+    return gy["innenfor"], gy["innenfor"] + sum(n for _, n in gy["utenfor"]), gy["utenfor"]
 
 
 TERSKLER = {"dekning": {"ok": 95, "warn": 5}, "gyldig": {"ok": 100, "warn": 95}}  # set from the config
@@ -1916,7 +1917,7 @@ def html_rad(r_: dict, terskler: dict) -> str:
             else:
                 pg = pct(g[0], g[1])
                 sg = lys(pg, terskler["gyldig"])
-                enhet = E("objekter") if r_.get("spenn") else E("unike_verdier")
+                enhet = E("objekter")
                 gyldig_c = (f'<div class="stort {sg}"><span class="ssym">{SYM[sg]}</span>{esc(p_(pg))}{m}</div>'
                             f'<div class="smatt">{n_(g[0])} {esc(E("av"))} {n_(g[1])} {esc(enhet)}</div>')
             ut.append(f'<div class="rad-l to talrad"><span class="lab">{esc(E("dekning"))}</span><div>{dekning_c}</div>'
