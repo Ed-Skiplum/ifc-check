@@ -33,3 +33,6 @@ tmp/
 
 # Real-named fixtures the gates run against real models; local only
 tests/fixtures/private/
+
+# L1 substrate downloads and source IFCs for the parity script; local only
+qa/_data/
