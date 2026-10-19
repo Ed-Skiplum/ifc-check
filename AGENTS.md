@@ -38,6 +38,8 @@ src/engine/      parse + run checks. Pure TS, no React, usable headlessly.
   pset-inventory.ts  every property and quantity set, with fill, examples
                  and category (see "Pset inventory")
   ifc-pset-names.ts  generated: the set names the IFC templates define
+  l1-graph.ts    `l1ToGraph`: the platform substrate's L1 tables + manifest as
+                 the IfcGraph / IfcSummary the engine reads; pure, no reader
 src/ui/          the screen, and the worker that drives the engine
   model-worker.ts  one Web Worker per file; keeps the parsed graph resident
                    so a ruleset dropped later evaluates without re-parsing
@@ -89,6 +91,9 @@ src/ui/board-doors.ts   the elements behind a requirement, a value or a cell
 src/codelists/   bundled code lists (code -> name), generated; lookups only
 scripts/
   check-cli.ts   run the fundamentals headlessly
+  l1-fetch.ts    a konto model's L1 tables, manifest and IFC into qa/_data/
+                 (read only, the platform CLI's own sign-in)
+  l1-parity.ts   the fundamentals on wasm vs L1 per qa/_data/ model, diffed
   ids-cli.ts     author, lint, emit and run rulesets headlessly
   gen-config-template.ts  write examples/ and public/eks-config-template.xlsx
   bcf-cli.ts     export BCF headlessly, XSD-validate it, check every camera
