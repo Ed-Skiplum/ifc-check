@@ -31,6 +31,22 @@ PROSJEKT = "prosjekt"
 MAL_MERKE = "<FROM PROJECT"
 
 
+def ikke_telt() -> tuple[str, ...]:
+    """The classes kept out of the whole check, subtypes included: standard.yaml
+    `standard.ikke_telt` (IfcGeographicElement, IfcGeographicElementType). Read from the standard
+    layer only, so every project gets the same list."""
+    std = yaml.safe_load(STANDARD_STI.read_text(encoding="utf-8"))
+    return tuple(str(k) for k in std["standard"]["ikke_telt"])
+
+
+def utelatt(e) -> bool:
+    """An entity (occurrence or type) of a class in `ikke_telt()`, subtypes included."""
+    return any(e.is_a(k) for k in IKKE_TELT)
+
+
+IKKE_TELT = ikke_telt()
+
+
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
 PSETT_REGLER = ("tre_sifre", "fagkode", "lik_typenavn", "utfylt")
 

@@ -6,7 +6,7 @@
 Every rule, location and table this reads is declared in the merged configuration (konfig.py:
 standard/standard.yaml with the project config on top) or in the two mengdetype tables; this module holds the procedures only, and no discipline name.
 The counted set is bep_egenskapskontroll's `telte()`: ifcfast's `has_body`, minus
-IfcFeatureElementSubtraction, so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
+IfcFeatureElementSubtraction and standard.yaml `standard.ikke_telt`, so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
 the builder refuses to run when they differ. ifcopenshell reads properties, materials,
 classifications and containment only; no geometry is processed here.
 
@@ -43,7 +43,9 @@ import stier  # noqa: E402
 # Bumped when a procedure here changes, so an older cache is not a hit.
 # 6 (2026-09-28): one location per requirement (`sted`), ifcfast counted set, material gallery,
 # code tallies and per-element findings.
-BLOKK_VERSJON = 6
+# 7 (2026-10-21): standard.yaml `standard.ikke_telt` kept out of every count here, the all-product
+# type tally included (IfcGeographicElement and its type are not types in the register).
+BLOKK_VERSJON = 7
 
 # Distinct values kept per property for the pset gallery's examples; beyond it only counts grow.
 PSET_MAKS_VERDIER = 200
@@ -364,8 +366,9 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             objekter[e.GlobalId] = [e.is_a(), (getattr(e, "Name", None) or "").strip(), typenavn,
                                     (st.Name or "").strip() if st is not None else ""]
 
-    # 1 typeobjekt: over every IfcProduct in the file, not only the counted set
-    alle = f.by_type("IfcProduct")
+    # 1 typeobjekt: over every IfcProduct in the file, not only the counted set, minus the classes
+    # kept out of the whole check (standard.yaml `standard.ikke_telt`, konfig.utelatt)
+    alle = [p for p in f.by_type("IfcProduct") if not konfig.utelatt(p)]
     typer_alle = collections.Counter()
     utypet_klasse = collections.Counter()
     # Every property and quantity set on every IfcProduct, own or through its type, unfiltered.

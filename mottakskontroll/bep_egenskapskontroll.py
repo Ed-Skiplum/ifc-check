@@ -38,7 +38,9 @@ import konfig  # noqa: E402
 import stier  # noqa: E402
 
 # Counted set: every IfcProduct carrying a 3D body representation, whatever its class.
-# Only subtractive geometry (IfcOpeningElement and other IfcFeatureElementSubtraction) drops out.
+# Only subtractive geometry (IfcOpeningElement and other IfcFeatureElementSubtraction) drops out,
+# plus the classes kept out of the whole check (standard.yaml `standard.ikke_telt`, konfig.IKKE_TELT:
+# IfcGeographicElement, terrain; 2026-10-21).
 # Spatial elements without geometry drop out by the rule itself, not by a class list.
 BODY_ID = {"body", "body-fallback"}
 SOLID_TYPE = {"Brep", "AdvancedBrep", "SweptSolid", "CSG", "Clipping", "SurfaceModel",
@@ -48,7 +50,8 @@ TRE_SIFRE = re.compile(r"^\d{3}$")
 # Bumped whenever a check is added or its rule changes, so a cache written by an older set of
 # checks is not a hit -- it would silently blank the new check in the report.
 # 3 (2026-09-28): the counted set is ifcfast's `has_body` minus IfcFeatureElementSubtraction.
-SJEKK_VERSJON = 3
+# 4 (2026-10-21): minus standard.yaml `standard.ikke_telt` too (IfcGeographicElement).
+SJEKK_VERSJON = 4
 
 REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdien er en fagkode",
                "lik_typenavn": "finnes og er lik IfcTypeObject.Name", "utfylt": "finnes, ikke tom"}
@@ -118,7 +121,8 @@ def har_3d(p) -> bool:
 
 def telte(sti: Path) -> tuple[list[int], dict]:
     """The counted set (2026-09-28, ifcfast #201-#203 resolved): every IfcProduct row in ifcfast's
-    products table with `has_body` true, minus IfcFeatureElementSubtraction. Read from the STEP
+    products table with `has_body` true, minus IfcFeatureElementSubtraction and the classes in
+    standard.yaml `standard.ikke_telt` (konfig.IKKE_TELT, subtypes included; 2026-10-21). Read from the STEP
     representations without meshing. Returns the step ids, ascending, and the reasons the other
     rows were not counted. IfcSite / IfcBuilding / IfcBuildingStorey have no row in that table,
     so a site body is not counted (ifcfast coverage boundary). `har_3d` above is the earlier
@@ -128,10 +132,13 @@ def telte(sti: Path) -> tuple[list[int], dict]:
     m = ifcfast.open(str(sti))
     df = m.products_df
     sub = df.entity.isin(subtypes_of("IfcFeatureElementSubtraction", m.schema))
-    ids = sorted(int(x) for x in df[df.has_body & ~sub].step_id)
-    info = {"grunnlag": f"ifcfast {ifcfast.__version__} has_body, uten IfcFeatureElementSubtraction",
-            "rader": int(len(df)), "uten_3d": int((~df.has_body).sum()),
+    geo = df.entity.isin(set().union(*(subtypes_of(k, m.schema) for k in konfig.IKKE_TELT)))
+    ids = sorted(int(x) for x in df[df.has_body & ~sub & ~geo].step_id)
+    info = {"grunnlag": f"ifcfast {ifcfast.__version__} has_body, uten IfcFeatureElementSubtraction, "
+                        f"{', '.join(konfig.IKKE_TELT)}",
+            "rader": int(len(df)), "uten_3d": int((~df.has_body & ~geo).sum()),
             "aapning": int((df.has_body & sub).sum()),
+            "utelatt_klasse": int(geo.sum()),
             "rad_ids": set(int(x) for x in df.step_id)}
     return ids, info
 
@@ -178,6 +185,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
     ut["n"] = n
     ut["ikke_telt"] = len(produkter) - n
     ut["ikke_telt_grunn"] = {"uten_3d": info["uten_3d"], "aapning": info["aapning"],
+                             "utelatt_klasse": info["utelatt_klasse"],
                              "romlig_struktur": len(produkter) - info["rader"]}
     ut["tellegrunnlag"] = info["grunnlag"]
     # Products ifcfast has no row for, beyond the spatial structure it keeps in its own tables.

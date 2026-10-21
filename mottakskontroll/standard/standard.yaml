@@ -225,9 +225,19 @@ etiketter:
 # override each key in krav.yaml.
 standard:
   terskel: {ok: 95, warn: 5}
+  # The classes kept out of the whole check, subtypes included (edkjo 2026-10-21: terrain and
+  # other geographic elements are not counted, checked or listed as types). The one list every
+  # count, property check, type register and dashboard reads (konfig.IKKE_TELT), the
+  # all-IfcProduct counts included. IfcFeatureElementSubtraction is not here: it is part of the
+  # 3D-body rule of the counted set and stays in the all-IfcProduct counts. Read from this file
+  # only: a project's `standard:` key does not replace it.
+  ikke_telt:
+    - IfcGeographicElement
+    - IfcGeographicElementType
   telte_objekter: >-
-    Alle IfcProduct med 3D-geometri, uten IfcFeatureElementSubtraction. Andeler er av dette
-    tallet, i både regneark og PDF.
+    Alle IfcProduct med 3D-geometri, uten IfcFeatureElementSubtraction og IfcGeographicElement
+    (terreng). IfcGeographicElementType regnes ikke som type. Andeler er av dette tallet, i både
+    regneark og PDF.
   navnematching: >-
     Navn på egenskapssett og egenskaper matches uten hensyn til mellomrom og store/små
     bokstaver. Varianten som ble funnet rapporteres.
