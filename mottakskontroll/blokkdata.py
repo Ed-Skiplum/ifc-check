@@ -168,14 +168,15 @@ def les_register(prosjekt: Path, kun_standard: bool = False) -> dict:
     for b in y["blokker"]:
         if b["id"] in ("produkt", "materiale"):
             continue
-        blokker[b["id"]] = {**b, "_sted": Oppslag(b["sted"]) if b.get("sted") else None}
+        # `utelatt` (project layer): the requirement is out of the report, so it is not measured.
+        blokker[b["id"]] = {**b, "_sted": Oppslag(b["sted"]) if b.get("sted") and not b.get("utelatt") else None}
     p, m = per_id["produkt"], per_id["materiale"]
     if (p.get("mengdetype") or []) != (m.get("mengdetype") or []):
         raise SystemExit("FEIL: Produkt og Materiale har ulik mengdetype-analyse i konfigurasjonen")
     blokker["materialprodukt"] = {
         "id": "materialprodukt", "ikke_konfigurert": p["ikke_konfigurert"] and m["ikke_konfigurert"],
-        "_telle": Oppslag(p["sted"], "telleobjekt") if p.get("sted") else None,
-        "_mengde": Oppslag(m["sted"], "mengdeobjekt") if m.get("sted") else None,
+        "_telle": Oppslag(p["sted"], "telleobjekt") if p.get("sted") and not p.get("utelatt") else None,
+        "_mengde": Oppslag(m["sted"], "mengdeobjekt") if m.get("sted") and not m.get("utelatt") else None,
         "_mengdetype": [Oppslag(s, "mengdetype") for s in p.get("mengdetype") or []],
         "ikke_materiale": m.get("ikke_materiale") or [],
         "aapne": (p.get("aapne") or []) + (m.get("aapne") or [])}
@@ -326,6 +327,13 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     type_egenskap = konfig.psett_egenskap(ps, "lik_typenavn")
     sk = bl["systemkode"]
     gyldig_3451 = re.compile(sk["gyldig"]) if sk.get("gyldig") else None
+    kodetabell_3451 = ({str(k).strip().upper() for k in tabell(sk["kodetabell"], "kode", rot)}
+                       if sk.get("kodetabell") else None)
+
+    def sk_gyldig(v: str) -> bool:
+        """The form, then the table: a value of the right form that is no code (360) is invalid."""
+        return ((gyldig_3451 is None or gyldig_3451.match(v) is not None)
+                and (kodetabell_3451 is None or v.strip().upper() in kodetabell_3451))
     ikke_mat = [re.compile(p, re.I) for p in mp["ikke_materiale"]]
     fase_via_mmi = bool(bl["fase"].get("mmi_fase"))
     fase_gyldig = {str(x).casefold() for x in bl["fase"].get("gyldige") or []}
@@ -448,7 +456,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         o = sk.get("_sted")
         if o is not None:
             v = o.verdi(e, psets, f)
-            if v and (gyldig_3451 is None or gyldig_3451.match(v)):
+            if v and sk_gyldig(v):
                 b["systemkode"].sett("oppfylt", o.navn, [v], tk)
                 per_klasse[kl]["systemkode"] += 1
                 rad["systemkode"] = v

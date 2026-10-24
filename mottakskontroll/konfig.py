@@ -32,7 +32,7 @@ MAL_MERKE = "<FROM PROJECT"
 
 
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
-PSETT_REGLER = ("tre_sifre", "fagkode", "lik_typenavn", "utfylt")
+PSETT_REGLER = ("tre_sifre", "fagkode", "ns3451", "ns3457", "lik_typenavn", "utfylt")
 
 
 def prosjektpsett(y: dict) -> dict | None:

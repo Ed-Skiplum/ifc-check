@@ -166,7 +166,11 @@ class Register:
         self.modeller: dict[str, dict] = y.get("modeller") or {}
         self.faggrupper: dict[str, list[str]] = y.get("faggrupper") or {}
         self.pr_id = {k["id"]: k for k in self.krav}
-        self.blokker: list[dict] = y.get("blokker") or []
+        # `utelatt: true` in the project layer takes a requirement out of the report: no matrix
+        # row, block or deviation sheet (edkjo 2026-10-20: HI90 drops Produkt, single-product types
+        # carry the product in HI90_Material). The type gallery keeps the field, unfed.
+        self.blokker: list[dict] = [b for b in y.get("blokker") or [] if not b.get("utelatt")]
+        self.utelatt: set[str] = {b["id"] for b in y.get("blokker") or [] if b.get("utelatt")}
         # Fase through MMI phasing reads the same property as MMI: as a requirement of its own it
         # repeats MMI's Dekning and Gyldig and lists every MMI deviation twice. It is a rollup of the
         # MMI reading instead, a Fase line inside the MMI block, and has no block or verdict.
@@ -1035,7 +1039,7 @@ class Modellberegning:
     """The ten blocks, the KPI band, the hygiene strip and the type register of one model."""
 
     def __init__(self, reg: Register, r: Runde, label: str, d: dict, bd: dict, s: dict,
-                 alle_guid: dict, tok: dict, kodetabell: set[str] | None, geo: dict):
+                 alle_guid: dict, tok: dict, kodetabeller: dict[str, set[str]], geo: dict):
         self.reg, self.r, self.label, self.d, self.bd, self.s = reg, r, label, d, bd, s
         self.geo = geo
         m = r.cfg[label]
@@ -1046,7 +1050,7 @@ class Modellberegning:
             raise SystemExit(f"FEIL: {label}: sha256 {self.sha256[:16]} ≠ runde {m['sha16']}")
         # Applicability elsewhere (georeferering) reads the schema from the requirement, not the dump.
         self.s = {**s, "schema": skjema_grunn(self.skjema_skrevet) or s.get("schema")}
-        self.alle_guid, self.tok, self.kodetabell = alle_guid, tok, kodetabell
+        self.alle_guid, self.tok, self.kodetabeller = alle_guid, tok, kodetabeller
         self.fag = r.fag(label)
         self.omfang = {label, self.fag, "alle"}
 
@@ -1418,13 +1422,18 @@ class Modellberegning:
             ut.append(el)
         return ut
 
+    def ford_kodetabell(self, bid: str, bb):
+        """Values outside the requirement's code table are flagged, whatever their form."""
+        tab = self.kodetabeller.get(bid)
+        if tab is None:
+            return self.ford_verdier(bb), False
+        return self.ford_verdier(bb, lambda v: v.strip().upper() not in tab), False
+
     def ford_systemkode(self, bb):
-        return self.ford_verdier(bb), False
+        return self.ford_kodetabell("systemkode", bb)
 
     def ford_funksjonskode(self, bb):
-        if self.kodetabell is None:
-            return self.ford_verdier(bb), False
-        return self.ford_verdier(bb, lambda v: v.strip().upper() not in self.kodetabell), False
+        return self.ford_kodetabell("funksjonskode", bb)
 
     def ford_materialprodukt(self, bb):
         """Products (telleobjekt) and materials (mengdeobjekt) as found, then the classes whose
@@ -1615,7 +1624,10 @@ class Modellberegning:
                        "systemkode": fold(t["systemkode"], "systemkode"),
                        "funksjonskode": fold(t["funksjonskode"], "funksjonskode"),
                        "materiale": fold(t["materiale"], "materiale"),
-                       "produkt": fold(t["produkt"], "produkt"),
+                       # Produkt out of the requirements (utelatt): the card keeps the field, but it
+                       # is not fed from the model. Products and EPDs per type come from another
+                       # source later (e.g. Cobuilder); until then a neutral «–», never a ✗.
+                       "produkt": IKKE_MATET if "produkt" in self.reg.utelatt else fold(t["produkt"], "produkt"),
                        "mengdetype": fold({(k.replace("m2", "m²").replace("m3", "m³")
                                             .replace("ikke_relevant", "ikke relevant")): v
                                            for k, v in t["mengdetype"].items()}, "mengdetype"),
@@ -1723,16 +1735,16 @@ def celle_blokk(b: dict) -> dict:
 
 def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict, geo: dict) -> dict:
     tok = les_tokens()
-    # Funksjonskode's accepted values: the code table its config names; None when it names none.
-    ft = next((b.get("kodetabell") for b in reg.blokker if b["id"] == "funksjonskode"), None)
-    kodetabell = ({str(x["kode"]).upper() for x in
-                   yaml.safe_load(stier.tabell_sti(ft, reg.rot).read_text(encoding="utf-8"))} if ft else None)
+    # Accepted values per requirement: the code table its config names (Systemkode, Funksjonskode).
+    kodetabeller = {b["id"]: {str(x["kode"]).strip().upper() for x in yaml.safe_load(
+                        stier.tabell_sti(b["kodetabell"], reg.rot).read_text(encoding="utf-8"))}
+                    for b in reg.blokker if b.get("kodetabell")}
     labels = r.hoved(reg)
     alle_guid = guid_forekomster(data, labels)
     modeller = []
     for lab in labels:
         mb = Modellberegning(reg, r, lab, data[lab], blokkdata_[lab], struktur[lab], alle_guid,
-                             tok, kodetabell, geo[lab])
+                             tok, kodetabeller, geo[lab])
         modeller.append(mb.alt())
     rader = matriserader(reg)
     matrise = []
@@ -1743,7 +1755,7 @@ def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict
                 celler[lab] = celle_blokk(next(b for b in m["blokker"] if b["id"] == rad["id"]))
             else:
                 celler[lab] = Modellberegning(reg, r, lab, data[lab], blokkdata_[lab], struktur[lab],
-                                              alle_guid, tok, kodetabell, geo[lab]).krav_celle(rad["id"])
+                                              alle_guid, tok, kodetabeller, geo[lab]).krav_celle(rad["id"])
         matrise.append({**rad, "celler": celler})
     rad_for_krav = {}
     for b in reg.blokker:
@@ -2108,17 +2120,22 @@ def html_modell(R: dict, m: dict, css: Path) -> str:
                      f'<div class="under">{esc(sub)}</div></div>')
     if m["hygiene"]:
         kropp.append("</div>")
-    kropp.append(f'<section class="galleri"><h2><span class="nr">{nr + 1}</span>{esc(E("seksjon_typegalleri"))}</h2>'
+    # Reference sections in priority order (edkjo 2026-09-28): Kodelister, Typegalleri,
+    # Materialgalleri, Egenskapssett.
+    nr_g = nr + 1
+    if m.get("kodelister"):
+        kropp.append(html_kodelister(m, nr_g))
+        nr_g += 1
+    kropp.append(f'<section class="galleri"><h2><span class="nr">{nr_g}</span>{esc(E("seksjon_typegalleri"))}</h2>'
                  '<div class="kort-rutenett">')
     for t in m["typer"]:
         kropp.append(html_kort(t))
     kropp.append("</div></section>")
-    nr_g = nr + 2
+    nr_g += 1
     if m.get("materialer"):
         kropp.append(html_materialer(m, nr_g))
         nr_g += 1
     kropp.append(html_psett(m, nr_g))
-    kropp.append(html_kodelister(m, nr_g + 1))
     # The full hash is for machines: small and muted in the first page's bottom margin, outside
     # the verdict page's content area.
     fot = ('<style>@page :first { @bottom-left { content: "' + E("sjekksum") + ' '
@@ -2192,6 +2209,9 @@ def html_kodelister(m: dict, nr: int) -> str:
         return ""
     ut = [f'<section class="kodelister"><h2><span class="nr">{nr}</span>{esc(E("seksjon_kodelister"))}</h2>']
     for kl in m["kodelister"]:
+        if kl["ref"].get("visning") == "diagram":
+            ut.append(f'<h3>{esc(kl["tittel"])}</h3>' + html_kodediagram(kl["rader"]))
+            continue
         rader = "".join(
             f'<tr><td>{esc(r_["kode"])}</td><td>{esc(r_["navn"] or "–")}</td>'
             f'<td class="tall">{n_(r_["objekter"])}</td><td class="tall">{n_(r_["typer"])}</td>'
@@ -2203,6 +2223,32 @@ def html_kodelister(m: dict, nr: int) -> str:
                   f'<th class="tall">{esc(E("objekter_kolonne"))}</th><th class="tall">{esc(E("typer"))}</th>'
                   f'<th>{esc(E("gyldig"))}</th></tr>{rader}</table>')
     ut.append("</section>")
+    return "".join(ut)
+
+
+def html_kodediagram(rader: list[dict]) -> str:
+    """A code list as a distribution (edkjo 2026-09-28, for MMI): one horizontal bar per value,
+    length by objects, the fill the code's own colour token (--mmi-<kode>, MMI-veilederen / the
+    manual), direct labels. A value outside the table has no code colour: neutral bar, ○ and the
+    «ikke i tabellen» label. Valid codes by code, invalid values last."""
+    if not rader:
+        return ""
+    rader = sorted(rader, key=lambda r_: (not r_["gyldig"], r_["kode"]))
+    maks = max(r_["objekter"] for r_ in rader) or 1
+    total = sum(r_["objekter"] for r_ in rader) or 1
+    ut = ['<div class="kodediagram">']
+    for r_ in rader:
+        bredde = 100 * r_["objekter"] / maks
+        if r_["gyldig"]:
+            fyll = f"var(--mmi-{r_['kode']}, var(--mmi-uten-farge))"
+            navn = f'<span class="kd-navn">{esc(r_["navn"])}</span>'
+        else:
+            fyll = "var(--sk-na-ren)"
+            navn = f'<span class="kd-navn bad">{sym("bad")} {esc(E("ikke_i_tabellen"))}</span>'
+        ut.append(f'<div class="kd-rad"><div class="kd-lab"><b>{esc(r_["kode"])}</b>{navn}</div>'
+                  f'<div class="kd-spor"><span class="kd-stolpe" style="width:{bredde:.1f}%;background:{fyll}"></span>'
+                  f'<span class="kd-tall">{n_(r_["objekter"])} · {p_(100 * r_["objekter"] / total)}</span></div></div>')
+    ut.append("</div>")
     return "".join(ut)
 
 
@@ -2278,7 +2324,13 @@ def html_psett(m: dict, nr: int) -> str:
     return "".join(ut)
 
 
+# A type field with no source in this run: neutral, not missing.
+IKKE_MATET = {"verdi": "", "andre": 0, "tom": 0, "flagg": False, "alle": "", "ikke_matet": True}
+
+
 def verdi_dd(f: dict, farge: str = "") -> str:
+    if f.get("ikke_matet"):
+        return '<dd class="na">–</dd>'
     if not f["verdi"]:
         return f'<dd>{sym("bad")}</dd>'
     sw = f'<span class="sw" style="background:var({farge})"></span>' if farge else ""
@@ -2444,8 +2496,10 @@ def pdf_sjekk(pdf_sti: Path, galleri: bool) -> dict:
     fonter = sorted({f[3] for p in doc for f in p.get_fonts()})
     galleriside = None
     if galleri:
+        # the reference part starts at the first reference section, Kodelister when it is there
+        forste = [E("seksjon_kodelister").upper(), E("seksjon_typegalleri").upper()]
         for i, p in enumerate(doc):
-            if E("seksjon_typegalleri").upper() in p.get_text().upper():
+            if any(t in p.get_text().upper() for t in forste):
                 galleriside = i
                 break
     doc.close()
