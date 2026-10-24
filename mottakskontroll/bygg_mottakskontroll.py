@@ -2108,17 +2108,22 @@ def html_modell(R: dict, m: dict, css: Path) -> str:
                      f'<div class="under">{esc(sub)}</div></div>')
     if m["hygiene"]:
         kropp.append("</div>")
-    kropp.append(f'<section class="galleri"><h2><span class="nr">{nr + 1}</span>{esc(E("seksjon_typegalleri"))}</h2>'
+    # Reference sections in priority order (edkjo 2026-09-28): Kodelister, Typegalleri,
+    # Materialgalleri, Egenskapssett.
+    nr_g = nr + 1
+    if m.get("kodelister"):
+        kropp.append(html_kodelister(m, nr_g))
+        nr_g += 1
+    kropp.append(f'<section class="galleri"><h2><span class="nr">{nr_g}</span>{esc(E("seksjon_typegalleri"))}</h2>'
                  '<div class="kort-rutenett">')
     for t in m["typer"]:
         kropp.append(html_kort(t))
     kropp.append("</div></section>")
-    nr_g = nr + 2
+    nr_g += 1
     if m.get("materialer"):
         kropp.append(html_materialer(m, nr_g))
         nr_g += 1
     kropp.append(html_psett(m, nr_g))
-    kropp.append(html_kodelister(m, nr_g + 1))
     # The full hash is for machines: small and muted in the first page's bottom margin, outside
     # the verdict page's content area.
     fot = ('<style>@page :first { @bottom-left { content: "' + E("sjekksum") + ' '
@@ -2192,6 +2197,9 @@ def html_kodelister(m: dict, nr: int) -> str:
         return ""
     ut = [f'<section class="kodelister"><h2><span class="nr">{nr}</span>{esc(E("seksjon_kodelister"))}</h2>']
     for kl in m["kodelister"]:
+        if kl["ref"].get("visning") == "diagram":
+            ut.append(f'<h3>{esc(kl["tittel"])}</h3>' + html_kodediagram(kl["rader"]))
+            continue
         rader = "".join(
             f'<tr><td>{esc(r_["kode"])}</td><td>{esc(r_["navn"] or "–")}</td>'
             f'<td class="tall">{n_(r_["objekter"])}</td><td class="tall">{n_(r_["typer"])}</td>'
@@ -2203,6 +2211,32 @@ def html_kodelister(m: dict, nr: int) -> str:
                   f'<th class="tall">{esc(E("objekter_kolonne"))}</th><th class="tall">{esc(E("typer"))}</th>'
                   f'<th>{esc(E("gyldig"))}</th></tr>{rader}</table>')
     ut.append("</section>")
+    return "".join(ut)
+
+
+def html_kodediagram(rader: list[dict]) -> str:
+    """A code list as a distribution (edkjo 2026-09-28, for MMI): one horizontal bar per value,
+    length by objects, the fill the code's own colour token (--mmi-<kode>, MMI-veilederen / the
+    manual), direct labels. A value outside the table has no code colour: neutral bar, ○ and the
+    «ikke i tabellen» label. Valid codes by code, invalid values last."""
+    if not rader:
+        return ""
+    rader = sorted(rader, key=lambda r_: (not r_["gyldig"], r_["kode"]))
+    maks = max(r_["objekter"] for r_ in rader) or 1
+    total = sum(r_["objekter"] for r_ in rader) or 1
+    ut = ['<div class="kodediagram">']
+    for r_ in rader:
+        bredde = 100 * r_["objekter"] / maks
+        if r_["gyldig"]:
+            fyll = f"var(--mmi-{r_['kode']}, var(--mmi-uten-farge))"
+            navn = f'<span class="kd-navn">{esc(r_["navn"])}</span>'
+        else:
+            fyll = "var(--sk-na-ren)"
+            navn = f'<span class="kd-navn bad">{sym("bad")} {esc(E("ikke_i_tabellen"))}</span>'
+        ut.append(f'<div class="kd-rad"><div class="kd-lab"><b>{esc(r_["kode"])}</b>{navn}</div>'
+                  f'<div class="kd-spor"><span class="kd-stolpe" style="width:{bredde:.1f}%;background:{fyll}"></span>'
+                  f'<span class="kd-tall">{n_(r_["objekter"])} · {p_(100 * r_["objekter"] / total)}</span></div></div>')
+    ut.append("</div>")
     return "".join(ut)
 
 
@@ -2444,8 +2478,10 @@ def pdf_sjekk(pdf_sti: Path, galleri: bool) -> dict:
     fonter = sorted({f[3] for p in doc for f in p.get_fonts()})
     galleriside = None
     if galleri:
+        # the reference part starts at the first reference section, Kodelister when it is there
+        forste = [E("seksjon_kodelister").upper(), E("seksjon_typegalleri").upper()]
         for i, p in enumerate(doc):
-            if E("seksjon_typegalleri").upper() in p.get_text().upper():
+            if any(t in p.get_text().upper() for t in forste):
                 galleriside = i
                 break
     doc.close()
