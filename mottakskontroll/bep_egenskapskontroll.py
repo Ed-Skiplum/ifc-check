@@ -48,12 +48,23 @@ TRE_SIFRE = re.compile(r"^\d{3}$")
 # Bumped whenever a check is added or its rule changes, so a cache written by an older set of
 # checks is not a hit -- it would silently blank the new check in the report.
 # 3 (2026-09-28): the counted set is ifcfast's `has_body` minus IfcFeatureElementSubtraction.
-SJEKK_VERSJON = 3
+# 4 (2026-10-20): rules ns3451 / ns3457, a code in the standard's table, not just the form.
+SJEKK_VERSJON = 4
 
 REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdien er en fagkode",
+               "ns3451": "finnes og er en tresifret kode i NS 3451",
+               "ns3457": "finnes og er en komponentkode i NS 3457-8",
                "lik_typenavn": "finnes og er lik IfcTypeObject.Name", "utfylt": "finnes, ikke tom"}
 # Rules whose values are tallied in `verdier`.
-TELLES = ("tre_sifre", "fagkode")
+TELLES = ("tre_sifre", "fagkode", "ns3451", "ns3457")
+# Code-table rules: the standard layer's table. The form is not enough: 360 has three digits, but
+# 36 is the group Luftbehandling and 361 its first code.
+KODETABELL = {"ns3451": "kodetabell_ns3451.yaml", "ns3457": "mengdetype_ns3457.yaml"}
+
+
+def kodetabell(regel: str) -> set[str]:
+    return {str(r["kode"]).strip().upper() for r in
+            yaml.safe_load(stier.tabell_sti(KODETABELL[regel], None).read_text(encoding="utf-8"))}
 
 
 def sjekker(ps: dict | None) -> list[tuple[str, str]]:
@@ -72,7 +83,10 @@ def sjekker(ps: dict | None) -> list[tuple[str, str]]:
 
 def konfig_nokkel(ps: dict | None, fagkoder: list[str]) -> str:
     """What the checks read from the project config, as a cache key."""
-    return hashlib.sha256(json.dumps([ps, fagkoder], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+    h = hashlib.sha256(json.dumps([ps, fagkoder], ensure_ascii=False, sort_keys=True).encode())
+    for r in sorted({e["regel"] for e in (ps or {}).get("egenskaper") or []} & set(KODETABELL)):
+        h.update(stier.tabell_sti(KODETABELL[r], None).read_bytes())
+    return h.hexdigest()[:16]
 FYLL = {"ok": "C6EFCE", "delvis": "FFEB9C", "mangler": "FFC7CE", "tom": "D9D9D9"}
 HODE = PatternFill("solid", fgColor="1F3864")
 HODE_FONT = Font(bold=True, color="FFFFFF")
@@ -190,6 +204,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
         raise SystemExit(f"FEIL: {label}: IfcProduct uten rad i ifcfast: {dict(utenfor)}")
     egenskaper = (ps or {}).get("egenskaper") or []
     regel = {e["navn"]: e["regel"] for e in egenskaper}
+    tabeller = {r: kodetabell(r) for r in set(regel.values()) & set(KODETABELL)}
     fag = {str(f).upper() for f in fagkoder}
     kopi_navn = konfig.psett_egenskap(ps, "fagkode")
     type_navn = konfig.psett_egenskap(ps, "lik_typenavn")
@@ -249,6 +264,10 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
                 ok = bool(s) and TRE_SIFRE.match(s) is not None
             elif regel[navn] == "fagkode":
                 ok = bool(s) and s.upper() in fag
+            elif regel[navn] == "ns3451":
+                ok = bool(s) and TRE_SIFRE.match(s) is not None and s.upper() in tabeller["ns3451"]
+            elif regel[navn] == "ns3457":
+                ok = bool(s) and s.upper() in tabeller["ns3457"]
             elif regel[navn] == "lik_typenavn":
                 egen_type = s
                 ok = bool(s) and bool(type_name) and s == type_name

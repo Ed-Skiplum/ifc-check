@@ -333,7 +333,10 @@ blokker:
     seksjon: standardkrav
     tittel: Systemkode NS 3451
     krav_tekst: tresifret NS 3451-kode
+    # Valid = the form (`gyldig`) AND a code in the table. The form alone lets a group padded with a
+    # zero through: 36 is the group Luftbehandling, 360 is not a code (361 is the first).
     gyldig: '^\d{3}$'
+    kodetabell: kodetabell_ns3451.yaml
     sted: {ifc: klassifikasjon, system_monster: '3451', navn: IfcClassificationReference NS 3451}
     # The aggregated code list (a catalogue, not a check): rendered only while the requirement has
     # a location. Names and validity from the bundled table.

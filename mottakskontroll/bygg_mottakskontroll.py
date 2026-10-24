@@ -166,7 +166,11 @@ class Register:
         self.modeller: dict[str, dict] = y.get("modeller") or {}
         self.faggrupper: dict[str, list[str]] = y.get("faggrupper") or {}
         self.pr_id = {k["id"]: k for k in self.krav}
-        self.blokker: list[dict] = y.get("blokker") or []
+        # `utelatt: true` in the project layer takes a requirement out of the report: no matrix
+        # row, block or deviation sheet (edkjo 2026-10-20: HI90 drops Produkt, single-product types
+        # carry the product in HI90_Material). The type gallery keeps the field, unfed.
+        self.blokker: list[dict] = [b for b in y.get("blokker") or [] if not b.get("utelatt")]
+        self.utelatt: set[str] = {b["id"] for b in y.get("blokker") or [] if b.get("utelatt")}
         # Fase through MMI phasing reads the same property as MMI: as a requirement of its own it
         # repeats MMI's Dekning and Gyldig and lists every MMI deviation twice. It is a rollup of the
         # MMI reading instead, a Fase line inside the MMI block, and has no block or verdict.
@@ -1035,7 +1039,7 @@ class Modellberegning:
     """The ten blocks, the KPI band, the hygiene strip and the type register of one model."""
 
     def __init__(self, reg: Register, r: Runde, label: str, d: dict, bd: dict, s: dict,
-                 alle_guid: dict, tok: dict, kodetabell: set[str] | None, geo: dict):
+                 alle_guid: dict, tok: dict, kodetabeller: dict[str, set[str]], geo: dict):
         self.reg, self.r, self.label, self.d, self.bd, self.s = reg, r, label, d, bd, s
         self.geo = geo
         m = r.cfg[label]
@@ -1046,7 +1050,7 @@ class Modellberegning:
             raise SystemExit(f"FEIL: {label}: sha256 {self.sha256[:16]} ≠ runde {m['sha16']}")
         # Applicability elsewhere (georeferering) reads the schema from the requirement, not the dump.
         self.s = {**s, "schema": skjema_grunn(self.skjema_skrevet) or s.get("schema")}
-        self.alle_guid, self.tok, self.kodetabell = alle_guid, tok, kodetabell
+        self.alle_guid, self.tok, self.kodetabeller = alle_guid, tok, kodetabeller
         self.fag = r.fag(label)
         self.omfang = {label, self.fag, "alle"}
 
@@ -1418,13 +1422,18 @@ class Modellberegning:
             ut.append(el)
         return ut
 
+    def ford_kodetabell(self, bid: str, bb):
+        """Values outside the requirement's code table are flagged, whatever their form."""
+        tab = self.kodetabeller.get(bid)
+        if tab is None:
+            return self.ford_verdier(bb), False
+        return self.ford_verdier(bb, lambda v: v.strip().upper() not in tab), False
+
     def ford_systemkode(self, bb):
-        return self.ford_verdier(bb), False
+        return self.ford_kodetabell("systemkode", bb)
 
     def ford_funksjonskode(self, bb):
-        if self.kodetabell is None:
-            return self.ford_verdier(bb), False
-        return self.ford_verdier(bb, lambda v: v.strip().upper() not in self.kodetabell), False
+        return self.ford_kodetabell("funksjonskode", bb)
 
     def ford_materialprodukt(self, bb):
         """Products (telleobjekt) and materials (mengdeobjekt) as found, then the classes whose
@@ -1615,7 +1624,10 @@ class Modellberegning:
                        "systemkode": fold(t["systemkode"], "systemkode"),
                        "funksjonskode": fold(t["funksjonskode"], "funksjonskode"),
                        "materiale": fold(t["materiale"], "materiale"),
-                       "produkt": fold(t["produkt"], "produkt"),
+                       # Produkt out of the requirements (utelatt): the card keeps the field, but it
+                       # is not fed from the model. Products and EPDs per type come from another
+                       # source later (e.g. Cobuilder); until then a neutral «–», never a ✗.
+                       "produkt": IKKE_MATET if "produkt" in self.reg.utelatt else fold(t["produkt"], "produkt"),
                        "mengdetype": fold({(k.replace("m2", "m²").replace("m3", "m³")
                                             .replace("ikke_relevant", "ikke relevant")): v
                                            for k, v in t["mengdetype"].items()}, "mengdetype"),
@@ -1723,16 +1735,16 @@ def celle_blokk(b: dict) -> dict:
 
 def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict, geo: dict) -> dict:
     tok = les_tokens()
-    # Funksjonskode's accepted values: the code table its config names; None when it names none.
-    ft = next((b.get("kodetabell") for b in reg.blokker if b["id"] == "funksjonskode"), None)
-    kodetabell = ({str(x["kode"]).upper() for x in
-                   yaml.safe_load(stier.tabell_sti(ft, reg.rot).read_text(encoding="utf-8"))} if ft else None)
+    # Accepted values per requirement: the code table its config names (Systemkode, Funksjonskode).
+    kodetabeller = {b["id"]: {str(x["kode"]).strip().upper() for x in yaml.safe_load(
+                        stier.tabell_sti(b["kodetabell"], reg.rot).read_text(encoding="utf-8"))}
+                    for b in reg.blokker if b.get("kodetabell")}
     labels = r.hoved(reg)
     alle_guid = guid_forekomster(data, labels)
     modeller = []
     for lab in labels:
         mb = Modellberegning(reg, r, lab, data[lab], blokkdata_[lab], struktur[lab], alle_guid,
-                             tok, kodetabell, geo[lab])
+                             tok, kodetabeller, geo[lab])
         modeller.append(mb.alt())
     rader = matriserader(reg)
     matrise = []
@@ -1743,7 +1755,7 @@ def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict
                 celler[lab] = celle_blokk(next(b for b in m["blokker"] if b["id"] == rad["id"]))
             else:
                 celler[lab] = Modellberegning(reg, r, lab, data[lab], blokkdata_[lab], struktur[lab],
-                                              alle_guid, tok, kodetabell, geo[lab]).krav_celle(rad["id"])
+                                              alle_guid, tok, kodetabeller, geo[lab]).krav_celle(rad["id"])
         matrise.append({**rad, "celler": celler})
     rad_for_krav = {}
     for b in reg.blokker:
@@ -2312,7 +2324,13 @@ def html_psett(m: dict, nr: int) -> str:
     return "".join(ut)
 
 
+# A type field with no source in this run: neutral, not missing.
+IKKE_MATET = {"verdi": "", "andre": 0, "tom": 0, "flagg": False, "alle": "", "ikke_matet": True}
+
+
 def verdi_dd(f: dict, farge: str = "") -> str:
+    if f.get("ikke_matet"):
+        return '<dd class="na">–</dd>'
     if not f["verdi"]:
         return f'<dd>{sym("bad")}</dd>'
     sw = f'<span class="sw" style="background:var({farge})"></span>' if farge else ""
