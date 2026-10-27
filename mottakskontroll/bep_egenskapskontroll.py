@@ -134,20 +134,29 @@ def har_3d(p) -> bool:
 
 def telte(sti: Path) -> tuple[list[int], dict]:
     """The counted set (2026-09-28, ifcfast #201-#203 resolved): every IfcProduct row in ifcfast's
-    products table with `has_body` true, minus IfcFeatureElementSubtraction. Read from the STEP
+    products table with `has_body` true that is in scope: an IfcElement of none of the
+    standard.yaml `standard.ikke_telt` classes (2026-10-27). Read from the STEP
     representations without meshing. Returns the step ids, ascending, and the reasons the other
-    rows were not counted. IfcSite / IfcBuilding / IfcBuildingStorey have no row in that table,
-    so a site body is not counted (ifcfast coverage boundary). `har_3d` above is the earlier
-    ifcopenshell rule and is no longer the denominator."""
+    rows were not counted: per left-out class first, then not an IfcElement (IfcSpace,
+    annotations, proxies), then no 3D body. IfcSite / IfcBuilding / IfcBuildingStorey have no
+    row in that table. `har_3d` above is the earlier ifcopenshell rule and is no longer the
+    denominator."""
     import ifcfast
     from ifcfast.classify import subtypes_of
     m = ifcfast.open(str(sti))
     df = m.products_df
-    sub = df.entity.isin(subtypes_of("IfcFeatureElementSubtraction", m.schema))
-    ids = sorted(int(x) for x in df[df.has_body & ~sub].step_id)
-    info = {"grunnlag": f"ifcfast {ifcfast.__version__} has_body, uten IfcFeatureElementSubtraction",
-            "rader": int(len(df)), "uten_3d": int((~df.has_body).sum()),
-            "aapning": int((df.has_body & sub).sum()),
+    rest = df.entity == df.entity
+    utelatt_klasse = {}
+    for k in konfig.IKKE_TELT:
+        treff = rest & df.entity.isin(subtypes_of(k, m.schema))
+        utelatt_klasse[k] = int(treff.sum())
+        rest &= ~treff
+    fys = df.entity.isin(subtypes_of(konfig.FYSISK, m.schema))
+    ids = sorted(int(x) for x in df[rest & fys & df.has_body].step_id)
+    info = {"grunnlag": f"ifcfast {ifcfast.__version__} has_body, {konfig.FYSISK} uten "
+                        f"{', '.join(konfig.IKKE_TELT)}",
+            "rader": int(len(df)), "utelatt_klasse": utelatt_klasse,
+            "ikke_fysisk": int((rest & ~fys).sum()), "uten_3d": int((rest & fys & ~df.has_body).sum()),
             "rad_ids": set(int(x) for x in df.step_id)}
     return ids, info
 
