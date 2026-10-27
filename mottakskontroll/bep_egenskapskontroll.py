@@ -202,7 +202,8 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
     n = len(elementer)
     ut["n"] = n
     ut["ikke_telt"] = len(produkter) - n
-    ut["ikke_telt_grunn"] = {"uten_3d": info["uten_3d"], "aapning": info["aapning"],
+    ut["ikke_telt_grunn"] = {**{k: v for k, v in info["utelatt_klasse"].items() if v},
+                             "ikke_fysisk": info["ikke_fysisk"], "uten_3d": info["uten_3d"],
                              "romlig_struktur": len(produkter) - info["rader"]}
     ut["tellegrunnlag"] = info["grunnlag"]
     # Products ifcfast has no row for, beyond the spatial structure it keeps in its own tables.
@@ -430,7 +431,7 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str, ps: dict | None) -> 
             cell.fill = PatternFill("solid", fgColor=FYLL[status(andel(r, s))])
             cell.number_format = "0.0"
     ws.append([])
-    ws.append(["Tall er prosent av telte objekter (IfcProduct med 3D-geometri, uten åpninger). Grønn = 100 %, gul = delvis, rød = 0."])
+    ws.append(["Tall er prosent av telte objekter (fysiske objekter med 3D-geometri, se «Telte objekter»). Grønn = 100 %, gul = delvis, rød = 0."])
     ws.append(["Krav", *[f"{s}: {k}" for s, k in liste]])
     ws.freeze_panes = "E2"
     for i in range(1, len(hdr) + 1):
@@ -474,7 +475,7 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str, ps: dict | None) -> 
     wb.save(xlsx)
 
     L = [f"# BEP-egenskapskontroll {dato}", "",
-         "Telte objekter: alle IfcProduct med 3D-geometri, uten åpninger. Prosent = andel av telte objekter som oppfyller kravet.", "",
+         "Telte objekter: fysiske objekter med 3D-geometri (IfcElement uten åpninger, virtuelle og geografiske elementer og deler). Prosent = andel av telte objekter som oppfyller kravet.", "",
          "| Krav | " + " | ".join(r["label"].replace(f"{kode}_", "") for r in resultater) + " |",
          "|---|" + "--:|" * len(resultater)]
     for s, _ in liste:

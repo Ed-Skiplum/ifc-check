@@ -227,9 +227,22 @@ etiketter:
 # override each key in krav.yaml.
 standard:
   terskel: {ok: 95, warn: 5}
+  # The objects in the check (edkjo 2026-10-21, 2026-10-27; the same rule as Mottakskontroll-typer):
+  # physical objects only, a subclass of `fysisk_klasse` and of none of `ikke_telt` (subtypes
+  # included), each left-out class with its reason. IfcSpace and the rest of the spatial structure
+  # are outside IfcElement and never counted. Read from the standard layer only (konfig.py), so every
+  # project gets the same scope; it bounds the counted set and Typeobjekt alike.
+  fysisk_klasse: IfcElement
+  ikke_telt:
+    IfcFeatureElement: ikke fysisk (åpninger, utsparinger)
+    IfcVirtualElement: ikke fysisk
+    IfcGeographicElement: terreng og origo-markører
+    IfcBuildingElementPart: del av eierobjekt, typet gjennom eieren
   telte_objekter: >-
-    Alle IfcProduct med 3D-geometri, uten IfcFeatureElementSubtraction. Andeler er av dette
-    tallet, i både regneark og PDF.
+    Fysiske objekter med 3D-geometri: IfcElement uten åpninger og andre IfcFeatureElement,
+    IfcVirtualElement, IfcGeographicElement (terreng, origo-markører) og IfcBuildingElementPart
+    (deler, typet gjennom eierobjektet). Rom (IfcSpace) telles ikke. Andeler er av dette tallet, i
+    både regneark og PDF.
   navnematching: >-
     Navn på egenskapssett og egenskaper matches uten hensyn til mellomrom og store/små
     bokstaver. Varianten som ble funnet rapporteres.
@@ -238,24 +251,25 @@ standard:
 # schema is a requirement (skjema), not a KPI. The other kpi entries stay in the workbook.
 kpi_band: [antall_typer, antall_elementer, instanser_per_type_alle, typer_med_en_instans_alle, utypede_instanser]
 
-# The band's counts (edkjo 2026-09-24): all over every IfcProduct in the file, the grunnlag of
+# The band's counts (edkjo 2026-09-24): all over every object in scope (`standard.fysisk_klasse`
+# minus `standard.ikke_telt`, 2026-10-27), with or without 3D body, the grunnlag of
 # Typeobjekt, and types by name + IFC class (begreper §1). Plain numbers, no verdict.
 kpi_alle:
   - id: antall_typer
     tittel: Antall typer
-    maaler: Typer i bruk, typenavn + IFC-klasse, over alle IfcProduct.
+    maaler: Typer i bruk, typenavn + IFC-klasse, over alle fysiske objekter.
   - id: antall_elementer
     tittel: Antall elementer
-    maaler: Alle IfcProduct i fila, grunnlaget for Typeobjekt.
+    maaler: Alle fysiske objekter i fila, grunnlaget for Typeobjekt.
   - id: instanser_per_type_alle
     tittel: Instanser per type
-    maaler: Typede IfcProduct delt på antall typer.
+    maaler: Typede objekter delt på antall typer.
   - id: typer_med_en_instans_alle
     tittel: Typer med én instans
-    maaler: Typer med ett IfcProduct, med andel av typene.
+    maaler: Typer med ett objekt, med andel av typene.
   - id: utypede_instanser
     tittel: Utypede instanser
-    maaler: IfcProduct uten IfcRelDefinesByType, med andel av elementene.
+    maaler: Objekter uten IfcRelDefinesByType, med andel av elementene.
 
 verdiktord:
   oppfylt: OK
@@ -287,9 +301,9 @@ blokker:
   - id: typeobjekt
     seksjon: ifc_helse
     tittel: Typeobjekt
-    krav_tekst: alle IfcProduct utenom romlig struktur har typeobjekt med navn
-    # Every IfcProduct in the file, not only the counted set (edkjo 2026-09-24), minus the
-    # spatial structure (IfcSite/IfcBuilding/IfcBuildingStorey/IfcSpace/zones).
+    krav_tekst: alle fysiske objekter har typeobjekt med navn
+    # Every object in scope, not only the counted set (edkjo 2026-09-24): IfcElement minus
+    # `standard.ikke_telt` (2026-10-27), so no spatial structure, IfcSpace or building element part.
     grunnlag: alle_ifcproduct
     sted: {ifc: typeobjekt, navn: IfcRelDefinesByType}
 

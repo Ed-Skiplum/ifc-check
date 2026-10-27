@@ -6,7 +6,7 @@
 Every rule, location and table this reads is declared in the merged configuration (konfig.py:
 standard/standard.yaml with the project config on top) or in the two mengdetype tables; this module holds the procedures only, and no discipline name.
 The counted set is bep_egenskapskontroll's `telte()`: ifcfast's `has_body`, minus
-IfcFeatureElementSubtraction, so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
+standard.yaml `standard.ikke_telt` (IfcElement only), so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
 the builder refuses to run when they differ. ifcopenshell reads properties, materials,
 classifications and containment only; no geometry is processed here.
 
@@ -43,7 +43,8 @@ import stier  # noqa: E402
 # Bumped when a procedure here changes, so an older cache is not a hit.
 # 6 (2026-09-28): one location per requirement (`sted`), ifcfast counted set, material gallery,
 # code tallies and per-element findings.
-BLOKK_VERSJON = 6
+# 7 (2026-10-27): Typeobjekt and the pset gallery over the objects in scope only (konfig.i_omfang).
+BLOKK_VERSJON = 7
 
 # Distinct values kept per property for the pset gallery's examples; beyond it only counts grow.
 PSET_MAKS_VERDIER = 200
@@ -372,11 +373,12 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             objekter[e.GlobalId] = [e.is_a(), (getattr(e, "Name", None) or "").strip(), typenavn,
                                     (st.Name or "").strip() if st is not None else ""]
 
-    # 1 typeobjekt: over every IfcProduct in the file, not only the counted set, except the
-    # spatial structure (site, building, storey, space, zones): a building has no type to miss.
-    alle = f.by_type("IfcProduct")
-    typbare = [pr for pr in alle
-               if not (pr.is_a("IfcSpatialStructureElement") or pr.is_a("IfcSpatialElement"))]
+    # 1 typeobjekt: over every object in scope, with or without 3D body, not only the counted set:
+    # IfcElement minus standard.yaml `standard.ikke_telt` (konfig.i_omfang, 2026-10-27). The spatial
+    # structure has no type to miss, and a building element part is typed through its owner.
+    # Everything below (pset gallery included) reads this set; the rest of the file is out of scope.
+    alle = [pr for pr in f.by_type("IfcProduct") if konfig.i_omfang(pr)]
+    typbare = alle
     typer_alle = collections.Counter()
     utypet_klasse = collections.Counter()
     # Every property and quantity set on every IfcProduct, own or through its type, unfiltered.

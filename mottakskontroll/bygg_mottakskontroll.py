@@ -985,7 +985,7 @@ def kpi_kort(kpi_alle: list[dict], band: list[str], terskler: dict, typer: int, 
             "utypede_instanser": pct(utypet, n_alle) if n_alle else None}
     tekst = {
         "antall_typer": (n_(typer), ""),
-        "antall_elementer": (n_(n_alle), "IfcProduct"),
+        "antall_elementer": (n_(n_alle), "fysiske objekter"),
         "instanser_per_type_alle": (fmt_pct(typede / typer) if typer else "–", f"{n_(typede)} / {n_(typer)}"),
         "typer_med_en_instans_alle": (n_(en), p_(pct(en, typer)) if typer else ""),
         "utypede_instanser": (n_(utypet), p_(pct(utypet, n_alle)) if n_alle else ""),
@@ -1131,7 +1131,7 @@ class Modellberegning:
                 raise SystemExit(f"FEIL: {self.label}: {bid} er målt på {navn}, konfigurasjonen sier {nokler}")
             eksakt = True
         if bdef.get("grunnlag") == "alle_ifcproduct":
-            rad["grunnlag_tekst"] = "IfcProduct"
+            rad["grunnlag_tekst"] = "fysiske objekter"
         if not gren:
             nb = self.bd["n_alle"] if bdef.get("grunnlag") == "alle_ifcproduct" else n
             if eksakt:
