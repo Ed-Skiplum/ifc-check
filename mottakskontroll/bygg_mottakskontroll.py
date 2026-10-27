@@ -854,12 +854,14 @@ def tom_dekning(n: int) -> dict:
             "andel": None, "kilder": []}
 
 
-def har_verdiliste(bid: str, bdef: dict) -> bool:
+def har_verdiliste(bid: str, bdef: dict, mmi_koder: bool = False, fagkoder: bool = False) -> bool:
     """Accepted values are declared for the requirement: a pattern, a code table, a value list, an
-    exclusion list, the project's MMI codes, the fagkoder, or the project's storeys."""
+    exclusion list, the project's MMI codes, the fagkoder, or the project's storeys. Without one there
+    is no validity row (edkjo 2026-10-27): no clear «this is valid», no score. MMI needs the
+    project's `forventet.mmi.koder`, Kopiobjekt its `fagkoder`."""
     return bool(bdef.get("gyldig") or bdef.get("kodetabell") or bdef.get("gyldige")
                 or bdef.get("ikke_materiale") or bdef.get("mmi_fase")) and bid != "produkt" \
-        or bid in ("mmi", "kopiobjekt")
+        or bid == "mmi" and mmi_koder or bid == "kopiobjekt" and fagkoder
 
 
 def tilstede(rad: dict) -> tuple[int, int] | None:
