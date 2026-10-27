@@ -49,7 +49,8 @@ import stier  # noqa: E402
 # type tally included (IfcGeographicElement and its type are not types in the register).
 # (ifc-check carried 7 for the ikke_telt change; 7 to 9 above are the HI90 engine's numbers.)
 # 10 (2026-10-27): the HI90 engine port into ifc-check: 7 to 9 on top of ifc-check's 7.
-BLOKK_VERSJON = 10
+# 11 (2026-10-27): location kind {ifc: representasjon} (opt-in block body_geometri).
+BLOKK_VERSJON = 11
 
 # Distinct values kept per property for the pset gallery's examples; beyond it only counts grow.
 PSET_MAKS_VERDIER = 200
@@ -378,7 +379,7 @@ def generisk_oppsett(bdef: dict, rot: Path | None) -> dict | None:
     elif g["art"] == "mengdesett":
         g["qto_re"] = re.compile(s["qto_monster"], re.I)
         g["mengder"] = {str(k): [str(q) for q in v] for k, v in (bdef.get("mengder") or {}).items()}
-    elif g["art"] not in ("materiallag", "typenavn"):
+    elif g["art"] not in ("materiallag", "typenavn", "representasjon"):
         raise SystemExit(f"FEIL: {bdef['id']}: ukjent stedstype {s.get('ifc')!r}")
     return g
 
@@ -387,7 +388,8 @@ def generisk_les(g: dict, e, psets: dict, typet, ctx: dict | None = None) -> tup
     """(bucket, value, reason) of one counted object for an opt-in block. Bucket oppfylt | avvik |
     mangler | gjelder_ikke; reason, for the avviksliste: mangler | tom | ugyldig, or ''.
     `typet` returns the object's typed properties (egenskaper_typet), computed once per object;
-    `ctx["regel"]` is the project's type-naming rule for the object (forventet.typenavn, by its MMI)."""
+    `ctx["regel"]` is the project's type-naming rule for the object (forventet.typenavn, by its MMI);
+    `ctx["kun_flate"]` says the object's only 3D geometry is a 'Surface' (bep_egenskapskontroll.telte)."""
     if g["klasser"] and not any(e.is_a(k) for k in g["klasser"]):
         return "gjelder_ikke", "", ""
     if g["psettmal"] is not None and e.is_a().upper() not in g["psettmal"]:
@@ -430,6 +432,10 @@ def generisk_les(g: dict, e, psets: dict, typet, ctx: dict | None = None) -> tup
         ok = (rx is None or rx.match(navn) is not None) and \
             (g["kodetabell"] is None or navn.split("-")[0].strip().upper() in g["kodetabell"])
         return ("oppfylt", navn, "") if ok else ("avvik", navn, "ugyldig")
+    if art == "representasjon":
+        # Every counted object has 3D geometry: a body (ifcfast has_body) or, without one, a 3D
+        # 'Surface' (telte). The second is missing its Body (Revit does not display it).
+        return ("mangler", "Surface", "mangler") if (ctx or {}).get("kun_flate") else ("oppfylt", "Body", "")
     if art == "gruppe":
         navn = set()
         for rel in getattr(e, "HasAssignments", None) or []:
@@ -541,6 +547,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     f = ifcopenshell.open(str(sti))
     skala_mm = uu.calculate_unit_scale(f) * 1000.0
     ids, info = B.telte(sti, f)
+    kun_flate = info["flate"]
     elementer = [f.by_id(i) for i in ids]
     n = len(elementer)
 
@@ -853,7 +860,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
 
         for g in generiske:
             botte, verdi, arsak = generisk_les(g, e, psets, typet,
-                                               {"regel": navneregel(rad.get("mmi", ""))})
+                                               {"regel": navneregel(rad.get("mmi", "")),
+                                                "kun_flate": e.id() in kun_flate})
             gb = b[g["id"]]
             if botte in ("oppfylt", "avvik"):
                 gb.sett(botte, g["navn"], [verdi], tk)

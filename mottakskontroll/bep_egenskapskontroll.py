@@ -177,7 +177,9 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
             "rader": int(len(df)), "uten_3d": int((~df.has_body & ~geo).sum()) - len(flate),
             "aapning": int((df.has_body & sub).sum()),
             "utelatt_klasse": int(geo.sum()),
-            "rad_ids": set(int(x) for x in df.step_id)}
+            "rad_ids": set(int(x) for x in df.step_id),
+            # the counted products whose only 3D geometry is a 'Surface' (blokkdata body_geometri)
+            "flate": set(flate)}
     return ids, info
 
 
