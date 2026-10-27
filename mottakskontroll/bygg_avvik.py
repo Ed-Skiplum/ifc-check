@@ -14,7 +14,7 @@ Etasje · Egenskap · Funnet verdi · Årsak. Sheets follow the report's numberi
 
 A data export, not IFC processing: it reads only what is cached from the round,
     <ut>/data/beregnet.json                    requirements, their order and locations, etasjematrise
-    <cache>/bep/<dato>/data.json               every counted GlobalId with its copy-object value (prosjektpsett, rule fagkode)
+    <cache>/bep/<dato>/data.json               every counted GlobalId with its copy-object value (konfig.egenskapskontroll `kopi`)
     <cache>/blokker/<dato>/prosjekt/<modell>.json  per-element findings of each requirement at its one
                                                location (blokkdata 6), with class, name, type, storey
 Where a requirement has no per-element list in these caches, its sheet says so in one visible row;
@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -97,7 +98,8 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
         ark_liste.append((bid, tittel, rader, hull))
 
     def skriv_ark(wb, tittel: str, rader: list[list], hull: bool):
-        ws = wb.create_sheet(tittel[:31])
+        # Excel refuses []:*?/\ in a sheet name (a [WRITE] placeholder title): dropped there only.
+        ws = wb.create_sheet(re.sub(r"[\[\]:*?/\\]", "", tittel)[:31])
         ws.append([B.E(k) for k in KOLONNE_NOKLER])
         for c in ws[1]:
             c.font = Font(bold=True)
@@ -150,10 +152,12 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
                         continue
                     funnet = f'{e["m_navn"]} {B.m_(e["m_kote"], 3)}' if e["m_navn"] else ""
                     ref = f'{e["k_navn"]} {B.m_(e["k_kote"], 3)}' if e["k_navn"] else ""
-                    st = "na" if e["kode"] == "mangler" else "bad"
+                    # a missing level is allowed; with no levels configured nothing is a deviation
+                    st = "na" if e["kode"] in ("mangler", "ikke_konfigurert") else "bad"
                     rader.append([m["label"], m["fag"], "", "IfcBuildingStorey", e["m_navn"], "", ref,
                                   "IfcBuildingStorey", funnet, e["status"], st])
-        elif bid in ("typeobjekt", "etasjer", "systemkode", "funksjonskode", "produkt", "materiale", "mmi", "fase"):
+        elif bid in ("typeobjekt", "etasjer", "systemkode", "funksjonskode", "produkt", "materiale", "mmi", "fase") \
+                or bdef.get("valgfri"):
             # per-element findings at the requirement's one location (blokkdata 6)
             for m in R["modeller"]:
                 if next((b["verdikt"] for b in m["blokker"] if b["id"] == bid), "") == "gjelder_ikke":
@@ -184,7 +188,8 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
                                  else "mangler_eller_tom_verdi")
                         rader.append([m["label"], m["fag"], guid, "", "", "", etasje_for(m["label"], guid), sted, "",
                                       B.E(arsak), "bad" if arsak == "avvik_mangler" else "warn"])
-                    elif v.upper() not in godtatte and v.lower() not in sanne:
+                    elif (v.casefold() not in {str(x).casefold() for x in bdef["gyldige"]} if bdef.get("gyldige")
+                          else v.upper() not in godtatte and v.lower() not in sanne):
                         rader.append([m["label"], m["fag"], guid, "", "", "", etasje_for(m["label"], guid), sted, v,
                                       B.E("ugyldig_verdi"), "warn"])
         else:

@@ -1,7 +1,8 @@
 """Per-element check of the project property set on delivered models.
 
 The property set, its properties and the rule each one is held to are the project config's
-`prosjektpsett` (konfig.prosjektpsett); a project without one gets the generic checks only.
+`egenskapskontroll` or `prosjektpsett` (konfig.egenskapskontroll, one normalised shape); a project
+without either gets the generic checks only.
 Every check is a share of counted elements, so a model is greenlit by numbers, not by a glance.
 Quantities and typing are what Reduzer and the QTO need, checked alongside.
 
@@ -51,12 +52,9 @@ TRE_SIFRE = re.compile(r"^\d{3}$")
 # checks is not a hit -- it would silently blank the new check in the report.
 # 3 (2026-09-28): the counted set is ifcfast's `has_body` minus IfcFeatureElementSubtraction.
 # 4 (2026-10-21): minus standard.yaml `standard.ikke_telt` too (IfcGeographicElement).
-SJEKK_VERSJON = 4
-
-REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdien er en fagkode",
-               "lik_typenavn": "finnes og er lik IfcTypeObject.Name", "utfylt": "finnes, ikke tom"}
-# Rules whose values are tallied in `verdier`.
-TELLES = ("tre_sifre", "fagkode")
+# 6 (2026-10-27, HI90 engine port): plus products with no body whose 'Surface' representation holds
+# 3D geometry (HI90 engine 4, 2026-10-15); property rules from konfig.egenskapskontroll.
+SJEKK_VERSJON = 6
 
 
 def sjekker(ps: dict | None) -> list[tuple[str, str]]:
@@ -67,15 +65,34 @@ def sjekker(ps: dict | None) -> list[tuple[str, str]]:
           ("Plassert i etasje", "IfcRelContainedInSpatialStructure til en IfcBuildingStorey")]
     if ps:
         ut.append((ps["navn"], "egenskapssettet finnes på objektet eller typen"))
-        ut += [(e["navn"], REGEL_TEKST[e["regel"]]) for e in ps.get("egenskaper") or []]
+        ut += [(e["navn"], e["maaler"]) for e in ps.get("egenskaper") or []]
     return ut + [("Mengdesett", "IfcElementQuantity med NetVolume og areal eller lengde"),
                  ("Materiale", "IfcRelAssociatesMaterial; lagdelte med tykkelse"),
                  ("GUID unik", "ingen GlobalId forekommer to ganger i fila")]
 
 
-def konfig_nokkel(ps: dict | None, fagkoder: list[str]) -> str:
-    """What the checks read from the project config, as a cache key."""
-    return hashlib.sha256(json.dumps([ps, fagkoder], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+def konfig_nokkel(ps: dict | None, fagkoder: list[str], rot: Path | None = None) -> str:
+    """What the checks read from the project config, as a cache key: the normalised property set
+    check, the fagkoder and the bytes of every code table it names."""
+    h = hashlib.sha256(json.dumps([ps, fagkoder], ensure_ascii=False, sort_keys=True).encode())
+    for e in (ps or {}).get("egenskaper") or []:
+        if e.get("kodetabell"):
+            h.update(stier.tabell_sti(e["kodetabell"], rot).read_bytes())
+    return h.hexdigest()[:16]
+
+
+def regler(ps: dict | None, rot: Path | None) -> list[dict]:
+    """The normalised properties compiled for the per-element loop: `monster` as a regex, the
+    accepted values (`godtatte`, or a `kodetabell`'s codes) as an upper-case set."""
+    ut = []
+    for e in (ps or {}).get("egenskaper") or []:
+        godtatte = e.get("godtatte")
+        if e.get("kodetabell"):
+            rader = yaml.safe_load(stier.tabell_sti(e["kodetabell"], rot).read_text(encoding="utf-8"))
+            godtatte = [r["kode"] for r in rader]
+        ut.append({**e, "monster": re.compile(e["monster"]) if e.get("monster") else None,
+                   "godtatte": {str(x).strip().upper() for x in godtatte} if godtatte is not None else None})
+    return ut
 FYLL = {"ok": "C6EFCE", "delvis": "FFEB9C", "mangler": "FFC7CE", "tom": "D9D9D9"}
 HODE = PatternFill("solid", fgColor="1F3864")
 HODE_FONT = Font(bold=True, color="FFFFFF")
@@ -119,7 +136,16 @@ def har_3d(p) -> bool:
     return any(_rep_3d(sr) for sr in (r.Representations or []))
 
 
-def telte(sti: Path) -> tuple[list[int], dict]:
+def _rep_flate(sr) -> bool:
+    """A 'Surface' representation holding 3D geometry (a SOLID_TYPE representation type).
+    edkjo 2026-10-15 (KNM RIVeg, Novapoint): the identifier is the exporter's label; when the product
+    has no body, a 3D 'Surface' counts as its 3D geometry."""
+    return (sr is not None and sr.is_a("IfcShapeRepresentation")
+            and (sr.RepresentationIdentifier or "").strip().lower() == "surface"
+            and (sr.RepresentationType or "").strip() in SOLID_TYPE)
+
+
+def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     """The counted set (2026-09-28, ifcfast #201-#203 resolved): every IfcProduct row in ifcfast's
     products table with `has_body` true, minus IfcFeatureElementSubtraction and the classes in
     standard.yaml `standard.ikke_telt` (konfig.IKKE_TELT, subtypes included; 2026-10-21). Read from the STEP
@@ -133,10 +159,22 @@ def telte(sti: Path) -> tuple[list[int], dict]:
     df = m.products_df
     sub = df.entity.isin(subtypes_of("IfcFeatureElementSubtraction", m.schema))
     geo = df.entity.isin(set().union(*(subtypes_of(k, m.schema) for k in konfig.IKKE_TELT)))
-    ids = sorted(int(x) for x in df[df.has_body & ~sub & ~geo].step_id)
-    info = {"grunnlag": f"ifcfast {ifcfast.__version__} has_body, uten IfcFeatureElementSubtraction, "
-                        f"{', '.join(konfig.IKKE_TELT)}",
-            "rader": int(len(df)), "uten_3d": int((~df.has_body & ~geo).sum()),
+    ute = sub | geo
+    ids = [int(x) for x in df[df.has_body & ~ute].step_id]
+    # No body, but a 3D 'Surface' representation (`_rep_flate`): counted too. Needs the open file.
+    flate = []
+    if f is not None:
+        for x in df[~df.has_body & ~ute].step_id:
+            r = getattr(f.by_id(int(x)), "Representation", None)
+            if r is not None and r.is_a("IfcProductRepresentation") and any(
+                    _rep_flate(sr) for sr in (r.Representations or [])):
+                flate.append(int(x))
+    ids = sorted(ids + flate)
+    grunnlag = f"ifcfast {ifcfast.__version__} has_body, uten IfcFeatureElementSubtraction, {', '.join(konfig.IKKE_TELT)}"
+    if flate:
+        grunnlag += f", pluss {len(flate)} uten Body med 3D 'Surface'"
+    info = {"grunnlag": grunnlag,
+            "rader": int(len(df)), "uten_3d": int((~df.has_body & ~geo).sum()) - len(flate),
             "aapning": int((df.has_body & sub).sum()),
             "utelatt_klasse": int(geo.sum()),
             "rad_ids": set(int(x) for x in df.step_id)}
@@ -171,7 +209,7 @@ def finnes_nokkel(pi: dict, navn: str) -> bool:
     return any(k.replace(" ", "").lower() == n for k in pi)
 
 
-def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dict:
+def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: Path | None = None) -> dict:
     f = ifcopenshell.open(str(sti))
     h = f.header
     ut: dict = {"label": label, "fil": sti.name, "sha256": sha(sti), "bytes": sti.stat().st_size,
@@ -179,7 +217,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
                 "eksportert": h.file_name.time_stamp, "system": h.file_name.originating_system,
                 "klasser": {}, "sjekk": {}, "verdier": {}, "funn": []}
     produkter = f.by_type("IfcProduct")
-    ids, info = telte(sti)
+    ids, info = telte(sti, f)
     elementer: list = [f.by_id(i) for i in ids]
     n = len(elementer)
     ut["n"] = n
@@ -196,15 +234,14 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
                                   and not p.is_a("IfcBuildingStorey"))
     if utenfor:
         raise SystemExit(f"FEIL: {label}: IfcProduct uten rad i ifcfast: {dict(utenfor)}")
-    egenskaper = (ps or {}).get("egenskaper") or []
-    regel = {e["navn"]: e["regel"] for e in egenskaper}
-    fag = {str(f).upper() for f in fagkoder}
+    egenskaper = regler(ps, rot)
+    regel = {e["navn"]: e for e in egenskaper}
     kopi_navn = konfig.psett_egenskap(ps, "fagkode")
     type_navn = konfig.psett_egenskap(ps, "lik_typenavn")
     navnedel = str((ps or {}).get("navnedel") or "").lower()
     treff = collections.Counter()
     per_klasse: dict = collections.defaultdict(collections.Counter)
-    verdier = {e["navn"]: collections.Counter() for e in egenskaper if e["regel"] in TELLES}
+    verdier = {e["navn"]: collections.Counter() for e in egenskaper if e["samle"]}
     # Alongside sjekk (valid values): does the key exist at all, and is it filled in.
     finnes = collections.Counter()
     utfylt = collections.Counter()
@@ -253,11 +290,12 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
             if navn in verdier:
                 verdier[navn][s or "(tom)"] += 1
             # lik_typenavn: same string as IfcTypeObject.Name (IfcRoot.Name), not merely non-empty.
-            if regel[navn] == "tre_sifre":
-                ok = bool(s) and TRE_SIFRE.match(s) is not None
-            elif regel[navn] == "fagkode":
-                ok = bool(s) and s.upper() in fag
-            elif regel[navn] == "lik_typenavn":
+            r = regel[navn]
+            if r["monster"] is not None:
+                ok = bool(s) and r["monster"].match(s) is not None
+            elif r["godtatte"] is not None:
+                ok = bool(s) and s.upper() in r["godtatte"]
+            elif r["lik_typenavn"]:
                 egen_type = s
                 ok = bool(s) and bool(type_name) and s == type_name
             else:
@@ -305,7 +343,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str]) -> dic
     ut["guid_kopi"] = guid_kopi
     ut["type_1til1"] = en_til_en(par, upar)
     ut["sjekk_versjon"] = SJEKK_VERSJON
-    ut["konfig"] = konfig_nokkel(ps, fagkoder)
+    ut["konfig"] = konfig_nokkel(ps, fagkoder, rot)
     ut["hierarki"] = dict(hierarki)
     en_instans = sum(1 for c in typebruk.values() if c == 1)
     ut["typebruk"] = {"typer": len(typebruk), "instanser": sum(typebruk.values()),
@@ -459,7 +497,7 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str, ps: dict | None) -> 
         L.append(f"| {s} | " + " | ".join(f"{andel(r, s) * 100:.0f} %" for r in resultater) + " |")
     L.append("| Elementer telt | " + " | ".join(str(r["n"]) for r in resultater) + " |")
     L += ["", "## Verdier", ""]
-    telles = [e["navn"] for e in (ps or {}).get("egenskaper") or [] if e["regel"] in TELLES]
+    telles = [e["navn"] for e in (ps or {}).get("egenskaper") or [] if e["samle"]]
     for r in resultater:
         for navn in telles:
             v = r["verdier"].get(navn, {})
@@ -496,9 +534,10 @@ def kjør(prosjekt: Path, runde_sti: Path, cache: Path, ut: Path, ifc: Path | No
          valgte: list[str] | None = None, ny: bool = False) -> int:
     y = yaml.safe_load(prosjekt.read_text(encoding="utf-8"))
     kode = y["prosjekt"]["kode"]
-    ps = konfig.prosjektpsett(y)
+    ps = konfig.egenskapskontroll(y)
     fagkoder = [str(f) for f in y.get("fagkoder") or []]
-    nokkel = konfig_nokkel(ps, fagkoder)
+    rot = prosjekt.resolve().parent
+    nokkel = konfig_nokkel(ps, fagkoder, rot)
     runde = les_runde(runde_sti, prosjekt.resolve().parent, ifc)
     dato = runde["dato"]
     tmp = cache / "bep" / dato
@@ -522,7 +561,7 @@ def kjør(prosjekt: Path, runde_sti: Path, cache: Path, ut: Path, ifc: Path | No
                 print(f"{label}: fra cache")
                 continue
         print(f"{label}: leser {sti.name} ({sti.stat().st_size / 1e6:.1f} MB)")
-        r = kontroll(label, sti, ps, fagkoder)
+        r = kontroll(label, sti, ps, fagkoder, rot)
         if r["sha256"] != m["sha16"]:
             print(f"   NB: sha256[:16] {r['sha256']} != konfig {m['sha16']}")
         r["firma"], r["versjon"], r["lastet_opp"] = m["firma"], m["versjon"], m["lastet_opp"]

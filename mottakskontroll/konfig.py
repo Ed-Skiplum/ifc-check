@@ -11,11 +11,16 @@ One location per requirement (edkjo 2026-09-24). The keys `sted`, `sted_telleobj
 nothing is appended. Every location carries `nivaa`, «standard» or «prosjekt», which the report
 prints as «IFC» or «prosjekt». No project name is a label. Any other key the project sets overrides
 the standard's. A project id the standard does not know is an error: a requirement is defined once,
-in the default. With `kun_standard=True` the project layer is left out.
+in the default. An opt-in block of the standard (`valgfri`) exists only where the project lists it.
+With `kun_standard=True` the project layer is left out.
+
+The project property set check (`egenskapskontroll()`) reads either of two project keys,
+`egenskapskontroll` or `prosjektpsett`, normalised to one shape.
 """
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 
 import yaml
@@ -29,6 +34,8 @@ PROSJEKT = "prosjekt"
 # The template's placeholder (mal/prosjekt.yaml), the same sentinel as src/ids/config-template.ts:
 # a project config that still carries one is refused.
 MAL_MERKE = "<FROM PROJECT"
+# Text the config does not hold yet, printed where it is missing (edkjo's [WRITE] sentinel).
+PLASSHOLDER = "[WRITE]"
 
 
 def ikke_telt() -> tuple[str, ...]:
@@ -69,8 +76,92 @@ def prosjektpsett(y: dict) -> dict | None:
 
 
 def psett_egenskap(ps: dict | None, regel: str) -> str | None:
-    """The name of the project property carrying `regel`, or None when none is configured."""
-    return next((e["navn"] for e in (ps or {}).get("egenskaper") or [] if e["regel"] == regel), None)
+    """The name of the project property carrying `regel`, or None when none is configured.
+    `ps` is either shape: `prosjektpsett` (rule `regel`) or the normalised `egenskapskontroll()`
+    (where «fagkode» is the copy marker, `kopi`, and «lik_typenavn» the type-name property)."""
+    for e in (ps or {}).get("egenskaper") or []:
+        if "regel" in e:
+            if e["regel"] == regel:
+                return e["navn"]
+        elif (regel == "fagkode" and e.get("kopi")) or (regel == "lik_typenavn" and e.get("lik_typenavn")):
+            return e["navn"]
+    return None
+
+
+# Requirement text per `prosjektpsett` rule (the side workbook's «Krav» row).
+REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdien er en fagkode",
+               "lik_typenavn": "finnes og er lik IfcTypeObject.Name", "utfylt": "finnes, ikke tom"}
+TRE_SIFRE = r"^\d{3}$"
+
+
+def egenskapskontroll(y: dict) -> dict | None:
+    """The project property set check, normalised. None when the project declares none: only the
+    generic checks run, and a requirement reading the set reports «ikke konfigurert».
+
+    Two project keys, one at a time:
+
+        egenskapskontroll:                     (2026-10-05, HI90 and KNM)
+          pset: <property set name>            matched ignoring spaces and case
+          psetnavn_inneholder: <text>          pset names containing it are tallied (default: pset)
+          krav: <krav id>                      the requirement measuring the set (default: «pset», if any)
+          egenskaper:                          in report order
+            - navn: <property>
+              maaler: <one line for the side workbook>
+              monster: <regex the value must match>       or
+              godtatte: [<accepted values>]               compared ignoring case, or
+              kodetabell: <table file>                    its codes are the accepted values, or
+              lik_typenavn: true                          the value equals IfcTypeObject.Name
+              samle: true                                 tally the values
+              kopi: true                                  the value is the object's copy marker
+
+        prosjektpsett:                         (2026-09-28, Palehaven; konfig.prosjektpsett)
+          navn, krav, navnedel, egenskaper[{navn, regel}]  rule tre_sifre | fagkode | lik_typenavn | utfylt
+
+    Normalised: {"navn", "krav", "navnedel", "egenskaper": [{navn, maaler, monster, godtatte,
+    kodetabell, lik_typenavn, samle, kopi}]}, plain data (cache keys hash it). `godtatte` of a
+    `fagkode` rule is the project's `fagkoder`; a `kodetabell` stays a name (stier.tabell_sti)."""
+    ek, ps = y.get("egenskapskontroll"), y.get("prosjektpsett")
+    if ek and ps:
+        raise SystemExit("FEIL: både egenskapskontroll og prosjektpsett er konfigurert; bruk én")
+    if ps:
+        ps = prosjektpsett(y)
+        fag = [str(f) for f in y.get("fagkoder") or []]
+        eg = []
+        for e in ps.get("egenskaper") or []:
+            r = e["regel"]
+            eg.append({"navn": str(e["navn"]), "maaler": REGEL_TEKST[r],
+                       "monster": TRE_SIFRE if r == "tre_sifre" else None,
+                       "godtatte": fag if r == "fagkode" else None, "kodetabell": None,
+                       "lik_typenavn": r == "lik_typenavn", "samle": r in ("tre_sifre", "fagkode"),
+                       "kopi": r == "fagkode"})
+        return {"navn": str(ps["navn"]), "krav": ps.get("krav"),
+                "navnedel": str(ps.get("navnedel") or "").lower(), "egenskaper": eg}
+    if not ek:
+        return None
+    if not ek.get("pset"):
+        raise SystemExit("FEIL: egenskapskontroll: mangler pset")
+    eg = []
+    for e in ek.get("egenskaper") or []:
+        regler = [k for k in ("monster", "godtatte", "kodetabell", "lik_typenavn") if e.get(k) is not None]
+        if len(regler) > 1:
+            raise SystemExit(f"FEIL: egenskapskontroll: {e.get('navn')}: mer enn én regel {regler}")
+        if e.get("monster"):
+            re.compile(e["monster"])
+        eg.append({"navn": str(e["navn"]), "maaler": str(e.get("maaler") or ""),
+                   "monster": e.get("monster") or None,
+                   "godtatte": [str(x) for x in e["godtatte"]] if e.get("godtatte") is not None else None,
+                   "kodetabell": e.get("kodetabell") or None,
+                   "lik_typenavn": bool(e.get("lik_typenavn")), "samle": bool(e.get("samle")),
+                   "kopi": bool(e.get("kopi"))})
+    for k in ("kopi", "lik_typenavn"):
+        if sum(1 for e in eg if e[k]) > 1:
+            raise SystemExit(f"FEIL: egenskapskontroll: mer enn én egenskap med {k}")
+    pset = str(ek["pset"])
+    # The requirement that measures the set itself: `krav`, else the project requirement «pset»
+    # when there is one (the HI90 engine's fixed id).
+    krav = ek.get("krav") or ("pset" if any(k.get("id") == "pset" for k in y.get("krav") or []) else None)
+    return {"navn": pset, "krav": krav,
+            "navnedel": str(ek.get("psetnavn_inneholder") or pset).lower(), "egenskaper": eg}
 
 
 def ikke_konfigurert(b: dict) -> bool:
@@ -90,7 +181,11 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
     if ukjent:
         raise SystemExit(f"FEIL: krav.yaml har krav standard.yaml ikke kjenner: {sorted(ukjent)}")
     blokker = []
+    krav_def = {k["id"]: k for k in prj.get("krav") or []}
     for sb in std["blokker"]:
+        # An opt-in requirement (`valgfri`) exists only where the project lists it.
+        if sb.get("valgfri") and (kun_standard or sb["id"] not in prj_blokker):
+            continue
         b = copy.deepcopy(sb)
         for k in STEDER:
             if b.get(k):
@@ -105,6 +200,13 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
             elif not kun_standard or k == "krav":
                 b[k] = copy.deepcopy(v)
         b["ikke_konfigurert"] = ikke_konfigurert(b)
+        if b.get("valgfri"):
+            # An opt-in block carries no wording of its own: its title and requirement text are the
+            # `tittel` and `maaler` of the project requirement it ties, so the wording is the
+            # project's. None there: a visible placeholder, never a made-up line.
+            kd = next((krav_def[k] for k in b.get("krav") or [] if k in krav_def), {})
+            b.setdefault("tittel", kd.get("tittel") or f"{PLASSHOLDER} {b['id']}")
+            b.setdefault("krav_tekst", " ".join(str(kd.get("maaler") or PLASSHOLDER).split()))
         blokker.append(b)
     # Fase through MMI phasing (edkjo 2026-09-25): a declared `forventet.mmi.fase` makes the MMI
     # requirement's location Fase's one location; the mapping is the accepted values.

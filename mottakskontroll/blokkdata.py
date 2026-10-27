@@ -43,9 +43,13 @@ import stier  # noqa: E402
 # Bumped when a procedure here changes, so an older cache is not a hit.
 # 6 (2026-09-28): one location per requirement (`sted`), ifcfast counted set, material gallery,
 # code tallies and per-element findings.
-# 7 (2026-10-21): standard.yaml `standard.ikke_telt` kept out of every count here, the all-product
+# 7 (2026-10-05): the opt-in requirements (standard.yaml `valgfri`), measured by location kind.
+# 8 (2026-10-15): counted set includes products with only a 3D 'Surface' (bep_egenskapskontroll).
+# 9 (2026-10-21): standard.yaml `standard.ikke_telt` kept out of every count here, the all-product
 # type tally included (IfcGeographicElement and its type are not types in the register).
-BLOKK_VERSJON = 7
+# (ifc-check carried 7 for the ikke_telt change; 7 to 9 above are the HI90 engine's numbers.)
+# 10 (2026-10-27): the HI90 engine port into ifc-check: 7 to 9 on top of ifc-check's 7.
+BLOKK_VERSJON = 10
 
 # Distinct values kept per property for the pset gallery's examples; beyond it only counts grow.
 PSET_MAKS_VERDIER = 200
@@ -190,13 +194,19 @@ def tabell(navn: str, nokkel: str, rot: Path | None) -> dict:
     return {str(r[nokkel]): r for r in rader}
 
 
+def kodetabell_koder(navn: str, rot: Path | None) -> set[str]:
+    """The codes of a block's code table (`kodetabell`: a YAML list, key `kode`, found by
+    stier.tabell_sti), upper case. A block's accepted values when it names one."""
+    return {str(k).strip().upper() for k in tabell(navn, "kode", rot)}
+
+
 def registerhash(reg: dict) -> str:
     """The cache key covers everything the procedures read besides the IFC file."""
     h = hashlib.sha256()
     h.update(json.dumps(reg["y"]["blokker"], ensure_ascii=False, sort_keys=True).encode())
     for k in ("mmi", "fase", "typenavn"):
         h.update(json.dumps(reg["y"]["forventet"].get(k), ensure_ascii=False, sort_keys=True).encode())
-    h.update(json.dumps(konfig.prosjektpsett(reg["y"]), ensure_ascii=False, sort_keys=True).encode())
+    h.update(json.dumps(konfig.egenskapskontroll(reg["y"]), ensure_ascii=False, sort_keys=True).encode())
     rot = reg["y"]["_rot"]
     for b in reg["y"]["blokker"]:
         for s in b.get("mengdetype") or []:
@@ -265,6 +275,198 @@ def etasje(e):
     return c if c.is_a("IfcBuildingStorey") else None
 
 
+# ---------------------------------------------------------------- opt-in requirements
+# The generic procedures behind standard.yaml's opt-in blocks (`valgfri: true`), one per location
+# kind. No requirement, property or project is named here: what is read, where and for which
+# classes is the block's config.
+_PSETTMAL: dict[tuple[str, str], set[str]] = {}
+
+
+def _undertyper(røtter: set[str]) -> set[str]:
+    """Every class of IFC4 or IFC2X3 that is one of `røtter` or a subtype of one, upper case."""
+    ut: set[str] = set()
+    for sch in ("IFC4", "IFC2X3"):
+        for decl in ifcopenshell.ifcopenshell_wrapper.schema_by_name(sch).declarations():
+            if not hasattr(decl, "supertype"):
+                continue
+            cur = decl
+            while cur is not None:
+                if cur.name() in røtter:
+                    ut.add(decl.name().upper())
+                    break
+                cur = cur.supertype()
+    return ut
+
+
+def psettmal_klasser(pset_re: re.Pattern, egenskap: str) -> set[str]:
+    """The classes whose IFC4 or IFC2X3 property set template (name matching `pset_re`) defines
+    `egenskap`, subtypes included. The derivation KNM.ids uses (build_ids.common_pset_classes),
+    without its IfcElement filter; an ApplicableEntity carrying a predefined type matches no class
+    there and none here."""
+    nokkel = (pset_re.pattern, egenskap)
+    if nokkel not in _PSETTMAL:
+        import ifcopenshell.util.pset as up
+        røtter: set[str] = set()
+        for sch in ("IFC4", "IFC2X3"):
+            for ps in up.get_template(sch).templates[0].by_type("IfcPropertySetTemplate"):
+                if pset_re.search(ps.Name or "") and any(x.Name == egenskap for x in ps.HasPropertyTemplates or []):
+                    røtter |= {r.strip() for r in (ps.ApplicableEntity or "").split(",") if r.strip()}
+        _PSETTMAL[nokkel] = _undertyper(røtter)
+    return _PSETTMAL[nokkel]
+
+
+def egenskaper_typet(e) -> dict[str, dict[str, tuple]]:
+    """pset name -> property name -> (value, IFC value type), the type's sets first and the object's
+    own on top, property by property (as ifcopenshell.util.element.get_psets merges them)."""
+    ut: dict[str, dict[str, tuple]] = {}
+
+    def les(defn) -> None:
+        if isinstance(defn, (list, tuple)):
+            for d in defn:
+                les(d)
+            return
+        if defn is None or not defn.is_a("IfcPropertySet"):
+            return
+        d = ut.setdefault(defn.Name or "", {})
+        for x in defn.HasProperties or []:
+            if x.is_a("IfcPropertySingleValue"):
+                nv = x.NominalValue
+                d[x.Name] = (None, "") if nv is None else (nv.wrappedValue, nv.is_a())
+            elif x.is_a("IfcPropertyEnumeratedValue"):
+                vs = list(x.EnumerationValues or [])
+                d[x.Name] = (", ".join(str(v.wrappedValue) for v in vs) if vs else None,
+                             vs[0].is_a() if vs else "")
+            elif x.is_a("IfcPropertyListValue"):
+                vs = list(x.ListValues or [])
+                d[x.Name] = (", ".join(str(v.wrappedValue) for v in vs) if vs else None,
+                             vs[0].is_a() if vs else "")
+            else:
+                d[x.Name] = (f"({x.is_a()})", x.is_a())
+
+    t = ue.get_type(e)
+    if t is not None:
+        for defn in getattr(t, "HasPropertySets", None) or []:
+            les(defn)
+    for rel in getattr(e, "IsDefinedBy", None) or []:
+        if rel.is_a("IfcRelDefinesByProperties"):
+            les(rel.RelatingPropertyDefinition)
+    return ut
+
+
+def generisk_oppsett(bdef: dict, rot: Path | None) -> dict | None:
+    """An opt-in block compiled for the per-object loop; None when it has no location."""
+    s = bdef.get("sted")
+    if not s or bdef.get("ikke_konfigurert"):
+        return None
+    g = {"id": bdef["id"], "navn": kildeetikett(s), "art": s.get("ifc") or "egenskap",
+         "datatype": str(bdef.get("datatype") or "").upper(),
+         "gyldig": re.compile(bdef["gyldig"]) if bdef.get("gyldig") else None,
+         "gyldige": {str(x).casefold() for x in bdef["gyldige"]} if bdef.get("gyldige") else None,
+         "klasser": [str(k) for k in bdef.get("gjelder_klasser") or []], "psettmal": None,
+         "utypet": bdef.get("utypet", "mangler"),
+         "kodetabell": kodetabell_koder(bdef["kodetabell"], rot) if bdef.get("kodetabell") else None}
+    if g["art"] == "egenskap":
+        g["pset"] = norm(s["pset"]) if "pset" in s else None
+        g["pset_re"] = re.compile(s["pset_monster"], re.I) if "pset_monster" in s else None
+        g["egenskap"] = norm(s["egenskap"])
+        if bdef.get("gjelder_psettmal"):
+            g["psettmal"] = psettmal_klasser(g["pset_re"] or re.compile("^" + re.escape(s["pset"]) + "$", re.I),
+                                             s["egenskap"])
+    elif g["art"] == "gruppe":
+        g["gruppe"] = s["klasse"]
+        g["uten"] = list(s.get("unntatt_klasser") or [])
+    elif g["art"] == "mengdesett":
+        g["qto_re"] = re.compile(s["qto_monster"], re.I)
+        g["mengder"] = {str(k): [str(q) for q in v] for k, v in (bdef.get("mengder") or {}).items()}
+    elif g["art"] not in ("materiallag", "typenavn"):
+        raise SystemExit(f"FEIL: {bdef['id']}: ukjent stedstype {s.get('ifc')!r}")
+    return g
+
+
+def generisk_les(g: dict, e, psets: dict, typet, ctx: dict | None = None) -> tuple[str, str, str]:
+    """(bucket, value, reason) of one counted object for an opt-in block. Bucket oppfylt | avvik |
+    mangler | gjelder_ikke; reason, for the avviksliste: mangler | tom | ugyldig, or ''.
+    `typet` returns the object's typed properties (egenskaper_typet), computed once per object;
+    `ctx["regel"]` is the project's type-naming rule for the object (forventet.typenavn, by its MMI)."""
+    if g["klasser"] and not any(e.is_a(k) for k in g["klasser"]):
+        return "gjelder_ikke", "", ""
+    if g["psettmal"] is not None and e.is_a().upper() not in g["psettmal"]:
+        return "gjelder_ikke", "", ""
+    art = g["art"]
+    if art == "egenskap":
+        funnet = None
+        for pnavn, props in typet().items():
+            if g["pset"] is not None and norm(pnavn) != g["pset"]:
+                continue
+            if g["pset_re"] is not None and not g["pset_re"].search(pnavn):
+                continue
+            funnet = next((vt for k, vt in props.items() if norm(k) == g["egenskap"]), None)
+            if funnet is not None:
+                break
+        if funnet is None:
+            return "mangler", "", "mangler"
+        v, typ = funnet
+        t_ = tekst(v)
+        if not t_:
+            return "mangler", "", "tom"
+        rett_type = not g["datatype"] or typ.upper() == g["datatype"]
+        ok = rett_type and (g["gyldig"] is None or g["gyldig"].match(t_) is not None) \
+            and (g["gyldige"] is None or t_.casefold() in g["gyldige"]) \
+            and (g["kodetabell"] is None or t_.strip().upper() in g["kodetabell"])
+        vis = t_ if rett_type else f"{t_} [{typ}]"
+        return ("oppfylt", vis, "") if ok else ("avvik", vis, "ugyldig")
+    if art == "typenavn":
+        # The object's type name: the project's naming rule, and the code before the first «-» in
+        # the block's code table. An untyped object is in scope (edkjo 2026-10-05: «gjelder ikke» only
+        # when nothing is in scope): its type name is missing, unless the block says `utypet:
+        # gjelder_ikke`.
+        t = ue.get_type(e)
+        if t is None:
+            return ("gjelder_ikke", "", "") if g.get("utypet") == "gjelder_ikke" else ("mangler", "", "mangler")
+        navn = (t.Name or "").strip()
+        if not navn:
+            return "mangler", "", "tom"
+        rx = (ctx or {}).get("regel")
+        ok = (rx is None or rx.match(navn) is not None) and \
+            (g["kodetabell"] is None or navn.split("-")[0].strip().upper() in g["kodetabell"])
+        return ("oppfylt", navn, "") if ok else ("avvik", navn, "ugyldig")
+    if art == "gruppe":
+        navn = set()
+        for rel in getattr(e, "HasAssignments", None) or []:
+            if rel.is_a("IfcRelAssignsToGroup"):
+                gr = rel.RelatingGroup
+                if gr is not None and gr.is_a(g["gruppe"]) and not any(gr.is_a(u) for u in g["uten"]):
+                    navn.add((gr.Name or "").strip() or gr.is_a())
+        return ("oppfylt", " + ".join(sorted(navn)), "") if navn else ("mangler", "", "mangler")
+    if art == "mengdesett":
+        kreves = next((v for k, v in g["mengder"].items() if e.is_a(k)), None)
+        if kreves is None:
+            return "gjelder_ikke", "", ""
+        sett = [(pn, props) for pn, props in psets.items() if g["qto_re"].search(pn)]
+        if not sett:
+            return "mangler", "", "mangler"
+        har = {k for _, props in sett for k, v in props.items() if k != "id" and v is not None}
+        mangler = [q for q in kreves if q not in har]
+        navn = " + ".join(sorted({pn for pn, _ in sett}))
+        return ("avvik", f"{navn} − {', '.join(mangler)}", "ugyldig") if mangler else ("oppfylt", navn, "")
+    # materiallag: an IfcMaterialLayerSet on the object, else on its type
+    ls = None
+    for o in (e, ue.get_type(e)):
+        if o is None:
+            continue
+        m = ue.get_material(o, should_skip_usage=True, should_inherit=False)
+        if m is not None and m.is_a("IfcMaterialLayerSet"):
+            ls = m
+            break
+    if ls is None:
+        return "mangler", "", "mangler"
+    lag = list(ls.MaterialLayers or [])
+    navn = (getattr(ls, "LayerSetName", None) or "").strip() or " + ".join(
+        (l.Material.Name or "").strip() for l in lag if l.Material is not None) or "–"
+    ok = bool(lag) and all(l.Material is not None and (l.LayerThickness or 0) > 0 for l in lag)
+    return ("oppfylt", navn, "") if ok else ("avvik", navn, "ugyldig")
+
+
 class Blokk:
     """Buckets, location split and distribution for one requirement in one model. One location
     per requirement: `kildenavn` holds the location label (two for materialprodukt, one per
@@ -324,10 +526,12 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     kode_tab = tabell(mt_tab["komponentkode"], "kode", rot) if mt_tab.get("komponentkode") else {}
     funk_tab = bl["funksjonskode"].get("kodetabell")
     kodetabell_3457 = {str(k).strip().upper() for k in tabell(funk_tab, "kode", rot)} if funk_tab else set()
-    ps = konfig.prosjektpsett(y)
+    ps = konfig.egenskapskontroll(y)
     type_egenskap = konfig.psett_egenskap(ps, "lik_typenavn")
     sk = bl["systemkode"]
     gyldig_3451 = re.compile(sk["gyldig"]) if sk.get("gyldig") else None
+    # Each block's own code table (`kodetabell`), where it names one.
+    sk_tab = kodetabell_koder(sk["kodetabell"], rot) if sk.get("kodetabell") else None
     ikke_mat = [re.compile(p, re.I) for p in mp["ikke_materiale"]]
     fase_via_mmi = bool(bl["fase"].get("mmi_fase"))
     fase_gyldig = {str(x).casefold() for x in bl["fase"].get("gyldige") or []}
@@ -336,7 +540,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
 
     f = ifcopenshell.open(str(sti))
     skala_mm = uu.calculate_unit_scale(f) * 1000.0
-    ids, info = B.telte(sti)
+    ids, info = B.telte(sti, f)
     elementer = [f.by_id(i) for i in ids]
     n = len(elementer)
 
@@ -346,6 +550,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     b = {bid: Blokk([navn_(v)] if v.get("_sted") else [], v["ikke_konfigurert"])
          for bid, v in bl.items() if bid != "materialprodukt"}
     b["materialprodukt"] = Blokk([o.navn for o in (mp["_telle"], mp["_mengde"]) if o], mp["ikke_konfigurert"])
+    generiske = [g for g in (generisk_oppsett(v, rot) for v in bl.values() if v.get("valgfri")) if g]
     per_klasse: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     typer: dict[tuple[str, str], dict] = {}
     etasjetall = collections.Counter()
@@ -448,7 +653,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         o = sk.get("_sted")
         if o is not None:
             v = o.verdi(e, psets, f)
-            if v and (gyldig_3451 is None or gyldig_3451.match(v)):
+            if v and (gyldig_3451 is None or gyldig_3451.match(v)) and \
+                    (sk_tab is None or v.strip().upper() in sk_tab):
                 b["systemkode"].sett("oppfylt", o.navn, [v], tk)
                 per_klasse[kl]["systemkode"] += 1
                 rad["systemkode"] = v
@@ -637,6 +843,28 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             funn["etasjer"].append([gid, c.is_a() if c is not None else plass, "ikke_i_etasje"])
             husk(e, typenavn, st)
 
+        # the opt-in requirements, each at its one location
+        typet_: list = []
+
+        def typet():
+            if not typet_:
+                typet_.append(egenskaper_typet(e))
+            return typet_[0]
+
+        for g in generiske:
+            botte, verdi, arsak = generisk_les(g, e, psets, typet,
+                                               {"regel": navneregel(rad.get("mmi", ""))})
+            gb = b[g["id"]]
+            if botte in ("oppfylt", "avvik"):
+                gb.sett(botte, g["navn"], [verdi], tk)
+                if botte == "oppfylt":
+                    per_klasse[kl][g["id"]] += 1
+            else:
+                gb.sett(botte)
+            if arsak:
+                funn[g["id"]].append([gid, verdi, arsak])
+                husk(e, typenavn, st)
+
         # type register: identity is name + IFC class of the type (begreper §1)
         if t is not None:
             tr = typer.setdefault(tk, {"klasse": t.is_a(), "navn": typenavn, "instanser": 0,
@@ -650,7 +878,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
                 tr[felt][rad.get(felt, "")] += 1
 
         # Type 1:1, the same pairing as bep_egenskapskontroll, kept whole for the workbook; only
-        # with a project type property (prosjektpsett, rule lik_typenavn)
+        # with a project type property (konfig.egenskapskontroll: lik_typenavn)
         if type_egenskap:
             hv = B.hent(B.prosjektinfo(psets, ps["navn"]), type_egenskap)
             egen_type = str(hv).strip() if hv not in (None, "") else ""

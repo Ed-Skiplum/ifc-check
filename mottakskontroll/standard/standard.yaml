@@ -68,9 +68,11 @@ etiketter:
   ikke_i_tabellen: ikke i tabellen
   kodeliste_systemkode: Systemkoder NS 3451
   kodeliste_funksjonskode: Komponentkoder NS 3457-8
+  kodeliste_mmi: MMI-koder
   ark_materialer: Materialer
   ark_systemkode: Systemkoder
   ark_funksjonskode: Komponentkoder
+  ark_mmi: MMI-koder
   etasjer_telling: Etasjer
   konfigurert: konfigurert
   i_modellen: i modellen
@@ -204,6 +206,14 @@ etiketter:
   lesmeg_krav: Krav
   lesmeg_nokkeltall: Nøkkeltall
   ikke_konfigurert: ikke konfigurert
+  # A project requirement the engine has no measurement for (no `datanokkel`, or its project block
+  # is unknown to this layer): printed instead of a number.
+  ikke_maalt: ikke målt
+  # The rough georeferencing check by bounding box (forventet.georeferering.bbox, 2026-10-05).
+  georef_lokal: lokale koordinater
+  georef_global: globale koordinater
+  georef_utenfor: utenfor prosjektområdet
+  georef_z_utenfor: 'Z utenfor {min}–{max} m'
   materiale_kol: Materiale
   i_kodetabellen: I kodetabellen
   lagtykkelse_mm: 'Lagtykkelse (mm)'
@@ -426,3 +436,98 @@ blokker:
     # Fordeling shows the phases. Without it, the location above. Exactly one location either way;
     # a value that is not where it should be is reported, never looked for elsewhere.
     krav_tekst_mmi_fase: fase fra MMI-kode
+
+  # ---- Opt-in requirements (2026-10-05). `valgfri: true`: measured and reported only where a
+  # project lists the block in its krav.yaml `blokker` (konfig.py); a project that does not list one
+  # never sees it. They carry no title or requirement text here: the block takes `tittel` and
+  # `krav_tekst` from the `tittel` and `maaler` of the project requirement it ties (`krav`), and
+  # prints the [WRITE] placeholder where the project has none. Measured on the counted objects by
+  # blokkdata.py, one generic procedure per location kind:
+  #   {pset | pset_monster, egenskap}  the property on the object or its type, the object's own
+  #       value first. Present = a non-empty value. `datatype` (the IFC value type, e.g. IfcBoolean),
+  #       `gyldig` (regex) and `gyldige` (values) are its accepted values.
+  #   {ifc: gruppe, klasse, unntatt_klasser}  assigned through IfcRelAssignsToGroup to a group of
+  #       `klasse` (subtypes included) that is none of `unntatt_klasser`.
+  #   {ifc: mengdesett, qto_monster}  an IfcElementQuantity whose name matches. The quantities are
+  #       the project's (`mengder`: IFC class -> quantity names); a class it does not name is
+  #       «gjelder ikke». Present = a matching set; valid = every named quantity in it.
+  #   {ifc: materiallag}  an IfcMaterialLayerSet on the object, else on its type. Valid = every layer
+  #       has a material and a thickness above zero.
+  #   {ifc: typenavn}  the name of the object's type (an untyped object is «gjelder ikke»). Valid =
+  #       the project's naming rule (krav.yaml forventet.typenavn, its stricter form by the object's
+  #       MMI) and, with `kodetabell`, the code before the first «-» in that table.
+  # `kodetabell` (a code table, key `kode`, found as stier.tabell_sti finds it) on a property block: the value must be
+  # one of its codes.
+  # Applicability: `gjelder_klasser` (IFC classes, subtypes included), or `gjelder_psettmal: true`,
+  # the classes whose IFC4 or IFC2X3 property set template at the location defines the property.
+  # Any other counted object is «gjelder ikke».
+  - id: referanseobjekt
+    seksjon: standardkrav
+    valgfri: true
+    # No home in the IFC standard: «ikke konfigurert» until a project declares `sted`.
+
+  - id: is_external
+    seksjon: standardkrav
+    valgfri: true
+    datatype: IfcBoolean
+    gjelder_psettmal: true
+    sted: {pset_monster: '^Pset_\w*Common$', egenskap: IsExternal}
+
+  - id: load_bearing
+    seksjon: standardkrav
+    valgfri: true
+    datatype: IfcBoolean
+    gjelder_psettmal: true
+    sted: {pset_monster: '^Pset_\w*Common$', egenskap: LoadBearing}
+
+  - id: fire_rating
+    seksjon: standardkrav
+    valgfri: true
+    datatype: IfcLabel
+    gjelder_psettmal: true
+    sted: {pset_monster: '^Pset_\w*Common$', egenskap: FireRating}
+
+  - id: tfm
+    seksjon: standardkrav
+    valgfri: true
+    # No home in the IFC standard.
+
+  - id: komponent_id
+    seksjon: standardkrav
+    valgfri: true
+    # No home in the IFC standard.
+
+  - id: produsent
+    seksjon: standardkrav
+    valgfri: true
+    sted: {pset: Pset_ManufacturerTypeInformation, egenskap: Manufacturer}
+
+  - id: system
+    seksjon: standardkrav
+    valgfri: true
+    gjelder_klasser: [IfcDistributionElement]
+    sted: {ifc: gruppe, klasse: IfcSystem, unntatt_klasser: [IfcZone, IfcStructuralAnalysisModel],
+           navn: IfcRelAssignsToGroup IfcSystem}
+
+  - id: sone
+    seksjon: standardkrav
+    valgfri: true
+    gjelder_klasser: [IfcSpace]
+    sted: {ifc: gruppe, klasse: IfcZone, navn: IfcRelAssignsToGroup IfcZone}
+
+  - id: mengdesett
+    seksjon: standardkrav
+    valgfri: true
+    sted: {ifc: mengdesett, qto_monster: '^Qto_\w*BaseQuantities$', navn: Qto_*BaseQuantities}
+
+  - id: materiale_lag
+    seksjon: standardkrav
+    valgfri: true
+    sted: {ifc: materiallag, navn: IfcMaterialLayerSet}
+
+  - id: typenavn
+    seksjon: standardkrav
+    valgfri: true
+    sted: {ifc: typenavn, navn: IfcTypeObject.Name}
+    # An untyped counted object is in scope and its type name missing (edkjo 2026-10-05).
+    utypet: mangler

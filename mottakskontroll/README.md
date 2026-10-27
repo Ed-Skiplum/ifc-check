@@ -76,7 +76,9 @@ May declare:
 | `forventet.etasjer`, `forventet.typenavn` | storey table and type-name rule; absent: not checked |
 | `forventet.mmi.fase` | MMI code -> phase; Fase is then read at the MMI location |
 | `prosjektpsett` | the project property set `bep_egenskapskontroll.py` counts: `navn`, `egenskaper[]` `{navn, regel}` with `regel` one of `tre_sifre`, `fagkode` (a value from `fagkoder`), `lik_typenavn` (equals `IfcTypeObject.Name`, and the Type 1:1 pairing), `utfylt`; optional `krav` (the krav id measuring the set, named in other krav's `krever`) and `navnedel` (sets whose name contains it are listed as found instead). Absent: nothing of it is measured, and a krav reading it is «ikke konfigurert» |
-| `uten_rapport`, `faggrupper` | fagkoder with no report; avvik workbook groups (unlisted model = own group) |
+| `egenskapskontroll` | the same check in the other shape (konfig.egenskapskontroll; one of the two, not both): `pset`, optional `psetnavn_inneholder` (default `pset`) and `krav` (default the krav id `pset` when there is one), `egenskaper[]` `{navn, maaler, samle, kopi}` plus at most one rule: `monster` (regex), `godtatte` (values), `kodetabell` (its codes) or `lik_typenavn: true` |
+| `blokker[]` of an opt-in standard block (`valgfri` in standard.yaml) | the block is measured and reported only when listed; its title and text are the `tittel` and `maaler` of the krav it ties, else `[WRITE]` |
+| `uten_rapport`, `faggrupper` | fagkoder or model labels with no report; avvik workbook groups (unlisted model = own group) |
 | `skjema` | accepted/recommended schemas, replaces the standard's |
 | `merknader`, `merknader_modell` | the report's only sentences |
 | `etiketter`, `verdiktord`, `kpi_terskler`, `terskel_gyldig` | merged key by key over the standard |

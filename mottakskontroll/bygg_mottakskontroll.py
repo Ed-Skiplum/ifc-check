@@ -69,6 +69,8 @@ from bep_egenskapskontroll import SJEKK_VERSJON as SJEKK_VERSJON_KREVD
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 BREDDE = 186  # mm, A4 minus 12 mm margins
+# forventet.etasjer keys match_etasjer compares by (a key present with null is unbounded)
+ETASJE_TOLERANSER = ("naer_mm", "navnevindu_mm", "toleranse_over_mm", "toleranse_under_mm")
 
 SYM = {"ok": "●", "warn": "◐", "bad": "○", "na": "–"}
 
@@ -157,7 +159,7 @@ class Register:
         self.prosjekt: dict = y["prosjekt"]
         self.fagkoder: list[str] = y["fagkoder"]
         self.standard: dict = y["standard"]
-        self.kpi: list[dict] = y["kpi"]
+        self.kpi: list[dict] = y.get("kpi") or []   # project KPIs; none declared is none
         self.krav: list[dict] = y["krav"]
         self.forventet: dict = y["forventet"]
         self.bruk: list[dict] = y["bruk"]
@@ -180,13 +182,14 @@ class Register:
         self.kpi_terskler: dict = y.get("kpi_terskler") or {}
         self.merknader_modell: dict = y.get("merknader_modell") or {}
         self.rot: Path | None = y["_rot"]
-        # The project property set (konfig.prosjektpsett); its `krav` is the requirement that
+        # The project property set (konfig.egenskapskontroll); its `krav` is the requirement that
         # measures the set itself, the one others name in `krever`. None: not configured.
-        self.prosjektpsett: dict | None = konfig.prosjektpsett(y)
+        self.prosjektpsett: dict | None = konfig.egenskapskontroll(y)
         self.psett_krav: str | None = (self.prosjektpsett or {}).get("krav")
         if self.psett_krav and self.psett_krav not in self.pr_id:
-            raise SystemExit(f"FEIL: prosjektpsett.krav {self.psett_krav} finnes ikke i `krav`")
+            raise SystemExit(f"FEIL: egenskapskontroll/prosjektpsett krav {self.psett_krav} finnes ikke i `krav`")
         self._filnavn: re.Pattern | None = None
+        self._etasje_varslet = False
 
     def i_seksjon(self, *seksjoner: str) -> list[dict]:
         return [k for k in self.krav if k.get("seksjon") in seksjoner]
@@ -215,6 +218,15 @@ class Register:
         e = self.forventet.get("etasjer") or {}   # empty in a standard-only run
         regler = {k: v for k, v in e.items() if k != "per_fag"}
         regler["override"] = (e.get("per_fag") or {}).get(fag)
+        # Levels are compared by the project's own tolerances; neither layer has a default. Levels
+        # declared without them cannot be compared: «ikke konfigurert», announced, never guessed.
+        mangler = [k for k in ETASJE_TOLERANSER if k not in e]
+        if regler.get("nivaaer") and mangler:
+            if not self._etasje_varslet:
+                print(f"ADVARSEL: forventet.etasjer har nivåer, men mangler {mangler}: "
+                      "etasjene sammenlignes ikke (ikke konfigurert)", file=sys.stderr)
+                self._etasje_varslet = True
+            regler["nivaaer"] = []
         return regler
 
     def merknad_rader(self, krav_id: str, omfang: set[str]) -> list[dict]:
@@ -256,7 +268,9 @@ class Runde:
         mangler = [m for m in self.labels if m not in reg.modeller]
         if mangler:
             raise SystemExit(f"FEIL: modeller mangler i krav.yaml `modeller`: {', '.join(mangler)}")
-        self._fag = {m: str(reg.modeller[m]["fagkode"]) for m in self.labels}
+        # A fagkode declared null is not set yet: empty, printed «ikke konfigurert», never "None".
+        self._fag = {m: "" if reg.modeller[m].get("fagkode") is None else str(reg.modeller[m]["fagkode"])
+                     for m in self.labels}
 
     def fag(self, m: str) -> str:
         """The model's configured fagkode (krav.yaml `modeller`)."""
@@ -265,8 +279,8 @@ class Runde:
     def hoved(self, reg: Register) -> list[str]:
         """The models this round reports on. `uten_rapport` in the register says which
         discipline codes are controlled elsewhere and drop out here; matched on the configured
-        fagkode."""
-        return [m for m in self.labels if self.fag(m) not in reg.uten_rapport]
+        fagkode, or on the model label itself (one model out, its discipline in)."""
+        return [m for m in self.labels if self.fag(m) not in reg.uten_rapport and m not in reg.uten_rapport]
 
     def labels_for(self, reg: Register, fag: str) -> list[str]:
         return [m for m in self.hoved(reg) if self.fag(m) == fag]
@@ -360,7 +374,10 @@ def pset_funnet(reg: Register, d: dict) -> str:
 
 
 def vurder_data(reg: Register, d: dict, krav: dict) -> Vurdering:
-    """A requirement measured against data.json: share, or a count with a denominator."""
+    """A requirement measured against data.json: share, or a count with a denominator. A project
+    requirement with no `datanokkel` has no measurement in the engine: «ikke målt», never a number."""
+    if not krav.get("datanokkel"):
+        return Vurdering("na", E("ikke_maalt"))
     n = d["n"] or 0
     if hent_tall(d, krav["datanokkel"]) is None:
         # Not measured: the project config does not declare what it reads (e.g. `prosjektpsett`).
@@ -522,12 +539,62 @@ def vurder_plassering(reg: Register, s: dict) -> Vurdering:
                      sub if i_origo else ["avvik"] + sub)
 
 
-def vurder_georeferering(reg: Register, s: dict) -> Vurdering:
+_BBOX: dict[Path, list | None] = {}
+
+
+def modell_bbox(fil: Path) -> list | None:
+    """[[xmin, ymin, zmin], [xmax, ymax, zmax]] of the model's tessellated geometry in world
+    coordinates, metres (ifcfast meshes, the global shift added back); None without geometry."""
+    if fil not in _BBOX:
+        import ifcfast
+        import numpy as np
+        ms = ifcfast.open(str(fil)).meshes()
+        v = [m.vertices for m in ms if len(m.vertices)]
+        if not v:
+            _BBOX[fil] = None
+        else:
+            a = np.vstack(v).astype(float) + np.array(ms.global_shift, dtype=float)
+            _BBOX[fil] = [a.min(0).tolist(), a.max(0).tolist()]
+    return _BBOX[fil]
+
+
+def vurder_georef_bbox(f: dict, bb: dict, boks: list | None) -> Vurdering:
+    """The rough check for a schema without IfcMapConversion (forventet.georeferering.bbox): the
+    geometry's bounding box centre within `xy_senter_maks_m` of the project in either frame, global
+    (Eastings/Northings) or local (local = global minus them), and Z inside [z_min_m, z_max_m]. The
+    frame found is named; neither is «utenfor prosjektområdet». The box prints in the row."""
+    if boks is None:
+        return Vurdering("na", E("spenn_uten_geometri"))
+    lo, hi = boks
+    tall = lambda v: f"{v:.1f}".replace(".", ",")
+    sub = [f"X {tall(lo[0])} – {tall(hi[0])} m", f"Y {tall(lo[1])} – {tall(hi[1])} m",
+           f"Z {tall(lo[2])} – {tall(hi[2])} m"]
+    cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
+    maks = float(bb["xy_senter_maks_m"])
+    lokal = (cx ** 2 + cy ** 2) ** 0.5 <= maks
+    globalt = ((cx - float(f["eastings"])) ** 2 + (cy - float(f["northings"])) ** 2) ** 0.5 <= maks
+    z_ok = lo[2] >= float(bb["z_min_m"]) and hi[2] <= float(bb["z_max_m"])
+    if not z_ok:
+        sub.append(E("georef_z_utenfor").format(min=bb["z_min_m"], max=bb["z_max_m"]))
+    if globalt or lokal:
+        return Vurdering("ok" if z_ok else "bad", E("georef_global") if globalt else E("georef_lokal"), sub)
+    return Vurdering("bad", E("georef_utenfor"), sub)
+
+
+def vurder_georeferering(reg: Register, s: dict, fil: Path | None = None) -> Vurdering:
     f = reg.forventet["georeferering"]
+    bb = f.get("bbox") or {}
+    if fil is not None and (s.get("schema") or "").upper() in {str(x).upper() for x in bb.get("skjema") or []}:
+        # A schema that cannot carry IfcMapConversion: the rough bounding-box check instead.
+        return vurder_georef_bbox(f, bb, modell_bbox(fil))
     mc = s.get("mapconversion")
     if not mc:
         return Vurdering("bad", "mangler")
     e, n = mc.get("eastings"), mc.get("northings")
+    if f.get("toleranse") is None:
+        # The project states the coordinates but no tolerance: shown, not compared.
+        return Vurdering("na", kutt((s.get("crs") or {}).get("name") or "") or "uten navn",
+                         [f"E {e} N {n}", E("ikke_konfigurert")])
     tol = float(f["toleranse"])
     traff = (e is not None and n is not None
              and abs(float(e) - float(f["eastings"])) <= tol
@@ -540,12 +607,15 @@ def vurder_georeferering(reg: Register, s: dict) -> Vurdering:
 
 def er_kopi(reg: Register, verdi: str, fag: str, label: str) -> bool:
     """Copy when the value marks it outright, or when it is not one of the values configured as
-    naming this model (krav.yaml `modeller.<label>.kopi_eier`)."""
+    naming this model (krav.yaml `modeller.<label>.kopi_eier`). A value in `eier_verdier`
+    (forventet.kopi_objekt, a boolean marker's FALSE) marks the model's own object."""
     v = (verdi or "").strip()
     if not v:
         return False
     if v.lower() in {str(x).lower() for x in reg.forventet["kopi_objekt"]["sanne_verdier"]}:
         return True
+    if v.lower() in {str(x).lower() for x in reg.forventet["kopi_objekt"].get("eier_verdier") or []}:
+        return False
     norm = lambda x: str(x).replace(" ", "").upper()
     return norm(v) not in {norm(x) for x in reg.modeller[label].get("kopi_eier") or []}
 
@@ -592,7 +662,7 @@ def vurder_fil(reg: Register, r: Runde, data: dict[str, dict], struktur: dict[st
     if kid == "plassering":
         return vurder_plassering(reg, s)
     if kid == "georeferering":
-        return vurder_georeferering(reg, s)
+        return vurder_georeferering(reg, s, r.ifc_sti(label))
     if kid == "guid_eier":
         return vurder_guid_eier(reg, r, data, label, alle_guid)
     return vurder_data(reg, data[label], krav)
@@ -845,7 +915,12 @@ def tom_dekning(n: int) -> dict:
 
 def har_verdiliste(bid: str, bdef: dict) -> bool:
     """Accepted values are declared for the requirement: a pattern, a code table, a value list, an
-    exclusion list, the project's MMI codes, the fagkoder, or the project's storeys."""
+    exclusion list, the project's MMI codes, the fagkoder, or the project's storeys. For an opt-in
+    requirement also an IFC value type, the project's quantities, or a layer set's layers."""
+    if bdef.get("valgfri"):
+        return bool(bdef.get("gyldig") or bdef.get("gyldige") or bdef.get("datatype") or bdef.get("mengder")
+                    or bdef.get("kodetabell")
+                    or (bdef.get("sted") or {}).get("ifc") in ("materiallag", "typenavn"))
     return bool(bdef.get("gyldig") or bdef.get("kodetabell") or bdef.get("gyldige")
                 or bdef.get("ikke_materiale") or bdef.get("mmi_fase")) and bid != "produkt" \
         or bid in ("mmi", "kopiobjekt")
@@ -1027,7 +1102,7 @@ class Modellberegning:
     """The ten blocks, the KPI band, the hygiene strip and the type register of one model."""
 
     def __init__(self, reg: Register, r: Runde, label: str, d: dict, bd: dict, s: dict,
-                 alle_guid: dict, tok: dict, kodetabell: set[str] | None, geo: dict):
+                 alle_guid: dict, tok: dict, kodetabell: dict[str, set[str]], geo: dict):
         self.reg, self.r, self.label, self.d, self.bd, self.s = reg, r, label, d, bd, s
         self.geo = geo
         m = r.cfg[label]
@@ -1135,7 +1210,11 @@ class Modellberegning:
             rad["dekning"] = dekning({"oppfylt": o, "avvik": a, "mangler": grunnlag - o - a},
                                      grunnlag, {}, [], [])
             rad["grunnlag_tekst"] = {"telleobjekt": E("telleobjekter"), "mengdeobjekt": E("mengdeobjekter")}[gren]
-        if bid not in ("produkt", "materiale"):
+        if bdef.get("valgfri"):
+            # An opt-in requirement: the values as found, flagged where they are outside the
+            # accepted ones (blokkdata, by location kind).
+            ford, ordnet = self.ford_verdier(bb_), False
+        elif bid not in ("produkt", "materiale"):
             ford, ordnet = getattr(self, f"ford_{bid}")(bb_)
         elif self.bd.get("ett_sted"):
             # One branch's values only: a product never lands in the material distribution.
@@ -1410,9 +1489,8 @@ class Modellberegning:
         return self.ford_verdier(bb), False
 
     def ford_funksjonskode(self, bb):
-        if self.kodetabell is None:
-            return self.ford_verdier(bb), False
-        return self.ford_verdier(bb, lambda v: v.strip().upper() not in self.kodetabell), False
+        tab = self.kodetabell.get("funksjonskode")
+        return self.ford_verdier(bb, (lambda v: v.strip().upper() not in tab) if tab is not None else None), False
 
     def ford_materialprodukt(self, bb):
         """Products (telleobjekt) and materials (mengdeobjekt) as found, then the classes whose
@@ -1446,12 +1524,15 @@ class Modellberegning:
     def ford_kopiobjekt(self, bb):
         godtatte = {f.upper() for f in self.reg.fagkoder}
         sanne = {str(x).lower() for x in self.reg.forventet["kopi_objekt"]["sanne_verdier"]}
+        # A block declaring `gyldige` (a boolean marker) is valid on those values alone, any case.
+        liste = next((b.get("gyldige") for b in self.reg.blokker if b["id"] == "kopiobjekt"), None)
         ut = []
         for v, n, _ in bb["verdier"]:
             if v == "(tom)":
                 ut.append(element(v, n, "avvik"))
                 continue
-            gyldig = v.strip().upper() in godtatte or v.strip().lower() in sanne
+            gyldig = (v.strip().casefold() in {str(x).casefold() for x in liste} if liste
+                      else v.strip().upper() in godtatte or v.strip().lower() in sanne)
             rolle = "kopi" if er_kopi(self.reg, v, self.fag, self.label) else "eier"
             ut.append(element(f"{rolle} · {kutt(v, 20)}", n, "" if gyldig else "avvik"))
         return ut, False
@@ -1671,7 +1752,8 @@ class Modellberegning:
         return {**self.komponenter(blokker),
                 "materialer": [] if "materiale" in uten else self.materialer(),
                 "kodelister": self.kodelister(uten),
-                "label": self.label, "kort": kort_label(self.label, self.reg), "fag": self.fag,
+                "label": self.label, "kort": kort_label(self.label, self.reg),
+                "fag": self.fag or E("ikke_konfigurert"),
                 "firma": m.get("firma", ""), "versjon": m.get("versjon", ""),
                 "lastet_opp": m.get("lastet_opp", ""), "merknad_runde": m.get("merknad", ""),
                 "fil": m["fil"], "sha16": m["sha16"], "sha256": self.sha256,
@@ -1711,10 +1793,9 @@ def celle_blokk(b: dict) -> dict:
 
 def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict, geo: dict) -> dict:
     tok = les_tokens()
-    # Funksjonskode's accepted values: the code table its config names; None when it names none.
-    ft = next((b.get("kodetabell") for b in reg.blokker if b["id"] == "funksjonskode"), None)
-    kodetabell = ({str(x["kode"]).upper() for x in
-                   yaml.safe_load(stier.tabell_sti(ft, reg.rot).read_text(encoding="utf-8"))} if ft else None)
+    # Each block's own code table (`kodetabell`): its accepted values.
+    kodetabell = {b["id"]: blokkdata.kodetabell_koder(b["kodetabell"], reg.rot) for b in reg.blokker
+                  if b.get("kodetabell")}
     labels = r.hoved(reg)
     alle_guid = guid_forekomster(data, labels)
     modeller = []
@@ -2010,11 +2091,17 @@ def html_etasjekomponent(em: dict, verdikt: str, tittel: str | None = None) -> s
 
     linjer = []
     for r_ in rader:
+        if r_["kode"] == "ikke_konfigurert":
+            # No floors configured to compare against: the model's storeys as found, none judged.
+            mk = m_(r_["m_kote"], 3) if r_["m_kote"] is not None else ""
+            linjer.append(f'<tr>{celle("", "na", E("ikke_konfigurert"))}{celle(esc(r_["m_navn"]))}{celle(mk)}</tr>')
+            continue
         if r_["k_navn"]:
             ref = celle(f'{esc(r_["k_navn"])} <span class="ekote">{m_(r_["k_kote"], 3)}</span>')
         else:
             ref = celle("", "bad", E("ingen_treff"))
-        if not r_["m_navn"]:
+        if not r_["m_navn"] and r_["m_kote"] is None:
+            # the model does not carry the level (an unnamed model level still has its kote)
             navn, kote_ = celle("", "na"), celle("", "na")
         else:
             navn_st = "bad" if r_["k_navn"] and r_["m_navn"].casefold() != r_["k_navn"].casefold() else "ok"
@@ -2025,11 +2112,13 @@ def html_etasjekomponent(em: dict, verdikt: str, tittel: str | None = None) -> s
                           f"Δ {fmt_mm(d_)} mm" if ks in ("warn", "bad") and d_ is not None else "")
         linjer.append(f"<tr>{ref}{navn}{kote_}</tr>")
     grense = lambda x: "∞" if x is None else f"{x:g}"
+    toleranse = (f' · {esc(E("toleranse"))} +{grense(tol["over"])} / −{grense(tol["under"])} mm'
+                 if em.get("konfigurert", True) else "")
     kvadrat = (f'<div class="kvadrat {verdikt}"><span class="ksym">{VERDIKT_SYM[verdikt]}</span>'
                f'<span class="kord">{esc(VERDIKT_ORD[verdikt])}</span></div>')
     return (f'<section class="blokk krav etg-komp">{kvadrat}<div class="navn">{esc(tittel)}</div>'
-            f'<div class="kropp"><div class="etg-meta">{esc(E("kote_i_m"))} · {esc(E("toleranse"))} +{grense(tol["over"])} / '
-            f'−{grense(tol["under"])} mm{" · " + esc(em.get("referanse", "")) if em.get("referanse") else ""}</div>'
+            f'<div class="kropp"><div class="etg-meta">{esc(E("kote_i_m"))}{toleranse}'
+            f'{" · " + esc(em.get("referanse", "")) if em.get("referanse") else ""}</div>'
             f'<table class="etg-matrise"><colgroup><col style="width:40%"><col style="width:30%"><col></colgroup>'
             f'<thead><tr><th>{esc(E("referanse"))}</th><th>{esc(E("navn"))}</th><th>{esc(E("kote"))}</th></tr></thead>'
             f'<tbody>{"".join(linjer)}</tbody></table></div></section>')
@@ -2092,17 +2181,22 @@ def html_modell(R: dict, m: dict, css: Path) -> str:
                      f'<div class="under">{esc(sub)}</div></div>')
     if m["hygiene"]:
         kropp.append("</div>")
-    kropp.append(f'<section class="galleri"><h2><span class="nr">{nr + 1}</span>{esc(E("seksjon_typegalleri"))}</h2>'
+    # Reference sections in priority order (edkjo 2026-09-28): Kodelister, Typegalleri,
+    # Materialgalleri, Egenskapssett.
+    nr_g = nr + 1
+    if m.get("kodelister"):
+        kropp.append(html_kodelister(m, nr_g))
+        nr_g += 1
+    kropp.append(f'<section class="galleri"><h2><span class="nr">{nr_g}</span>{esc(E("seksjon_typegalleri"))}</h2>'
                  '<div class="kort-rutenett">')
     for t in m["typer"]:
         kropp.append(html_kort(t))
     kropp.append("</div></section>")
-    nr_g = nr + 2
+    nr_g += 1
     if m.get("materialer"):
         kropp.append(html_materialer(m, nr_g))
         nr_g += 1
     kropp.append(html_psett(m, nr_g))
-    kropp.append(html_kodelister(m, nr_g + 1))
     # The full hash is for machines: small and muted in the first page's bottom margin, outside
     # the verdict page's content area.
     fot = ('<style>@page :first { @bottom-left { content: "' + E("sjekksum") + ' '
@@ -2176,6 +2270,9 @@ def html_kodelister(m: dict, nr: int) -> str:
         return ""
     ut = [f'<section class="kodelister"><h2><span class="nr">{nr}</span>{esc(E("seksjon_kodelister"))}</h2>']
     for kl in m["kodelister"]:
+        if kl["ref"].get("visning") == "diagram":
+            ut.append(f'<h3>{esc(kl["tittel"])}</h3>' + html_kodediagram(kl["rader"]))
+            continue
         rader = "".join(
             f'<tr><td>{esc(r_["kode"])}</td><td>{esc(r_["navn"] or "–")}</td>'
             f'<td class="tall">{n_(r_["objekter"])}</td><td class="tall">{n_(r_["typer"])}</td>'
@@ -2187,6 +2284,32 @@ def html_kodelister(m: dict, nr: int) -> str:
                   f'<th class="tall">{esc(E("objekter_kolonne"))}</th><th class="tall">{esc(E("typer"))}</th>'
                   f'<th>{esc(E("gyldig"))}</th></tr>{rader}</table>')
     ut.append("</section>")
+    return "".join(ut)
+
+
+def html_kodediagram(rader: list[dict]) -> str:
+    """A code list as a distribution (edkjo 2026-09-28, for MMI): one horizontal bar per value,
+    length by objects, the fill the code's own colour token (--mmi-<kode>, MMI-veilederen / the
+    manual), direct labels. A value outside the table has no code colour: neutral bar, ○ and the
+    «ikke i tabellen» label. Valid codes by code, invalid values last."""
+    if not rader:
+        return ""
+    rader = sorted(rader, key=lambda r_: (not r_["gyldig"], r_["kode"]))
+    maks = max(r_["objekter"] for r_ in rader) or 1
+    total = sum(r_["objekter"] for r_ in rader) or 1
+    ut = ['<div class="kodediagram">']
+    for r_ in rader:
+        bredde = 100 * r_["objekter"] / maks
+        if r_["gyldig"]:
+            fyll = f"var(--mmi-{r_['kode']}, var(--mmi-uten-farge))"
+            navn = f'<span class="kd-navn">{esc(r_["navn"])}</span>'
+        else:
+            fyll = "var(--sk-na-ren)"
+            navn = f'<span class="kd-navn bad">{sym("bad")} {esc(E("ikke_i_tabellen"))}</span>'
+        ut.append(f'<div class="kd-rad"><div class="kd-lab"><b>{esc(r_["kode"])}</b>{navn}</div>'
+                  f'<div class="kd-spor"><span class="kd-stolpe" style="width:{bredde:.1f}%;background:{fyll}"></span>'
+                  f'<span class="kd-tall">{n_(r_["objekter"])} · {p_(100 * r_["objekter"] / total)}</span></div></div>')
+    ut.append("</div>")
     return "".join(ut)
 
 
@@ -2428,8 +2551,10 @@ def pdf_sjekk(pdf_sti: Path, galleri: bool) -> dict:
     fonter = sorted({f[3] for p in doc for f in p.get_fonts()})
     galleriside = None
     if galleri:
+        # the reference part starts at the first reference section, Kodelister when it is there
+        forste = [E("seksjon_kodelister").upper(), E("seksjon_typegalleri").upper()]
         for i, p in enumerate(doc):
-            if E("seksjon_typegalleri").upper() in p.get_text().upper():
+            if any(t in p.get_text().upper() for t in forste):
                 galleriside = i
                 break
     doc.close()
