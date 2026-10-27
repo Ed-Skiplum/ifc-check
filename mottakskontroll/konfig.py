@@ -31,8 +31,30 @@ PROSJEKT = "prosjekt"
 MAL_MERKE = "<FROM PROJECT"
 
 
+def _omfang() -> tuple[str, dict[str, str]]:
+    """The check's scope from standard.yaml `standard`: `fysisk_klasse` (IfcElement) and
+    `ikke_telt` (class -> reason). Read from the standard layer only, so every project gets the
+    same scope."""
+    std = yaml.safe_load(STANDARD_STI.read_text(encoding="utf-8"))["standard"]
+    return str(std["fysisk_klasse"]), {str(k): str(v) for k, v in std["ikke_telt"].items()}
+
+
+FYSISK, IKKE_TELT = _omfang()
+
+
+def utelatt(e) -> str | None:
+    """The `ikke_telt` class an entity falls under (subtypes included), or None. A class the
+    file's schema lacks (IfcGeographicElement in IFC2X3) matches nothing."""
+    return next((k for k in IKKE_TELT if e.is_a(k)), None)
+
+
+def i_omfang(e) -> bool:
+    """A physical object in the check: an IfcElement of no `ikke_telt` class."""
+    return e.is_a(FYSISK) and utelatt(e) is None
+
+
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
-PSETT_REGLER = ("tre_sifre", "fagkode", "lik_typenavn", "utfylt")
+PSETT_REGLER = ("tre_sifre", "fagkode", "ns3451", "ns3457", "lik_typenavn", "utfylt")
 
 
 def prosjektpsett(y: dict) -> dict | None:

@@ -306,6 +306,18 @@
 .mk table.kodeliste { width: calc(3 * var(--sk-kolonne) + 2 * var(--sk-luft)); font-size: var(--mk-tekst-mini); }
 .mk table.kodeliste th { border-bottom: 0.4pt solid var(--sk-linje); padding: 0.3mm 0.7mm; }
 .mk table.kodeliste td { border-bottom: 0.3pt solid var(--sk-linje); padding: 0.25mm 0.7mm; }
+/* Code distribution (MMI): label track, then a bar track with the count at the bar's end. */
+.mk .kodediagram { width: calc(3 * var(--sk-kolonne) + 2 * var(--sk-luft)); font-size: var(--mk-tekst-mini); }
+.mk .kd-rad { display: grid; grid-template-columns: 62mm 1fr; column-gap: 2mm; align-items: center;
+  padding: 0.6mm 0; break-inside: avoid; }
+.mk .kd-lab { display: flex; gap: 1.5mm; min-width: 0; }
+.mk .kd-lab b { flex: none; font-weight: var(--sk-vekt-halvfet); }
+.mk .kd-navn { color: var(--sk-blekk-svak); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk .kd-navn.bad { color: var(--sk-mangler); }
+.mk .kd-spor { display: flex; align-items: center; gap: 1.5mm; min-width: 0; }
+.mk .kd-stolpe { display: block; height: 3mm; min-width: 0.6mm; border-radius: 0 0.8mm 0.8mm 0;
+  box-shadow: inset 0 0 0 0.3pt rgba(31, 35, 40, 0.35); }
+.mk .kd-tall { flex: none; color: var(--sk-blekk); font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------------- pset gallery */
 .mk .psett { break-before: page; }
