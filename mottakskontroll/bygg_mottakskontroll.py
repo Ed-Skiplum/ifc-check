@@ -168,7 +168,18 @@ class Register:
         self.modeller: dict[str, dict] = y.get("modeller") or {}
         self.faggrupper: dict[str, list[str]] = y.get("faggrupper") or {}
         self.pr_id = {k["id"]: k for k in self.krav}
-        self.blokker: list[dict] = y.get("blokker") or []
+        # `utelatt: true` in the project layer takes a requirement out of the report: no matrix
+        # row, block or deviation sheet (edkjo 2026-10-20: HI90 drops Produkt, single-product types
+        # carry the product in HI90_Material). The type gallery keeps the field, unfed.
+        self.blokker: list[dict] = [b for b in y.get("blokker") or [] if not b.get("utelatt")]
+        self.utelatt: set[str] = {b["id"] for b in y.get("blokker") or [] if b.get("utelatt")}
+        # Fase through MMI phasing reads the same property as MMI: as a requirement of its own it
+        # repeats MMI's Dekning and Gyldig and lists every MMI deviation twice. It is a rollup of the
+        # MMI reading instead, a Fase line inside the MMI block, and has no block or verdict.
+        fase = next((b for b in self.blokker if b["id"] == "fase" and b.get("mmi_fase")), None)
+        if fase:
+            self.blokker = [{**b, "fase_kart": fase["mmi_fase"], "fase_tittel": fase["tittel"]}
+                            if b["id"] == "mmi" else b for b in self.blokker if b["id"] != "fase"]
         self.kpi_band: list[str] = y.get("kpi_band") or []
         self.seksjoner: list[dict] = y.get("seksjoner") or []
         self.skjema: dict = y.get("skjema") or {}
@@ -913,17 +924,19 @@ def tom_dekning(n: int) -> dict:
             "andel": None, "kilder": []}
 
 
-def har_verdiliste(bid: str, bdef: dict) -> bool:
+def har_verdiliste(bid: str, bdef: dict, mmi_koder: bool = False, fagkoder: bool = False) -> bool:
     """Accepted values are declared for the requirement: a pattern, a code table, a value list, an
     exclusion list, the project's MMI codes, the fagkoder, or the project's storeys. For an opt-in
-    requirement also an IFC value type, the project's quantities, or a layer set's layers."""
+    requirement also an IFC value type, the project's quantities, or a layer set's layers. Without
+    one there is no validity row (edkjo 2026-10-27): no clear «this is valid», no score. MMI needs
+    the project's `forventet.mmi.koder`, Kopiobjekt its `fagkoder`."""
     if bdef.get("valgfri"):
         return bool(bdef.get("gyldig") or bdef.get("gyldige") or bdef.get("datatype") or bdef.get("mengder")
                     or bdef.get("kodetabell")
                     or (bdef.get("sted") or {}).get("ifc") in ("materiallag", "typenavn"))
     return bool(bdef.get("gyldig") or bdef.get("kodetabell") or bdef.get("gyldige")
                 or bdef.get("ikke_materiale") or bdef.get("mmi_fase")) and bid != "produkt" \
-        or bid in ("mmi", "kopiobjekt")
+        or bid == "mmi" and mmi_koder or bid == "kopiobjekt" and fagkoder
 
 
 def tilstede(rad: dict) -> tuple[int, int] | None:
@@ -956,18 +969,19 @@ def antall_unike(rad: dict) -> int:
 
 
 def gyldig(rad: dict) -> tuple[int, int, list] | None:
-    """Validity (edkjo 2026-09-25): where the requirement is tied to accepted values (a list or a
-    range), the share of the UNIQUE values found that are valid, x of n unique values. None where no
-    list or range is declared. The storey span of Objekter i etasje is a range per object with no
-    value list, so it stays a share of the contained objects."""
+    """Validity: where the requirement is tied to accepted values (a list or a range), the share of
+    the objects carrying the property (Dekning's x) whose value is valid, x of n objects. Weighted by
+    objects, not unique values (2026-10-08): one empty value on 0.25 % of the objects read 50 % as
+    «1 of 2 unique values». None where no list or range is declared. The storey span of Objekter i
+    etasje is a range per object with no value list, a share of the contained objects as well."""
     sp = rad.get("spenn")
     if sp:
         tot = sp["oppfylt"] + sp["avvik"] + sp["mangler"]
         return sp["oppfylt"], tot, []
     if rad.get("gyldighet") is None:
         return None
-    verdier = unike_verdier(rad)
-    return sum(1 for _, _, ok in verdier if ok), len(verdier), [(v_, n) for v_, n, ok in verdier if not ok]
+    gy = rad["gyldighet"]
+    return gy["innenfor"], gy["innenfor"] + sum(n for _, n in gy["utenfor"]), gy["utenfor"]
 
 
 TERSKLER = {"dekning": {"ok": 95, "warn": 5}, "gyldig": {"ok": 100, "warn": 95}}  # set from the config
@@ -1048,7 +1062,7 @@ def kpi_kort(kpi_alle: list[dict], band: list[str], terskler: dict, typer: int, 
             "utypede_instanser": pct(utypet, n_alle) if n_alle else None}
     tekst = {
         "antall_typer": (n_(typer), ""),
-        "antall_elementer": (n_(n_alle), "IfcProduct"),
+        "antall_elementer": (n_(n_alle), "fysiske objekter"),
         "instanser_per_type_alle": (fmt_pct(typede / typer) if typer else "–", f"{n_(typede)} / {n_(typer)}"),
         "typer_med_en_instans_alle": (n_(en), p_(pct(en, typer)) if typer else ""),
         "utypede_instanser": (n_(utypet), p_(pct(utypet, n_alle)) if n_alle else ""),
@@ -1102,7 +1116,7 @@ class Modellberegning:
     """The ten blocks, the KPI band, the hygiene strip and the type register of one model."""
 
     def __init__(self, reg: Register, r: Runde, label: str, d: dict, bd: dict, s: dict,
-                 alle_guid: dict, tok: dict, kodetabell: dict[str, set[str]], geo: dict):
+                 alle_guid: dict, tok: dict, kodetabeller: dict[str, set[str]], geo: dict):
         self.reg, self.r, self.label, self.d, self.bd, self.s = reg, r, label, d, bd, s
         self.geo = geo
         m = r.cfg[label]
@@ -1113,7 +1127,7 @@ class Modellberegning:
             raise SystemExit(f"FEIL: {label}: sha256 {self.sha256[:16]} ≠ runde {m['sha16']}")
         # Applicability elsewhere (georeferering) reads the schema from the requirement, not the dump.
         self.s = {**s, "schema": skjema_grunn(self.skjema_skrevet) or s.get("schema")}
-        self.alle_guid, self.tok, self.kodetabell = alle_guid, tok, kodetabell
+        self.alle_guid, self.tok, self.kodetabeller = alle_guid, tok, kodetabeller
         self.fag = r.fag(label)
         self.omfang = {label, self.fag, "alle"}
 
@@ -1145,6 +1159,10 @@ class Modellberegning:
         if bid == "etasjedefinisjon":
             return self.krav_etasjedefinisjon(bdef, base)
         rad = self.lesing(bid, bdef, bdef["sted"])
+        if bdef.get("fase_kart"):
+            rad["fase_tittel"] = bdef["fase_tittel"]
+            rad["fase_fordeling"] = fase_fra_mmi(
+                [(e["raa"], e["n"]) for e in rad["fordeling_alle"] if "raa" in e], bdef["fase_kart"])
         verdikt = rad_verdikt(self.reg, rad)
         ut = {**base, "rader": [rad], "verdikt": verdikt, "status": VERDIKT_STATUS[verdikt],
               "mock": rad["mock"] or rad.get("mock_verdikt", False), "dekning": rad["dekning"],
@@ -1190,7 +1208,7 @@ class Modellberegning:
                 raise SystemExit(f"FEIL: {self.label}: {bid} er målt på {navn}, konfigurasjonen sier {nokler}")
             eksakt = True
         if bdef.get("grunnlag") == "alle_ifcproduct":
-            rad["grunnlag_tekst"] = "IfcProduct"
+            rad["grunnlag_tekst"] = "fysiske objekter"
         if not gren:
             nb = self.bd["n_alle"] if bdef.get("grunnlag") == "alle_ifcproduct" else n
             if eksakt:
@@ -1242,7 +1260,8 @@ class Modellberegning:
             e["flagg"] = "flagg" if e["flagg"] == "flagg" else ""
         farg_noytralt(rad["fordeling"])
         rad["mock"] = not eksakt and bid not in ("typeobjekt", "etasjer")
-        if har_verdiliste(bid, bdef):
+        if har_verdiliste(bid, bdef, mmi_koder=bool((self.reg.forventet.get("mmi") or {}).get("koder")),
+                          fagkoder=bool(self.reg.fagkoder)):
             # Within vs outside the declared accepted values, read from the same distribution.
             rad["gyldighet"] = {
                 "innenfor": sum(e["n"] for e in ford if e["flagg"] != "avvik"),
@@ -1485,12 +1504,18 @@ class Modellberegning:
             ut.append(el)
         return ut
 
+    def ford_kodetabell(self, bid: str, bb):
+        """Values outside the requirement's code table are flagged, whatever their form."""
+        tab = self.kodetabeller.get(bid)
+        if tab is None:
+            return self.ford_verdier(bb), False
+        return self.ford_verdier(bb, lambda v: v.strip().upper() not in tab), False
+
     def ford_systemkode(self, bb):
-        return self.ford_verdier(bb), False
+        return self.ford_kodetabell("systemkode", bb)
 
     def ford_funksjonskode(self, bb):
-        tab = self.kodetabell.get("funksjonskode")
-        return self.ford_verdier(bb, (lambda v: v.strip().upper() not in tab) if tab is not None else None), False
+        return self.ford_kodetabell("funksjonskode", bb)
 
     def ford_materialprodukt(self, bb):
         """Products (telleobjekt) and materials (mengdeobjekt) as found, then the classes whose
@@ -1684,7 +1709,10 @@ class Modellberegning:
                        "systemkode": fold(t["systemkode"], "systemkode"),
                        "funksjonskode": fold(t["funksjonskode"], "funksjonskode"),
                        "materiale": fold(t["materiale"], "materiale"),
-                       "produkt": fold(t["produkt"], "produkt"),
+                       # Produkt out of the requirements (utelatt): the card keeps the field, but it
+                       # is not fed from the model. Products and EPDs per type come from another
+                       # source later (e.g. Cobuilder); until then a neutral «–», never a ✗.
+                       "produkt": IKKE_MATET if "produkt" in self.reg.utelatt else fold(t["produkt"], "produkt"),
                        "mengdetype": fold({(k.replace("m2", "m²").replace("m3", "m³")
                                             .replace("ikke_relevant", "ikke relevant")): v
                                            for k, v in t["mengdetype"].items()}, "mengdetype"),
@@ -1705,7 +1733,9 @@ class Modellberegning:
         if not self.bd.get("ett_sted"):
             return []
         ikke = next((b.get("ikke_materiale") or [] for b in self.reg.blokker if b["id"] == "materiale"), [])
-        return [{**x, "gyldig": er_materiale(x["navn"], ikke)} for x in self.bd.get("materialer") or []]
+        # No exclusion list declared: nothing to validate against, so no verdict (None), not «ok».
+        return [{**x, "gyldig": er_materiale(x["navn"], ikke) if ikke else None}
+                for x in self.bd.get("materialer") or []]
 
     def kodelister(self, uten: set[str] = frozenset()) -> list[dict]:
         """The configured code lists: every value found at the requirement's location, with objects
@@ -1793,15 +1823,16 @@ def celle_blokk(b: dict) -> dict:
 
 def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict, geo: dict) -> dict:
     tok = les_tokens()
-    # Each block's own code table (`kodetabell`): its accepted values.
-    kodetabell = {b["id"]: blokkdata.kodetabell_koder(b["kodetabell"], reg.rot) for b in reg.blokker
-                  if b.get("kodetabell")}
+    # Accepted values per requirement: the code table its config names (Systemkode, Funksjonskode).
+    kodetabeller = {b["id"]: {str(x["kode"]).strip().upper() for x in yaml.safe_load(
+                        stier.tabell_sti(b["kodetabell"], reg.rot).read_text(encoding="utf-8"))}
+                    for b in reg.blokker if b.get("kodetabell")}
     labels = r.hoved(reg)
     alle_guid = guid_forekomster(data, labels)
     modeller = []
     for lab in labels:
         mb = Modellberegning(reg, r, lab, data[lab], blokkdata_[lab], struktur[lab], alle_guid,
-                             tok, kodetabell, geo[lab])
+                             tok, kodetabeller, geo[lab])
         modeller.append(mb.alt())
     rader = matriserader(reg)
     matrise = []
@@ -1812,7 +1843,7 @@ def beregn(reg: Register, r: Runde, data: dict, struktur: dict, blokkdata_: dict
                 celler[lab] = celle_blokk(next(b for b in m["blokker"] if b["id"] == rad["id"]))
             else:
                 celler[lab] = Modellberegning(reg, r, lab, data[lab], blokkdata_[lab], struktur[lab],
-                                              alle_guid, tok, kodetabell, geo[lab]).krav_celle(rad["id"])
+                                              alle_guid, tok, kodetabeller, geo[lab]).krav_celle(rad["id"])
         matrise.append({**rad, "celler": celler})
     rad_for_krav = {}
     for b in reg.blokker:
@@ -1986,7 +2017,7 @@ def html_rad(r_: dict, terskler: dict) -> str:
             else:
                 pg = pct(g[0], g[1])
                 sg = lys(pg, terskler["gyldig"])
-                enhet = E("objekter") if r_.get("spenn") else E("unike_verdier")
+                enhet = E("objekter")
                 gyldig_c = (f'<div class="stort {sg}"><span class="ssym">{SYM[sg]}</span>{esc(p_(pg))}{m}</div>'
                             f'<div class="smatt">{n_(g[0])} {esc(E("av"))} {n_(g[1])} {esc(enhet)}</div>')
             ut.append(f'<div class="rad-l to talrad"><span class="lab">{esc(E("dekning"))}</span><div>{dekning_c}</div>'
@@ -1995,6 +2026,10 @@ def html_rad(r_: dict, terskler: dict) -> str:
         ut.append(f'<div class="rad-l"><span class="lab">{esc(E("fordeling"))}</span>'
                   f'<span class="fordeling">{n_(unike)} {esc(E("unike_verdier"))}'
                   f'{"<span class=mock>" + esc(E("mock")) + "</span>" if mock else ""}</span></div>')
+        if r_.get("fase_fordeling") is not None:
+            # The phase rollup of the MMI values (forventet.mmi.fase): a reading, no verdict.
+            ut.append(f'<div class="rad-l"><span class="lab">{esc(r_["fase_tittel"])}</span>'
+                      f'<span class="fordeling">{html_fordeling_tekst(r_["fase_fordeling"])}</span></div>')
     return "".join(ut)
 
 
@@ -2247,15 +2282,16 @@ def kodeliste_rader(tellinger: list[tuple[str, int, int]], tabell: dict[str, str
 
 def html_materialer(m: dict, nr: int) -> str:
     """Every material as found, one card each, sorted by objects."""
+    vurdert = any(x["gyldig"] is not None for x in m["materialer"])
+    legende = (f'<span class="legende"><span>{sym("ok")} {esc(E("materiale"))}</span>'
+               f'<span>{sym("bad")} {esc(E("ikke_materiale"))}</span></span>') if vurdert else ""
     ut = [f'<section class="galleri materialer"><h2><span class="nr">{nr}</span>{esc(E("seksjon_materialgalleri"))}'
-          f'<span class="legende"><span>{sym("ok")} {esc(E("materiale"))}</span>'
-          f'<span>{sym("bad")} {esc(E("ikke_materiale"))}</span>'
-          '</span></h2><div class="kort-rutenett">']
+          f'{legende}</h2><div class="kort-rutenett">']
     for x in sorted(m["materialer"], key=lambda x: -x["objekter"]):
         kl = list(x["klasser"].items())
         kltekst = " · ".join(f"{k} ×{n_(c)}" for k, c in kl[:3]) + (f" · {E('andre')} ({len(kl) - 3})" if len(kl) > 3 else "")
         lag = f'<dt>{esc(E("lag"))}</dt><dd>{esc(" · ".join(f"{v:g}".replace(".", ",") for v in x["lag_mm"]))} mm</dd>' if x.get("lag_mm") else ""
-        ut.append(f'<div class="kort"><div class="tn">{sym("ok" if x["gyldig"] else "bad")} {esc(x["navn"] or "–")}</div>'
+        ut.append(f'<div class="kort"><div class="tn">{"" if x["gyldig"] is None else sym("ok" if x["gyldig"] else "bad") + " "}{esc(x["navn"] or "–")}</div>'
                   f'<div class="inst">{n_(x["objekter"])}<small>{esc(E("objekter"))}</small></div><dl>'
                   f'<dt>{esc(E("ifc_klasser"))}</dt><dd>{esc(kltekst)}</dd>'
                   f'<dt>{esc(E("typer"))}</dt><dd>{n_(x["typer"])}</dd>'
@@ -2317,7 +2353,7 @@ def katalog_ark(modeller: list[dict]) -> list[tuple[str, list[str], list[list]]]
     """Workbook sheets matching the material gallery and the code lists: Materialer, then one sheet
     per configured list. Only for models that carry them."""
     ut = []
-    mat = [[m["label"], x["navn"], E("ja") if x["gyldig"] else E("nei"), x["objekter"],
+    mat = [[m["label"], x["navn"], "" if x["gyldig"] is None else E("ja") if x["gyldig"] else E("nei"), x["objekter"],
             " | ".join(f"{k} ×{c}" for k, c in x["klasser"].items()), x["typer"], x["kilde"],
             " | ".join(f"{v:g}" for v in x.get("lag_mm") or [])]
            for m in modeller for x in sorted(m.get("materialer") or [], key=lambda x: -x["objekter"])]
@@ -2385,7 +2421,13 @@ def html_psett(m: dict, nr: int) -> str:
     return "".join(ut)
 
 
+# A type field with no source in this run: neutral, not missing.
+IKKE_MATET = {"verdi": "", "andre": 0, "tom": 0, "flagg": False, "alle": "", "ikke_matet": True}
+
+
 def verdi_dd(f: dict, farge: str = "") -> str:
+    if f.get("ikke_matet"):
+        return '<dd class="na">–</dd>'
     if not f["verdi"]:
         return f'<dd>{sym("bad")}</dd>'
     sw = f'<span class="sw" style="background:var({farge})"></span>' if farge else ""

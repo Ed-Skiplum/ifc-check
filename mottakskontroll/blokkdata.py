@@ -6,7 +6,7 @@
 Every rule, location and table this reads is declared in the merged configuration (konfig.py:
 standard/standard.yaml with the project config on top) or in the two mengdetype tables; this module holds the procedures only, and no discipline name.
 The counted set is bep_egenskapskontroll's `telte()`: ifcfast's `has_body`, minus
-IfcFeatureElementSubtraction and standard.yaml `standard.ikke_telt`, so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
+standard.yaml `standard.ikke_telt` (IfcElement only, plus 3D 'Surface' without Body), so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
 the builder refuses to run when they differ. ifcopenshell reads properties, materials,
 classifications and containment only; no geometry is processed here.
 
@@ -49,7 +49,9 @@ import stier  # noqa: E402
 # type tally included (IfcGeographicElement and its type are not types in the register).
 # (ifc-check carried 7 for the ikke_telt change; 7 to 9 above are the HI90 engine's numbers.)
 # 10 (2026-10-27): the HI90 engine port into ifc-check: 7 to 9 on top of ifc-check's 7.
-BLOKK_VERSJON = 10
+# 11 (2026-10-27): Typeobjekt and the pset gallery over the objects in scope only (konfig.i_omfang:
+# IfcElement minus `standard.ikke_telt`), merged with 10.
+BLOKK_VERSJON = 11
 
 # Distinct values kept per property for the pset gallery's examples; beyond it only counts grow.
 PSET_MAKS_VERDIER = 200
@@ -174,14 +176,15 @@ def les_register(prosjekt: Path, kun_standard: bool = False) -> dict:
     for b in y["blokker"]:
         if b["id"] in ("produkt", "materiale"):
             continue
-        blokker[b["id"]] = {**b, "_sted": Oppslag(b["sted"]) if b.get("sted") else None}
+        # `utelatt` (project layer): the requirement is out of the report, so it is not measured.
+        blokker[b["id"]] = {**b, "_sted": Oppslag(b["sted"]) if b.get("sted") and not b.get("utelatt") else None}
     p, m = per_id["produkt"], per_id["materiale"]
     if (p.get("mengdetype") or []) != (m.get("mengdetype") or []):
         raise SystemExit("FEIL: Produkt og Materiale har ulik mengdetype-analyse i konfigurasjonen")
     blokker["materialprodukt"] = {
         "id": "materialprodukt", "ikke_konfigurert": p["ikke_konfigurert"] and m["ikke_konfigurert"],
-        "_telle": Oppslag(p["sted"], "telleobjekt") if p.get("sted") else None,
-        "_mengde": Oppslag(m["sted"], "mengdeobjekt") if m.get("sted") else None,
+        "_telle": Oppslag(p["sted"], "telleobjekt") if p.get("sted") and not p.get("utelatt") else None,
+        "_mengde": Oppslag(m["sted"], "mengdeobjekt") if m.get("sted") and not m.get("utelatt") else None,
         "_mengdetype": [Oppslag(s, "mengdetype") for s in p.get("mengdetype") or []],
         "ikke_materiale": m.get("ikke_materiale") or [],
         "aapne": (p.get("aapne") or []) + (m.get("aapne") or [])}
@@ -571,9 +574,12 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             objekter[e.GlobalId] = [e.is_a(), (getattr(e, "Name", None) or "").strip(), typenavn,
                                     (st.Name or "").strip() if st is not None else ""]
 
-    # 1 typeobjekt: over every IfcProduct in the file, not only the counted set, minus the classes
-    # kept out of the whole check (standard.yaml `standard.ikke_telt`, konfig.utelatt)
-    alle = [p for p in f.by_type("IfcProduct") if not konfig.utelatt(p)]
+    # 1 typeobjekt: over every object in scope, with or without 3D body, not only the counted set:
+    # IfcElement minus standard.yaml `standard.ikke_telt` (konfig.i_omfang, 2026-10-27). The spatial
+    # structure has no type to miss, and a building element part is typed through its owner.
+    # Everything below (pset gallery included) reads this set; the rest of the file is out of scope.
+    alle = [pr for pr in f.by_type("IfcProduct") if konfig.i_omfang(pr)]
+    typbare = alle
     typer_alle = collections.Counter()
     utypet_klasse = collections.Counter()
     # Every property and quantity set on every IfcProduct, own or through its type, unfiltered.
@@ -603,7 +609,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
                         c_[t_[:60]] += 1
 
     tb = b["typeobjekt"]
-    for pr in alle:
+    for pr in typbare:
         tt = ue.get_type(pr)
         if tt is None:
             tb.sett("mangler")
@@ -896,7 +902,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     typede = sum(tr["instanser"] for tr in typeliste)
     en = sum(1 for tr in typeliste if tr["instanser"] == 1)
     return {
-        "label": label, "fil": sti.name, "sha256": B.sha(sti), "n": n, "n_alle": len(alle),
+        "label": label, "fil": sti.name, "sha256": B.sha(sti), "n": n, "n_alle": len(typbare),
         "tellegrunnlag": info["grunnlag"], "ett_sted": True,
         "typer_alle": [[k, nn, c] for (k, nn), c in typer_alle.most_common()],
         "psett": [{"navn": pn, "objekter": pset_tall[pn]["n"],

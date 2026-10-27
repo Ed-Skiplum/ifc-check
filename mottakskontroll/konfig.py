@@ -38,24 +38,30 @@ MAL_MERKE = "<FROM PROJECT"
 PLASSHOLDER = "[WRITE]"
 
 
-def ikke_telt() -> tuple[str, ...]:
-    """The classes kept out of the whole check, subtypes included: standard.yaml
-    `standard.ikke_telt` (IfcGeographicElement, IfcGeographicElementType). Read from the standard
-    layer only, so every project gets the same list."""
-    std = yaml.safe_load(STANDARD_STI.read_text(encoding="utf-8"))
-    return tuple(str(k) for k in std["standard"]["ikke_telt"])
+def _omfang() -> tuple[str, dict[str, str]]:
+    """The check's scope from standard.yaml `standard`: `fysisk_klasse` (IfcElement) and
+    `ikke_telt` (class -> reason). Read from the standard layer only, so every project gets the
+    same scope."""
+    std = yaml.safe_load(STANDARD_STI.read_text(encoding="utf-8"))["standard"]
+    return str(std["fysisk_klasse"]), {str(k): str(v) for k, v in std["ikke_telt"].items()}
 
 
-def utelatt(e) -> bool:
-    """An entity (occurrence or type) of a class in `ikke_telt()`, subtypes included."""
-    return any(e.is_a(k) for k in IKKE_TELT)
+FYSISK, IKKE_TELT = _omfang()
 
 
-IKKE_TELT = ikke_telt()
+def utelatt(e) -> str | None:
+    """The `ikke_telt` class an entity falls under (subtypes included), or None. A class the
+    file's schema lacks (IfcGeographicElement in IFC2X3) matches nothing."""
+    return next((k for k in IKKE_TELT if e.is_a(k)), None)
+
+
+def i_omfang(e) -> bool:
+    """A physical object in the check: an IfcElement of no `ikke_telt` class."""
+    return e.is_a(FYSISK) and utelatt(e) is None
 
 
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
-PSETT_REGLER = ("tre_sifre", "fagkode", "lik_typenavn", "utfylt")
+PSETT_REGLER = ("tre_sifre", "fagkode", "ns3451", "ns3457", "lik_typenavn", "utfylt")
 
 
 def prosjektpsett(y: dict) -> dict | None:
@@ -90,8 +96,13 @@ def psett_egenskap(ps: dict | None, regel: str) -> str | None:
 
 # Requirement text per `prosjektpsett` rule (the side workbook's «Krav» row).
 REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdien er en fagkode",
+               "ns3451": "finnes og er en tresifret kode i NS 3451",
+               "ns3457": "finnes og er en komponentkode i NS 3457-8",
                "lik_typenavn": "finnes og er lik IfcTypeObject.Name", "utfylt": "finnes, ikke tom"}
 TRE_SIFRE = r"^\d{3}$"
+# Code-table rules (2026-10-20): a code in the standard's table, not just the form. 360 has three
+# digits, but 36 is the group Luftbehandling and 361 its first code.
+REGEL_TABELL = {"ns3451": "kodetabell_ns3451.yaml", "ns3457": "mengdetype_ns3457.yaml"}
 
 
 def egenskapskontroll(y: dict) -> dict | None:
@@ -115,11 +126,13 @@ def egenskapskontroll(y: dict) -> dict | None:
               kopi: true                                  the value is the object's copy marker
 
         prosjektpsett:                         (2026-09-28, Palehaven; konfig.prosjektpsett)
-          navn, krav, navnedel, egenskaper[{navn, regel}]  rule tre_sifre | fagkode | lik_typenavn | utfylt
+          navn, krav, navnedel, egenskaper[{navn, regel}]  rule tre_sifre | fagkode | ns3451 | ns3457 |
+                                                           lik_typenavn | utfylt
 
     Normalised: {"navn", "krav", "navnedel", "egenskaper": [{navn, maaler, monster, godtatte,
     kodetabell, lik_typenavn, samle, kopi}]}, plain data (cache keys hash it). `godtatte` of a
-    `fagkode` rule is the project's `fagkoder`; a `kodetabell` stays a name (stier.tabell_sti)."""
+    `fagkode` rule is the project's `fagkoder`; a `kodetabell` stays a name (stier.tabell_sti).
+    `ns3451` is the form and its table together (both must hold), `ns3457` its table."""
     ek, ps = y.get("egenskapskontroll"), y.get("prosjektpsett")
     if ek and ps:
         raise SystemExit("FEIL: både egenskapskontroll og prosjektpsett er konfigurert; bruk én")
@@ -130,9 +143,10 @@ def egenskapskontroll(y: dict) -> dict | None:
         for e in ps.get("egenskaper") or []:
             r = e["regel"]
             eg.append({"navn": str(e["navn"]), "maaler": REGEL_TEKST[r],
-                       "monster": TRE_SIFRE if r == "tre_sifre" else None,
-                       "godtatte": fag if r == "fagkode" else None, "kodetabell": None,
-                       "lik_typenavn": r == "lik_typenavn", "samle": r in ("tre_sifre", "fagkode"),
+                       "monster": TRE_SIFRE if r in ("tre_sifre", "ns3451") else None,
+                       "godtatte": fag if r == "fagkode" else None, "kodetabell": REGEL_TABELL.get(r),
+                       "lik_typenavn": r == "lik_typenavn",
+                       "samle": r in ("tre_sifre", "fagkode", "ns3451", "ns3457"),
                        "kopi": r == "fagkode"})
         return {"navn": str(ps["navn"]), "krav": ps.get("krav"),
                 "navnedel": str(ps.get("navnedel") or "").lower(), "egenskaper": eg}

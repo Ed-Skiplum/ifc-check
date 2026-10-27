@@ -235,19 +235,22 @@ etiketter:
 # override each key in krav.yaml.
 standard:
   terskel: {ok: 95, warn: 5}
-  # The classes kept out of the whole check, subtypes included (edkjo 2026-10-21: terrain and
-  # other geographic elements are not counted, checked or listed as types). The one list every
-  # count, property check, type register and dashboard reads (konfig.IKKE_TELT), the
-  # all-IfcProduct counts included. IfcFeatureElementSubtraction is not here: it is part of the
-  # 3D-body rule of the counted set and stays in the all-IfcProduct counts. Read from this file
-  # only: a project's `standard:` key does not replace it.
+  # The objects in the check (edkjo 2026-10-21, 2026-10-27; the same rule as Mottakskontroll-typer):
+  # physical objects only, a subclass of `fysisk_klasse` and of none of `ikke_telt` (subtypes
+  # included), each left-out class with its reason. IfcSpace and the rest of the spatial structure
+  # are outside IfcElement and never counted. Read from the standard layer only (konfig.py), so every
+  # project gets the same scope; it bounds the counted set and Typeobjekt alike.
+  fysisk_klasse: IfcElement
   ikke_telt:
-    - IfcGeographicElement
-    - IfcGeographicElementType
+    IfcFeatureElement: ikke fysisk (åpninger, utsparinger)
+    IfcVirtualElement: ikke fysisk
+    IfcGeographicElement: terreng og origo-markører
+    IfcBuildingElementPart: del av eierobjekt, typet gjennom eieren
   telte_objekter: >-
-    Alle IfcProduct med 3D-geometri, uten IfcFeatureElementSubtraction og IfcGeographicElement
-    (terreng). IfcGeographicElementType regnes ikke som type. Andeler er av dette tallet, i både
-    regneark og PDF.
+    Fysiske objekter med 3D-geometri: IfcElement uten åpninger og andre IfcFeatureElement,
+    IfcVirtualElement, IfcGeographicElement (terreng, origo-markører) og IfcBuildingElementPart
+    (deler, typet gjennom eierobjektet). Rom (IfcSpace) telles ikke. Andeler er av dette tallet, i
+    både regneark og PDF.
   navnematching: >-
     Navn på egenskapssett og egenskaper matches uten hensyn til mellomrom og store/små
     bokstaver. Varianten som ble funnet rapporteres.
@@ -256,24 +259,25 @@ standard:
 # schema is a requirement (skjema), not a KPI. The other kpi entries stay in the workbook.
 kpi_band: [antall_typer, antall_elementer, instanser_per_type_alle, typer_med_en_instans_alle, utypede_instanser]
 
-# The band's counts (edkjo 2026-09-24): all over every IfcProduct in the file, the grunnlag of
+# The band's counts (edkjo 2026-09-24): all over every object in scope (`standard.fysisk_klasse`
+# minus `standard.ikke_telt`, 2026-10-27), with or without 3D body, the grunnlag of
 # Typeobjekt, and types by name + IFC class (begreper §1). Plain numbers, no verdict.
 kpi_alle:
   - id: antall_typer
     tittel: Antall typer
-    maaler: Typer i bruk, typenavn + IFC-klasse, over alle IfcProduct.
+    maaler: Typer i bruk, typenavn + IFC-klasse, over alle fysiske objekter.
   - id: antall_elementer
     tittel: Antall elementer
-    maaler: Alle IfcProduct i fila, grunnlaget for Typeobjekt.
+    maaler: Alle fysiske objekter i fila, grunnlaget for Typeobjekt.
   - id: instanser_per_type_alle
     tittel: Instanser per type
-    maaler: Typede IfcProduct delt på antall typer.
+    maaler: Typede objekter delt på antall typer.
   - id: typer_med_en_instans_alle
     tittel: Typer med én instans
-    maaler: Typer med ett IfcProduct, med andel av typene.
+    maaler: Typer med ett objekt, med andel av typene.
   - id: utypede_instanser
     tittel: Utypede instanser
-    maaler: IfcProduct uten IfcRelDefinesByType, med andel av elementene.
+    maaler: Objekter uten IfcRelDefinesByType, med andel av elementene.
 
 verdiktord:
   oppfylt: OK
@@ -305,8 +309,9 @@ blokker:
   - id: typeobjekt
     seksjon: ifc_helse
     tittel: Typeobjekt
-    krav_tekst: alle IfcProduct har typeobjekt med navn
-    # Every IfcProduct in the file, not only the counted set (edkjo 2026-09-24).
+    krav_tekst: alle fysiske objekter har typeobjekt med navn
+    # Every object in scope, not only the counted set (edkjo 2026-09-24): IfcElement minus
+    # `standard.ikke_telt` (2026-10-27), so no spatial structure, IfcSpace or building element part.
     grunnlag: alle_ifcproduct
     sted: {ifc: typeobjekt, navn: IfcRelDefinesByType}
 
@@ -350,7 +355,10 @@ blokker:
     seksjon: standardkrav
     tittel: Systemkode NS 3451
     krav_tekst: tresifret NS 3451-kode
+    # Valid = the form (`gyldig`) AND a code in the table. The form alone lets a group padded with a
+    # zero through: 36 is the group Luftbehandling, 360 is not a code (361 is the first).
     gyldig: '^\d{3}$'
+    kodetabell: kodetabell_ns3451.yaml
     sted: {ifc: klassifikasjon, system_monster: '3451', navn: IfcClassificationReference NS 3451}
     # The aggregated code list (a catalogue, not a check): rendered only while the requirement has
     # a location. Names and validity from the bundled table.
@@ -394,18 +402,11 @@ blokker:
       - {ifc: ifcklasse, tabell: mengdetype_ifcklasse.yaml, navn: IFC-klasse}
       - {ifc: komponentkode, tabell: mengdetype_ns3457.yaml, navn: komponentkode}
     sted: {ifc: materialtilknytning, navn: IfcRelAssociatesMaterial}
-    # Not a material (docs/begreper.md §4): a colour or finish, an element word, a bare number or
-    # dimension, a tool's placeholder. Carried but not usable: outside the accepted values.
-    ikke_materiale:
-      - '\bRAL\b'
-      - '\bNCS\b'
-      - 'lakkert'
-      - '^hvit$'
-      - '^(dekke|innervegg|yttervegg|vegg|gulv|tak)$'
-      - '^[\d\s.,x×]+$'
-      - '^default(\(\d+\))?$'
-      - '^MC_\d+_\d+_\d+'
-      - '^<.*>$'
+    # No validity (edkjo 2026-10-27): nothing specific to validate a material name against,
+    # so the requirement is presence only. A validity row needs a positive definition of a
+    # valid value (code table, accepted values); an exclusion list is not one. A project may
+    # still declare `ikke_materiale` (regex for names that are not a material); the validity
+    # row, the «ugyldig» findings and the gallery marks follow it.
 
   - id: kopiobjekt
     seksjon: standardkrav

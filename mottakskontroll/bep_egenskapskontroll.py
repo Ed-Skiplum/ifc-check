@@ -38,11 +38,11 @@ sys.path.insert(0, str(HER))
 import konfig  # noqa: E402
 import stier  # noqa: E402
 
-# Counted set: every IfcProduct carrying a 3D body representation, whatever its class.
-# Only subtractive geometry (IfcOpeningElement and other IfcFeatureElementSubtraction) drops out,
-# plus the classes kept out of the whole check (standard.yaml `standard.ikke_telt`, konfig.IKKE_TELT:
-# IfcGeographicElement, terrain; 2026-10-21).
-# Spatial elements without geometry drop out by the rule itself, not by a class list.
+# Counted set: every physical object carrying 3D geometry -- an IfcElement of none of the classes
+# in standard.yaml `standard.ikke_telt` (konfig.FYSISK / konfig.IKKE_TELT: features, virtual and
+# geographic elements, building element parts) with a Body, or with no Body but a 3D 'Surface'
+# representation (HI90 engine, 2026-10-15). IfcSpace and the rest of the spatial structure are
+# outside IfcElement.
 BODY_ID = {"body", "body-fallback"}
 SOLID_TYPE = {"Brep", "AdvancedBrep", "SweptSolid", "CSG", "Clipping", "SurfaceModel",
               "Tessellation", "SolidModel", "AdvancedSweptSolid"}
@@ -51,10 +51,12 @@ TRE_SIFRE = re.compile(r"^\d{3}$")
 # Bumped whenever a check is added or its rule changes, so a cache written by an older set of
 # checks is not a hit -- it would silently blank the new check in the report.
 # 3 (2026-09-28): the counted set is ifcfast's `has_body` minus IfcFeatureElementSubtraction.
-# 4 (2026-10-21): minus standard.yaml `standard.ikke_telt` too (IfcGeographicElement).
+# 4 (2026-10-20/21): rules ns3451 / ns3457, a code in the standard's table; minus `standard.ikke_telt`.
+# 5 (2026-10-27): physical objects only, IfcElement minus standard.yaml `standard.ikke_telt`.
 # 6 (2026-10-27, HI90 engine port): plus products with no body whose 'Surface' representation holds
 # 3D geometry (HI90 engine 4, 2026-10-15); property rules from konfig.egenskapskontroll.
-SJEKK_VERSJON = 6
+# 7 (2026-10-27): 5 and 6 merged.
+SJEKK_VERSJON = 7
 
 
 def sjekker(ps: dict | None) -> list[tuple[str, str]]:
@@ -147,36 +149,41 @@ def _rep_flate(sr) -> bool:
 
 def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     """The counted set (2026-09-28, ifcfast #201-#203 resolved): every IfcProduct row in ifcfast's
-    products table with `has_body` true, minus IfcFeatureElementSubtraction and the classes in
-    standard.yaml `standard.ikke_telt` (konfig.IKKE_TELT, subtypes included; 2026-10-21). Read from the STEP
+    products table with `has_body` true, or with no body but a 3D 'Surface' representation, that is
+    in scope: an IfcElement of none of the standard.yaml `standard.ikke_telt` classes (2026-10-27). Read from the STEP
     representations without meshing. Returns the step ids, ascending, and the reasons the other
-    rows were not counted. IfcSite / IfcBuilding / IfcBuildingStorey have no row in that table,
-    so a site body is not counted (ifcfast coverage boundary). `har_3d` above is the earlier
-    ifcopenshell rule and is no longer the denominator."""
+    rows were not counted: per left-out class first, then not an IfcElement (IfcSpace,
+    annotations, proxies), then no 3D body. IfcSite / IfcBuilding / IfcBuildingStorey have no
+    row in that table. `har_3d` above is the earlier ifcopenshell rule and is no longer the
+    denominator."""
     import ifcfast
     from ifcfast.classify import subtypes_of
     m = ifcfast.open(str(sti))
     df = m.products_df
-    sub = df.entity.isin(subtypes_of("IfcFeatureElementSubtraction", m.schema))
-    geo = df.entity.isin(set().union(*(subtypes_of(k, m.schema) for k in konfig.IKKE_TELT)))
-    ute = sub | geo
-    ids = [int(x) for x in df[df.has_body & ~ute].step_id]
+    rest = df.entity == df.entity
+    utelatt_klasse = {}
+    for k in konfig.IKKE_TELT:
+        treff = rest & df.entity.isin(subtypes_of(k, m.schema))
+        utelatt_klasse[k] = int(treff.sum())
+        rest &= ~treff
+    fys = df.entity.isin(subtypes_of(konfig.FYSISK, m.schema))
+    ids = [int(x) for x in df[rest & fys & df.has_body].step_id]
     # No body, but a 3D 'Surface' representation (`_rep_flate`): counted too. Needs the open file.
     flate = []
     if f is not None:
-        for x in df[~df.has_body & ~ute].step_id:
+        for x in df[rest & fys & ~df.has_body].step_id:
             r = getattr(f.by_id(int(x)), "Representation", None)
             if r is not None and r.is_a("IfcProductRepresentation") and any(
                     _rep_flate(sr) for sr in (r.Representations or [])):
                 flate.append(int(x))
     ids = sorted(ids + flate)
-    grunnlag = f"ifcfast {ifcfast.__version__} has_body, uten IfcFeatureElementSubtraction, {', '.join(konfig.IKKE_TELT)}"
+    grunnlag = f"ifcfast {ifcfast.__version__} has_body, {konfig.FYSISK} uten {', '.join(konfig.IKKE_TELT)}"
     if flate:
         grunnlag += f", pluss {len(flate)} uten Body med 3D 'Surface'"
     info = {"grunnlag": grunnlag,
-            "rader": int(len(df)), "uten_3d": int((~df.has_body & ~geo).sum()) - len(flate),
-            "aapning": int((df.has_body & sub).sum()),
-            "utelatt_klasse": int(geo.sum()),
+            "rader": int(len(df)), "utelatt_klasse": utelatt_klasse,
+            "ikke_fysisk": int((rest & ~fys).sum()),
+            "uten_3d": int((rest & fys & ~df.has_body).sum()) - len(flate),
             "rad_ids": set(int(x) for x in df.step_id)}
     return ids, info
 
@@ -222,8 +229,8 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
     n = len(elementer)
     ut["n"] = n
     ut["ikke_telt"] = len(produkter) - n
-    ut["ikke_telt_grunn"] = {"uten_3d": info["uten_3d"], "aapning": info["aapning"],
-                             "utelatt_klasse": info["utelatt_klasse"],
+    ut["ikke_telt_grunn"] = {**{k: v for k, v in info["utelatt_klasse"].items() if v},
+                             "ikke_fysisk": info["ikke_fysisk"], "uten_3d": info["uten_3d"],
                              "romlig_struktur": len(produkter) - info["rader"]}
     ut["tellegrunnlag"] = info["grunnlag"]
     # Products ifcfast has no row for, beyond the spatial structure it keeps in its own tables.
@@ -291,10 +298,9 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
                 verdier[navn][s or "(tom)"] += 1
             # lik_typenavn: same string as IfcTypeObject.Name (IfcRoot.Name), not merely non-empty.
             r = regel[navn]
-            if r["monster"] is not None:
-                ok = bool(s) and r["monster"].match(s) is not None
-            elif r["godtatte"] is not None:
-                ok = bool(s) and s.upper() in r["godtatte"]
+            if r["monster"] is not None or r["godtatte"] is not None:
+                ok = (bool(s) and (r["monster"] is None or r["monster"].match(s) is not None)
+                      and (r["godtatte"] is None or s.upper() in r["godtatte"]))
             elif r["lik_typenavn"]:
                 egen_type = s
                 ok = bool(s) and bool(type_name) and s == type_name
@@ -446,7 +452,7 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str, ps: dict | None) -> 
             cell.fill = PatternFill("solid", fgColor=FYLL[status(andel(r, s))])
             cell.number_format = "0.0"
     ws.append([])
-    ws.append(["Tall er prosent av telte objekter (IfcProduct med 3D-geometri, uten åpninger). Grønn = 100 %, gul = delvis, rød = 0."])
+    ws.append(["Tall er prosent av telte objekter (fysiske objekter med 3D-geometri, se «Telte objekter»). Grønn = 100 %, gul = delvis, rød = 0."])
     ws.append(["Krav", *[f"{s}: {k}" for s, k in liste]])
     ws.freeze_panes = "E2"
     for i in range(1, len(hdr) + 1):
@@ -490,7 +496,7 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str, ps: dict | None) -> 
     wb.save(xlsx)
 
     L = [f"# BEP-egenskapskontroll {dato}", "",
-         "Telte objekter: alle IfcProduct med 3D-geometri, uten åpninger. Prosent = andel av telte objekter som oppfyller kravet.", "",
+         "Telte objekter: fysiske objekter med 3D-geometri (IfcElement uten åpninger, virtuelle og geografiske elementer og deler). Prosent = andel av telte objekter som oppfyller kravet.", "",
          "| Krav | " + " | ".join(r["label"].replace(f"{kode}_", "") for r in resultater) + " |",
          "|---|" + "--:|" * len(resultater)]
     for s, _ in liste:

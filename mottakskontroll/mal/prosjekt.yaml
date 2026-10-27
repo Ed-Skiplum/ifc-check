@@ -115,7 +115,7 @@ prosjektpsett:
   navn: "<FROM PROJECT: property set name; matched without spaces and case>"
   egenskaper:   # in report order
     - navn: "<FROM PROJECT: property name>"
-      regel: "<FROM PROJECT: tre_sifre | fagkode (a value from fagkoder) | lik_typenavn (= IfcTypeObject.Name) | utfylt>"
+      regel: "<FROM PROJECT: tre_sifre | ns3451 (a three-digit code in NS 3451) | ns3457 (a code in NS 3457-8) | fagkode (a value from fagkoder) | lik_typenavn (= IfcTypeObject.Name) | utfylt>"
   # optional: krav (the krav id measuring the set itself, named in other krav's `krever`),
   # navnedel (sets whose name contains it are listed as found instead of the required one)
 
