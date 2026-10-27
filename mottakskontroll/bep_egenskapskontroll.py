@@ -37,9 +37,10 @@ sys.path.insert(0, str(HER))
 import konfig  # noqa: E402
 import stier  # noqa: E402
 
-# Counted set: every IfcProduct carrying a 3D body representation, whatever its class.
-# Only subtractive geometry (IfcOpeningElement and other IfcFeatureElementSubtraction) drops out.
-# Spatial elements without geometry drop out by the rule itself, not by a class list.
+# Counted set: every physical object carrying a 3D body representation -- an IfcElement of none of
+# the classes in standard.yaml `standard.ikke_telt` (konfig.FYSISK / konfig.IKKE_TELT: features,
+# virtual and geographic elements, building element parts). IfcSpace and the rest of the spatial
+# structure are outside IfcElement.
 BODY_ID = {"body", "body-fallback"}
 SOLID_TYPE = {"Brep", "AdvancedBrep", "SweptSolid", "CSG", "Clipping", "SurfaceModel",
               "Tessellation", "SolidModel", "AdvancedSweptSolid"}
