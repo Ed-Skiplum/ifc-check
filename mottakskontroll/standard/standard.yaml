@@ -394,18 +394,11 @@ blokker:
       - {ifc: ifcklasse, tabell: mengdetype_ifcklasse.yaml, navn: IFC-klasse}
       - {ifc: komponentkode, tabell: mengdetype_ns3457.yaml, navn: komponentkode}
     sted: {ifc: materialtilknytning, navn: IfcRelAssociatesMaterial}
-    # Not a material (docs/begreper.md §4): a colour or finish, an element word, a bare number or
-    # dimension, a tool's placeholder. Carried but not usable: outside the accepted values.
-    ikke_materiale:
-      - '\bRAL\b'
-      - '\bNCS\b'
-      - 'lakkert'
-      - '^hvit$'
-      - '^(dekke|innervegg|yttervegg|vegg|gulv|tak)$'
-      - '^[\d\s.,x×]+$'
-      - '^default(\(\d+\))?$'
-      - '^MC_\d+_\d+_\d+'
-      - '^<.*>$'
+    # No validity (edkjo 2026-10-27): nothing specific to validate a material name against,
+    # so the requirement is presence only. A validity row needs a positive definition of a
+    # valid value (code table, accepted values); an exclusion list is not one. A project may
+    # still declare `ikke_materiale` (regex for names that are not a material); the validity
+    # row, the «ugyldig» findings and the gallery marks follow it.
 
   - id: kopiobjekt
     seksjon: standardkrav

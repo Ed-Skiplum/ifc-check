@@ -1181,7 +1181,8 @@ class Modellberegning:
             e["flagg"] = "flagg" if e["flagg"] == "flagg" else ""
         farg_noytralt(rad["fordeling"])
         rad["mock"] = not eksakt and bid not in ("typeobjekt", "etasjer")
-        if har_verdiliste(bid, bdef):
+        if har_verdiliste(bid, bdef, mmi_koder=bool((self.reg.forventet.get("mmi") or {}).get("koder")),
+                          fagkoder=bool(self.reg.fagkoder)):
             # Within vs outside the declared accepted values, read from the same distribution.
             rad["gyldighet"] = {
                 "innenfor": sum(e["n"] for e in ford if e["flagg"] != "avvik"),
