@@ -50,7 +50,8 @@ TRE_SIFRE = re.compile(r"^\d{3}$")
 # checks is not a hit -- it would silently blank the new check in the report.
 # 3 (2026-09-28): the counted set is ifcfast's `has_body` minus IfcFeatureElementSubtraction.
 # 4 (2026-10-20): rules ns3451 / ns3457, a code in the standard's table, not just the form.
-SJEKK_VERSJON = 4
+# 5 (2026-10-27): physical objects only, IfcElement minus standard.yaml `standard.ikke_telt`.
+SJEKK_VERSJON = 5
 
 REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdien er en fagkode",
                "ns3451": "finnes og er en tresifret kode i NS 3451",
