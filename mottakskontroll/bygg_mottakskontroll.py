@@ -1648,7 +1648,9 @@ class Modellberegning:
         if not self.bd.get("ett_sted"):
             return []
         ikke = next((b.get("ikke_materiale") or [] for b in self.reg.blokker if b["id"] == "materiale"), [])
-        return [{**x, "gyldig": er_materiale(x["navn"], ikke)} for x in self.bd.get("materialer") or []]
+        # No exclusion list declared: nothing to validate against, so no verdict (None), not «ok».
+        return [{**x, "gyldig": er_materiale(x["navn"], ikke) if ikke else None}
+                for x in self.bd.get("materialer") or []]
 
     def kodelister(self, uten: set[str] = frozenset()) -> list[dict]:
         """The configured code lists: every value found at the requirement's location, with objects
@@ -2186,15 +2188,16 @@ def kodeliste_rader(tellinger: list[tuple[str, int, int]], tabell: dict[str, str
 
 def html_materialer(m: dict, nr: int) -> str:
     """Every material as found, one card each, sorted by objects."""
+    vurdert = any(x["gyldig"] is not None for x in m["materialer"])
+    legende = (f'<span class="legende"><span>{sym("ok")} {esc(E("materiale"))}</span>'
+               f'<span>{sym("bad")} {esc(E("ikke_materiale"))}</span></span>') if vurdert else ""
     ut = [f'<section class="galleri materialer"><h2><span class="nr">{nr}</span>{esc(E("seksjon_materialgalleri"))}'
-          f'<span class="legende"><span>{sym("ok")} {esc(E("materiale"))}</span>'
-          f'<span>{sym("bad")} {esc(E("ikke_materiale"))}</span>'
-          '</span></h2><div class="kort-rutenett">']
+          f'{legende}</h2><div class="kort-rutenett">']
     for x in sorted(m["materialer"], key=lambda x: -x["objekter"]):
         kl = list(x["klasser"].items())
         kltekst = " · ".join(f"{k} ×{n_(c)}" for k, c in kl[:3]) + (f" · {E('andre')} ({len(kl) - 3})" if len(kl) > 3 else "")
         lag = f'<dt>{esc(E("lag"))}</dt><dd>{esc(" · ".join(f"{v:g}".replace(".", ",") for v in x["lag_mm"]))} mm</dd>' if x.get("lag_mm") else ""
-        ut.append(f'<div class="kort"><div class="tn">{sym("ok" if x["gyldig"] else "bad")} {esc(x["navn"] or "–")}</div>'
+        ut.append(f'<div class="kort"><div class="tn">{"" if x["gyldig"] is None else sym("ok" if x["gyldig"] else "bad") + " "}{esc(x["navn"] or "–")}</div>'
                   f'<div class="inst">{n_(x["objekter"])}<small>{esc(E("objekter"))}</small></div><dl>'
                   f'<dt>{esc(E("ifc_klasser"))}</dt><dd>{esc(kltekst)}</dd>'
                   f'<dt>{esc(E("typer"))}</dt><dd>{n_(x["typer"])}</dd>'
@@ -2256,7 +2259,7 @@ def katalog_ark(modeller: list[dict]) -> list[tuple[str, list[str], list[list]]]
     """Workbook sheets matching the material gallery and the code lists: Materialer, then one sheet
     per configured list. Only for models that carry them."""
     ut = []
-    mat = [[m["label"], x["navn"], E("ja") if x["gyldig"] else E("nei"), x["objekter"],
+    mat = [[m["label"], x["navn"], "" if x["gyldig"] is None else E("ja") if x["gyldig"] else E("nei"), x["objekter"],
             " | ".join(f"{k} ×{c}" for k, c in x["klasser"].items()), x["typer"], x["kilde"],
             " | ".join(f"{v:g}" for v in x.get("lag_mm") or [])]
            for m in modeller for x in sorted(m.get("materialer") or [], key=lambda x: -x["objekter"])]
