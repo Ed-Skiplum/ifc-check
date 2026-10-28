@@ -350,6 +350,18 @@ blokker:
     spenn_under_toleranse_m: 0.10
     sted: {ifc: romlig, navn: IfcRelContainedInSpatialStructure}
 
+  # Opt-in (`valgfri`, see the opt-in requirements below), with its own wording: the location is the
+  # IFC standard's. Every counted object has 3D geometry, a body or, without one, a 3D 'Surface'
+  # (bep_egenskapskontroll.telte). Oppfylt: a body. Mangler: the 'Surface' only, which Revit does
+  # not display (Solibri and Dalux do; spruceledger revit-hides-surface-representation, KNM RIVeg
+  # 2026-10-15). Ed-Skiplum/ifc-check#16.
+  - id: body_geometri
+    seksjon: ifc_helse
+    valgfri: true
+    tittel: 3D-geometri som Body
+    krav_tekst: 3D-geometri ligger i representasjonen 'Body', ikke bare 'Surface' (vises ikke i Revit)
+    sted: {ifc: representasjon, navn: "IfcShapeRepresentation 'Body'"}
+
   # ---- Standardkrav
   - id: systemkode
     seksjon: standardkrav
@@ -454,6 +466,7 @@ blokker:
   #       «gjelder ikke». Present = a matching set; valid = every named quantity in it.
   #   {ifc: materiallag}  an IfcMaterialLayerSet on the object, else on its type. Valid = every layer
   #       has a material and a thickness above zero.
+  #   {ifc: representasjon}  the object's 3D geometry has a body, not only a 'Surface' (body_geometri).
   #   {ifc: typenavn}  the name of the object's type (an untyped object is «gjelder ikke»). Valid =
   #       the project's naming rule (krav.yaml forventet.typenavn, its stricter form by the object's
   #       MMI) and, with `kodetabell`, the code before the first «-» in that table.
