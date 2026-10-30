@@ -1235,8 +1235,10 @@ class Modellberegning:
             o = sum(int(bb_["kilder"].get(k, 0)) for k in nokler)
             carried = sum(int(bb_["kilder_alle"].get(k, 0)) for k in nokler)
             a = carried - o if eksakt else 0
-            rad["dekning"] = dekning({"oppfylt": o, "avvik": a, "mangler": grunnlag - o - a},
-                                     grunnlag, {}, [], [])
+            # Objects of the branch below its MMI threshold (`gjelder_fra_mmi`) are outside it.
+            u = int((bb_.get("mmi_utenfor") or {}).get(gren, 0))
+            rad["dekning"] = dekning({"oppfylt": o, "avvik": a, "mangler": grunnlag - u - o - a,
+                                      "gjelder_ikke": u}, grunnlag, {}, [], [])
             rad["grunnlag_tekst"] = {"telleobjekt": E("telleobjekter"), "mengdeobjekt": E("mengdeobjekter")}[gren]
         if bdef.get("valgfri"):
             # An opt-in requirement: the values as found, flagged where they are outside the

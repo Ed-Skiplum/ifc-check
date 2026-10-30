@@ -70,6 +70,13 @@ def tekst(v) -> str:
     return "" if v is None else str(v).strip()
 
 
+def mmi_tall(v: str) -> int | None:
+    """An MMI value as a whole number («300», «300.0»), or None when it is not one. An object
+    whose MMI is None counts as due under `gjelder_fra_mmi`: it cannot be shown to be below."""
+    m = re.fullmatch(r"\s*(\d+)(?:[.,]0*)?\s*", v or "")
+    return int(m.group(1)) if m else None
+
+
 # ---------------------------------------------------------------- register
 def kildeetikett(spec: dict) -> str:
     """How a cascade source is named in data and print: pset.egenskap as declared in krav.yaml.
@@ -188,7 +195,10 @@ def les_register(prosjekt: Path, kun_standard: bool = False) -> dict:
         "_mengde": Oppslag(m["sted"], "mengdeobjekt") if m.get("sted") and not m.get("utelatt") else None,
         "_mengdetype": [Oppslag(s, "mengdetype") for s in p.get("mengdetype") or []],
         "ikke_materiale": m.get("ikke_materiale") or [],
-        "aapne": (p.get("aapne") or []) + (m.get("aapne") or [])}
+        "aapne": (p.get("aapne") or []) + (m.get("aapne") or []),
+        # Each branch is gated by its own requirement's MMI threshold (konfig.mmi_terskler).
+        "fra_mmi": {g: x["gjelder_fra_mmi"] for g, x in (("telleobjekt", p), ("mengdeobjekt", m))
+                    if x.get("gjelder_fra_mmi") is not None and not x.get("utelatt")}}
     return {"y": y, "blokker": blokker, "kun_standard": kun_standard}
 
 
@@ -491,6 +501,7 @@ class Blokk:
         self.verdi_typer: dict[str, set] = {}         # value -> types (name + class) carrying it
         self.gren_verdier: dict[str, collections.Counter] = {}
         self.ekstra = collections.Counter()           # a block's additional reading
+        self.mmi_utenfor = collections.Counter()      # branch -> objects below its MMI threshold
         self.kildenavn = kildenavn
 
     def sett(self, botte: str, kilde: str | None = None, verdier=(), typenokkel=None, gren: str = "") -> None:
@@ -514,6 +525,12 @@ class Blokk:
                     self.verdi_status[v] = botte
 
     def ut(self) -> dict:
+        d = self._ut()
+        if self.mmi_utenfor:
+            d["mmi_utenfor"] = dict(self.mmi_utenfor)
+        return d
+
+    def _ut(self) -> dict:
         return {"botter": dict(self.bøtter), "kilder": dict(self.kilder),
                 "kilder_alle": dict(self.kilder_alle), "kildenavn": self.kildenavn,
                 "ekstra": dict(self.ekstra), "ikke_konfigurert": self.ikke_konfigurert,
@@ -546,6 +563,12 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     fase_gyldig = {str(x).casefold() for x in bl["fase"].get("gyldige") or []}
     mmi_koder = {str(x) for x in ((y["forventet"].get("mmi") or {}).get("koder") or [])}
     mmi_fase = {str(k): v for k, v in (bl["fase"].get("mmi_fase") or {}).items()}
+    # MMI-gated requirements (`gjelder_fra_mmi`): block id (or materialprodukt branch) -> threshold,
+    # read at the MMI requirement's one location.
+    fra_mmi = {bid: int(v["gjelder_fra_mmi"]) for bid, v in bl.items()
+               if v.get("gjelder_fra_mmi") is not None and not v.get("utelatt")}
+    mp_fra = {g: int(t) for g, t in (mp.get("fra_mmi") or {}).items()}
+    mmi_sted = bl["mmi"].get("_sted") if (fra_mmi or mp_fra) else None
 
     f = ifcopenshell.open(str(sti))
     skala_mm = uu.calculate_unit_scale(f) * 1000.0
@@ -662,11 +685,22 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         if typenavn:
             per_klasse[kl]["typeobjekt"] += 1
 
+        # The object's MMI, for the MMI-gated requirements: below a requirement's threshold, the
+        # object is outside it (gjelder_ikke), as an out-of-scope class is.
+        obj_mmi = mmi_tall(mmi_sted.les(psets)[1]) if mmi_sted is not None else None
+
+        def under(terskel) -> bool:
+            return terskel is not None and obj_mmi is not None and obj_mmi < terskel
+
         # 2 systemkode, at its one location: valid, carried but invalid (avvik), or absent/empty
         o = sk.get("_sted")
         if o is not None:
             v = o.verdi(e, psets, f)
-            if v and (gyldig_3451 is None or gyldig_3451.match(v)) and \
+            if under(fra_mmi.get("systemkode")):
+                b["systemkode"].sett("gjelder_ikke")
+                if v:
+                    rad["systemkode"] = v
+            elif v and (gyldig_3451 is None or gyldig_3451.match(v)) and \
                     (sk_tab is None or v.strip().upper() in sk_tab):
                 b["systemkode"].sett("oppfylt", o.navn, [v], tk)
                 per_klasse[kl]["systemkode"] += 1
@@ -687,7 +721,13 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         o = bl["funksjonskode"].get("_sted")
         if o is not None:
             v = o.verdi(e, psets, f)
-            if v:
+            if under(fra_mmi.get("funksjonskode")):
+                # Outside the requirement; the mengdetype analysis and the type register still read it.
+                b["funksjonskode"].sett("gjelder_ikke")
+                if v:
+                    funk = (o.navn, v)
+                    rad["funksjonskode"] = v
+            elif v:
                 funk = (o.navn, v)
                 b["funksjonskode"].sett("oppfylt", o.navn, [v], tk)
                 per_klasse[kl]["funksjonskode"] += 1
@@ -742,7 +782,12 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         elif mt == "telleobjekt" and mp["_telle"] is not None:
             o = mp["_telle"]
             vv = o.verdi(e, psets, f)
-            if vv:
+            if under(mp_fra.get("telleobjekt")):
+                mpb.sett("gjelder_ikke")
+                mpb.mmi_utenfor["telleobjekt"] += 1
+                if vv:
+                    rad["produkt"] = vv
+            elif vv:
                 mpb.sett("oppfylt", o.navn, [vv], tk, "telleobjekt")
                 per_klasse[kl]["materialprodukt"] += 1
                 rad["produkt"] = vv
@@ -758,7 +803,12 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
                 vv = o.verdi(e, psets, f)
                 verdier = [vv] if vv else []
             bra = [x for x in verdier if brukbar(x)]
-            if bra:
+            if under(mp_fra.get("mengdeobjekt")):
+                mpb.sett("gjelder_ikke")
+                mpb.mmi_utenfor["mengdeobjekt"] += 1
+                if verdier:
+                    rad["materiale"] = " + ".join(bra or verdier)
+            elif bra:
                 mpb.sett("oppfylt", o.navn, bra, tk, "mengdeobjekt")
                 per_klasse[kl]["materialprodukt"] += 1
                 rad["materiale"] = " + ".join(bra)
@@ -779,6 +829,9 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         for bid in ("mmi", "kopiobjekt"):
             o = bl[bid].get("_sted")
             if o is None:
+                continue
+            if bid == "kopiobjekt" and under(fra_mmi.get("kopiobjekt")):
+                b[bid].sett("gjelder_ikke")
                 continue
             har, v = o.les(psets)
             if har:
@@ -865,6 +918,9 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             return typet_[0]
 
         for g in generiske:
+            if under(fra_mmi.get(g["id"])):
+                b[g["id"]].sett("gjelder_ikke")
+                continue
             botte, verdi, arsak = generisk_les(g, e, psets, typet,
                                                {"regel": navneregel(rad.get("mmi", "")),
                                                 "kun_flate": e.id() in kun_flate})

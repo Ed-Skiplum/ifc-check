@@ -183,6 +183,32 @@ def ikke_konfigurert(b: dict) -> bool:
     return not any(b.get(k) for k in STEDER)
 
 
+# Requirements a project may gate by MMI (`gjelder_fra_mmi`), besides every opt-in block: the ones
+# blokkdata.py measures per object with a value of their own. Not the IFC structure blocks, and not
+# MMI itself, which the gate reads.
+MMI_PORT = ("systemkode", "funksjonskode", "produkt", "materiale", "kopiobjekt")
+
+
+def mmi_terskler(blokker: list[dict]) -> None:
+    """Check `gjelder_fra_mmi` (2026-10-30, KNM BEP «Properties by MMI level»): a whole number, on a
+    block that can carry it, and read at the MMI requirement's one location, which must then exist.
+    An object whose MMI there is below the number is outside the requirement, as an out-of-scope
+    class is; an object with no MMI, or one that is not a number, counts as due."""
+    gated = [b for b in blokker if b.get("gjelder_fra_mmi") is not None and not b.get("utelatt")]
+    if not gated:
+        return
+    for b in gated:
+        t = b["gjelder_fra_mmi"]
+        if isinstance(t, bool) or not isinstance(t, int):
+            raise SystemExit(f"FEIL: {b['id']}: gjelder_fra_mmi må være et heltall, ikke {t!r}")
+        if b["id"] not in MMI_PORT and not b.get("valgfri"):
+            raise SystemExit(f"FEIL: {b['id']}: gjelder_fra_mmi gjelder ikke dette kravet "
+                             f"(gyldige: {', '.join(MMI_PORT)} og de valgfrie)")
+    m = next((b for b in blokker if b["id"] == "mmi"), None)
+    if m is None or m.get("utelatt") or not m.get("sted"):
+        raise SystemExit(f"FEIL: gjelder_fra_mmi på {', '.join(b['id'] for b in gated)}, men MMI har ikke sted")
+
+
 def last(krav_sti: Path, kun_standard: bool = False) -> dict:
     std = yaml.safe_load(STANDARD_STI.read_text(encoding="utf-8"))
     tekst = krav_sti.read_text(encoding="utf-8")
@@ -235,6 +261,7 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
         f["krav_tekst"] = f.get("krav_tekst_mmi_fase") or f.get("krav_tekst", "")
         f.pop("gyldige", None)
         f["ikke_konfigurert"] = False
+    mmi_terskler(blokker)
     if kun_standard:
         # Zero project context (edkjo 2026-09-25: a standard-only run must never fail). Only the
         # round's identity (`prosjekt`: code and name, for file names and the header) comes from

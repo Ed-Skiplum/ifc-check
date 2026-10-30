@@ -105,7 +105,8 @@ blokker:
     kilde: "<FROM PROJECT: BEP or manual section>"
     krav: ["<FROM PROJECT: krav id this block answers for>"]
     sted: {pset: "<FROM PROJECT: property set>", egenskap: "<FROM PROJECT: property>"}
-    # optional: unntatt {modell: [label]}, krav_tekst, gyldige, kodetabell, kodeliste, aapne
+    # optional: unntatt {modell: [label], fag: [fagkode]}, gjelder_fra_mmi, krav_tekst, gyldige,
+    # kodetabell, kodeliste, aapne
     # Table paths (kodetabell, kodeliste.fil, mengdetype[].tabell): a bare name found in
     # ../standard/, else relative to this file, or absolute.
 
