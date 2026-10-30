@@ -429,6 +429,14 @@ def vurder_data(reg: Register, d: dict, krav: dict) -> Vurdering:
 
 
 # ---------------------------------------------------------------- file-level measurements
+def null_nivaa(regler: dict, s: dict) -> bool:
+    """A model storey at z = 0 (within 1 mm) that the matrix shows but the verdict ignores (edkjo
+    2026-10-30): a tool's default level, not a floor. Only when no configured floor lies below 0;
+    with one, a z = 0 storey is an ordinary extra level."""
+    return (s["elevation_mm"] is not None and abs(s["elevation_mm"]) < 1
+            and not any(float(n["kote_mm"]) < 0 for n in regler.get("nivaaer") or []))
+
+
 def match_etasjer(regler: dict, storeys: list[dict],
                   plukk: list | None = None) -> tuple[list[tuple[str, str]], list[dict]]:
     """Per expected level: (status, text). Then the file's levels that matched nothing.
