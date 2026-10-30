@@ -257,8 +257,9 @@ standard:
   telte_objekter: >-
     Physical objects with 3D geometry: IfcElement without openings and other IfcFeatureElement,
     IfcVirtualElement, IfcGeographicElement (terrain, origin markers) and IfcBuildingElementPart
-    (parts, typed through the owner object). Spaces (IfcSpace) are not counted. Shares are of this
-    number, in both workbook and PDF.
+    (parts, typed through the owner object). Parts of an assembly (IfcRelAggregates under an
+    IfcElement, such as stairs and curtain walls) are not counted; the owner object is counted
+    instead. Spaces (IfcSpace) are not counted. Shares are of this number, in both workbook and PDF.
   navnematching: >-
     Property set and property names are matched ignoring spaces and case. The variant found is
     reported.

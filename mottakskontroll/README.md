@@ -27,6 +27,18 @@ mottakskontroll/
   requirements.txt
 ```
 
+## Counted set
+
+The objects every requirement is measured over, the same for all projects (standard.yaml
+`standard`): an `IfcElement` with 3D geometry, of none of the `ikke_telt` classes (openings,
+virtual and geographic elements, building element parts). A part of an assembly is not counted
+either (`ikke_telt_del_av`): an element decomposed through `IfcRelAggregates` from another
+`IfcElement` (a stair flight, stringer or railing of an `IfcStair`, a plate or member of an
+`IfcCurtainWall`, anything in an `IfcElementAssembly`). Its owner is the object checked, and is
+counted also when its 3D geometry sits in its parts only. A part aggregated into the spatial
+structure (storey, space) is unaffected. `data.json` records the parts left out per model under
+`ikke_telt_grunn.del_av_element`.
+
 ## Run it on another box
 
 Needs Python (tested on 3.12) and Chrome, Chromium or Edge (PDF print; `$CHROME` overrides the lookup).

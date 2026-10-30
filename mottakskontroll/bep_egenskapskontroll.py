@@ -56,7 +56,9 @@ TRE_SIFRE = re.compile(r"^\d{3}$")
 # 6 (2026-10-27, HI90 engine port): plus products with no body whose 'Surface' representation holds
 # 3D geometry (HI90 engine 4, 2026-10-15); property rules from konfig.egenskapskontroll.
 # 7 (2026-10-27): 5 and 6 merged.
-SJEKK_VERSJON = 7
+# 8 (2026-10-30): parts of an assembly (standard.yaml `standard.ikke_telt_del_av`) out of the counted
+# set, their owner in, also when its 3D geometry sits in the parts only.
+SJEKK_VERSJON = 8
 
 
 def sjekker(ps: dict | None) -> list[tuple[str, str]]:
@@ -150,14 +152,19 @@ def _rep_flate(sr) -> bool:
 def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     """The counted set (2026-09-28, ifcfast #201-#203 resolved): every IfcProduct row in ifcfast's
     products table with `has_body` true, or with no body but a 3D 'Surface' representation, that is
-    in scope: an IfcElement of none of the standard.yaml `standard.ikke_telt` classes (2026-10-27). Read from the STEP
-    representations without meshing. Returns the step ids, ascending, and the reasons the other
-    rows were not counted: per left-out class first, then not an IfcElement (IfcSpace,
-    annotations, proxies), then no 3D body. IfcSite / IfcBuilding / IfcBuildingStorey have no
-    row in that table. `har_3d` above is the earlier ifcopenshell rule and is no longer the
-    denominator."""
+    in scope: an IfcElement of none of the standard.yaml `standard.ikke_telt` classes (2026-10-27),
+    and not a part of another element (`standard.ikke_telt_del_av`, 2026-10-30: an IfcElement
+    decomposed through IfcRelAggregates from one of its owner classes). The owner of such parts is
+    counted when it or any part below it has 3D geometry, so a Revit IfcStair or IfcCurtainWall, whose
+    geometry sits in its parts, is the object checked. Read from the STEP representations without
+    meshing. Returns the step ids, ascending, and the reasons the other rows were not counted: per
+    left-out class first, then the parts, then not an IfcElement (IfcSpace, annotations, proxies),
+    then no 3D body. IfcSite / IfcBuilding / IfcBuildingStorey have no row in that table. `har_3d`
+    above is the earlier ifcopenshell rule and is no longer the denominator."""
     import ifcfast
     from ifcfast.classify import subtypes_of
+    if f is None:
+        f = ifcopenshell.open(str(sti))
     m = ifcfast.open(str(sti))
     df = m.products_df
     rest = df.entity == df.entity
@@ -166,27 +173,59 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
         treff = rest & df.entity.isin(subtypes_of(k, m.schema))
         utelatt_klasse[k] = int(treff.sum())
         rest &= ~treff
+    # Parts of an assembly: child step id -> owner step id, and owner -> its parts.
+    eier_av: dict[int, int] = {}
+    deler: dict[int, list[int]] = collections.defaultdict(list)
+    for rel in f.by_type("IfcRelAggregates"):
+        o = rel.RelatingObject
+        if o is None or not any(o.is_a(k) for k in konfig.DEL_AV):
+            continue
+        for c in rel.RelatedObjects or []:
+            eier_av[c.id()] = o.id()
+            deler[o.id()].append(c.id())
     fys = df.entity.isin(subtypes_of(konfig.FYSISK, m.schema))
+    del_av = rest & fys & df.step_id.astype(int).isin(set(eier_av))
+    rest &= ~del_av
     ids = [int(x) for x in df[rest & fys & df.has_body].step_id]
-    # No body, but a 3D 'Surface' representation (`_rep_flate`): counted too. Needs the open file.
-    flate = []
-    if f is not None:
-        for x in df[rest & fys & ~df.has_body].step_id:
-            r = getattr(f.by_id(int(x)), "Representation", None)
-            if r is not None and r.is_a("IfcProductRepresentation") and any(
-                    _rep_flate(sr) for sr in (r.Representations or [])):
-                flate.append(int(x))
-    ids = sorted(ids + flate)
+    body = {int(x) for x in df[df.has_body].step_id}
+
+    def flate_3d(i: int) -> bool:
+        r = getattr(f.by_id(i), "Representation", None)
+        return r is not None and r.is_a("IfcProductRepresentation") and any(
+            _rep_flate(sr) for sr in (r.Representations or []))
+
+    def del_3d(i: int, dybde: int = 0) -> bool:
+        """A part below owner `i` has 3D geometry (a body or a 3D 'Surface'), at any depth."""
+        return dybde < 16 and any(d in body or flate_3d(d) or del_3d(d, dybde + 1) for d in deler.get(i, []))
+
+    # No body, but a 3D 'Surface' representation (`_rep_flate`): counted too. No body of its own but
+    # parts with 3D geometry: the owner of an assembly, counted.
+    flate, sammensatt = [], []
+    for x in df[rest & fys & ~df.has_body].step_id:
+        if flate_3d(int(x)):
+            flate.append(int(x))
+        elif del_3d(int(x)):
+            sammensatt.append(int(x))
+    ids = sorted(ids + flate + sammensatt)
     grunnlag = f"ifcfast {ifcfast.__version__} has_body, {konfig.FYSISK} uten {', '.join(konfig.IKKE_TELT)}"
+    if konfig.DEL_AV:
+        grunnlag += f" og deler av {', '.join(konfig.DEL_AV)} (IfcRelAggregates)"
     if flate:
         grunnlag += f", pluss {len(flate)} uten Body med 3D 'Surface'"
+    if sammensatt:
+        grunnlag += f", pluss {len(sammensatt)} sammensatte med 3D i delene"
     info = {"grunnlag": grunnlag,
             "rader": int(len(df)), "utelatt_klasse": utelatt_klasse,
+            "del_av": int(del_av.sum()),
             "ikke_fysisk": int((rest & ~fys).sum()),
-            "uten_3d": int((rest & fys & ~df.has_body).sum()) - len(flate),
+            "uten_3d": int((rest & fys & ~df.has_body).sum()) - len(flate) - len(sammensatt),
             "rad_ids": set(int(x) for x in df.step_id),
             # the counted products whose only 3D geometry is a 'Surface' (blokkdata body_geometri)
-            "flate": set(flate)}
+            "flate": set(flate),
+            # the counted owners whose 3D geometry is in their parts only
+            "sammensatt": set(sammensatt),
+            # every part left out, step id -> its owner's step id
+            "eier_av": eier_av}
     return ids, info
 
 
@@ -232,6 +271,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
     ut["n"] = n
     ut["ikke_telt"] = len(produkter) - n
     ut["ikke_telt_grunn"] = {**{k: v for k, v in info["utelatt_klasse"].items() if v},
+                             **({"del_av_element": info["del_av"]} if info["del_av"] else {}),
                              "ikke_fysisk": info["ikke_fysisk"], "uten_3d": info["uten_3d"],
                              "romlig_struktur": len(produkter) - info["rader"]}
     ut["tellegrunnlag"] = info["grunnlag"]

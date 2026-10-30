@@ -41,15 +41,16 @@ MAL_MERKE = "<FROM PROJECT"
 PLASSHOLDER = "[WRITE]"
 
 
-def _omfang() -> tuple[str, dict[str, str]]:
-    """The check's scope from standard.yaml `standard`: `fysisk_klasse` (IfcElement) and
-    `ikke_telt` (class -> reason). Read from the standard layer only, so every project gets the
-    same scope."""
+def _omfang() -> tuple[str, dict[str, str], dict[str, str]]:
+    """The check's scope from standard.yaml `standard`: `fysisk_klasse` (IfcElement), `ikke_telt`
+    (class -> reason) and `ikke_telt_del_av` (owner class -> reason). Read from the standard layer
+    only, so every project gets the same scope."""
     std = yaml.safe_load(STANDARD_STI.read_text(encoding="utf-8"))["standard"]
-    return str(std["fysisk_klasse"]), {str(k): str(v) for k, v in std["ikke_telt"].items()}
+    return (str(std["fysisk_klasse"]), {str(k): str(v) for k, v in std["ikke_telt"].items()},
+            {str(k): str(v) for k, v in (std.get("ikke_telt_del_av") or {}).items()})
 
 
-FYSISK, IKKE_TELT = _omfang()
+FYSISK, IKKE_TELT, DEL_AV = _omfang()
 
 
 def utelatt(e) -> str | None:
@@ -58,9 +59,23 @@ def utelatt(e) -> str | None:
     return next((k for k in IKKE_TELT if e.is_a(k)), None)
 
 
+def eier(e):
+    """The object `e` is a part of, when it is decomposed from one of the `ikke_telt_del_av` owner
+    classes through IfcRelAggregates (2026-10-30: a stair flight, stringer or railing of an IfcStair,
+    a plate of an IfcCurtainWall, anything in an IfcElementAssembly); else None. A part aggregated
+    into the spatial structure (storey, space) has no such owner."""
+    for rel in getattr(e, "Decomposes", None) or []:
+        if rel.is_a("IfcRelAggregates"):
+            o = rel.RelatingObject
+            if o is not None and any(o.is_a(k) for k in DEL_AV):
+                return o
+    return None
+
+
 def i_omfang(e) -> bool:
-    """A physical object in the check: an IfcElement of no `ikke_telt` class."""
-    return e.is_a(FYSISK) and utelatt(e) is None
+    """A physical object in the check: an IfcElement of no `ikke_telt` class, and not a part of
+    another element (`ikke_telt_del_av`): the owner is the object reported."""
+    return e.is_a(FYSISK) and utelatt(e) is None and eier(e) is None
 
 
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).

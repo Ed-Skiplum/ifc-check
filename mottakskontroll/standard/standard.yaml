@@ -275,11 +275,20 @@ standard:
     IfcVirtualElement: ikke fysisk
     IfcGeographicElement: terreng og origo-markører
     IfcBuildingElementPart: del av eierobjekt, typet gjennom eieren
+  # Parts of an assembly (edkjo 2026-10-30: «we don't report on individual elements if they are
+  # typed by an assembly or parent»): an IfcElement decomposed through IfcRelAggregates from an
+  # object of one of these classes is not counted in any requirement; its owner is the object
+  # reported, counted also when its 3D geometry sits in its parts only (a Revit IfcStair, an
+  # IfcCurtainWall). Generalises IfcBuildingElementPart above. A part aggregated into the spatial
+  # structure (storey, space) is not affected. Owner class -> reason.
+  ikke_telt_del_av:
+    IfcElement: del av et sammensatt objekt, kontrollert gjennom eieren
   telte_objekter: >-
     Fysiske objekter med 3D-geometri: IfcElement uten åpninger og andre IfcFeatureElement,
     IfcVirtualElement, IfcGeographicElement (terreng, origo-markører) og IfcBuildingElementPart
-    (deler, typet gjennom eierobjektet). Rom (IfcSpace) telles ikke. Andeler er av dette tallet, i
-    både regneark og PDF.
+    (deler, typet gjennom eierobjektet). Deler av sammensatte objekter (IfcRelAggregates under et
+    IfcElement, som trapp og fasadesystem) telles ikke; eierobjektet telles i stedet. Rom (IfcSpace)
+    telles ikke. Andeler er av dette tallet, i både regneark og PDF.
   navnematching: >-
     Navn på egenskapssett og egenskaper matches uten hensyn til mellomrom og store/små
     bokstaver. Varianten som ble funnet rapporteres.

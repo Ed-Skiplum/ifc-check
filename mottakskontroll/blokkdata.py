@@ -52,7 +52,9 @@ import stier  # noqa: E402
 # 11 (2026-10-27): location kind {ifc: representasjon} (opt-in block body_geometri).
 # 12 (2026-10-27): with Typeobjekt and the pset gallery over the objects in scope only
 # (konfig.i_omfang: IfcElement minus `standard.ikke_telt`), from the live branch's 11.
-BLOKK_VERSJON = 12
+# 13 (2026-10-30): parts of an assembly (`standard.ikke_telt_del_av`) out of the counted set and of
+# the Typeobjekt scope; the owner counted instead (bep_egenskapskontroll.telte).
+BLOKK_VERSJON = 13
 
 # Distinct values kept per property for the pset gallery's examples; beyond it only counts grow.
 PSET_MAKS_VERDIER = 200
@@ -605,8 +607,9 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
                                     (st.Name or "").strip() if st is not None else ""]
 
     # 1 typeobjekt: over every object in scope, with or without 3D body, not only the counted set:
-    # IfcElement minus standard.yaml `standard.ikke_telt` (konfig.i_omfang, 2026-10-27). The spatial
-    # structure has no type to miss, and a building element part is typed through its owner.
+    # IfcElement minus standard.yaml `standard.ikke_telt` and minus the parts of an assembly
+    # (`standard.ikke_telt_del_av`; konfig.i_omfang, 2026-10-27, 2026-10-30). The spatial structure
+    # has no type to miss, and a part is typed through its owner.
     # Everything below (pset gallery included) reads this set; the rest of the file is out of scope.
     alle = [pr for pr in f.by_type("IfcProduct") if konfig.i_omfang(pr)]
     typbare = alle
