@@ -471,7 +471,8 @@ def match_etasjer(regler: dict, storeys: list[dict],
     over, under = regler["toleranse_over_mm"], regler["toleranse_under_mm"]
     ov = regler.get("override")
     if ov:
-        fullt = not extras and all(st != "bad" and same for st, _, _, same in raw)
+        fullt = not [x for x in extras if not null_nivaa(regler, x)] and \
+            all(st != "bad" and same for st, _, _, same in raw)
         if fullt or not ov.get("krev_fullt_navnesamsvar"):
             over = ov["toleranse_over_mm"] if "toleranse_over_mm" in ov else over
             under = ov["toleranse_under_mm"] if "toleranse_under_mm" in ov else under
