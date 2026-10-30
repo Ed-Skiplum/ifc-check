@@ -119,7 +119,7 @@ ikke, inside and outside the accepted values) sum to `beregnet.json`. A type is 
 
 Sheets: Sammendrag (per model, types fulfilled per requirement), Typer (per type: values and verdict
 per requirement, the requirements grouped under the report's sections), Forekomster (per object:
-value and status per requirement; the parts of an assembly listed with their owner), Materialer,
+one column per requirement, the value filled by its status (green fulfilled, red deviation, grey missing or not applicable, the cell text says which); the parts of an assembly listed with their owner), Materialer,
 Materiallag (the type's material association, else the objects' most common), Kilder. English with
 `spraak: en`.
 

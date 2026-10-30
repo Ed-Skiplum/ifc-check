@@ -370,22 +370,35 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
     # Forekomster: every counted object, then the parts of an assembly with their owner
     fast_f = [E(k) for k in ("ty_modell", "ty_typenavn", "ty_ifc_klasse", "ty_globalid", "ty_type_globalid",
                              "ty_etasje", "ty_eier_guid", "ty_eier_type")]
-    ws, h = ark(E("ark_ty_forekomster"), fast_f + blokk_hode, [("", len(fast_f))] + blokk_band,
+    # one column per requirement: the value, filled by its status; no value is «missing» in grey
+    blokk_hode_f = [b["tittel"] for b in kol]
+    blokk_band_f = [(s["tittel"], sum(1 for b in kol if b["seksjon"] == s["id"])) for s in T["seksjoner"]]
+    ws, h = ark(E("ark_ty_forekomster"), fast_f + blokk_hode_f, [("", len(fast_f))] + blokk_band_f,
                 {E("ty_typenavn"): 36, E("ty_globalid"): 24, E("ty_type_globalid"): 24, E("ty_eier_guid"): 24})
     for x, o, st in forekomster:
         et = o["s"][0] if o.get("s") else (f"({o.get('h')})" if o.get("h") else None)
         rad = [x["modell"], (x["typenavn"] or E("ty_uten_navn")) if x["typet"] else None, o["k"], o["g"],
                o["tg"] or None, et, None, None]
+        celler = []
         for b in kol:
-            rad += [verdi_objekt(o, b), st_ord.get(st[b["id"]], None)]
+            sb, v = st[b["id"]], verdi_objekt(o, b)
+            if not sb:
+                celler.append((None, None))
+            elif sb == "gjelder_ikke":
+                celler.append((st_ord[sb], "na"))
+            elif sb == "mangler" or not v:
+                celler.append((st_ord["mangler"], "na"))
+            else:
+                celler.append((v, st_fyll[sb]))
+        rad += [c[0] for c in celler]
         ws.append(rad)
         rr = ws.max_row
-        for j, b in enumerate(kol):
-            if st[b["id"]]:
-                ws.cell(row=rr, column=len(fast_f) + 2 * j + 2).fill = fyll[st_fyll[st[b["id"]]]]
+        for j, (_, f_) in enumerate(celler):
+            if f_:
+                ws.cell(row=rr, column=len(fast_f) + 1 + j).fill = fyll[f_]
     for lab, d in deler_alle:
         ws.append([lab, d["t"], d["k"], d["g"], d.get("tg") or None, None, d["eier"],
-                   d["eier_t"] if d["eier_t"] is not None else d["eier_k"]] + [None] * len(blokk_hode))
+                   d["eier_t"] if d["eier_t"] is not None else d["eier_k"]] + [None] * len(blokk_hode_f))
     avslutt(ws, h, f"E{h + 1}")
 
     # Materialer: every material name the counted objects carry, before any join
