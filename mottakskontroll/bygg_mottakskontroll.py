@@ -1034,7 +1034,8 @@ def rad_verdikt(reg: "Register", rad: dict) -> str:
 
 def etasjedefinisjon_verdikt(em: dict) -> str:
     """Etasjedefinisjon: an extra level or a name mismatch is ikke oppfylt; a kote deviation within
-    twice the tolerance is kan brukes, beyond it ikke oppfylt; missing levels alone are oppfylt."""
+    twice the tolerance is kan brukes, beyond it ikke oppfylt; missing levels alone are oppfylt. A
+    z = 0 level (`null_nivaa`) is shown but does not count."""
     t = em["toleranse"]
     verst = "oppfylt"
     for r_ in em["rader"]:
