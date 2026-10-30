@@ -153,7 +153,9 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
                     funnet = f'{e["m_navn"]} {B.m_(e["m_kote"], 3)}' if e["m_navn"] else ""
                     ref = f'{e["k_navn"]} {B.m_(e["k_kote"], 3)}' if e["k_navn"] else ""
                     # a missing level is allowed; with no levels configured nothing is a deviation
-                    st = "na" if e["kode"] in ("mangler", "ikke_konfigurert") else "bad"
+                    # a z = 0 level is shown yellow and does not count (edkjo 2026-10-30)
+                    st = "na" if e["kode"] in ("mangler", "ikke_konfigurert") else \
+                        "warn" if e["kode"] == "null_nivaa" else "bad"
                     rader.append([m["label"], m["fag"], "", "IfcBuildingStorey", e["m_navn"], "", ref,
                                   "IfcBuildingStorey", funnet, e["status"], st])
         elif bid in ("typeobjekt", "etasjer", "systemkode", "funksjonskode", "produkt", "materiale", "mmi", "fase") \

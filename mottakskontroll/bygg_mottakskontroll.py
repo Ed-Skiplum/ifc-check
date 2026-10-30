@@ -1613,7 +1613,7 @@ class Modellberegning:
             else:
                 status[id(pick)] = (alvor["kote"], txt)
         for x in extras:
-            status[id(x)] = (alvor["ekstra"], "")
+            status[id(x)] = ("", E("etasje_null_nivaa")) if null_nivaa(regler, x) else (alvor["ekstra"], "")
         antall = {}
         for et in self.bd["etasjer"]:
             antall[(et["navn"], et["elevation_mm"])] = et["objekter"]

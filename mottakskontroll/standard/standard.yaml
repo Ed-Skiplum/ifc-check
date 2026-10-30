@@ -115,6 +115,7 @@ etiketter:
   etasje_koteavvik: koteavvik
   etasje_mangler: mangler
   etasje_andre_nivaaer: andre nivåer
+  etasje_null_nivaa: z = 0, teller ikke
   etasje_ikke_konfigurert: ikke konfigurert
   ifc_skjema: IFC-skjema
   godtatt: godtatt
