@@ -384,7 +384,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
             if st[b["id"]]:
                 ws.cell(row=rr, column=len(fast_f) + 2 * j + 2).fill = fyll[st_fyll[st[b["id"]]]]
     for lab, d in deler_alle:
-        ws.append([lab, d["t"], d["k"], d["g"], None, None, d["eier"],
+        ws.append([lab, d["t"], d["k"], d["g"], d.get("tg") or None, None, d["eier"],
                    d["eier_t"] if d["eier_t"] is not None else d["eier_k"]] + [None] * len(blokk_hode))
     avslutt(ws, h, f"E{h + 1}")
 

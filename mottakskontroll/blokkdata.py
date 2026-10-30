@@ -647,7 +647,7 @@ def per_objekt(f, po: dict[int, dict], typemat: dict[str, list], info: dict) -> 
             continue
         td, to = ue.get_type(d), ue.get_type(o)
         deler.append({"g": d.GlobalId, "k": d.is_a(), "t": (td.Name or "").strip() if td is not None else None,
-                      "eier": o.GlobalId, "eier_k": o.is_a(),
+                      "tg": td.GlobalId if td is not None else "", "eier": o.GlobalId, "eier_k": o.is_a(),
                       "eier_t": (to.Name or "").strip() if to is not None else None})
     return {"versjon": PER_OBJEKT_VERSJON, "objekter": list(po.values()), "typemateriale": typemat,
             "deler": deler}
