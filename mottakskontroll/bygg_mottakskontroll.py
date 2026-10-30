@@ -1397,13 +1397,15 @@ class Modellberegning:
             ut.append(etasjerad(kode, k_navn=niv["navn"], k_kote=niv["kote_mm"], m_navn=pick["name"].strip(),
                                 m_kote=pick["elevation_mm"], sym=s_, delta_mm=d_, sortering=niv["kote_mm"]))
         for x in extras:
-            ut.append(etasjerad("andre_nivaaer", k_navn="", k_kote=None, m_navn=x["name"].strip(),
+            # z = 0 with no configured floor below it: shown yellow, left out of the verdict
+            kode = "null_nivaa" if null_nivaa(regler, x) else "andre_nivaaer"
+            ut.append(etasjerad(kode, k_navn="", k_kote=None, m_navn=x["name"].strip(),
                                 m_kote=x["elevation_mm"], sym="warn", sortering=x["elevation_mm"] or 0))
         ut.sort(key=lambda r_: (r_["sortering"] if r_["sortering"] is not None else -1e18))
         ov = regler.get("override") or {}
         # The discipline's tolerance, on the same condition as match_etasjer: every level matched by
         # name and no extra levels, when the override requires it (RIB: OK bærende dekke, 2026-09-14).
-        fullt = not extras and all(p is not None and p["name"].strip().casefold() == n["navn"].casefold()
+        fullt = not [x for x in extras if not null_nivaa(regler, x)] and all(p is not None and p["name"].strip().casefold() == n["navn"].casefold()
                                    for n, p in zip(regler["nivaaer"], plukk))
         if ov and (fullt or not ov.get("krev_fullt_navnesamsvar")):
             tol = {"over": ov.get("toleranse_over_mm", tol["over"]), "under": ov.get("toleranse_under_mm", tol["under"])}
