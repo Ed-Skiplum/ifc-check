@@ -209,6 +209,33 @@ def mmi_terskler(blokker: list[dict]) -> None:
         raise SystemExit(f"FEIL: gjelder_fra_mmi på {', '.join(b['id'] for b in gated)}, men MMI har ikke sted")
 
 
+def prosjektseksjoner(prj_s: list, std_s: list[dict], blokker: list[dict],
+                      prj_rekke: list[str]) -> tuple[list[dict], list[dict]]:
+    """A project's own `seksjoner` (2026-10-30, KNM: the requirements grouped by pset as in its BEP
+    attachment): the list REPLACES the standard's, in its order. `tittel` may be left out for a
+    standard section id, which then keeps the standard's title. Every block in the report must name
+    one of them in `seksjon`. Blocks are ordered by section, then in the order the project lists
+    them in `blokker`, then in the standard's order."""
+    std_tittel = {s["id"]: s["tittel"] for s in std_s}
+    seksjoner = []
+    for s in prj_s:
+        sid = str((s or {}).get("id") or "")
+        tittel = (s or {}).get("tittel") or std_tittel.get(sid)
+        if not sid or not tittel:
+            raise SystemExit(f"FEIL: seksjoner: {s!r} mangler id eller tittel")
+        seksjoner.append({"id": sid, "tittel": str(tittel)})
+    ids = [s["id"] for s in seksjoner]
+    if len(set(ids)) != len(ids):
+        raise SystemExit(f"FEIL: seksjoner: samme id to ganger i {ids}")
+    uten = [b["id"] for b in blokker if not b.get("utelatt") and b.get("seksjon") not in ids]
+    if uten:
+        raise SystemExit(f"FEIL: seksjoner: {', '.join(uten)} har ingen seksjon i prosjektets liste {ids}")
+    pos = {bid: i for i, bid in enumerate(prj_rekke)}
+    rekke = sorted(blokker, key=lambda b: (ids.index(b["seksjon"]) if b.get("seksjon") in ids else len(ids),
+                                           pos.get(b["id"], len(pos))))
+    return seksjoner, rekke
+
+
 def last(krav_sti: Path, kun_standard: bool = False) -> dict:
     std = yaml.safe_load(STANDARD_STI.read_text(encoding="utf-8"))
     tekst = krav_sti.read_text(encoding="utf-8")
@@ -277,6 +304,9 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
         ut[k] = copy.deepcopy(std[k]) if kun_standard or k not in prj else prj[k]
     ut["blokker"] = blokker
     ut["seksjoner"] = std["seksjoner"]
+    if not kun_standard and prj.get("seksjoner"):
+        ut["seksjoner"], ut["blokker"] = prosjektseksjoner(prj["seksjoner"], std["seksjoner"], blokker,
+                                                           list(prj_blokker))
     skjema = dict(std.get("skjema") or {})
     if not kun_standard:
         skjema.update(prj.get("skjema") or {})

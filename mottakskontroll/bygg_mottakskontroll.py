@@ -1783,7 +1783,7 @@ class Modellberegning:
                 f'<div class="under">{esc(E("delt_med_andre_modeller"))} {n_(g["delt"])}{esc(med)}</div></div>')
         em = e["rader"][0]["etasjematrise"]
         return {"ekstra_kpi": [kort], "komponent_ids": ["guid", "etasjedefinisjon"], "ekstra_css": KPI_CSS,
-                "seksjon_start": {"ifc_helse": html_etasjekomponent(em, e["verdikt"])}}
+                "seksjon_start": {e["seksjon"]: html_etasjekomponent(em, e["verdikt"])}}
 
     def alt(self) -> dict:
         m = self.r.cfg[self.label]
