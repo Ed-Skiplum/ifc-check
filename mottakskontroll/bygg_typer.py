@@ -389,7 +389,8 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
             elif sb == "mangler" or not v:
                 celler.append((st_ord["mangler"], "na"))
             else:
-                celler.append((v, st_fyll[sb]))
+                # A value that fails is red, not the amber «avvik» of the verdicts (edkjo 2026-10-30).
+                celler.append((v, "ok" if sb == "oppfylt" else "bad"))
         rad += [c[0] for c in celler]
         ws.append(rad)
         rr = ws.max_row
