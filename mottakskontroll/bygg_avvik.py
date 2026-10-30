@@ -132,7 +132,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
         hull = False
         if bdef.get("ikke_konfigurert"):
             # no location in either layer (e.g. MMI, Kopiobjekt in a standard-only run): one row
-            rader = [["alle", "", "", "", "", "", "", "", "", B.E("ikke_konfigurert"), "na"]]
+            rader = [[B.E("alle_modeller"), "", "", "", "", "", "", "", "", B.E("ikke_konfigurert"), "na"]]
         elif bid == "guid":
             # duplicates inside a file (none in this round), then the GUIDs shared with other models
             for m in R["modeller"]:
@@ -174,7 +174,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
                     rader.append([m["label"], m["fag"], guid, kl, navn, tn, et, sted, verdi, B.E(etikett), st])
         elif bid == "kopiobjekt" and not B.konfig.psett_egenskap(reg.prosjektpsett, "fagkode"):
             # the per-GUID values come from the project property set's fagkode property
-            rader = [["alle", "", "", "", "", "", "", "", "", B.E("ikke_konfigurert"), "na"]]
+            rader = [[B.E("alle_modeller"), "", "", "", "", "", "", "", "", B.E("ikke_konfigurert"), "na"]]
         elif bid == "kopiobjekt":
             kopi_navn = B.konfig.psett_egenskap(reg.prosjektpsett, "fagkode")
             godtatte = {f.upper() for f in reg.fagkoder}
@@ -246,7 +246,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, kun_standard: bool 
         for bid, tittel, rader, hull in ark_liste:
             if bid == "guid":
                 egne = guid_rader(medlemmer)
-            elif rader and rader[0][0] == "alle":
+            elif rader and rader[0][0] == B.E("alle_modeller"):
                 egne = rader
             else:
                 egne = slaa_sammen([r_ for r_ in rader if r_[0] in medlemmer])

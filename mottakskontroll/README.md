@@ -21,7 +21,7 @@ mottakskontroll/
   konfig.py                 merges standard/standard.yaml with the project config
   stier.py                  arguments and path rules
   step.py                   streaming STEP reader for struktur.py
-  standard/                 the standard layer: standard.yaml, standard_psett.yaml, code tables
+  standard/                 the standard layer: standard.yaml, standard_en.yaml (English words), standard_psett.yaml, code tables
   rapport/                  report treatment: tokens.css, mottakskontroll.css, brand mark
   mal/prosjekt.yaml         project config template
   requirements.txt
@@ -85,7 +85,8 @@ May declare:
 | `uten_rapport`, `faggrupper` | fagkoder or model labels with no report; avvik workbook groups (unlisted model = own group) |
 | `skjema` | accepted/recommended schemas, replaces the standard's |
 | `merknader`, `merknader_modell` | the report's only sentences |
-| `etiketter`, `verdiktord`, `kpi_terskler`, `terskel_gyldig` | merged key by key over the standard |
+| `spraak` | report language: `nb` (default, the standard layer as written) or `en`. With `en` every engine-owned word (labels, verdict words, the standard's section and block titles and requirement texts, KPI titles, the counted-objects note) comes from `standard/standard_en.yaml`, dates print as ISO 8601, decimals with a point, and the HTML carries `lang="en"`. Text the project writes (block `tittel` and `krav_tekst`, `krav` titles and `maaler`, its section titles, merknader) prints as written, so an English report needs those in English too. A key in `standard.yaml` `etiketter` or `verdiktord` with no English entry stops an English run |
+| `etiketter`, `verdiktord`, `kpi_terskler`, `terskel_gyldig` | merged key by key over the standard (over the English table when `spraak: en`) |
 | `standard`, `kpi_band`, `kpi_alle` | replace the standard's whole |
 
 Table paths (`kodetabell`, `kodeliste.fil`, `mengdetype[].tabell`): absolute as given; a bare

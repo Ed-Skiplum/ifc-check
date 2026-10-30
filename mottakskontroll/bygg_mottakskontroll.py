@@ -80,6 +80,20 @@ NYE_NAVN = {"label": "id", "sha256": "sha", "firma": "fag", "lastet_opp": "lever
 
 
 # ---------------------------------------------------------------- formatting
+# The report language (konfig `spraak`, set when the register loads): the decimal mark, the date
+# form and the document's lang attribute. Norwegian is the default.
+SPRAAK = {"kode": "nb", "desimal": ","}
+
+
+def sett_spraak(kode: str) -> None:
+    SPRAAK.update({"kode": kode, "desimal": "." if kode == "en" else ","})
+
+
+def des(s: str) -> str:
+    """A number already formatted with a point, with the report language's decimal mark."""
+    return s.replace(".", SPRAAK["desimal"])
+
+
 def esc(s) -> str:
     return html.escape(str(s), quote=False)
 
@@ -89,8 +103,8 @@ def pct(n: float, d: float) -> float:
 
 
 def fmt_pct(p: float) -> str:
-    s = f"{p:.1f}".replace(".", ",")
-    return s[:-2] if s.endswith(",0") else s
+    s = des(f"{p:.1f}")
+    return s[:-2] if s.endswith(SPRAAK["desimal"] + "0") else s
 
 
 def fmt_n(v) -> str:
@@ -102,7 +116,7 @@ def fmt_mm(v: float) -> str:
 
 
 def m_(v_mm: float, dec: int = 2) -> str:
-    return f"{v_mm/1000:.{dec}f}".replace(".", ",")
+    return des(f"{v_mm/1000:.{dec}f}")
 
 
 def brytbar(s: str) -> str:
@@ -184,6 +198,7 @@ class Register:
         self.seksjoner: list[dict] = y.get("seksjoner") or []
         self.skjema: dict = y.get("skjema") or {}
         self.terskel_gyldig: dict = y.get("terskel_gyldig") or {}
+        sett_spraak(y.get("spraak") or "nb")
         VERDIKT_ORD.update(y.get("verdiktord") or {})
         last_etiketter(y.get("etiketter") or {})
         TERSKLER["dekning"] = dict(self.standard["terskel"])
@@ -372,7 +387,7 @@ def krever_mangler(reg: Register, d: dict, krav: dict) -> str | None:
     annen = reg.pr_id[kid]
     if (hent_tall(d, annen["datanokkel"]) or 0) > 0:
         return None
-    return f"{annen['tittel']} mangler"
+    return f"{annen['tittel']} {E('flagg_mangler')}"
 
 
 def pset_funnet(reg: Register, d: dict) -> str:
@@ -402,14 +417,14 @@ def vurder_data(reg: Register, d: dict, krav: dict) -> Vurdering:
     if krav.get("enhet") == "tall":
         base = hent_tall(d, krav["grunnlag"]) if krav.get("grunnlag") else n
         if not base:
-            return Vurdering("na", "", ["uten grunnlag"])
+            return Vurdering("na", "", [E("uten_grunnlag")])
         maks = reg.terskel(krav).get("maks", 0)
         st = "ok" if v <= maks else "bad"
         andeler = (pct(base - v, base), pct(v, base), 0.0)
-        sub = [f"av {fmt_n(base)}"] if v else []
+        sub = [f"{E('av')} {fmt_n(base)}"] if v else []
         return Vurdering(st, fmt_n(v), sub, andeler)
     if not n:
-        return Vurdering("na", "", ["ingen objekter"])
+        return Vurdering("na", "", [E("ingen_objekter")])
     finnes = hent_tall(d, krav["finnes_nokkel"]) if krav.get("finnes_nokkel") else \
         (d.get("finnes") or {}).get(krav["datanokkel"])
     finnes = max(int(finnes), v) if finnes is not None else v
@@ -419,9 +434,9 @@ def vurder_data(reg: Register, d: dict, krav: dict) -> Vurdering:
     sub: list[str] = []
     if st != "ok":
         if p_mangler >= p_avvik:
-            sub.append(f"mangler {fmt_pct(p_mangler)} %")
+            sub.append(f"{E('flagg_mangler')} {fmt_pct(p_mangler)} %")
         else:
-            sub.append(f"avvik {fmt_pct(p_avvik)} %")
+            sub.append(f"{E('flagg_avvik')} {fmt_pct(p_avvik)} %")
             vanlig = (d.get("vanligste_avvik") or {}).get(krav["datanokkel"])
             if vanlig:
                 sub.append(kutt(vanlig[0]))
@@ -504,24 +519,24 @@ def vurder_etasjer(reg: Register, r: Runde, s: dict, label: str) -> tuple[Vurder
     st = "bad" if (mangler or extras or any(x == "bad" for x, _ in rader)) else "warn" if avvik else "ok"
     sub = []
     if mangler:
-        sub.append(f"{mangler} mangler")
+        sub.append(f"{mangler} {E('flagg_mangler')}")
     if avvik:
-        sub.append(f"{avvik} avvik")
+        sub.append(f"{avvik} {E('flagg_avvik')}")
     if extras:
-        sub.append(f"{len(extras)} andre nivåer")
+        sub.append(f"{len(extras)} {E('etasje_andre_nivaaer')}")
     return Vurdering(st, f"{ok_n}/{len(rader)}", sub), rader, extras
 
 
 def vurder_filnavn(reg: Register, r: Runde, label: str) -> Vurdering:
     fil = r.cfg[label].get("fil") or f"{label}{reg.forventet['filnavn']['endelse']}"
     traff = reg.filnavn_monster().match(fil) is not None
-    return Vurdering("ok" if traff else "warn", brytbar(fil), [] if traff else ["avvik"])
+    return Vurdering("ok" if traff else "warn", brytbar(fil), [] if traff else [E("flagg_avvik")])
 
 
 def vurder_koordineringsobjekt(reg: Register, s: dict) -> Vurdering:
     f = reg.forventet["koordineringsobjekt"]
     tol = float(f["toleranse_mm"])
-    navnene = f.get("punktnavn") or [f"punkt {i+1}" for i in range(len(f["punkter_mm"]))]
+    navnene = f.get("punktnavn") or [f"{E('punkt')} {i+1}" for i in range(len(f["punkter_mm"]))]
     objs = [o for o in s.get("basepoint_objects") or []
             if o.get("xyz_mm") and not o["class"].upper().endswith("TYPE")
             and (o["class"].upper() != "IFCSITE"
@@ -534,17 +549,17 @@ def vurder_koordineringsobjekt(reg: Register, s: dict) -> Vurdering:
     treff = [[o for o in objs if paa(o, *p)] for p in f["punkter_mm"]]
     navn = lambda o: o["name"].split(":")[0]
     if all(treff):
-        return Vurdering("ok", kutt(navn(treff[0][0])), ["alle punkter"])
+        return Vurdering("ok", kutt(navn(treff[0][0])), [E("alle_punkter")])
     if any(treff):
         i = next(i for i, t in enumerate(treff) if t)
         mangler = [navnene[j] for j, t in enumerate(treff) if not t]
-        return Vurdering("warn", kutt(navn(treff[i][0])), ["uten " + ", ".join(mangler)])
+        return Vurdering("warn", kutt(navn(treff[i][0])), [E("uten") + " " + ", ".join(mangler)])
     frie = [o for o in objs if o["class"].upper() != "IFCSITE"]
     if frie:
         o = frie[0]
         return Vurdering("warn", kutt(navn(o)),
-                         ["avvik", " · ".join(m_(v) for v in o["xyz_mm"]) + " m"])
-    return Vurdering("bad", "mangler")
+                         [E("flagg_avvik"), " · ".join(m_(v) for v in o["xyz_mm"]) + " m"])
+    return Vurdering("bad", E("flagg_mangler"))
 
 
 def vurder_plassering(reg: Register, s: dict) -> Vurdering:
@@ -554,9 +569,9 @@ def vurder_plassering(reg: Register, s: dict) -> Vurdering:
     i_origo = all(abs(v - o) <= float(f["toleranse_mm"]) for v, o in zip(xyz, f["origo_mm"]))
     rett = abs(rot) <= float(f["rotasjon_grader"])
     tekst = ", ".join(str(v) for v in f["origo_mm"]) if i_origo else ", ".join(m_(v) for v in xyz) + " m"
-    sub = [] if rett else [f"rotert {rot:.2f}°".replace(".", ",")]
+    sub = [] if rett else [f"{E('rotert')} {des(f'{rot:.2f}')}°"]
     return Vurdering("ok" if i_origo and rett else "warn", tekst,
-                     sub if i_origo else ["avvik"] + sub)
+                     sub if i_origo else [E("flagg_avvik")] + sub)
 
 
 _BBOX: dict[Path, list | None] = {}
@@ -586,7 +601,7 @@ def vurder_georef_bbox(f: dict, bb: dict, boks: list | None) -> Vurdering:
     if boks is None:
         return Vurdering("na", E("spenn_uten_geometri"))
     lo, hi = boks
-    tall = lambda v: f"{v:.1f}".replace(".", ",")
+    tall = lambda v: des(f"{v:.1f}")
     sub = [f"X {tall(lo[0])} – {tall(hi[0])} m", f"Y {tall(lo[1])} – {tall(hi[1])} m",
            f"Z {tall(lo[2])} – {tall(hi[2])} m"]
     cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
@@ -609,11 +624,11 @@ def vurder_georeferering(reg: Register, s: dict, fil: Path | None = None) -> Vur
         return vurder_georef_bbox(f, bb, modell_bbox(fil))
     mc = s.get("mapconversion")
     if not mc:
-        return Vurdering("bad", "mangler")
+        return Vurdering("bad", E("flagg_mangler"))
     e, n = mc.get("eastings"), mc.get("northings")
     if f.get("toleranse") is None:
         # The project states the coordinates but no tolerance: shown, not compared.
-        return Vurdering("na", kutt((s.get("crs") or {}).get("name") or "") or "uten navn",
+        return Vurdering("na", kutt((s.get("crs") or {}).get("name") or "") or E("uten_navn"),
                          [f"E {e} N {n}", E("ikke_konfigurert")])
     tol = float(f["toleranse"])
     traff = (e is not None and n is not None
@@ -621,8 +636,8 @@ def vurder_georeferering(reg: Register, s: dict, fil: Path | None = None) -> Vur
              and abs(float(n) - float(f["northings"])) <= tol)
     crs = (s.get("crs") or {}).get("name") or ""
     epsg_ok = str(f["epsg"]) in crs
-    return Vurdering("ok" if traff and epsg_ok else "warn", kutt(crs) or "uten navn",
-                     [f"E {e} N {n}"] if traff else ["avvik", f"E {e} N {n}"])
+    return Vurdering("ok" if traff and epsg_ok else "warn", kutt(crs) or E("uten_navn"),
+                     [f"E {e} N {n}"] if traff else [E("flagg_avvik"), f"E {e} N {n}"])
 
 
 def er_kopi(reg: Register, verdi: str, fag: str, label: str) -> bool:
@@ -657,11 +672,11 @@ def vurder_guid_eier(reg: Register, r: Runde, data: dict[str, dict], label: str,
     mine = set(data[label].get("guid_kopi") or {})
     delt = [g for g in mine if len(alle.get(g, [])) >= 2]
     if not delt:
-        return Vurdering("ok", "0", ["delt"])
+        return Vurdering("ok", "0", [E("delt")])
     ok_n = sum(1 for g in delt if guid_en_eier(reg, r, alle[g]))
     if ok_n == len(delt):
-        return Vurdering("ok", fmt_n(len(delt)), ["delt, én eier"])
-    return Vurdering("bad", f"{fmt_n(ok_n)}/{fmt_n(len(delt))}", ["med én eier"])
+        return Vurdering("ok", fmt_n(len(delt)), [E("delt_en_eier")])
+    return Vurdering("bad", f"{fmt_n(ok_n)}/{fmt_n(len(delt))}", [E("med_en_eier")])
 
 
 def vurder_fil(reg: Register, r: Runde, data: dict[str, dict], struktur: dict[str, dict],
@@ -671,7 +686,7 @@ def vurder_fil(reg: Register, r: Runde, data: dict[str, dict], struktur: dict[st
            "fag": r.fag(label), "modell": label}
     grunn = gjelder_ikke(krav, ctx)
     if grunn is not None:
-        return Vurdering("na", "gjelder ikke", [grunn] if grunn else [])
+        return Vurdering("na", E("gjelder_ikke"), [grunn] if grunn else [])
     kid = krav["id"]
     if kid == "filnavn":
         return vurder_filnavn(reg, r, label)
@@ -695,7 +710,7 @@ def vurder(reg: Register, r: Runde, data: dict[str, dict], struktur: dict[str, d
     d = data[label]
     grunn = gjelder_ikke(krav, {"schema": d.get("schema"), "fag": r.fag(label), "modell": label})
     if grunn is not None:
-        return Vurdering("na", "gjelder ikke", [grunn] if grunn else [])
+        return Vurdering("na", E("gjelder_ikke"), [grunn] if grunn else [])
     return vurder_data(reg, d, krav)
 
 
@@ -742,6 +757,9 @@ def p_(p) -> str:
 
 
 def dato_no(iso: str) -> str:
+    """A date as printed: dd.mm.yyyy in Norwegian, ISO 8601 in English."""
+    if SPRAAK["kode"] == "en":
+        return str(iso)[:10]
     å, m, d = str(iso)[:10].split("-")
     return f"{d}.{m}.{å}"
 
@@ -799,7 +817,7 @@ def samle(elementer: list[dict], ordnet: bool, hale: dict | None = None) -> list
     ut = [e for i, e in enumerate(elementer) if i in beholdt]
     if rest:
         n = sum(e["n"] for e in rest)
-        ut.append(element(f"andre ({len(rest)})", n, farge="--sk-fordeling-andre", andre=True))
+        ut.append(element(f"{E('andre')} ({len(rest)})", n, farge="--sk-fordeling-andre", andre=True))
     return ut + faste
 
 
@@ -826,6 +844,15 @@ def farg_noytralt(elementer: list[dict]) -> None:
         else:
             e["farge"] = NOYTRAL[i % len(NOYTRAL)]
             i += 1
+
+
+def mengdetype_tekst(k: str) -> str:
+    """A type's mengdetype as the gallery prints it: «<word> · <unit>», the word from the config
+    (`mengde_*`), m2/m3 as m²/m³. An empty key (no reading) stays empty."""
+    mt, _, enhet = k.partition(" · ")
+    ord_ = MENGDEORD.get(mt, mt)
+    enhet = E("enhet_stk") if enhet == "stk" else enhet
+    return (ord_ + (f" · {enhet}" if enhet else "")).replace("m2", "m²").replace("m3", "m³")
 
 
 # ---------------------------------------------------------------- one block
@@ -1072,7 +1099,7 @@ def kpi_kort(kpi_alle: list[dict], band: list[str], terskler: dict, typer: int, 
             "utypede_instanser": pct(utypet, n_alle) if n_alle else None}
     tekst = {
         "antall_typer": (n_(typer), ""),
-        "antall_elementer": (n_(n_alle), "fysiske objekter"),
+        "antall_elementer": (n_(n_alle), E("fysiske_objekter")),
         "instanser_per_type_alle": (fmt_pct(typede / typer) if typer else "–", f"{n_(typede)} / {n_(typer)}"),
         "typer_med_en_instans_alle": (n_(en), p_(pct(en, typer)) if typer else ""),
         "utypede_instanser": (n_(utypet), p_(pct(utypet, n_alle)) if n_alle else ""),
@@ -1218,7 +1245,7 @@ class Modellberegning:
                 raise SystemExit(f"FEIL: {self.label}: {bid} er målt på {navn}, konfigurasjonen sier {nokler}")
             eksakt = True
         if bdef.get("grunnlag") == "alle_ifcproduct":
-            rad["grunnlag_tekst"] = "fysiske objekter"
+            rad["grunnlag_tekst"] = E("fysiske_objekter")
         if not gren:
             nb = self.bd["n_alle"] if bdef.get("grunnlag") == "alle_ifcproduct" else n
             if eksakt:
@@ -1478,20 +1505,19 @@ class Modellberegning:
         """A block's additional reading, printed on the source line."""
         ut = []
         if bid == "typeobjekt" and dk["avvik"]:
-            ut.append({"tekst": f"typet uten navn {n_(dk['avvik'])}", "flagg": True})
+            ut.append({"tekst": f"{E('typet_uten_navn')} {n_(dk['avvik'])}", "flagg": True})
         if bid == "funksjonskode":
             e = bb.get("ekstra") or {}
             ja, nei = int(e.get("samsvar", 0)), int(e.get("ikke_samsvar", 0))
             if ja + nei:
                 p = pct(ja, ja + nei)
-                ut.append({"tekst": f"samsvar kode og typenavn {p_(p)} av {n_(ja + nei)}",
+                ut.append({"tekst": f"{E('samsvar_kode_typenavn')} {p_(p)} {E('av')} {n_(ja + nei)}",
                            "flagg": status_andel(self.reg, {}, p) != "ok"})
         if bid == "etasjer":
             h = self.bd["hierarki"]
-            for k, navn in (("bygg", "bygg"), ("tomt", "tomt"), ("rom", "rom"), ("annet", "annet"),
-                            ("ingen", "uten tilknytning")):
+            for k in ("bygg", "tomt", "rom", "annet", "ingen"):
                 if h.get(k):
-                    ut.append({"tekst": f"{navn} {n_(h[k])}", "flagg": True})
+                    ut.append({"tekst": f"{E('plassering_' + k)} {n_(h[k])}", "flagg": True})
         return ut
 
     # -- distributions
@@ -1572,7 +1598,7 @@ class Modellberegning:
                 continue
             gyldig = (v.strip().casefold() in {str(x).casefold() for x in liste} if liste
                       else v.strip().upper() in godtatte or v.strip().lower() in sanne)
-            rolle = "kopi" if er_kopi(self.reg, v, self.fag, self.label) else "eier"
+            rolle = E("rolle_kopi") if er_kopi(self.reg, v, self.fag, self.label) else E("rolle_eier")
             ut.append(element(f"{rolle} · {kutt(v, 20)}", n, "" if gyldig else "avvik"))
         return ut, False
 
@@ -1584,15 +1610,15 @@ class Modellberegning:
                 if lab != self.label:
                     per.setdefault(lab, []).append(g)
         delt = {g for gs in per.values() for g in gs}
-        ut = [element("ikke delt", len(mine) - len(delt))] if len(mine) - len(delt) else []
+        ut = [element(E("ikke_delt"), len(mine) - len(delt))] if len(mine) - len(delt) else []
         for lab in sorted(per, key=lambda x: -len(per[x])):
             gs = per[lab]
             ok_n = sum(1 for g in gs if guid_en_eier(self.reg, self.r, self.alle_guid[g]))
             fl = "" if ok_n == len(gs) else "avvik"
-            ut.append(element(f"delt med {kort_label(lab, self.reg)}", len(gs), fl,
-                              tillegg="" if not fl else f"{n_(ok_n)}/{n_(len(gs))} med én eier"))
+            ut.append(element(f"{E('delt_med')} {kort_label(lab, self.reg)}", len(gs), fl,
+                              tillegg="" if not fl else f"{n_(ok_n)}/{n_(len(gs))} {E('med_en_eier')}"))
         if dup:
-            ut.append(element("duplikat", dup, "avvik"))
+            ut.append(element(E("duplikat"), dup, "avvik"))
         return ut
 
     def ford_etasjer(self, bb) -> tuple[list[dict], bool]:
@@ -1642,7 +1668,7 @@ class Modellberegning:
             if pick is None:
                 sev = alvor["mangler"]
                 el = element(niv["navn"], 0, "flagg" if sev == "flagg" else sev,
-                             farge="--sk-na-ren", tillegg="mangler")
+                             farge="--sk-na-ren", tillegg=E("etasje_mangler"))
                 ut.append(el)
         return ut, True
 
@@ -1659,11 +1685,11 @@ class Modellberegning:
                 tekst = "–" if v is None else (n_(v) if isinstance(v, int) else fmt_pct(float(v)))
                 if kid == "instanser_per_type":
                     tr = self.bd["typeregister"]
-                    under = f"{n_(tr['typede'])} / {n_(tr['typer'])} typer"
+                    under = f"{n_(tr['typede'])} / {n_(tr['typer'])} {E('typer_smaa')}"
             elif k.get("enhet") == "prosent":
                 tekst = p_(v)
                 tr = self.bd["typeregister"]
-                under = f"{n_(tr['en_instans'])} av {n_(tr['typer'])}"
+                under = f"{n_(tr['en_instans'])} {E('av')} {n_(tr['typer'])}"
             else:
                 tekst = "–" if v is None else str(v)
                 if str(v).upper() in {str(x).upper() for x in k.get("varsel_verdier") or []}:
@@ -1677,7 +1703,7 @@ class Modellberegning:
         v = vurder(self.reg, self.r, {self.label: self.d}, {self.label: self.s}, self.label,
                    krav, self.alle_guid)
         sub = [x.replace("\u200b", "") for x in v.sub if x]
-        if v.status == "na" and v.tekst == "gjelder ikke":
+        if v.status == "na" and v.tekst == E("gjelder_ikke"):
             # Rule 3: the reason is the file property outside the declared applicability.
             ctx = {"schema": self.s.get("schema") or self.d.get("schema"), "fag": self.fag,
                    "modell": self.label}
@@ -1710,7 +1736,7 @@ class Modellberegning:
             verdi = fylt[0][0] if fylt else ""
             fl = bool(verdi) and bid in flagget and any(
                 x in flagget[bid] for x in ([verdi] + verdi.split(" + ")))
-            if bid == "mengdetype" and verdi.split(" ")[0] in ("avhenger", "ukjent"):
+            if bid == "mengdetype" and verdi.split(" · ")[0] in (MENGDEORD["avhenger"], MENGDEORD["ukjent"]):
                 fl = True
             return {"verdi": verdi, "andre": max(len(fylt) - 1, 0), "tom": tom, "flagg": fl,
                     "alle": " | ".join(f"{k or '–'} ×{v}" for k, v in par)}
@@ -1727,9 +1753,8 @@ class Modellberegning:
                        # is not fed from the model. Products and EPDs per type come from another
                        # source later (e.g. Cobuilder); until then a neutral «–», never a ✗.
                        "produkt": IKKE_MATET if "produkt" in self.reg.utelatt else fold(t["produkt"], "produkt"),
-                       "mengdetype": fold({(k.replace("m2", "m²").replace("m3", "m³")
-                                            .replace("ikke_relevant", "ikke relevant")): v
-                                           for k, v in t["mengdetype"].items()}, "mengdetype"),
+                       "mengdetype": fold({mengdetype_tekst(k): v for k, v in t["mengdetype"].items()},
+                                          "mengdetype"),
                        "mmi": mmi,
                        "mmi_farge": tok if tok in self.tok else "--mmi-uten-farge"})
         return ut
@@ -1790,7 +1815,7 @@ class Modellberegning:
         blokker = [self.krav(b) for b in self.reg.blokker]
         mock = [f"{b['tittel']}" for b in blokker if b.get("mock")]
         if any(b.get("spenn", {}).get("mock") for b in blokker):
-            mock.append("Etasjer: bunn i etasjen (etasjespenn)")
+            mock.append(E("mock_etasjespenn"))
         # A requirement declared `unntatt` for this model takes its gallery / code list with it.
         uten = {b["id"] for b in blokker if b["verdikt"] == "gjelder_ikke" and b["id"] in self.unntatte()}
         return {**self.komponenter(blokker),
@@ -1831,7 +1856,7 @@ def celle_blokk(b: dict) -> dict:
     tekst = VERDIKT_ORD[vk] if t is None or not t[1] else p_(pct(t[0], t[1]))
     sub = [VERDIKT_ORD[vk]] if t is not None and t[1] else []
     if b.get("mock"):
-        sub.append("MOCK")
+        sub.append(E("mock"))
     return {"status": VERDIKT_STATUS[vk], "tekst": tekst, "sub": sub}
 
 
@@ -1918,7 +1943,7 @@ def merke_svg() -> str:
 
 def html_dokument(tittel: str, kropp: str, css: Path) -> str:
     return f"""<!doctype html>
-<html lang="nb"><head><meta charset="utf-8"><title>{esc(tittel)}</title>
+<html lang="{SPRAAK['kode']}"><head><meta charset="utf-8"><title>{esc(tittel)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700&display=swap" rel="stylesheet">
@@ -2304,7 +2329,7 @@ def html_materialer(m: dict, nr: int) -> str:
     for x in sorted(m["materialer"], key=lambda x: -x["objekter"]):
         kl = list(x["klasser"].items())
         kltekst = " · ".join(f"{k} ×{n_(c)}" for k, c in kl[:3]) + (f" · {E('andre')} ({len(kl) - 3})" if len(kl) > 3 else "")
-        lag = f'<dt>{esc(E("lag"))}</dt><dd>{esc(" · ".join(f"{v:g}".replace(".", ",") for v in x["lag_mm"]))} mm</dd>' if x.get("lag_mm") else ""
+        lag = f'<dt>{esc(E("lag"))}</dt><dd>{esc(" · ".join(des(f"{v:g}") for v in x["lag_mm"]))} mm</dd>' if x.get("lag_mm") else ""
         ut.append(f'<div class="kort"><div class="tn">{"" if x["gyldig"] is None else sym("ok" if x["gyldig"] else "bad") + " "}{esc(x["navn"] or "–")}</div>'
                   f'<div class="inst">{n_(x["objekter"])}<small>{esc(E("objekter"))}</small></div><dl>'
                   f'<dt>{esc(E("ifc_klasser"))}</dt><dd>{esc(kltekst)}</dd>'
@@ -2714,7 +2739,7 @@ def skriv_xlsx(R: dict, reg: Register, sti: Path) -> None:
     for m in R["modeller"]:
         mt = {}
         for kl, t_, en_, c_, _ in m["mengdeklasser"]:
-            mt.setdefault(kl, []).append(MENGDEORD[t_] + (f" · {en_}" if en_ else ""))
+            mt.setdefault(kl, []).append(MENGDEORD[t_] + (f" · {E('enhet_stk') if en_ == 'stk' else en_}" if en_ else ""))
         for kl, c in m["per_klasse"].items():
             ws.append([m["label"], kl, c["n"], " | ".join(mt.get(kl, []))] + [c.get(x, 0) for x in bid])
 

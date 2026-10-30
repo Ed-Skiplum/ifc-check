@@ -1,0 +1,264 @@
+# English labels for the standard layer: the parallel table to the Norwegian words in
+# standard.yaml, read when a project sets `spraak: en` (konfig.py). Every engine-owned word the
+# report, workbook and avvik workbooks print. Rules, locations and values stay in standard.yaml.
+#
+# konfig.py refuses a run in English when a key of standard.yaml `etiketter` or `verdiktord` has no
+# entry here, so a new Norwegian label cannot reach an English report unnoticed. A project still
+# overrides any key in its own krav.yaml `etiketter` / `verdiktord`, on top of this table.
+#
+# Project-authored text (block `tittel` and `krav_tekst` in krav.yaml, the requirements' `tittel` and
+# `maaler`, section titles a project declares, merknader) is printed as the project writes it.
+# Terms of art stay as in the BEP: MMI, NS 3451, NS 3457-8, IFC class and property set names.
+
+etiketter:
+  seksjon_nokkeltall: Key figures
+  seksjon_merknader: Comments
+  seksjon_hygiene: Hygiene
+  seksjon_typegalleri: Type gallery
+  seksjon_materialgalleri: Material gallery
+  seksjon_egenskapssett: Property sets
+  seksjon_kodelister: Code lists
+  materiale: material
+  ikke_materiale: not a material
+  ifc_klasser: IFC classes
+  typer: Types
+  kilde: Source
+  lag: Layers
+  objekter: objects
+  kode: Code
+  navn: Name
+  objekter_kolonne: Objects
+  gyldig: Valid
+  ikke_i_tabellen: not in the table
+  kodeliste_systemkode: System codes NS 3451
+  kodeliste_funksjonskode: Component codes NS 3457-8
+  kodeliste_mmi: MMI codes
+  ark_materialer: Materials
+  ark_systemkode: System codes
+  ark_funksjonskode: Component codes
+  ark_mmi: MMI codes
+  etasjer_telling: Storeys
+  konfigurert: configured
+  i_modellen: in the model
+  med_en_eier: with one owner
+  rapport_navn: Model validation
+  prosjektrapport: project
+  fagkode: Discipline
+  firma: Company
+  dalux_versjon: Dalux version
+  opplastingsdato: Upload date
+  eksport: Export
+  dato: Date
+  modeller: Models
+  modell: Model
+  niva_standard: IFC
+  niva_prosjekt: project
+  krav: Requirement
+  egenskap: Property
+  dekning: Coverage
+  fordeling: Distribution
+  mengdetype: Quantity type
+  etasjematrise: Storey matrix
+  av: of
+  unike_verdier: unique values
+  telleobjekter: count objects
+  mengdeobjekter: quantity objects
+  aapen: open
+  mock: MOCK
+  em_konfigurert: Configured
+  kote: Level
+  em_modellen: Model
+  status: Status
+  kote_i_m: level in m
+  toleranse: tolerance
+  etasjedefinisjon: Storey definition
+  referanse: Reference
+  ingen_treff: no match
+  etasje_som_registeret: as configured
+  etasje_feil_navn: wrong name
+  etasje_koteavvik: level deviation
+  etasje_mangler: missing
+  etasje_andre_nivaaer: other levels
+  etasje_null_nivaa: z = 0, not counted
+  etasje_ikke_konfigurert: not configured
+  ifc_skjema: IFC schema
+  godtatt: accepted
+  sjekksum: 'Checksum (SHA256)'
+  andre: other
+  instanser: instances
+  type_ns3451: NS 3451
+  type_ns3457: NS 3457-8
+  type_materiale: Material
+  type_produkt: Product
+  type_mmi: MMI
+  typer_med_en_instans: types with one instance
+  duplikater_i_fila: Duplicates in the file
+  delt_med_andre_modeller: Shared with other models
+  status_ok: fulfilled
+  status_warn: deviation
+  status_bad: missing
+  status_na: not applicable
+  mengde_telleobjekt: count object
+  mengde_mengdeobjekt: quantity object
+  mengde_avhenger: depends
+  mengde_ikke_relevant: not relevant
+  mengde_ukjent: unknown
+  psett_ifc: IFC
+  psett_krevd: 'custom, required'
+  psett_annen: 'custom, not required'
+  seksjon_leveransen: The delivery
+  seksjon_krav_modell: 'Requirement × model'
+  seksjon_bruk: Use
+  seksjon_guid_paa_tvers: GUID across models
+  bruk: Use
+  ark_sammendrag: Summary
+  ark_krav: Requirements
+  ark_funn: Findings
+  ark_per_modell: Per model
+  ark_verdier: Values
+  ark_type_1til1: Type 1 to 1
+  ark_etasjer: Storeys
+  ark_filer: Files
+  ark_typer: Types
+  ark_egenskapssett: Property sets
+  ark_lesmeg: Readme
+  instanser_per_type: Instances per type
+  typer_med_en_instans_kol: Types with one instance
+  dekning_prosent: 'coverage %'
+  verdi: Value
+  antall: Count
+  ifc_klasse: IFC class
+  kol_oppfylt: fulfilled
+  antall_objekter: Objects
+  retning: Direction
+  nokkel: Key
+  motparter: Counterparts
+  kun_skrivemaate: Spelling only
+  konfigurert_navn: Configured name
+  konfigurert_kote_mm: 'Configured level (mm)'
+  modellens_navn: Model name
+  modellens_kote_mm: 'Model level (mm)'
+  fil: File
+  eksportor: Exporter
+  eksportert: Exported
+  byte: Bytes
+  merknad: Comment
+  type: Type
+  objektklasser: Object classes
+  instanser_kol: Instances
+  egenskapssett: Property set
+  kategori: Category
+  utfylt: Filled
+  utfylt_prosent: 'Filled %'
+  ulike_verdier: Distinct values
+  eksempler: Examples
+  del: Part
+  id: Id
+  tittel: Title
+  maaler_oppslag: Measure / lookup
+  telte_objekter: Counted objects
+  terskel: Threshold
+  ja: 'yes'
+  nei: 'no'
+  flagg_avvik: deviation
+  flagg_mangler: missing
+  flagg_flagg: flag
+  spenn_avvik: bottom within the tolerance below the storey
+  spenn_mangler: bottom outside the storey
+  spenn_uten_geometri: no geometry
+  produkt_prefiks: Product
+  materiale_prefiks: Material
+  lesmeg_krav: Requirement
+  lesmeg_nokkeltall: Key figures
+  ikke_konfigurert: not configured
+  ikke_maalt: not measured
+  georef_lokal: local coordinates
+  georef_global: global coordinates
+  georef_utenfor: outside the project area
+  georef_z_utenfor: 'Z outside {min}–{max} m'
+  materiale_kol: Material
+  i_kodetabellen: In the code table
+  lagtykkelse_mm: 'Layer thickness (mm)'
+  guid: GUID
+  typenavn: Type name
+  etasje: Storey
+  funnet_verdi: Value found
+  aarsak: Reason
+  hull: 'gap: no per-element list in the stored measurements'
+  delt_med: shared with
+  delt_mellom_delmodellene: shared between the sub-models
+  ikke_i_etasje: not in a storey
+  avvik_mangler: missing
+  tom_verdi: empty value
+  mangler_eller_tom_verdi: missing or empty value
+  ugyldig_verdi: invalid value
+  gjelder_ikke: not applicable
+  uten_grunnlag: no basis
+  ingen_objekter: no objects
+  fysiske_objekter: physical objects
+  typet_uten_navn: typed without a name
+  samsvar_kode_typenavn: code and type name agree
+  plassering_bygg: building
+  plassering_tomt: site
+  plassering_rom: space
+  plassering_annet: other
+  plassering_ingen: not contained
+  ikke_delt: not shared
+  duplikat: duplicate
+  rolle_kopi: copy
+  rolle_eier: owner
+  typer_smaa: types
+  alle_punkter: all points
+  uten: without
+  punkt: point
+  rotert: rotated
+  uten_navn: no name
+  delt: shared
+  delt_en_eier: 'shared, one owner'
+  mock_etasjespenn: 'Storeys: bottom within the storey (storey span)'
+  alle_modeller: all
+  enhet_stk: pcs
+
+verdiktord:
+  oppfylt: Fulfilled
+  kan_brukes: Usable
+  ikke_oppfylt: Not fulfilled
+  gjelder_ikke: Not applicable
+  ikke_konfigurert: Not configured
+
+seksjoner:
+  ifc_helse: IFC structure
+  standardkrav: Standard requirements
+
+# Title and requirement text of the standard's own blocks. The opt-in blocks carry none: theirs
+# are the project's.
+blokker:
+  typeobjekt: {tittel: Type object, krav_tekst: every physical object has a type object with a name}
+  guid: {tittel: GUID, krav_tekst: no GlobalId twice in the file}
+  etasjedefinisjon: {tittel: Storey definition, krav_tekst: 'the model''s storeys are the configured ones, by name and level'}
+  etasjer: {tittel: Objects in a storey, krav_tekst: 'every object contained in a storey, its bottom within the storey''s span'}
+  body_geometri: {tittel: 3D geometry as Body, krav_tekst: '3D geometry is in the ''Body'' representation, not only ''Surface'' (not shown in Revit)'}
+  systemkode: {tittel: System code NS 3451, krav_tekst: three-digit NS 3451 code}
+  funksjonskode: {tittel: Component code NS 3457-8, krav_tekst: component code from NS 3457-8}
+  produkt: {tittel: Product, krav_tekst: count objects carry a product}
+  materiale: {tittel: Material, krav_tekst: quantity objects carry a material}
+  kopiobjekt: {tittel: Copy object, krav_tekst: 'the field exists, its value is the owner''s discipline code'}
+  mmi: {tittel: MMI, krav_tekst: 'the field exists, its value is a project MMI code'}
+  fase: {tittel: Phase, krav_tekst: 'status NEW, EXISTING, DEMOLISH or TEMPORARY', krav_tekst_mmi_fase: phase from the MMI code}
+
+kpi_alle:
+  antall_typer: {tittel: Number of types, maaler: 'Types in use, type name + IFC class, over every physical object.'}
+  antall_elementer: {tittel: Number of elements, maaler: 'Every physical object in the file, the basis of Type object.'}
+  instanser_per_type_alle: {tittel: Instances per type, maaler: Typed objects divided by the number of types.}
+  typer_med_en_instans_alle: {tittel: Types with one instance, maaler: 'Types with one object, with their share of the types.'}
+  utypede_instanser: {tittel: Untyped instances, maaler: 'Objects without IfcRelDefinesByType, with their share of the elements.'}
+
+standard:
+  telte_objekter: >-
+    Physical objects with 3D geometry: IfcElement without openings and other IfcFeatureElement,
+    IfcVirtualElement, IfcGeographicElement (terrain, origin markers) and IfcBuildingElementPart
+    (parts, typed through the owner object). Spaces (IfcSpace) are not counted. Shares are of this
+    number, in both workbook and PDF.
+  navnematching: >-
+    Property set and property names are matched ignoring spaces and case. The variant found is
+    reported.

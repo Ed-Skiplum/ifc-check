@@ -231,6 +231,34 @@ etiketter:
   tom_verdi: tom verdi
   mangler_eller_tom_verdi: mangler eller tom verdi
   ugyldig_verdi: ugyldig verdi
+  # Words the report prints inside readings and cells (2026-10-30: moved from the code, so the
+  # English table standard_en.yaml can carry them).
+  gjelder_ikke: gjelder ikke
+  uten_grunnlag: uten grunnlag
+  ingen_objekter: ingen objekter
+  fysiske_objekter: fysiske objekter
+  typet_uten_navn: typet uten navn
+  samsvar_kode_typenavn: samsvar kode og typenavn
+  plassering_bygg: bygg
+  plassering_tomt: tomt
+  plassering_rom: rom
+  plassering_annet: annet
+  plassering_ingen: uten tilknytning
+  ikke_delt: ikke delt
+  duplikat: duplikat
+  rolle_kopi: kopi
+  rolle_eier: eier
+  typer_smaa: typer
+  alle_punkter: alle punkter
+  uten: uten
+  punkt: punkt
+  rotert: rotert
+  uten_navn: uten navn
+  delt: delt
+  delt_en_eier: 'delt, én eier'
+  mock_etasjespenn: 'Etasjer: bunn i etasjen (etasjespenn)'
+  alle_modeller: alle
+  enhet_stk: stk
 
 # Moved from krav.yaml 2026-09-25: generic, so a standard-only run has them. A project may
 # override each key in krav.yaml.

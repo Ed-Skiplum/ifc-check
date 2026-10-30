@@ -28,6 +28,9 @@ import yaml
 import stier
 
 STANDARD_STI = stier.STANDARD / "standard.yaml"
+STANDARD_EN = stier.STANDARD / "standard_en.yaml"
+# Report languages: Norwegian (the standard layer as written) and English (standard_en.yaml).
+SPRAAK = ("nb", "en")
 STEDER = ("sted", "sted_telleobjekt", "sted_mengdeobjekt")
 STANDARD = "standard"
 PROSJEKT = "prosjekt"
@@ -209,6 +212,43 @@ def mmi_terskler(blokker: list[dict]) -> None:
         raise SystemExit(f"FEIL: gjelder_fra_mmi på {', '.join(b['id'] for b in gated)}, men MMI har ikke sted")
 
 
+def spraak(std: dict, prj: dict) -> str:
+    """The report language, project key `spraak` (2026-10-30, KNM: English first): «nb», the
+    default, or «en». For «en» the standard layer's words are replaced by its English table
+    (standard_en.yaml) before the project layer goes on top, so a project's own `etiketter`,
+    `verdiktord`, titles and texts still win."""
+    sp = str(prj.get("spraak") or "nb")
+    if sp not in SPRAAK:
+        raise SystemExit(f"FEIL: spraak {sp!r} er ikke støttet (gyldige: {', '.join(SPRAAK)})")
+    if sp == "en":
+        oversett(std, yaml.safe_load(STANDARD_EN.read_text(encoding="utf-8")))
+    return sp
+
+
+def oversett(std: dict, en: dict) -> None:
+    """The standard layer in English, in place. A Norwegian word with no English entry stops the
+    run: an English report never carries a stray Norwegian label."""
+    mangler = [f"etiketter.{k}" for k in std["etiketter"] if k not in en["etiketter"]]
+    mangler += [f"verdiktord.{k}" for k in std["verdiktord"] if k not in en["verdiktord"]]
+    mangler += [f"seksjoner.{s['id']}" for s in std["seksjoner"] if s["id"] not in en["seksjoner"]]
+    mangler += [f"blokker.{b['id']}.{k}" for b in std["blokker"]
+                for k in ("tittel", "krav_tekst", "krav_tekst_mmi_fase")
+                if b.get(k) and k not in (en["blokker"].get(b["id"]) or {})]
+    mangler += [f"kpi_alle.{k['id']}" for k in std["kpi_alle"] if k["id"] not in en["kpi_alle"]]
+    mangler += [f"standard.{k}" for k in ("telte_objekter", "navnematching") if k not in en["standard"]]
+    if mangler:
+        raise SystemExit(f"FEIL: {STANDARD_EN.name} mangler {', '.join(mangler)}")
+    std["etiketter"] = {**std["etiketter"], **en["etiketter"]}
+    std["verdiktord"] = {**std["verdiktord"], **en["verdiktord"]}
+    for s in std["seksjoner"]:
+        s["tittel"] = en["seksjoner"][s["id"]]
+    for b in std["blokker"]:
+        b.update(en["blokker"].get(b["id"]) or {})
+    for k in std["kpi_alle"]:
+        k.update(en["kpi_alle"][k["id"]])
+    std["standard"] = {**std["standard"], **en["standard"]}
+
+
 def prosjektseksjoner(prj_s: list, std_s: list[dict], blokker: list[dict],
                       prj_rekke: list[str]) -> tuple[list[dict], list[dict]]:
     """A project's own `seksjoner` (2026-10-30, KNM: the requirements grouped by pset as in its BEP
@@ -243,6 +283,7 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
         raise SystemExit(f"FEIL: {krav_sti}: {tekst.count(MAL_MERKE)} unfilled {MAL_MERKE}> placeholder(s) "
                          "from the template")
     prj = yaml.safe_load(tekst)
+    sp = spraak(std, prj)
     prj_blokker = {b["id"]: b for b in prj.get("blokker") or []}
     ukjent = set(prj_blokker) - {b["id"] for b in std["blokker"]}
     if ukjent:
@@ -319,6 +360,7 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
                           **({} if kun_standard else (prj.get("kpi_terskler") or {}))}
     ut["terskel_gyldig"] = {**(std.get("terskel_gyldig") or {}),
                             **({} if kun_standard else (prj.get("terskel_gyldig") or {}))}
+    ut["spraak"] = sp
     ut["_lag"] = {"standard": str(STANDARD_STI), "prosjekt": None if kun_standard else str(krav_sti)}
     # Relative table paths in the project config resolve here (stier.tabell_sti).
     ut["_rot"] = None if kun_standard else krav_sti.resolve().parent
