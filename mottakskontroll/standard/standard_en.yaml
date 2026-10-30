@@ -218,6 +218,64 @@ etiketter:
   mock_etasjespenn: 'Storeys: bottom within the storey (storey span)'
   alle_modeller: all
   enhet_stk: pcs
+  # the type report (bygg_typer.py)
+  ark_ty_sammendrag: Summary
+  ark_ty_typer: Types
+  ark_ty_forekomster: Objects
+  ark_ty_materialer: Materials
+  ark_ty_materiallag: Material layers
+  ark_ty_kilder: Sources
+  ty_modell: Model
+  ty_firma: Firm
+  ty_versjon: Version
+  ty_lastet_opp: Uploaded
+  ty_fil: IFC file
+  ty_sha16: sha16
+  ty_objekter: Objects
+  ty_typer: Types
+  ty_utypede: Untyped objects
+  ty_deler: 'Parts, not counted'
+  ty_typer_oppfylt: Types fulfilled per requirement
+  ty_klar_kol: Ready
+  ty_klar: Ready
+  ty_krever: Needs review
+  ty_mangler: Missing
+  ty_typenavn: IfcTypeObject.Name
+  ty_typeklasse: Type class
+  ty_ifc_klasse: IFC class
+  ty_uten_navn: '(no name)'
+  ty_utypet: '(untyped)'
+  ty_status: status
+  ty_uten_verdi: no value
+  ty_st_oppfylt: fulfilled
+  ty_st_avvik: deviation
+  ty_st_mangler: missing
+  ty_st_gjelder_ikke: not applicable
+  ty_globalid: GlobalId
+  ty_type_globalid: Type GlobalId
+  ty_etasje: Storey
+  ty_eier_guid: Owner GlobalId
+  ty_eier_type: Owner type
+  ty_materiale: Material
+  ty_modeller: Models
+  ty_mat_kilde: Material from
+  ty_kilde_type: type
+  ty_kilde_forekomst: occurrence
+  ty_antall_lag: Layers
+  ty_mengde_per_lag: Quantity per layer
+  ty_lag: Layer
+  ty_lag_materiale: material
+  ty_lag_tykkelse: 'thickness (mm)'
+  ty_lag_andel: fraction
+  ty_lagart_tykkelse: thickness
+  ty_lagart_andel: fraction
+  ty_lagart_ikke_definert: not defined
+  ty_runde: Round
+  ty_bygget: Built
+  ty_konfig: Project config
+  ty_paritet: Parity with the model report
+  ty_paritet_tekst: "per model and requirement, the types sum to the model report's counts"
+  ty_utelatt_modell: Model outside the type report
 
 verdiktord:
   oppfylt: Fulfilled

@@ -18,6 +18,7 @@ mottakskontroll/
   blokkdata.py              step 3: the blocks per object (run by the builder) -> <cache>/blokker/<dato>/
   bygg_mottakskontroll.py   step 4: beregnet.json, PDFs, workbook     -> <ut>/
   bygg_avvik.py             step 5: avvik workbooks per faggruppe     -> <ut>/
+  bygg_typer.py             step 6: the type report, with `typerapport` -> <ut>/
   konfig.py                 merges standard/standard.yaml with the project config
   stier.py                  arguments and path rules
   step.py                   streaming STEP reader for struktur.py
@@ -98,12 +99,39 @@ May declare:
 | `skjema` | accepted/recommended schemas, replaces the standard's |
 | `merknader`, `merknader_modell` | the report's only sentences |
 | `spraak` | report language: `nb` (default, the standard layer as written) or `en`. With `en` every engine-owned word (labels, verdict words, the standard's section and block titles and requirement texts, KPI titles, the counted-objects note) comes from `standard/standard_en.yaml`, dates print as ISO 8601, decimals with a point, and the HTML carries `lang="en"`. Text the project writes (block `tittel` and `krav_tekst`, `krav` titles and `maaler`, its section titles, merknader) prints as written, so an English report needs those in English too. A key in `standard.yaml` `etiketter` or `verdiktord` with no English entry stops an English run |
+| `typerapport` | turns on the type report (below) |
 | `etiketter`, `verdiktord`, `kpi_terskler`, `terskel_gyldig` | merged key by key over the standard (over the English table when `spraak: en`) |
 | `standard`, `kpi_band`, `kpi_alle` | replace the standard's whole |
 
 Table paths (`kodetabell`, `kodeliste.fil`, `mengdetype[].tabell`): absolute as given; a bare
 name that exists in `standard/` is the standard's table; any other relative path resolves against
 the project config's directory. A bare name present in both places is an error.
+
+## Type report
+
+One row per type, the same measurement grouped another way: `bygg_typer.py` reads the per-object
+log `blokkdata.py` writes to the cache (`per_objekt`, only when the project config has
+`typerapport`) and judges each type with the model report's own code (`Modellberegning.krav`), so
+thresholds, `unntatt`, `gjelder_fra_mmi`, `utelatt` and validity are the model report's. The build
+stops unless, per model and requirement, the per-type counts (oppfylt, avvik, mangler, gjelder
+ikke, inside and outside the accepted values) sum to `beregnet.json`. A type is model + IfcTypeObject
+(class + name); untyped objects are one row per model and IFC class.
+
+Sheets: Sammendrag (per model, types fulfilled per requirement), Typer (per type: values and verdict
+per requirement, the requirements grouped under the report's sections), Forekomster (per object:
+value and status per requirement; the parts of an assembly listed with their owner), Materialer,
+Materiallag (the type's material association, else the objects' most common), Kilder. English with
+`spraak: en`.
+
+| `typerapport` key | |
+|---|---|
+| `filnavn` | workbook name, default `<kode>_Mottakskontroll_Typer.xlsx` |
+| `seksjoner` | the report section ids whose requirements get columns, in this order; default every section. Model level requirements (GUID, storey definition) and Typeobjekt never get one |
+| `utelatt_modeller` | `{label: reason}`: models with no rows, named in Kilder |
+| `mengder` | `[{id, tittel, navn, enhet}]`: per object the first name in `navn` a quantity set (`Qto*`, `*Quantities`) carries, in SI units (`enhet` `m3`, `m2` or `m`), summed per type |
+| `klar` | `{tittel, blokker}`: a column saying whether the type is ready, true when no object of it is avvik or mangler and no value is outside the accepted values in any requirement listed in `blokker` |
+
+Turning `typerapport` on changes the measurement cache key, so the round is measured again once.
 
 ## Round config
 

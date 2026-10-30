@@ -56,6 +56,10 @@ import stier  # noqa: E402
 # the Typeobjekt scope; the owner counted instead (bep_egenskapskontroll.telte).
 BLOKK_VERSJON = 13
 
+# The per-object log the type report reads (project `typerapport`, bygg_typer.py): written by mål
+# only when the project asks for the report, so no other cache grows. Bumped when its shape changes.
+PER_OBJEKT_VERSJON = 1
+
 # Distinct values kept per property for the pset gallery's examples; beyond it only counts grow.
 PSET_MAKS_VERDIER = 200
 
@@ -223,6 +227,11 @@ def registerhash(reg: dict) -> str:
     for k in ("mmi", "fase", "typenavn"):
         h.update(json.dumps(reg["y"]["forventet"].get(k), ensure_ascii=False, sort_keys=True).encode())
     h.update(json.dumps(konfig.egenskapskontroll(reg["y"]), ensure_ascii=False, sort_keys=True).encode())
+    tr = reg["y"].get("typerapport")
+    if tr:
+        # Only a project with the type report: its per-object log and the quantities it reads.
+        h.update(json.dumps({"per_objekt": PER_OBJEKT_VERSJON, "mengder": tr.get("mengder") or []},
+                            ensure_ascii=False, sort_keys=True).encode())
     rot = reg["y"]["_rot"]
     for b in reg["y"]["blokker"]:
         for s in b.get("mengdetype") or []:
@@ -505,10 +514,16 @@ class Blokk:
         self.ekstra = collections.Counter()           # a block's additional reading
         self.mmi_utenfor = collections.Counter()      # branch -> objects below its MMI threshold
         self.kildenavn = kildenavn
+        # The per-object log (type report): called as logg(bid, event) for every reading, so the
+        # report can replay one object's readings into a Blokk of its own. None: no log.
+        self.logg = None
+        self.bid = ""
 
     def sett(self, botte: str, kilde: str | None = None, verdier=(), typenokkel=None, gren: str = "") -> None:
         if self.ikke_konfigurert:
             return
+        if self.logg is not None:
+            self.logg(self.bid, ["s", botte, kilde, list(verdier), gren])
         self.bøtter[botte] += 1
         if kilde:
             self.kilder_alle[kilde] += 1
@@ -526,6 +541,16 @@ class Blokk:
                 if self.verdi_status.get(v) != "oppfylt":
                     self.verdi_status[v] = botte
 
+    def pluss_ekstra(self, k: str) -> None:
+        self.ekstra[k] += 1
+        if self.logg is not None:
+            self.logg(self.bid, ["e", k])
+
+    def pluss_mmi_utenfor(self, gren: str) -> None:
+        self.mmi_utenfor[gren] += 1
+        if self.logg is not None:
+            self.logg(self.bid, ["u", gren])
+
     def ut(self) -> dict:
         d = self._ut()
         if self.mmi_utenfor:
@@ -540,6 +565,92 @@ class Blokk:
                 "verdier_gren": {g: [[v, n, self.verdi_status.get(v, "")] for v, n in c.most_common()]
                                  for g, c in self.gren_verdier.items()},
                 "typer_per_verdi": {v: len(t) for v, t in self.verdi_typer.items()}}
+
+
+# ---------------------------------------------------------------- the type report's per-object log
+ENHETSTYPE = {"m3": "VOLUMEUNIT", "m2": "AREAUNIT", "m": "LENGTHUNIT"}
+SI_PREFIKS = {"EXA": 1e18, "PETA": 1e15, "TERA": 1e12, "GIGA": 1e9, "MEGA": 1e6, "KILO": 1e3, "HECTO": 1e2,
+              "DECA": 1e1, "DECI": 1e-1, "CENTI": 1e-2, "MILLI": 1e-3, "MICRO": 1e-6, "NANO": 1e-9,
+              "PICO": 1e-12, "FEMTO": 1e-15, "ATTO": 1e-18}
+
+
+def enhetsskala(f) -> dict[str, float]:
+    """Scale to SI (m³, m², m) per unit type, from the file's IfcUnitAssignment. An SI prefix applies
+    to the metre, so it is raised to the unit's dimension: DECI CUBIC_METRE is a litre (0.001 m³),
+    not 0.1 m³ (ifcopenshell's calculate_unit_scale applies the prefix once). A conversion-based
+    unit falls back to ifcopenshell."""
+    ut = {}
+    for art, dim in (("VOLUMEUNIT", 3), ("AREAUNIT", 2), ("LENGTHUNIT", 1)):
+        u = next((x for ua in f.by_type("IfcUnitAssignment") for x in ua.Units or []
+                  if getattr(x, "UnitType", None) == art), None)
+        if u is not None and u.is_a("IfcSIUnit"):
+            ut[art] = SI_PREFIKS[u.Prefix] ** dim if u.Prefix else 1.0
+        else:
+            ut[art] = uu.calculate_unit_scale(f, art)
+    return ut
+
+
+def mengder(psets: dict, spek: list[tuple[str, list[str], str]], skala: dict[str, float]) -> dict[str, float]:
+    """The object's own quantities (`typerapport.mengder`): per quantity the first listed name that
+    one of its quantity sets (Qto*, *Quantities) carries as a number, in SI units."""
+    navn: dict[str, float] = {}
+    for qn, q in psets.items():
+        if "Quantities" not in qn and not qn.lower().startswith("qto"):
+            continue
+        for k, v in q.items():
+            if k != "id" and isinstance(v, (int, float)) and not isinstance(v, bool):
+                navn.setdefault(k, float(v))
+    ut = {}
+    for mid, kandidater, art in spek:
+        v = next((navn[n] for n in kandidater if n in navn), None)
+        if v is not None:
+            ut[mid] = v * skala[art]
+    return ut
+
+
+def materiallag(m, skala_mm: float) -> list[list]:
+    """[name, quantity, kind] per layer, verbatim: IfcMaterialLayer thickness in mm («tykkelse»),
+    IfcMaterialConstituent fraction («andel»), else «ikke_definert»."""
+    if m is None:
+        return []
+    if m.is_a("IfcMaterialLayerSetUsage"):
+        m = m.ForLayerSet
+    if m.is_a("IfcMaterialProfileSetUsage"):
+        m = m.ForProfileSet
+    nv = lambda x: (getattr(x, "Name", None) or "").strip() if x is not None else ""  # noqa: E731
+    if m.is_a("IfcMaterialLayerSet"):
+        ut = []
+        for la in m.MaterialLayers or []:
+            t_ = float(la.LayerThickness or 0) * skala_mm
+            ut.append([nv(la.Material), round(t_, 3) if t_ > 0 else None, "tykkelse" if t_ > 0 else "ikke_definert"])
+        return ut
+    if m.is_a("IfcMaterialConstituentSet"):
+        return [[nv(c.Material), float(c.Fraction) if c.Fraction is not None else None,
+                 "andel" if c.Fraction is not None else "ikke_definert"] for c in m.MaterialConstituents or []]
+    if m.is_a("IfcMaterialProfileSet"):
+        return [[nv(x.Material), None, "ikke_definert"] for x in m.MaterialProfiles or []]
+    if m.is_a("IfcMaterialList"):
+        return [[nv(x), None, "ikke_definert"] for x in m.Materials or []]
+    if m.is_a("IfcMaterial"):
+        return [[nv(m), None, "ikke_definert"]]
+    return []
+
+
+def per_objekt(f, po: dict[int, dict], typemat: dict[str, list], info: dict) -> dict:
+    """The log as cached: every object in scope with its readings (`b`, in the order mål made them),
+    the types' material layers, and the parts of an assembly left out of the count
+    (`standard.ikke_telt_del_av`) with their owner, for the type report's object list."""
+    deler = []
+    for barn, eier in sorted(info.get("eier_av", {}).items()):
+        d, o = f.by_id(barn), f.by_id(eier)
+        if not d.is_a(konfig.FYSISK):
+            continue
+        td, to = ue.get_type(d), ue.get_type(o)
+        deler.append({"g": d.GlobalId, "k": d.is_a(), "t": (td.Name or "").strip() if td is not None else None,
+                      "eier": o.GlobalId, "eier_k": o.is_a(),
+                      "eier_t": (to.Name or "").strip() if to is not None else None})
+    return {"versjon": PER_OBJEKT_VERSJON, "objekter": list(po.values()), "typemateriale": typemat,
+            "deler": deler}
 
 
 # ---------------------------------------------------------------- one model
@@ -586,6 +697,27 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
          for bid, v in bl.items() if bid != "materialprodukt"}
     b["materialprodukt"] = Blokk([o.navn for o in (mp["_telle"], mp["_mengde"]) if o], mp["ikke_konfigurert"])
     generiske = [g for g in (generisk_oppsett(v, rot) for v in bl.values() if v.get("valgfri")) if g]
+    # The type report's per-object log (project `typerapport`): every reading of every object in
+    # scope, with the facts the report shows beside them. Off: nothing here runs.
+    logg_paa = y.get("typerapport") or None
+    po: dict[int, dict] = {}
+    po_typemat: dict[str, list] = {}
+    cur: list = [None]
+    if logg_paa:
+        def logg(bid_: str, ev: list) -> None:
+            cur[0]["b"].append([bid_, *ev])
+        for bid_, blk_ in b.items():
+            blk_.bid, blk_.logg = bid_, logg
+        mengder_tr = [(m["id"], [str(x) for x in m["navn"]], ENHETSTYPE[m["enhet"]])
+                      for m in logg_paa.get("mengder") or []]
+        skala_si = enhetsskala(f) if mengder_tr else {}
+
+        def post(pr, tt) -> dict:
+            if pr.id() not in po:
+                po[pr.id()] = {"g": pr.GlobalId, "k": pr.is_a(),
+                               "t": [tt.is_a(), (tt.Name or "").strip()] if tt is not None else None,
+                               "tg": tt.GlobalId if tt is not None else "", "c": 0, "b": []}
+            return po[pr.id()]
     per_klasse: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     typer: dict[tuple[str, str], dict] = {}
     etasjetall = collections.Counter()
@@ -644,6 +776,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     tb = b["typeobjekt"]
     for pr in typbare:
         tt = ue.get_type(pr)
+        if logg_paa:
+            cur[0] = post(pr, tt)
         if tt is None:
             tb.sett("mangler")
             utypet_klasse[pr.is_a()] += 1
@@ -684,6 +818,9 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         rad: dict[str, str] = {}
         st = etasje(e)
         gid = e.GlobalId
+        if logg_paa:
+            cur[0] = post(e, t)
+            cur[0]["c"] = 1
 
         if typenavn:
             per_klasse[kl]["typeobjekt"] += 1
@@ -764,11 +901,27 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         if mt is None:
             mt = klasse_rad["mengdetype"] if klasse_rad else "ukjent"
         if mt_kilde:
-            b["materialprodukt"].ekstra[mt_kilde] += 1
+            b["materialprodukt"].pluss_ekstra(mt_kilde)
         mengde_klasse[(kl, mt, enhet or "")] += 1
+        if logg_paa:
+            cur[0]["mk"] = [kl, mt, enhet or "", kl in aapne_klasser]
         rad["mengdetype"] = mt + (f" · {enhet}" if enhet else "")
 
         kind, entitet, matnavn, lag = materialer(e, skala_mm)
+        if logg_paa:
+            o_ = cur[0]
+            o_["mn"] = list(matnavn)
+            ml_ = materiallag(ue.get_material(e, should_inherit=False), skala_mm)
+            if ml_:
+                o_["ml"] = ml_
+            if t is not None:
+                tkey_ = f"{t.is_a()}|{typenavn}"
+                if tkey_ not in po_typemat:
+                    po_typemat[tkey_] = materiallag(ue.get_material(t), skala_mm)
+            if mengder_tr:
+                q_ = mengder(psets, mengder_tr, skala_si)
+                if q_:
+                    o_["q"] = q_
         for nv in matnavn:
             g_ = mat_galleri.setdefault(nv, {"navn": nv, "objekter": 0, "klasser": collections.Counter(),
                                              "typer": set(), "kilde": collections.Counter(), "lag_mm": set()})
@@ -787,7 +940,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             vv = o.verdi(e, psets, f)
             if under(mp_fra.get("telleobjekt")):
                 mpb.sett("gjelder_ikke")
-                mpb.mmi_utenfor["telleobjekt"] += 1
+                mpb.pluss_mmi_utenfor("telleobjekt")
                 if vv:
                     rad["produkt"] = vv
             elif vv:
@@ -808,7 +961,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             bra = [x for x in verdier if brukbar(x)]
             if under(mp_fra.get("mengdeobjekt")):
                 mpb.sett("gjelder_ikke")
-                mpb.mmi_utenfor["mengdeobjekt"] += 1
+                mpb.pluss_mmi_utenfor("mengdeobjekt")
                 if verdier:
                     rad["materiale"] = " + ".join(bra or verdier)
             elif bra:
@@ -887,11 +1040,13 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         if tn_standard is not None and typenavn and funk:
             rx = navneregel(rad.get("mmi", ""))
             samsvar = bool(rx.match(typenavn)) and typenavn.split("-")[0].upper() == funk[1].strip().upper()
-            b["funksjonskode"].ekstra["samsvar" if samsvar else "ikke_samsvar"] += 1
+            b["funksjonskode"].pluss_ekstra("samsvar" if samsvar else "ikke_samsvar")
 
         # 10 etasjer
         plass = B.i_hierarkiet(e)
         hierarki[plass] += 1
+        if logg_paa:
+            cur[0]["h"] = plass
         eb = b["etasjer"]
         if (plass == "etasje") != (st is not None):
             raise SystemExit(f"FEIL: {label} {gid}: i_hierarkiet={plass}, etasje={st}")
@@ -900,6 +1055,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             nokkel = f"{(st.Name or '').strip()}|{elev}"
             etasjetall[nokkel] += 1
             etasjenavn[nokkel] = {"navn": (st.Name or "").strip(), "elevation_mm": elev}
+            if logg_paa:
+                cur[0]["s"] = [(st.Name or "").strip(), elev]
             eb.sett("oppfylt", eb.kildenavn[0] if eb.kildenavn else None)
             per_klasse[kl]["etasjer"] += 1
         elif plass == "ingen":
@@ -955,6 +1112,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         if type_egenskap:
             hv = B.hent(B.prosjektinfo(psets, ps["navn"]), type_egenskap)
             egen_type = str(hv).strip() if hv not in (None, "") else ""
+            if logg_paa:
+                cur[0]["tv"] = egen_type
             if typenavn and egen_type:
                 par[(typenavn, egen_type)] += 1
             elif not typenavn and not egen_type:
@@ -962,10 +1121,11 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             else:
                 upar["uten_verdi" if typenavn else "uten_typenavn"] += 1
 
+    cur[0] = None
     typeliste = []
-    for tr in sorted(typer.values(), key=lambda x: (-x["instanser"], x["klasse"], x["navn"])):
+    for tr_ in sorted(typer.values(), key=lambda x: (-x["instanser"], x["klasse"], x["navn"])):
         typeliste.append({k: (dict(v.most_common()) if isinstance(v, collections.Counter) else v)
-                          for k, v in tr.items()})
+                          for k, v in tr_.items()})
     typede = sum(tr["instanser"] for tr in typeliste)
     en = sum(1 for tr in typeliste if tr["instanser"] == 1)
     return {
@@ -1000,6 +1160,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         "funn": dict(funn),
         "objekter": objekter,
         "type_1til1": B.en_til_en(par, upar, maks=None),
+        **({"per_objekt": per_objekt(f, po, po_typemat, info)} if logg_paa else {}),
     }
 
 

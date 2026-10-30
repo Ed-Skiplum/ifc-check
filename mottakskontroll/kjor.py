@@ -10,6 +10,8 @@ Steps, each also runnable on its own with the same arguments:
     bygg_mottakskontroll.py    the blocks (blokkdata.py), then the
                                model PDFs, project PDF and workbook   -> <ut>/
     bygg_avvik.py              one deviation workbook per group       -> <ut>/
+    bygg_typer.py              the type report, when the project
+                               config has `typerapport`               -> <ut>/
 
 --kun-rendering skips the two measuring steps and the block measurement, and renders from the
 caches as they lie. --cache defaults to <ut>/cache.
@@ -24,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bep_egenskapskontroll  # noqa: E402
 import bygg_avvik  # noqa: E402
 import bygg_mottakskontroll  # noqa: E402
+import bygg_typer  # noqa: E402
 import stier  # noqa: E402
 import struktur  # noqa: E402
 
@@ -53,7 +56,10 @@ def main() -> int:
                                    a.kun_rendering, a.kun_standard)
     if rc:
         return rc
-    return bygg_avvik.bygg(a.prosjekt, a.runde, cache, a.ut, a.kun_standard)
+    rc = bygg_avvik.bygg(a.prosjekt, a.runde, cache, a.ut, a.kun_standard)
+    if rc or a.kun_standard:
+        return rc
+    return bygg_typer.bygg(a.prosjekt, a.runde, cache, a.ut, a.ifc)
 
 
 if __name__ == "__main__":

@@ -259,6 +259,64 @@ etiketter:
   mock_etasjespenn: 'Etasjer: bunn i etasjen (etasjespenn)'
   alle_modeller: alle
   enhet_stk: stk
+  # the type report (bygg_typer.py)
+  ark_ty_sammendrag: Sammendrag
+  ark_ty_typer: Typer
+  ark_ty_forekomster: Forekomster
+  ark_ty_materialer: Materialer
+  ark_ty_materiallag: Materiallag
+  ark_ty_kilder: Kilder
+  ty_modell: Modell
+  ty_firma: Firma
+  ty_versjon: Versjon
+  ty_lastet_opp: Lastet opp
+  ty_fil: IFC-fil
+  ty_sha16: sha16
+  ty_objekter: Objekter
+  ty_typer: Typer
+  ty_utypede: Utypede objekter
+  ty_deler: 'Deler, ikke telt'
+  ty_typer_oppfylt: Typer oppfylt per krav
+  ty_klar_kol: Klar
+  ty_klar: Klar
+  ty_krever: Krever undersøkelse
+  ty_mangler: Mangler
+  ty_typenavn: IfcTypeObject.Name
+  ty_typeklasse: Typeklasse
+  ty_ifc_klasse: IFC-klasse
+  ty_uten_navn: '(uten navn)'
+  ty_utypet: '(utypet)'
+  ty_status: status
+  ty_uten_verdi: uten verdi
+  ty_st_oppfylt: oppfylt
+  ty_st_avvik: avvik
+  ty_st_mangler: mangler
+  ty_st_gjelder_ikke: gjelder ikke
+  ty_globalid: GlobalId
+  ty_type_globalid: Type GlobalId
+  ty_etasje: Etasje
+  ty_eier_guid: Eierobjekt GlobalId
+  ty_eier_type: Eierobjekt type
+  ty_materiale: Materiale
+  ty_modeller: Modeller
+  ty_mat_kilde: Materiale fra
+  ty_kilde_type: type
+  ty_kilde_forekomst: forekomst
+  ty_antall_lag: Antall lag
+  ty_mengde_per_lag: Mengde per lag
+  ty_lag: Lag
+  ty_lag_materiale: materiale
+  ty_lag_tykkelse: 'tykkelse (mm)'
+  ty_lag_andel: andel
+  ty_lagart_tykkelse: tykkelse
+  ty_lagart_andel: andel
+  ty_lagart_ikke_definert: ikke definert
+  ty_runde: Runde
+  ty_bygget: Bygget
+  ty_konfig: Prosjektkonfig
+  ty_paritet: Paritet med modellrapporten
+  ty_paritet_tekst: per modell og krav summerer typene til tallene i modellrapporten
+  ty_utelatt_modell: Modell utenfor typerapporten
 
 # Moved from krav.yaml 2026-09-25: generic, so a standard-only run has them. A project may
 # override each key in krav.yaml.
