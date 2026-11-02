@@ -78,7 +78,8 @@ def sjekker(ps: dict | None) -> list[tuple[str, str]]:
 def konfig_nokkel(ps: dict | None, fagkoder: list[str], rot: Path | None = None) -> str:
     """What the checks read from the project config, as a cache key: the normalised property set
     check, the fagkoder and the bytes of every code table it names."""
-    h = hashlib.sha256(json.dumps([ps, fagkoder], ensure_ascii=False, sort_keys=True).encode())
+    h = hashlib.sha256(json.dumps([ps, fagkoder, konfig.IKKE_TELT_TYPER], ensure_ascii=False,
+                                  sort_keys=True).encode())
     for e in (ps or {}).get("egenskaper") or []:
         if e.get("kodetabell"):
             h.update(stier.tabell_sti(e["kodetabell"], rot).read_bytes())
@@ -186,6 +187,18 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     fys = df.entity.isin(subtypes_of(konfig.FYSISK, m.schema))
     del_av = rest & fys & df.step_id.astype(int).isin(set(eier_av))
     rest &= ~del_av
+    # The project's excluded types (krav.yaml `ikke_telt_typer`), per type name.
+    utelatt_type = {}
+    if konfig.IKKE_TELT_TYPER:
+        forek: dict[str, set[int]] = collections.defaultdict(set)
+        for rel in f.by_type("IfcRelDefinesByType"):
+            t = rel.RelatingType
+            if t is not None and (t.Name or "") in konfig.IKKE_TELT_TYPER:
+                forek[t.Name].update(o.id() for o in rel.RelatedObjects or [])
+        for navn in konfig.IKKE_TELT_TYPER:
+            treff = rest & fys & df.step_id.astype(int).isin(forek.get(navn, set()))
+            utelatt_type[navn] = int(treff.sum())
+            rest &= ~treff
     ids = [int(x) for x in df[rest & fys & df.has_body].step_id]
     body = {int(x) for x in df[df.has_body].step_id}
 
@@ -210,6 +223,8 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     grunnlag = f"ifcfast {ifcfast.__version__} has_body, {konfig.FYSISK} uten {', '.join(konfig.IKKE_TELT)}"
     if konfig.DEL_AV:
         grunnlag += f" og deler av {', '.join(konfig.DEL_AV)} (IfcRelAggregates)"
+    if konfig.IKKE_TELT_TYPER:
+        grunnlag += f", uten typene {', '.join(konfig.IKKE_TELT_TYPER)} (prosjektet)"
     if flate:
         grunnlag += f", pluss {len(flate)} uten Body med 3D 'Surface'"
     if sammensatt:
@@ -217,6 +232,7 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     info = {"grunnlag": grunnlag,
             "rader": int(len(df)), "utelatt_klasse": utelatt_klasse,
             "del_av": int(del_av.sum()),
+            "utelatt_type": utelatt_type,
             "ikke_fysisk": int((rest & ~fys).sum()),
             "uten_3d": int((rest & fys & ~df.has_body).sum()) - len(flate) - len(sammensatt),
             "rad_ids": set(int(x) for x in df.step_id),
@@ -272,6 +288,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
     ut["ikke_telt"] = len(produkter) - n
     ut["ikke_telt_grunn"] = {**{k: v for k, v in info["utelatt_klasse"].items() if v},
                              **({"del_av_element": info["del_av"]} if info["del_av"] else {}),
+                             **{f"type:{k}": v for k, v in info["utelatt_type"].items() if v},
                              "ikke_fysisk": info["ikke_fysisk"], "uten_3d": info["uten_3d"],
                              "romlig_struktur": len(produkter) - info["rader"]}
     ut["tellegrunnlag"] = info["grunnlag"]
@@ -581,6 +598,7 @@ def skriv(resultater: list, dato: str, ut: Path, kode: str, ps: dict | None) -> 
 def kjør(prosjekt: Path, runde_sti: Path, cache: Path, ut: Path, ifc: Path | None = None,
          valgte: list[str] | None = None, ny: bool = False) -> int:
     y = yaml.safe_load(prosjekt.read_text(encoding="utf-8"))
+    konfig.sett_omfang(y)
     kode = y["prosjekt"]["kode"]
     ps = konfig.egenskapskontroll(y)
     fagkoder = [str(f) for f in y.get("fagkoder") or []]

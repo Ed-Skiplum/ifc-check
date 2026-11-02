@@ -227,6 +227,7 @@ def registerhash(reg: dict) -> str:
     for k in ("mmi", "fase", "typenavn"):
         h.update(json.dumps(reg["y"]["forventet"].get(k), ensure_ascii=False, sort_keys=True).encode())
     h.update(json.dumps(konfig.egenskapskontroll(reg["y"]), ensure_ascii=False, sort_keys=True).encode())
+    h.update(json.dumps(reg["y"].get("ikke_telt_typer") or {}, ensure_ascii=False, sort_keys=True).encode())
     tr = reg["y"].get("typerapport")
     if tr:
         # Only a project with the type report: its per-object log and the quantities it reads.

@@ -51,6 +51,19 @@ def _omfang() -> tuple[str, dict[str, str], dict[str, str]]:
 
 
 FYSISK, IKKE_TELT, DEL_AV = _omfang()
+# The project's own scope exclusion, by IfcTypeObject name (krav.yaml `ikke_telt_typer`, name ->
+# reason; edkjo 2026-11-02: KNM_ARK's Parking-Adaptive-HC). Set by `sett_omfang`, which `last()`
+# and bep_egenskapskontroll.kjør call before anything is measured.
+IKKE_TELT_TYPER: dict[str, str] = {}
+
+
+def sett_omfang(prj: dict) -> None:
+    """The project's type exclusions, checked: a mapping of type name to reason."""
+    t = prj.get("ikke_telt_typer") or {}
+    if not isinstance(t, dict) or any(not str(v).strip() for v in t.values()):
+        raise SystemExit("FEIL: ikke_telt_typer i krav.yaml skal være typenavn -> grunn")
+    IKKE_TELT_TYPER.clear()
+    IKKE_TELT_TYPER.update({str(k): str(v) for k, v in t.items()})
 
 
 def utelatt(e) -> str | None:
@@ -72,10 +85,21 @@ def eier(e):
     return None
 
 
+def utelatt_type(e) -> str | None:
+    """The project-excluded type (`ikke_telt_typer`) an object is an occurrence of, or None."""
+    if not IKKE_TELT_TYPER:
+        return None
+    for rel in getattr(e, "IsTypedBy", None) or getattr(e, "IsDefinedBy", None) or []:
+        if rel.is_a("IfcRelDefinesByType") and (rel.RelatingType.Name or "") in IKKE_TELT_TYPER:
+            return rel.RelatingType.Name
+    return None
+
+
 def i_omfang(e) -> bool:
-    """A physical object in the check: an IfcElement of no `ikke_telt` class, and not a part of
-    another element (`ikke_telt_del_av`): the owner is the object reported."""
-    return e.is_a(FYSISK) and utelatt(e) is None and eier(e) is None
+    """A physical object in the check: an IfcElement of no `ikke_telt` class, not a part of
+    another element (`ikke_telt_del_av`): the owner is the object reported, and of no type the
+    project leaves out (`ikke_telt_typer`)."""
+    return e.is_a(FYSISK) and utelatt(e) is None and eier(e) is None and utelatt_type(e) is None
 
 
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
@@ -298,6 +322,7 @@ def last(krav_sti: Path, kun_standard: bool = False) -> dict:
         raise SystemExit(f"FEIL: {krav_sti}: {tekst.count(MAL_MERKE)} unfilled {MAL_MERKE}> placeholder(s) "
                          "from the template")
     prj = yaml.safe_load(tekst)
+    sett_omfang(prj)
     sp = spraak(std, prj)
     prj_blokker = {b["id"]: b for b in prj.get("blokker") or []}
     ukjent = set(prj_blokker) - {b["id"] for b in std["blokker"]}
