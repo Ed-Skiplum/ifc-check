@@ -23,6 +23,8 @@ parts with their owner), Materialer, Materiallag, Kilder. Labels from standard.y
 
 Project config, key `typerapport` (its presence turns the report on):
     filnavn            workbook name (default <kode>_Mottakskontroll_Typer.xlsx)
+    per_faggruppe      true, or a name with {kode} and {fag}: also one workbook per discipline group
+                       (`faggrupper`, as bygg_avvik), default <kode>_Mottakskontroll_Typer_<fag>.xlsx
     seksjoner          report section ids whose requirements get columns (default: every section)
     utelatt_modeller   {label: reason}: models with no rows (listed in Kilder)
     mengder            [{id, tittel, navn: [quantity names], enhet: m3 | m2 | m}]: the objects' own
@@ -44,6 +46,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 HER = Path(__file__).resolve().parent
 sys.path.insert(0, str(HER))
 import blokkdata  # noqa: E402
+import bygg_avvik  # noqa: E402
 import bygg_mottakskontroll as MK  # noqa: E402
 import konfig  # noqa: E402
 import stier  # noqa: E402
@@ -51,7 +54,7 @@ import stier  # noqa: E402
 BOTTER = ("oppfylt", "avvik", "mangler", "gjelder_ikke")
 # Model-level requirements: no per-object reading, so no column and no per-type count.
 IKKE_PER_OBJEKT = ("guid", "etasjedefinisjon")
-NOKLER = ("filnavn", "seksjoner", "utelatt_modeller", "mengder", "klar")
+NOKLER = ("filnavn", "per_faggruppe", "seksjoner", "utelatt_modeller", "mengder", "klar")
 E = MK.E
 
 
@@ -76,7 +79,13 @@ def oppsett(y: dict, reg: MK.Register) -> dict:
         if not m.get("id") or not m.get("tittel") or not m.get("navn") or m.get("enhet") not in blokkdata.ENHETSTYPE:
             raise SystemExit(f"FEIL: typerapport.mengder: {m!r} trenger id, tittel, navn og enhet "
                              f"({', '.join(blokkdata.ENHETSTYPE)})")
+    pf = tr.get("per_faggruppe")
+    if pf is True:
+        pf = "{kode}_Mottakskontroll_Typer_{fag}.xlsx"
+    elif pf and (not isinstance(pf, str) or "{fag}" not in pf):
+        raise SystemExit(f"FEIL: typerapport.per_faggruppe: {pf!r} skal være true eller et navn med {{fag}}")
     return {"filnavn": tr.get("filnavn") or f"{reg.prosjekt['kode']}_Mottakskontroll_Typer.xlsx",
+            "per_faggruppe": pf or None,
             "kolonner": kol, "seksjoner": [s for s in reg.seksjoner if s["id"] in valgt],
             "utelatt": {str(k): str(v) for k, v in (tr.get("utelatt_modeller") or {}).items()},
             "mengder": tr.get("mengder") or [], "klar": klar, "klar_paa": "klar" in tr,
@@ -279,207 +288,226 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
     st_fyll = {"oppfylt": "ok", "avvik": "warn", "mangler": "bad", "gjelder_ikke": "na"}
     st_ord = {k: E(f"ty_st_{k}") for k in BOTTER}
     fet = Font(bold=True)
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)
+    def skriv(sti: Path, labels: list[str], rader: list, forekomster: list, sammendrag: list,
+              deler_alle: list) -> int:
+        """The workbook over the given models: the project's, or one discipline group's."""
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
 
-    def ark(navn: str, hode: list[str], band: list[tuple[str, int]] | None = None, bred: dict | None = None):
-        """A sheet with the header in row 1, or with a band of section titles over it (row 1, merged
-        over its columns) and the header in row 2."""
-        ws = wb.create_sheet(navn)
-        if band:
-            ws.append([None] * len(hode))
-            c0 = 1
-            for tittel, n in band:
-                if n:
-                    ws.cell(row=1, column=c0, value=tittel).font = fet
-                    if tittel and n > 1:
-                        ws.merge_cells(start_row=1, start_column=c0, end_row=1, end_column=c0 + n - 1)
-                c0 += n
-        ws.append(hode)
-        h = ws.max_row
-        for c in ws[h]:
-            c.font = fet
-            c.alignment = Alignment(wrap_text=True, vertical="bottom")
-        for i, k in enumerate(hode, 1):
-            ws.column_dimensions[get_column_letter(i)].width = (bred or {}).get(k, 16)
-        return ws, h
+        def ark(navn: str, hode: list[str], band: list[tuple[str, int]] | None = None, bred: dict | None = None):
+            """A sheet with the header in row 1, or with a band of section titles over it (row 1, merged
+            over its columns) and the header in row 2."""
+            ws = wb.create_sheet(navn)
+            if band:
+                ws.append([None] * len(hode))
+                c0 = 1
+                for tittel, n in band:
+                    if n:
+                        ws.cell(row=1, column=c0, value=tittel).font = fet
+                        if tittel and n > 1:
+                            ws.merge_cells(start_row=1, start_column=c0, end_row=1, end_column=c0 + n - 1)
+                    c0 += n
+            ws.append(hode)
+            h = ws.max_row
+            for c in ws[h]:
+                c.font = fet
+                c.alignment = Alignment(wrap_text=True, vertical="bottom")
+            for i, k in enumerate(hode, 1):
+                ws.column_dimensions[get_column_letter(i)].width = (bred or {}).get(k, 16)
+            return ws, h
 
-    def avslutt(ws, h: int, frys: str) -> None:
-        ws.freeze_panes = frys
-        if ws.max_row > h:
-            ws.auto_filter.ref = f"A{h}:{get_column_letter(ws.max_column)}{ws.max_row}"
+        def avslutt(ws, h: int, frys: str) -> None:
+            ws.freeze_panes = frys
+            if ws.max_row > h:
+                ws.auto_filter.ref = f"A{h}:{get_column_letter(ws.max_column)}{ws.max_row}"
 
-    blokk_band = [(s["tittel"], 2 * sum(1 for b in kol if b["seksjon"] == s["id"])) for s in T["seksjoner"]]
-    blokk_hode = [h_ for b in kol for h_ in (b["tittel"], f"{b['tittel']} {E('ty_status')}")]
+        blokk_band = [(s["tittel"], 2 * sum(1 for b in kol if b["seksjon"] == s["id"])) for s in T["seksjoner"]]
+        blokk_hode = [h_ for b in kol for h_ in (b["tittel"], f"{b['tittel']} {E('ty_status')}")]
 
-    # Sammendrag
-    hode = [E(k) for k in ("ty_modell", "ty_firma", "ty_versjon", "ty_objekter", "ty_typer", "ty_utypede",
-                           "ty_deler")]
-    if T["klar_paa"]:
-        hode += [E("ty_klar"), E("ty_krever")]
-    fast = len(hode)
-    ws, h = ark(E("ark_ty_sammendrag"), hode + [b["tittel"] for b in kol],
-                [("", fast), (E("ty_typer_oppfylt"), len(kol))], {E("ty_modell"): 24})
-    for lab, mine, n_deler in sammendrag:
-        m = r.cfg[lab]
-        rad = [lab, m.get("firma") or None, m.get("versjon") or None, rm[lab]["n"], len(mine),
-               sum(x["n"] for x in mine if not x["typet"]), n_deler]
+        # Sammendrag
+        hode = [E(k) for k in ("ty_modell", "ty_firma", "ty_versjon", "ty_objekter", "ty_typer", "ty_utypede",
+                               "ty_deler")]
         if T["klar_paa"]:
-            k_ = sum(1 for x in mine if klar(x)[0])
-            rad += [k_, len(mine) - k_]
-        for b in kol:
-            gj = [x for x in mine if x["dom"][b["id"]]["verdikt"] not in ("gjelder_ikke", "ikke_konfigurert")]
-            ok = sum(1 for x in gj if x["dom"][b["id"]]["verdikt"] == "oppfylt")
-            rad.append(f"{ok}/{len(gj)}" if gj else MK.VERDIKT_ORD["gjelder_ikke"])
-        ws.append(rad)
-        for j, b in enumerate(kol):
-            rb = next(x for x in rm[lab]["blokker"] if x["id"] == b["id"])
-            ws.cell(row=ws.max_row, column=fast + 1 + j).fill = fyll[MK.VERDIKT_STATUS[rb["verdikt"]]]
-    avslutt(ws, h, f"B{h + 1}")
+            hode += [E("ty_klar"), E("ty_krever")]
+        fast = len(hode)
+        ws, h = ark(E("ark_ty_sammendrag"), hode + [b["tittel"] for b in kol],
+                    [("", fast), (E("ty_typer_oppfylt"), len(kol))], {E("ty_modell"): 24})
+        for lab, mine, n_deler in sammendrag:
+            m = r.cfg[lab]
+            rad = [lab, m.get("firma") or None, m.get("versjon") or None, rm[lab]["n"], len(mine),
+                   sum(x["n"] for x in mine if not x["typet"]), n_deler]
+            if T["klar_paa"]:
+                k_ = sum(1 for x in mine if klar(x)[0])
+                rad += [k_, len(mine) - k_]
+            for b in kol:
+                gj = [x for x in mine if x["dom"][b["id"]]["verdikt"] not in ("gjelder_ikke", "ikke_konfigurert")]
+                ok = sum(1 for x in gj if x["dom"][b["id"]]["verdikt"] == "oppfylt")
+                rad.append(f"{ok}/{len(gj)}" if gj else MK.VERDIKT_ORD["gjelder_ikke"])
+            ws.append(rad)
+            for j, b in enumerate(kol):
+                rb = next(x for x in rm[lab]["blokker"] if x["id"] == b["id"])
+                ws.cell(row=ws.max_row, column=fast + 1 + j).fill = fyll[MK.VERDIKT_STATUS[rb["verdikt"]]]
+        avslutt(ws, h, f"B{h + 1}")
 
-    # Typer
-    q_hode = [m["tittel"] for m in T["mengder"]]
-    fast_t = [E(k) for k in ("ty_modell", "ty_typenavn", "ty_typeklasse", "ty_ifc_klasse", "ty_objekter")] + q_hode
-    if T["klar_paa"]:
-        fast_t += [T["klar_tittel"], E("ty_mangler")]
-    ws, h = ark(E("ark_ty_typer"), fast_t + blokk_hode, [("", len(fast_t))] + blokk_band,
-                {E("ty_modell"): 20, E("ty_typenavn"): 36, E("ty_ifc_klasse"): 22})
-    for x in rader:
-        kl = collections.Counter(o["k"] for o in x["objekter"])
-        rad = [x["modell"], (x["typenavn"] or E("ty_uten_navn")) if x["typet"] else E("ty_utypet"),
-               x["typeklasse"] or None, ", ".join(k for k, _ in kl.most_common()), x["n"]]
-        for m in T["mengder"]:
-            vv = [o["q"][m["id"]] for o in x["objekter"] if m["id"] in (o.get("q") or {})]
-            rad.append(round(sum(vv), 3) if vv else None)
-        n_q = len(T["mengder"])
+        # Typer
+        q_hode = [m["tittel"] for m in T["mengder"]]
+        fast_t = [E(k) for k in ("ty_modell", "ty_typenavn", "ty_typeklasse", "ty_ifc_klasse", "ty_objekter")] + q_hode
         if T["klar_paa"]:
-            ok, mangler = klar(x)
-            rad += [E("ty_klar") if ok else E("ty_krever"), ", ".join(mangler) or None]
-        for b in kol:
-            rad += [verdier_type(x, b), MK.VERDIKT_ORD[x["dom"][b["id"]]["verdikt"]]]
-        ws.append(rad)
-        rr = ws.max_row
-        for j in range(n_q):
-            ws.cell(row=rr, column=6 + j).number_format = "#,##0.00"
-        if T["klar_paa"]:
-            ws.cell(row=rr, column=len(fast_t) - 1).fill = fyll["ok" if ok else "warn"]
-        for j, b in enumerate(kol):
-            ws.cell(row=rr, column=len(fast_t) + 2 * j + 2).fill = fyll[MK.VERDIKT_STATUS[x["dom"][b["id"]]["verdikt"]]]
-    avslutt(ws, h, f"C{h + 1}")
+            fast_t += [T["klar_tittel"], E("ty_mangler")]
+        ws, h = ark(E("ark_ty_typer"), fast_t + blokk_hode, [("", len(fast_t))] + blokk_band,
+                    {E("ty_modell"): 20, E("ty_typenavn"): 36, E("ty_ifc_klasse"): 22})
+        for x in rader:
+            kl = collections.Counter(o["k"] for o in x["objekter"])
+            rad = [x["modell"], (x["typenavn"] or E("ty_uten_navn")) if x["typet"] else E("ty_utypet"),
+                   x["typeklasse"] or None, ", ".join(k for k, _ in kl.most_common()), x["n"]]
+            for m in T["mengder"]:
+                vv = [o["q"][m["id"]] for o in x["objekter"] if m["id"] in (o.get("q") or {})]
+                rad.append(round(sum(vv), 3) if vv else None)
+            n_q = len(T["mengder"])
+            if T["klar_paa"]:
+                ok, mangler = klar(x)
+                rad += [E("ty_klar") if ok else E("ty_krever"), ", ".join(mangler) or None]
+            for b in kol:
+                rad += [verdier_type(x, b), MK.VERDIKT_ORD[x["dom"][b["id"]]["verdikt"]]]
+            ws.append(rad)
+            rr = ws.max_row
+            for j in range(n_q):
+                ws.cell(row=rr, column=6 + j).number_format = "#,##0.00"
+            if T["klar_paa"]:
+                ws.cell(row=rr, column=len(fast_t) - 1).fill = fyll["ok" if ok else "warn"]
+            for j, b in enumerate(kol):
+                ws.cell(row=rr, column=len(fast_t) + 2 * j + 2).fill = fyll[MK.VERDIKT_STATUS[x["dom"][b["id"]]["verdikt"]]]
+        avslutt(ws, h, f"C{h + 1}")
 
-    # Forekomster: every counted object, then the parts of an assembly with their owner
-    fast_f = [E(k) for k in ("ty_modell", "ty_typenavn", "ty_ifc_klasse", "ty_globalid", "ty_type_globalid",
-                             "ty_etasje", "ty_eier_guid", "ty_eier_type")]
-    # one column per requirement: the value, filled by its status; no value is «missing» in grey
-    blokk_hode_f = [b["tittel"] for b in kol]
-    blokk_band_f = [(s["tittel"], sum(1 for b in kol if b["seksjon"] == s["id"])) for s in T["seksjoner"]]
-    ws, h = ark(E("ark_ty_forekomster"), fast_f + blokk_hode_f, [("", len(fast_f))] + blokk_band_f,
-                {E("ty_typenavn"): 36, E("ty_globalid"): 24, E("ty_type_globalid"): 24, E("ty_eier_guid"): 24})
-    for x, o, st in forekomster:
-        et = o["s"][0] if o.get("s") else (f"({o.get('h')})" if o.get("h") else None)
-        rad = [x["modell"], (x["typenavn"] or E("ty_uten_navn")) if x["typet"] else None, o["k"], o["g"],
-               o["tg"] or None, et, None, None]
-        celler = []
-        for b in kol:
-            sb, v = st[b["id"]], verdi_objekt(o, b)
-            if not sb:
-                celler.append((None, None))
-            elif sb == "gjelder_ikke":
-                celler.append((st_ord[sb], "na"))
-            elif sb == "mangler" or not v:
-                celler.append((st_ord["mangler"], "na"))
+        # Forekomster: every counted object, then the parts of an assembly with their owner
+        fast_f = [E(k) for k in ("ty_modell", "ty_typenavn", "ty_ifc_klasse", "ty_globalid", "ty_type_globalid",
+                                 "ty_etasje", "ty_eier_guid", "ty_eier_type")]
+        # one column per requirement: the value, filled by its status; no value is «missing» in grey
+        blokk_hode_f = [b["tittel"] for b in kol]
+        blokk_band_f = [(s["tittel"], sum(1 for b in kol if b["seksjon"] == s["id"])) for s in T["seksjoner"]]
+        ws, h = ark(E("ark_ty_forekomster"), fast_f + blokk_hode_f, [("", len(fast_f))] + blokk_band_f,
+                    {E("ty_typenavn"): 36, E("ty_globalid"): 24, E("ty_type_globalid"): 24, E("ty_eier_guid"): 24})
+        for x, o, st in forekomster:
+            et = o["s"][0] if o.get("s") else (f"({o.get('h')})" if o.get("h") else None)
+            rad = [x["modell"], (x["typenavn"] or E("ty_uten_navn")) if x["typet"] else None, o["k"], o["g"],
+                   o["tg"] or None, et, None, None]
+            celler = []
+            for b in kol:
+                sb, v = st[b["id"]], verdi_objekt(o, b)
+                if not sb:
+                    celler.append((None, None))
+                elif sb == "gjelder_ikke":
+                    celler.append((st_ord[sb], "na"))
+                elif sb == "mangler" or not v:
+                    celler.append((st_ord["mangler"], "na"))
+                else:
+                    # A value that fails is red, not the amber «avvik» of the verdicts (edkjo 2026-10-30).
+                    celler.append((v, "ok" if sb == "oppfylt" else "bad"))
+            rad += [c[0] for c in celler]
+            ws.append(rad)
+            rr = ws.max_row
+            for j, (_, f_) in enumerate(celler):
+                if f_:
+                    ws.cell(row=rr, column=len(fast_f) + 1 + j).fill = fyll[f_]
+        for lab, d in deler_alle:
+            ws.append([lab, d["t"], d["k"], d["g"], d.get("tg") or None, None, d["eier"],
+                       d["eier_t"] if d["eier_t"] is not None else d["eier_k"]] + [None] * len(blokk_hode_f))
+        avslutt(ws, h, f"E{h + 1}")
+
+        # Materialer: every material name the counted objects carry, before any join
+        mat = collections.defaultdict(lambda: [set(), set(), 0])
+        for x in rader:
+            for o in x["objekter"]:
+                for v in dict.fromkeys(o.get("mn") or []) or [E("ty_uten_verdi")]:
+                    e_ = mat[v]
+                    e_[0].add(x["modell"])
+                    e_[1].add((x["modell"], x["typeklasse"], x["typenavn"], x["typet"] or o["k"]))
+                    e_[2] += 1
+        ws, h = ark(E("ark_ty_materialer"), [E(k) for k in ("ty_materiale", "ty_modeller", "ty_typer", "ty_objekter")],
+                    bred={E("ty_materiale"): 40, E("ty_modeller"): 30})
+        for v, (mods, typer, n) in sorted(mat.items(), key=lambda kv: (-kv[1][2], kv[0].casefold())):
+            ws.append([v, ", ".join(lab for lab in labels if lab in mods), len(typer), n])
+        avslutt(ws, h, f"B{h + 1}")
+
+        # Materiallag: the layers as the model states them, the type's association first, else the
+        # objects' own (the most common)
+        typemat = {}
+        for lab in labels:
+            bd0 = json.loads((r.blokk_sti / "prosjekt" / f"{lab}.json").read_text(encoding="utf-8"))
+            typemat[lab] = bd0["per_objekt"].get("typemateriale") or {}
+        ml_rader = []
+        for x in rader:
+            tm = typemat[x["modell"]].get(f"{x['typeklasse']}|{x['typenavn']}") if x["typet"] else None
+            if tm:
+                kilde, lag = E("ty_kilde_type"), tm
             else:
-                # A value that fails is red, not the amber «avvik» of the verdicts (edkjo 2026-10-30).
-                celler.append((v, "ok" if sb == "oppfylt" else "bad"))
-        rad += [c[0] for c in celler]
-        ws.append(rad)
-        rr = ws.max_row
-        for j, (_, f_) in enumerate(celler):
-            if f_:
-                ws.cell(row=rr, column=len(fast_f) + 1 + j).fill = fyll[f_]
-    for lab, d in deler_alle:
-        ws.append([lab, d["t"], d["k"], d["g"], d.get("tg") or None, None, d["eier"],
-                   d["eier_t"] if d["eier_t"] is not None else d["eier_k"]] + [None] * len(blokk_hode_f))
-    avslutt(ws, h, f"E{h + 1}")
+                c = collections.Counter(json.dumps(o["ml"], ensure_ascii=False) for o in x["objekter"] if o.get("ml"))
+                kilde, lag = (E("ty_kilde_forekomst"), json.loads(c.most_common(1)[0][0])) if c else (None, [])
+            ml_rader.append((x, kilde, lag))
+        bredest = max([1] + [len(l_) for _, _, l_ in ml_rader])
+        hode = [E(k) for k in ("ty_modell", "ty_typenavn", "ty_typeklasse", "ty_mat_kilde", "ty_antall_lag",
+                               "ty_mengde_per_lag")]
+        for i in range(1, bredest + 1):
+            hode += [f"{E('ty_lag')} {i} {E('ty_lag_materiale')}", f"{E('ty_lag')} {i} {E('ty_lag_tykkelse')}",
+                     f"{E('ty_lag')} {i} {E('ty_lag_andel')}"]
+        ws, h = ark(E("ark_ty_materiallag"), hode, bred={E("ty_typenavn"): 36})
+        for x, kilde, lag in ml_rader:
+            arter = list(dict.fromkeys(E(f"ty_lagart_{a}") for _, _, a in lag))
+            rad = [x["modell"], (x["typenavn"] or E("ty_uten_navn")) if x["typet"] else E("ty_utypet"),
+                   x["typeklasse"] or None, kilde, len(lag), ", ".join(arter) or None]
+            for navn_, mengde, art in lag:
+                rad += [navn_ or None, mengde if art == "tykkelse" else None, mengde if art == "andel" else None]
+            ws.append(rad + [None] * (len(hode) - len(rad)))
+            for i in range(len(lag)):
+                ws.cell(row=ws.max_row, column=8 + 3 * i).number_format = "0.0"
+                ws.cell(row=ws.max_row, column=9 + 3 * i).number_format = "0.0%"
+        avslutt(ws, h, f"C{h + 1}")
 
-    # Materialer: every material name the counted objects carry, before any join
-    mat = collections.defaultdict(lambda: [set(), set(), 0])
-    for x in rader:
-        for o in x["objekter"]:
-            for v in dict.fromkeys(o.get("mn") or []) or [E("ty_uten_verdi")]:
-                e_ = mat[v]
-                e_[0].add(x["modell"])
-                e_[1].add((x["modell"], x["typeklasse"], x["typenavn"], x["typet"] or o["k"]))
-                e_[2] += 1
-    ws, h = ark(E("ark_ty_materialer"), [E(k) for k in ("ty_materiale", "ty_modeller", "ty_typer", "ty_objekter")],
-                bred={E("ty_materiale"): 40, E("ty_modeller"): 30})
-    for v, (mods, typer, n) in sorted(mat.items(), key=lambda kv: (-kv[1][2], kv[0].casefold())):
-        ws.append([v, ", ".join(lab for lab in labels if lab in mods), len(typer), n])
-    avslutt(ws, h, f"B{h + 1}")
+        # Kilder
+        ws, h = ark(E("ark_ty_kilder"), [E(k) for k in ("ty_modell", "ty_fil", "ty_sha16", "ty_versjon",
+                                                         "ty_lastet_opp", "ty_firma", "ty_objekter")],
+                    bred={E("ty_modell"): 30, E("ty_fil"): 30})
+        for lab in labels:
+            m = r.cfg[lab]
+            ws.append([lab, m["fil"], m["sha16"], m.get("versjon") or None, m.get("lastet_opp") or None,
+                       m.get("firma") or None, rm[lab]["n"]])
+        ws.append([])
+        konfig_sha = hashlib.sha256(prosjekt.read_bytes()).hexdigest()[:16]
+        fakta = [(E("ty_runde"), f"{r.dato} ({runde.name})"), (E("ty_bygget"), dt.date.today().isoformat()),
+                 (E("ty_konfig"), f"{prosjekt.name} · sha16 {konfig_sha}"),
+                 (E("ty_paritet"), f"{E('ty_paritet_tekst')} ({len(labels)} × {len(paritet)})")]
+        for lab, grunn in T["utelatt"].items():
+            if lab in hoved:
+                fakta.append((E("ty_utelatt_modell"), f"{lab}: {grunn}"))
+        for k, v in fakta:
+            ws.append([k, v])
+            ws.cell(row=ws.max_row, column=1).font = fet
+        avslutt(ws, h, f"B{h + 1}")
 
-    # Materiallag: the layers as the model states them, the type's association first, else the
-    # objects' own (the most common)
-    typemat = {}
-    for lab in labels:
-        bd0 = json.loads((r.blokk_sti / "prosjekt" / f"{lab}.json").read_text(encoding="utf-8"))
-        typemat[lab] = bd0["per_objekt"].get("typemateriale") or {}
-    ml_rader = []
-    for x in rader:
-        tm = typemat[x["modell"]].get(f"{x['typeklasse']}|{x['typenavn']}") if x["typet"] else None
-        if tm:
-            kilde, lag = E("ty_kilde_type"), tm
-        else:
-            c = collections.Counter(json.dumps(o["ml"], ensure_ascii=False) for o in x["objekter"] if o.get("ml"))
-            kilde, lag = (E("ty_kilde_forekomst"), json.loads(c.most_common(1)[0][0])) if c else (None, [])
-        ml_rader.append((x, kilde, lag))
-    bredest = max([1] + [len(l_) for _, _, l_ in ml_rader])
-    hode = [E(k) for k in ("ty_modell", "ty_typenavn", "ty_typeklasse", "ty_mat_kilde", "ty_antall_lag",
-                           "ty_mengde_per_lag")]
-    for i in range(1, bredest + 1):
-        hode += [f"{E('ty_lag')} {i} {E('ty_lag_materiale')}", f"{E('ty_lag')} {i} {E('ty_lag_tykkelse')}",
-                 f"{E('ty_lag')} {i} {E('ty_lag_andel')}"]
-    ws, h = ark(E("ark_ty_materiallag"), hode, bred={E("ty_typenavn"): 36})
-    for x, kilde, lag in ml_rader:
-        arter = list(dict.fromkeys(E(f"ty_lagart_{a}") for _, _, a in lag))
-        rad = [x["modell"], (x["typenavn"] or E("ty_uten_navn")) if x["typet"] else E("ty_utypet"),
-               x["typeklasse"] or None, kilde, len(lag), ", ".join(arter) or None]
-        for navn_, mengde, art in lag:
-            rad += [navn_ or None, mengde if art == "tykkelse" else None, mengde if art == "andel" else None]
-        ws.append(rad + [None] * (len(hode) - len(rad)))
-        for i in range(len(lag)):
-            ws.cell(row=ws.max_row, column=8 + 3 * i).number_format = "0.0"
-            ws.cell(row=ws.max_row, column=9 + 3 * i).number_format = "0.0%"
-    avslutt(ws, h, f"C{h + 1}")
-
-    # Kilder
-    ws, h = ark(E("ark_ty_kilder"), [E(k) for k in ("ty_modell", "ty_fil", "ty_sha16", "ty_versjon",
-                                                     "ty_lastet_opp", "ty_firma", "ty_objekter")],
-                bred={E("ty_modell"): 30, E("ty_fil"): 30})
-    for lab in labels:
-        m = r.cfg[lab]
-        ws.append([lab, m["fil"], m["sha16"], m.get("versjon") or None, m.get("lastet_opp") or None,
-                   m.get("firma") or None, rm[lab]["n"]])
-    ws.append([])
-    konfig_sha = hashlib.sha256(prosjekt.read_bytes()).hexdigest()[:16]
-    fakta = [(E("ty_runde"), f"{r.dato} ({runde.name})"), (E("ty_bygget"), dt.date.today().isoformat()),
-             (E("ty_konfig"), f"{prosjekt.name} · sha16 {konfig_sha}"),
-             (E("ty_paritet"), f"{E('ty_paritet_tekst')} ({len(labels)} × {len(paritet)})")]
-    for lab, grunn in T["utelatt"].items():
-        if lab in hoved:
-            fakta.append((E("ty_utelatt_modell"), f"{lab}: {grunn}"))
-    for k, v in fakta:
-        ws.append([k, v])
-        ws.cell(row=ws.max_row, column=1).font = fet
-    avslutt(ws, h, f"B{h + 1}")
+        wb.save(sti)
+        moj = MK.sjekk_mojibake([sti])
+        if moj:
+            print("\n".join(f"FEIL: mojibake: {x}" for x in moj))
+            return 1
+        print(f"{sti.name}: {len(rader)} typer, {len(forekomster)} objekter, {len(deler_alle)} deler")
+        return 0
 
     ut.mkdir(parents=True, exist_ok=True)
-    sti = ut / T["filnavn"]
-    wb.save(sti)
-    moj = MK.sjekk_mojibake([sti])
-    if moj:
-        print("\n".join(f"FEIL: mojibake: {x}" for x in moj))
-        return 1
-    print(f"{sti.name}: {len(rader)} typer, {len(forekomster)} objekter, {len(deler_alle)} deler")
+    rc = skriv(ut / T["filnavn"], labels, rader, forekomster, sammendrag, deler_alle)
+    if rc or not T["per_faggruppe"]:
+        return rc
+    # one workbook per discipline group (krav.yaml `faggrupper`, as the deviation workbooks)
+    grupper: dict[str, list[str]] = {}
+    for lab in labels:
+        grupper.setdefault(bygg_avvik.faggruppe(lab, reg.faggrupper), []).append(lab)
+    for fag, mods in grupper.items():
+        rc = skriv(ut / T["per_faggruppe"].format(kode=reg.prosjekt["kode"], fag=fag), mods,
+                   [x for x in rader if x["modell"] in mods],
+                   [t for t in forekomster if t[0]["modell"] in mods],
+                   [t for t in sammendrag if t[0] in mods],
+                   [t for t in deler_alle if t[0] in mods])
+        if rc:
+            return rc
     return 0
 
 
