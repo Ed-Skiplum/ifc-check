@@ -1178,7 +1178,10 @@ class Modellberegning:
 
     def krav(self, bdef: dict) -> dict:
         bid = bdef["id"]
-        merk = [m for kid in bdef.get("krav", []) for m in self.reg.merknad_rader(kid, self.omfang)]
+        # Notes keyed by a requirement id of the block, or by the block's own id (a block with no
+        # `krav`, such as etasjedefinisjon, can carry a note too).
+        merk = [m for kid in dict.fromkeys([*bdef.get("krav", []), bid])
+                for m in self.reg.merknad_rader(kid, self.omfang)]
         base = {"id": bid, "tittel": bdef["tittel"], "kilde": bdef.get("kilde", ""),
                 "seksjon": bdef.get("seksjon", ""), "krav_tekst": bdef.get("krav_tekst", ""),
                 "merknader": merk, "krav": bdef.get("krav", []), "aapne": [], "bryter": None,
@@ -1809,7 +1812,7 @@ class Modellberegning:
                 f'<div class="under">{esc(E("delt_med_andre_modeller"))} {n_(g["delt"])}{esc(med)}</div></div>')
         em = e["rader"][0]["etasjematrise"]
         return {"ekstra_kpi": [kort], "komponent_ids": ["guid", "etasjedefinisjon"], "ekstra_css": KPI_CSS,
-                "seksjon_start": {e["seksjon"]: html_etasjekomponent(em, e["verdikt"])}}
+                "seksjon_start": {e["seksjon"]: html_etasjekomponent(em, e["verdikt"], merknader=e["merknader"])}}
 
     def alt(self) -> dict:
         m = self.r.cfg[self.label]
@@ -2148,13 +2151,15 @@ def etasjecelle_kote(r_: dict, tol: dict) -> str:
     return "warn" if abs(d_) <= 2 * float(g) else "bad"
 
 
-def html_etasjekomponent(em: dict, verdikt: str, tittel: str | None = None) -> str:
+def html_etasjekomponent(em: dict, verdikt: str, tittel: str | None = None,
+                         merknader: list | None = None) -> str:
     """The floors as their own component (edkjo 2026-09-25: «Just do a matrix with Columns:
     Referanse, Navn, Kote»). One row per storey, ordered by kote, extra model storeys in their natural
     place. The cell shows the found value, the tint the verdict, a symbol for black and white:
     Navn tinted when it does not match the reference name, Kote by its deviation (amber within 2×
     tolerance, red beyond); a missing floor's empty Navn and Kote in grey, an extra storey's
-    Referanse red «ingen treff». The component's verdict sits in the same fixed square as the rows."""
+    Referanse red «ingen treff». The component's verdict sits in the same fixed square as the rows.
+    The block's notes (`merknader.etasjedefinisjon`) follow the matrix, as on any requirement."""
     tittel = tittel or E("etasjedefinisjon")
     tol = em["toleranse"]
     rader = sorted(em["rader"], key=lambda r_: r_["k_kote"] if r_["k_kote"] is not None else r_["m_kote"])
@@ -2186,6 +2191,8 @@ def html_etasjekomponent(em: dict, verdikt: str, tittel: str | None = None) -> s
             kote_ = celle(m_(r_["m_kote"], 3), ks,
                           f"Δ {fmt_mm(d_)} mm" if ks in ("warn", "bad") and d_ is not None else "")
         linjer.append(f"<tr>{ref}{navn}{kote_}</tr>")
+    merk = "".join(f'<div class="merknad"><span class="nar">{esc(dato_no(m["dato"]))} · '
+                   f'{esc(m["gjelder"])}</span>{esc(m["tekst"].strip())}</div>' for m in merknader or [])
     grense = lambda x: "∞" if x is None else f"{x:g}"
     toleranse = (f' · {esc(E("toleranse"))} +{grense(tol["over"])} / −{grense(tol["under"])} mm'
                  if em.get("konfigurert", True) else "")
@@ -2196,7 +2203,7 @@ def html_etasjekomponent(em: dict, verdikt: str, tittel: str | None = None) -> s
             f'{" · " + esc(em.get("referanse", "")) if em.get("referanse") else ""}</div>'
             f'<table class="etg-matrise"><colgroup><col style="width:40%"><col style="width:30%"><col></colgroup>'
             f'<thead><tr><th>{esc(E("referanse"))}</th><th>{esc(E("navn"))}</th><th>{esc(E("kote"))}</th></tr></thead>'
-            f'<tbody>{"".join(linjer)}</tbody></table></div></section>')
+            f'<tbody>{"".join(linjer)}</tbody></table>{merk}</div></section>')
 
 
 def html_merknader_modell(m: dict) -> str:
