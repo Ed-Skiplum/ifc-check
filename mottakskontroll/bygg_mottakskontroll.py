@@ -947,7 +947,7 @@ def etasjerad(kode: str, **felt) -> dict:
     return {**felt, "kode": kode, "status": status}
 
 
-VERDIKT_ORD = {"oppfylt": "Oppfylt", "kan_brukes": "Kan brukes", "ikke_oppfylt": "Ikke oppfylt",
+VERDIKT_ORD = {"oppfylt": "Oppfylt", "kan_brukes": "Delvis", "ikke_oppfylt": "Ikke oppfylt",
                "gjelder_ikke": "gjelder ikke", "ikke_konfigurert": "ikke konfigurert"}
 VERDIKT_SYM = {"oppfylt": "●", "kan_brukes": "◐", "ikke_oppfylt": "○", "gjelder_ikke": "–", "ikke_konfigurert": "∅"}
 # One location read through what the earlier cascade cache called it. IfcRelAssociatesMaterial was

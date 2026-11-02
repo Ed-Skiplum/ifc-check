@@ -67,7 +67,7 @@ export type Verdikt = "oppfylt" | "kan_brukes" | "ikke_oppfylt" | "gjelder_ikke"
 
 export const VERDIKT_ORD: Record<Verdikt, string> = {
   oppfylt: "OK",
-  kan_brukes: "Kan brukes",
+  kan_brukes: "Delvis",
   ikke_oppfylt: "Ikke oppfylt",
   gjelder_ikke: "gjelder ikke",
   ikke_konfigurert: "ikke konfigurert",

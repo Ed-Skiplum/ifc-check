@@ -377,7 +377,7 @@ kpi_alle:
 
 verdiktord:
   oppfylt: OK
-  kan_brukes: Kan brukes
+  kan_brukes: Delvis
   ikke_oppfylt: Ikke oppfylt
   gjelder_ikke: gjelder ikke
   ikke_konfigurert: ikke konfigurert

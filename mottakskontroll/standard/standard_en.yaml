@@ -279,7 +279,7 @@ etiketter:
 
 verdiktord:
   oppfylt: Fulfilled
-  kan_brukes: Usable
+  kan_brukes: Partial
   ikke_oppfylt: Not fulfilled
   gjelder_ikke: Not applicable
   ikke_konfigurert: Not configured
