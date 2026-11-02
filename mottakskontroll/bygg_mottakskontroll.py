@@ -1454,7 +1454,8 @@ class Modellberegning:
     def psett(self) -> list[dict]:
         """Every property set read from the model, with its category: (a) IFC, a name in the
         standard list shipped with the default layer (standard_psett.yaml: IFC4 for every file,
-        plus IFC2X3 for an IFC2X3 file); (b) krevd, named by a source in the project configuration
+        plus IFC2X3 for an IFC2X3 file) or a schema-defined set (IfcPreDefinedPropertySet, e.g.
+        IfcDoorPanelProperties), whatever its name; (b) krevd, named by a source in the project configuration
         layer; (c) annen. Sorted by category, then by objects."""
         liste = yaml.safe_load(STANDARD_PSETT.read_text(encoding="utf-8"))
         standard_navn = set(liste["IFC4"])
@@ -1474,7 +1475,7 @@ class Modellberegning:
         ut = []
         for p in self.bd["psett"]:
             navn = p["navn"]
-            if navn in standard_navn:
+            if navn in standard_navn or p.get("fordefinert"):
                 kat = "ifc"
             elif any(f(navn) for f in krevde):
                 kat = "krevd"

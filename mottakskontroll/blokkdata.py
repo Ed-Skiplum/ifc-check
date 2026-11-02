@@ -54,7 +54,8 @@ import stier  # noqa: E402
 # (konfig.i_omfang: IfcElement minus `standard.ikke_telt`), from the live branch's 11.
 # 13 (2026-10-30): parts of an assembly (`standard.ikke_telt_del_av`) out of the counted set and of
 # the Typeobjekt scope; the owner counted instead (bep_egenskapskontroll.telte).
-BLOKK_VERSJON = 13
+# 14 (2026-11-02): pset gallery keys IfcPreDefinedPropertySet by class, marked `fordefinert` (IFC).
+BLOKK_VERSJON = 14
 
 # The per-object log the type report reads (project `typerapport`, bygg_typer.py): written by mål
 # only when the project asks for the report, so no other cache grows. Bumped when its shape changes.
@@ -751,6 +752,9 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     # Every property and quantity set on every IfcProduct, own or through its type, unfiltered.
     pset_tall: dict[str, collections.Counter] = {}
     pset_klasser: dict[str, collections.Counter] = {}
+    # IfcPreDefinedPropertySet (IfcDoorPanelProperties etc.) is defined by the schema itself, so IFC in
+    # the gallery. Keyed by its class: Revit names each one after the type and element id, one row per door.
+    fordefinert: set[str] = set()
     egenskap_fylt: dict[str, collections.Counter] = {}
     egenskap_verdier: dict[tuple[str, str], collections.Counter] = {}
     psets_for: dict[int, dict] = {}
@@ -759,7 +763,14 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         ps_ = ue.get_psets(pr) or {}
         if pr.id() in telte_id:
             psets_for[pr.id()] = ps_
+        sett_her = set()
         for pnavn, props in ps_.items():
+            if props.get("id") and f.by_id(props["id"]).is_a("IfcPreDefinedPropertySet"):
+                pnavn = f.by_id(props["id"]).is_a()
+                fordefinert.add(pnavn)
+            if pnavn in sett_her:  # a second panel of the same door: the object is counted once
+                continue
+            sett_her.add(pnavn)
             pset_tall.setdefault(pnavn, collections.Counter())["n"] += 1
             pset_klasser.setdefault(pnavn, collections.Counter())[pr.is_a()] += 1
             fylt = egenskap_fylt.setdefault(pnavn, collections.Counter())
@@ -1135,6 +1146,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         "typer_alle": [[k, nn, c] for (k, nn), c in typer_alle.most_common()],
         "psett": [{"navn": pn, "objekter": pset_tall[pn]["n"],
                    "klasser": dict(pset_klasser[pn].most_common()),
+                   "fordefinert": pn in fordefinert,
                    "egenskaper": [{"navn": k, "fylt": egenskap_fylt[pn][k],
                                    "eksempler": egenskap_verdier.get((pn, k), collections.Counter()).most_common(5),
                                    "ulike": len(egenskap_verdier.get((pn, k), {})),
