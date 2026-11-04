@@ -6,7 +6,7 @@ its 2026-09-25 corrections). Every level (1-3), names verbatim (`komponentfunksj
 
 Written 2026-10-05 because mengdetype_ns3457.yaml (built from ns3457_8_codes.py) is not that list:
 200 extract codes are missing from it, 79 of its codes are not in the extract (JWB among them) and
-272 names differ. mengdetype_ns3457.yaml stays as it is: the mengdetype analysis and HI90 read it.
+272 names differ. mengdetype_ns3457.yaml stays for the mengdetype analysis only; every code check reads this table.
 """
 import hashlib
 import json

@@ -479,10 +479,12 @@ blokker:
     seksjon: standardkrav
     tittel: Funksjonskode NS 3457-8
     krav_tekst: komponentkode fra NS 3457-8
-    # Accepted values: the NS 3457-8 code table.
-    kodetabell: mengdetype_ns3457.yaml
+    # Accepted values: the NS 3457-8:2021 table, the one table every code check reads.
+    # mengdetype_ns3457.yaml is the mengdetype analysis only; its code list is not the standard
+    # (200 codes missing, 79 invented, 272 names differ; QLB «Lydfeller» was «ikke i tabellen»).
+    kodetabell: kodetabell_ns3457-8.yaml
     sted: {ifc: klassifikasjon, system_monster: '3457', navn: IfcClassificationReference NS 3457}
-    kodeliste: {kilde: ns3457-8, fil: mengdetype_ns3457.yaml, felt: {kode: kode, navn: navn}}
+    kodeliste: {kilde: ns3457-8, fil: kodetabell_ns3457-8.yaml, felt: {kode: kode, navn: navn}}
 
   # Produkt and Materiale are two requirements (edkjo 2026-09-24), switched by mengdetype
   # (begreper §6): a telleobjekt must carry a product, a mengdeobjekt a material configuration.

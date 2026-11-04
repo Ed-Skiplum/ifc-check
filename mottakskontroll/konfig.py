@@ -143,8 +143,9 @@ REGEL_TEKST = {"tre_sifre": "finnes og er tre sifre", "fagkode": "finnes; verdie
                "lik_typenavn": "finnes og er lik IfcTypeObject.Name", "utfylt": "finnes, ikke tom"}
 TRE_SIFRE = r"^\d{3}$"
 # Code-table rules (2026-10-20): a code in the standard's table, not just the form. 360 has three
-# digits, but 36 is the group Luftbehandling and 361 its first code.
-REGEL_TABELL = {"ns3451": "kodetabell_ns3451.yaml", "ns3457": "mengdetype_ns3457.yaml"}
+# digits, but 36 is the group Luftbehandling and 361 its first code. NS 3457-8 is the transcribed
+# standard (2026-11-04), not mengdetype_ns3457.yaml, whose code list is not the standard.
+REGEL_TABELL = {"ns3451": "kodetabell_ns3451.yaml", "ns3457": "kodetabell_ns3457-8.yaml"}
 
 
 def egenskapskontroll(y: dict) -> dict | None:
