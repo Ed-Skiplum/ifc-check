@@ -960,6 +960,10 @@ def tom_dekning(n: int) -> dict:
             "andel": None, "kilder": []}
 
 
+# Code tables by the standard's name, for the «Gyldig verdi» line.
+TABELL_NAVN = {"kodetabell_ns3451.yaml": "NS 3451:2022", "kodetabell_ns3457-8.yaml": "NS 3457-8:2021"}
+
+
 def har_verdiliste(bid: str, bdef: dict, mmi_koder: bool = False, fagkoder: bool = False) -> bool:
     """Accepted values are declared for the requirement: a pattern, a code table, a value list, an
     exclusion list, the project's MMI codes, the fagkoder, or the project's storeys. For an opt-in
@@ -1309,7 +1313,29 @@ class Modellberegning:
                 "innenfor": sum(e["n"] for e in ford if e["flagg"] != "avvik"),
                 "utenfor": [(e["verdi"] + (f" {e['tillegg']}" if e["tillegg"] else ""), e["n"])
                             for e in ford if e["flagg"] == "avvik"]}
+            rad["gyldig_tekst"] = self.gyldig_tekst(bid, bdef)
         return rad
+
+    def gyldig_tekst(self, bid: str, bdef: dict) -> str:
+        """What «Gyldig verdi» tested, in words: the code table, the accepted values or the form the
+        requirement declares (the reader cannot see the config)."""
+        tab = bdef.get("kodetabell") or ""
+        if tab == "kodetabell_mmi.yaml":
+            return E("gyldig_mmi")
+        if tab:
+            return E("gyldig_kode_i").format(tabell=TABELL_NAVN.get(tab, tab))
+        if bdef.get("gyldige"):
+            v = [str(x) for x in bdef["gyldige"]]
+            return E("gyldig_en_av").format(verdier=", ".join(v[:6]) + (" …" if len(v) > 6 else ""))
+        if bid == "mmi":
+            return E("gyldig_mmi")
+        if bid == "kopiobjekt":
+            return E("gyldig_fagkode")
+        if bdef.get("mmi_fase"):
+            return E("gyldig_fase")
+        if bdef.get("ikke_materiale"):
+            return E("gyldig_materiale")
+        return E("gyldig_format")
 
     def krav_guid(self, bdef: dict, base: dict) -> dict:
         """Counts, not coverage: duplicates in the file decide (0 = oppfylt); GUIDs shared with other
@@ -2052,7 +2078,8 @@ def html_rad(r_: dict, terskler: dict) -> str:
             pd = pct(t[0], t[1])
             sd = lys(pd, terskler["dekning"])
             dekning_c = (f'<div class="stort {sd}"><span class="ssym">{SYM[sd]}</span>{esc(p_(pd))}</div>'
-                         f'<div class="smatt">{n_(t[0])} {esc(E("av"))} {n_(t[1])} {esc(r_["grunnlag_tekst"])}</div>')
+                         f'<div class="smatt">{n_(t[0])} {esc(E("av"))} {n_(t[1])} {esc(r_["grunnlag_tekst"])} '
+                         f'{esc(E("har_verdi_tekst"))}</div>')
             g = gyldig(r_)
             m = f'<span class="mock">{esc(E("mock"))}</span>' if (mock or (r_.get("spenn") or {}).get("mock")) else ""
             if g is None or not g[1]:
@@ -2062,9 +2089,11 @@ def html_rad(r_: dict, terskler: dict) -> str:
                 sg = lys(pg, terskler["gyldig"])
                 enhet = E("objekter")
                 gyldig_c = (f'<div class="stort {sg}"><span class="ssym">{SYM[sg]}</span>{esc(p_(pg))}{m}</div>'
-                            f'<div class="smatt">{n_(g[0])} {esc(E("av"))} {n_(g[1])} {esc(enhet)}</div>')
-            ut.append(f'<div class="rad-l to talrad"><span class="lab">{esc(E("dekning"))}</span><div>{dekning_c}</div>'
-                      f'<span class="lab">{esc(E("gyldig"))}</span><div>{gyldig_c}</div></div>')
+                            f'<div class="smatt">{n_(g[0])} {esc(E("av"))} {n_(g[1])} {esc(enhet)}</div>'
+                            f'<div class="smatt hva">{esc(r_.get("gyldig_tekst") or "")}</div>')
+            # The column names are the section's header row (html_kolonnehode), not repeated per block.
+            ut.append(f'<div class="rad-l to talrad"><span class="lab"></span><div>{dekning_c}</div>'
+                      f'<span class="lab"></span><div>{gyldig_c}</div></div>')
         unike = antall_unike(r_)
         ut.append(f'<div class="rad-l"><span class="lab">{esc(E("fordeling"))}</span>'
                   f'<span class="fordeling">{n_(unike)} {esc(E("unike_verdier"))}'
@@ -2110,6 +2139,16 @@ def html_blokk(i: int, b: dict, terskler: dict) -> str:
     return (f'<section class="blokk krav">{kvadrat}'
             f'<div class="navn"><span class="nr">{i}</span>{esc(b["tittel"])}</div>'
             f'<div class="kropp">{"".join(kropp)}</div></section>')
+
+
+def html_kolonnehode() -> str:
+    """The section's header row, aligned with the blocks' two number columns: what «Har verdi» and
+    «Gyldig verdi» measure, said once per section instead of on every block."""
+    return (f'<div class="blokk krav kolonnehode"><div></div><div></div><div class="kropp">'
+            f'<div class="rad-l to"><span class="lab"></span><div><b>{esc(E("rad_dekning"))}</b>'
+            f'<div class="smatt">{esc(E("forklar_dekning"))}</div></div><span class="lab"></span>'
+            f'<div><b>{esc(E("rad_gyldig"))}</b><div class="smatt">{esc(E("forklar_gyldig"))}</div></div>'
+            f'</div></div></div>')
 
 
 def html_etasjematrise(em: dict) -> str:
@@ -2247,8 +2286,14 @@ def html_modell(R: dict, m: dict, css: Path) -> str:
         kropp.append(m.get("for_seksjon", {}).get(sk_["id"], ""))
         kropp.append(f'<h2><span class="nr">{nr}</span>{esc(sk_["tittel"])}{legende}</h2>')
         kropp.append(m.get("seksjon_start", {}).get(sk_["id"], ""))
+        hode = False
         for bl in m["blokker"]:
             if bl["seksjon"] == sk_["id"] and bl["id"] not in komp:
+                if not hode:
+                    # The column header, once per section, right above its first numbered block
+                    # (below components such as the storey matrix, which have no such columns).
+                    kropp.append(html_kolonnehode())
+                    hode = True
                 i += 1
                 kropp.append(html_blokk(i, bl, {"dekning": R["terskel"], "gyldig": R["terskel_gyldig"]}))
     if i != len([b for b in m["blokker"] if b["id"] not in komp]):

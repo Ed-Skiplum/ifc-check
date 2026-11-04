@@ -55,7 +55,8 @@ import stier  # noqa: E402
 # 13 (2026-10-30): parts of an assembly (`standard.ikke_telt_del_av`) out of the counted set and of
 # the Typeobjekt scope; the owner counted instead (bep_egenskapskontroll.telte).
 # 14 (2026-11-02): pset gallery keys IfcPreDefinedPropertySet by class, marked `fordefinert` (IFC).
-BLOKK_VERSJON = 14
+# 15 (2026-11-04): an empty MMI / Kopiobjekt field is missing, not present with the value «(tom)».
+BLOKK_VERSJON = 15
 
 # The per-object log the type report reads (project `typerapport`, bygg_typer.py): written by mål
 # only when the project asks for the report, so no other cache grows. Bumped when its shape changes.
@@ -993,7 +994,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
             # avhenger / ukjent, or no location for the branch: neither reading is there
             mpb.sett("mangler")
 
-        # 7 MMI and 8 kopiobjekt: dekning is the field being there, at the one location
+        # 7 MMI and 8 kopiobjekt: dekning is the field carrying a value, at the one location. An empty
+        # field is missing, as for every other property (edkjo 2026-11-04: «Har verdi» = filled in).
         for bid in ("mmi", "kopiobjekt"):
             o = bl[bid].get("_sted")
             if o is None:
@@ -1002,10 +1004,10 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
                 b[bid].sett("gjelder_ikke")
                 continue
             har, v = o.les(psets)
-            if har:
-                b[bid].sett("oppfylt", o.navn, [v or "(tom)"], tk)
+            if har and v:
+                b[bid].sett("oppfylt", o.navn, [v], tk)
                 per_klasse[kl][bid] += 1
-                rad[bid] = v or "(tom)"
+                rad[bid] = v
             else:
                 b[bid].sett("mangler")
             if bid == "mmi":

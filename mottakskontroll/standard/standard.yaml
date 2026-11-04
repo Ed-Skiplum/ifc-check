@@ -92,6 +92,18 @@ etiketter:
   krav: Krav
   egenskap: Egenskap
   dekning: Dekning
+  rad_dekning: Har verdi
+  rad_gyldig: Gyldig verdi
+  har_verdi_tekst: har feltet utfylt
+  forklar_dekning: objekter der feltet er utfylt
+  forklar_gyldig: objekter der verdien oppfyller kravet, se under tallet
+  gyldig_kode_i: 'verdien er en kode i {tabell}'
+  gyldig_en_av: 'verdien er en av: {verdier}'
+  gyldig_mmi: verdien er en MMI-kode i prosjektets liste
+  gyldig_fagkode: verdien er en fagkode i prosjektet
+  gyldig_fase: verdien kan knyttes til en fase
+  gyldig_materiale: verdien er et materialnavn
+  gyldig_format: verdien har formatet i kravet
   fordeling: Fordeling
   mengdetype: Mengdetype
   etasjematrise: Etasjematrise

@@ -56,6 +56,18 @@ etiketter:
   krav: Requirement
   egenskap: Property
   dekning: Coverage
+  rad_dekning: Has value
+  rad_gyldig: Valid value
+  har_verdi_tekst: have the field filled in
+  forklar_dekning: objects with the field filled in
+  forklar_gyldig: objects whose value meets the requirement, see below the number
+  gyldig_kode_i: 'the value is a code in {tabell}'
+  gyldig_en_av: 'the value is one of: {verdier}'
+  gyldig_mmi: the value is an MMI code in the project's list
+  gyldig_fagkode: the value is a discipline code in the project
+  gyldig_fase: the value maps to a phase
+  gyldig_materiale: the value is a material name
+  gyldig_format: the value has the form the requirement sets
   fordeling: Distribution
   mengdetype: Quantity type
   etasjematrise: Storey matrix

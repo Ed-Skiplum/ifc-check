@@ -505,6 +505,9 @@
 .mk .kropp .stort.na { color: var(--sk-na); }
 .mk .kropp .stort .mock { vertical-align: 1mm; }
 .mk .kropp .smatt { font-size: var(--mk-tekst-mini); color: var(--sk-blekk-svak); }
+.mk .kropp .smatt.hva { font-style: italic; }
+.mk .kolonnehode { border-top: 0; border-bottom: 0.75pt solid var(--sk-blekk); padding-bottom: 0.6mm; break-after: avoid; }
+.mk .kolonnehode b { font-size: var(--mk-tekst-mini); text-transform: uppercase; letter-spacing: var(--sk-spredt-eyebrow); color: var(--sk-blekk); }
 .mk .kropp .talrad .utenfor { font-size: var(--mk-tekst-mini); overflow-wrap: break-word; }
 .mk .kvadrat.kan_brukes { background: var(--sk-avvik-ren); color: var(--sk-blekk); }
 
