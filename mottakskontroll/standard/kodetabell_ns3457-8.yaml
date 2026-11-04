@@ -7,8 +7,9 @@
 #   C:/workspace/resources/standards/ns3457/ns3457_pdf_extract.json
 #   sha256 b209735ee89518548dc0ed2677a0b086629717c8f396bb049b327a6513986445
 #   NS 3457-8:2021 (scanned PDF, Standard Norge) — visual transcription
-# 910 codes: level 1 29, level 2 311, level 3 570. Names verbatim
+# 911 codes: level 1 29, level 2 311, level 3 571. Names verbatim
 # (komponentfunksjon).
+# Added by hand, dropped by the transcription: SFZ Fraluftsventiler (TILLEGG).
 - {kode: 'A', navn: 'Bærende, romdannende'}
 - {kode: 'AB', navn: 'Bjelker'}
 - {kode: 'ABA', navn: 'Konstruktive bjelker'}
@@ -717,6 +718,7 @@
 - {kode: 'SE', navn: 'Ekspansjonsventiler'}
 - {kode: 'SEZ', navn: 'Ekspansjonsventiler'}
 - {kode: 'SF', navn: 'Fraluftsventiler'}
+- {kode: 'SFZ', navn: 'Fraluftsventiler'}
 - {kode: 'SG', navn: 'Tilbakeslagsventiler, overtrykksspjeld'}
 - {kode: 'SGA', navn: 'Tilbakeslagsventiler i ventilasjonssystemer'}
 - {kode: 'SGB', navn: 'Tilbakeslagsventiler i rørsystemer'}

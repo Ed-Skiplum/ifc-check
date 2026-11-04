@@ -17,6 +17,11 @@ sys.stdout.reconfigure(encoding="utf-8")
 HER = Path(__file__).resolve().parent
 KILDE = Path("C:/workspace/resources/standards/ns3457/ns3457_pdf_extract.json")
 UT = HER / "kodetabell_ns3457-8.yaml"
+# Codes the transcription dropped, confirmed against the standard by a reader. Kept here so a
+# regeneration keeps them.
+#   SFZ 2026-11-04 (Edvard): HI90 RIV codes exhaust air valves (IfcAirTerminal) SFZ; a Z code
+#   carries its parent's name (193 of 193 in the extract), SF is Fraluftsventiler.
+TILLEGG = [{"code": "SFZ", "level": 3, "komponentfunksjon": "Fraluftsventiler"}]
 
 
 def q(s: str) -> str:
@@ -26,7 +31,9 @@ def q(s: str) -> str:
 def main() -> int:
     raa = KILDE.read_bytes()
     x = json.loads(raa.decode("utf-8"))
-    koder = sorted(x["codes"].values(), key=lambda c: c["code"])
+    kjente = {c["code"] for c in x["codes"].values()}
+    tillegg = [c for c in TILLEGG if c["code"] not in kjente]
+    koder = sorted([*x["codes"].values(), *tillegg], key=lambda c: c["code"])
     nivaa = {n: sum(1 for c in koder if c["level"] == n) for n in (1, 2, 3)}
     linjer = [
         "# kodetabell_ns3457-8.yaml",
@@ -40,6 +47,8 @@ def main() -> int:
         f"#   {x['_meta'].get('source', '')}",
         f"# {len(koder)} codes: level 1 {nivaa[1]}, level 2 {nivaa[2]}, level 3 {nivaa[3]}. Names verbatim",
         "# (komponentfunksjon).",
+        *(f"# Added by hand, dropped by the transcription: {c['code']} {c['komponentfunksjon']} (TILLEGG)."
+          for c in tillegg),
     ]
     for c in koder:
         linjer.append(f"- {{kode: {q(c['code'])}, navn: {q(c['komponentfunksjon'])}}}")
