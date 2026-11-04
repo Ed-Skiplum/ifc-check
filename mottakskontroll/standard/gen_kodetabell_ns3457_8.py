@@ -22,6 +22,9 @@ UT = HER / "kodetabell_ns3457-8.yaml"
 #   SFZ 2026-11-04 (Edvard): HI90 RIV codes exhaust air valves (IfcAirTerminal) SFZ; a Z code
 #   carries its parent's name (193 of 193 in the extract), SF is Fraluftsventiler.
 TILLEGG = [{"code": "SFZ", "level": 3, "komponentfunksjon": "Fraluftsventiler"}]
+# Names the transcription got wrong, checked against the printed table (2026-11-04: all 911
+# codes read from the PDF; the code set matched, five names differed, this one is an error).
+RETTELSER = {"SBB": "Motorstyrte reguleringsventiler"}
 
 
 def q(s: str) -> str:
@@ -49,9 +52,11 @@ def main() -> int:
         "# (komponentfunksjon).",
         *(f"# Added by hand, dropped by the transcription: {c['code']} {c['komponentfunksjon']} (TILLEGG)."
           for c in tillegg),
+        *(f"# Name corrected against the printed table: {k} {v} (RETTELSER)." for k, v in RETTELSER.items()),
     ]
     for c in koder:
-        linjer.append(f"- {{kode: {q(c['code'])}, navn: {q(c['komponentfunksjon'])}}}")
+        navn = RETTELSER.get(c["code"], c["komponentfunksjon"])
+        linjer.append(f"- {{kode: {q(c['code'])}, navn: {q(navn)}}}")
     UT.write_text("\n".join(linjer) + "\n", encoding="utf-8")
     print(f"{UT.name}: {len(koder)} koder {nivaa}")
     return 0

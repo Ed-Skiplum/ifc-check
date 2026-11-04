@@ -10,6 +10,7 @@
 # 911 codes: level 1 29, level 2 311, level 3 571. Names verbatim
 # (komponentfunksjon).
 # Added by hand, dropped by the transcription: SFZ Fraluftsventiler (TILLEGG).
+# Name corrected against the printed table: SBB Motorstyrte reguleringsventiler (RETTELSER).
 - {kode: 'A', navn: 'Bærende, romdannende'}
 - {kode: 'AB', navn: 'Bjelker'}
 - {kode: 'ABA', navn: 'Konstruktive bjelker'}
@@ -709,7 +710,7 @@
 - {kode: 'SAZ', navn: 'Reguleringsventiler, manuelle'}
 - {kode: 'SB', navn: 'Reguleringsventiler, motorstyrte'}
 - {kode: 'SBA', navn: 'Direktevirkende reguleringsventiler'}
-- {kode: 'SBB', navn: 'Reguleringsventiler'}
+- {kode: 'SBB', navn: 'Motorstyrte reguleringsventiler'}
 - {kode: 'SBC', navn: 'Pneumatiske reguleringsventiler'}
 - {kode: 'SC', navn: 'Stengeventiler, motorstyrte'}
 - {kode: 'SCZ', navn: 'Stengeventiler, motorstyrte'}
