@@ -1817,7 +1817,8 @@ class Modellberegning:
             bb_ = self.bd["blokker"].get(kl["id"]) or {}
             tp = bb_.get("typer_per_verdi") or {}
             tellinger = [(v, n, tp.get(v, 0)) for v, n, _ in bb_.get("verdier") or []]
-            ut.append({**kl, "rader": kodeliste_rader(tellinger, last_kodetabell(kl["ref"], self.reg.rot))})
+            ut.append({**kl, "rader": kodeliste_rader(tellinger, last_kodetabell(kl["ref"], self.reg.rot),
+                                                      last_reserverte(kl["ref"], self.reg.rot))})
         return ut
 
     def komponenter(self, blokker: list[dict]) -> dict:
@@ -2351,6 +2352,17 @@ def last_kodetabell(ref: dict, rot: Path | None) -> dict[str, str]:
     return {str(x[fk]).strip().upper(): str(x.get(fn, "")) for x in rader}
 
 
+def last_reserverte(ref: dict, rot: Path | None) -> set[str]:
+    """The codes the standard marks «(Reservert)», which its table leaves out: `<table>_reservert.yaml`
+    next to the table, a YAML list of codes, upper case. None when the table has no such file. A
+    reserved code is still invalid; it is only labelled as reserved, not as unknown."""
+    sti = stier.tabell_sti(ref["fil"], rot)
+    side = sti.with_name(f"{sti.stem}_reservert.yaml")
+    if not side.exists():
+        return set()
+    return {str(k).strip().upper() for k in yaml.safe_load(side.read_text(encoding="utf-8")) or []}
+
+
 def kodelister_konfigurert(blokker: list[dict]) -> list[dict]:
     """The code lists to render: a requirement that declares `kodeliste` AND has a location in the
     merged configuration. Without a location the list is left out entirely (a catalogue, not a
@@ -2360,15 +2372,16 @@ def kodelister_konfigurert(blokker: list[dict]) -> list[dict]:
             if b.get("kodeliste") and b.get("sted") and not b.get("ikke_konfigurert")]
 
 
-def kodeliste_rader(tellinger: list[tuple[str, int, int]], tabell: dict[str, str]) -> list[dict]:
+def kodeliste_rader(tellinger: list[tuple[str, int, int]], tabell: dict[str, str],
+                    reserverte: set[str] = frozenset()) -> list[dict]:
     """(kode, objekter, typer) aggregated per code, named and validated against the table, sorted by
-    code."""
+    code. `reservert`: invalid, and one of the codes the standard reserves."""
     ut = []
     for kode, obj, typer in tellinger:
         k = str(kode).strip()
         navn = tabell.get(k.upper())
         ut.append({"kode": k, "navn": navn or "", "objekter": int(obj), "typer": int(typer),
-                   "gyldig": navn is not None})
+                   "gyldig": navn is not None, "reservert": navn is None and k.upper() in reserverte})
     return sorted(ut, key=lambda r_: r_["kode"])
 
 
@@ -2392,6 +2405,11 @@ def html_materialer(m: dict, nr: int) -> str:
     return "".join(ut)
 
 
+def ugyldig_grunn(r_: dict) -> str:
+    """The label of an invalid code list row: reserved in the standard, or not in the table."""
+    return "reservert_i_standarden" if r_.get("reservert") else "ikke_i_tabellen"
+
+
 def html_kodelister(m: dict, nr: int) -> str:
     """The configured code lists, compact tables. Nothing when none is configured."""
     if not m.get("kodelister"):
@@ -2404,7 +2422,7 @@ def html_kodelister(m: dict, nr: int) -> str:
         rader = "".join(
             f'<tr><td>{esc(r_["kode"])}</td><td>{esc(r_["navn"] or "–")}</td>'
             f'<td class="tall">{n_(r_["objekter"])}</td><td class="tall">{n_(r_["typer"])}</td>'
-            f'<td>{sym("ok") if r_["gyldig"] else sym("bad") + " " + esc(E("ikke_i_tabellen"))}</td></tr>'
+            f'<td>{sym("ok") if r_["gyldig"] else sym("bad") + " " + esc(E(ugyldig_grunn(r_)))}</td></tr>'
             for r_ in kl["rader"])
         ut.append(f'<h3>{esc(kl["tittel"])}</h3><table class="kodeliste"><colgroup><col style="width:16mm">'
                   '<col><col style="width:16mm"><col style="width:12mm"><col style="width:26mm"></colgroup>'
@@ -2433,7 +2451,7 @@ def html_kodediagram(rader: list[dict]) -> str:
             navn = f'<span class="kd-navn">{esc(r_["navn"])}</span>'
         else:
             fyll = "var(--sk-na-ren)"
-            navn = f'<span class="kd-navn bad">{sym("bad")} {esc(E("ikke_i_tabellen"))}</span>'
+            navn = f'<span class="kd-navn bad">{sym("bad")} {esc(E(ugyldig_grunn(r_)))}</span>'
         ut.append(f'<div class="kd-rad"><div class="kd-lab"><b>{esc(r_["kode"])}</b>{navn}</div>'
                   f'<div class="kd-spor"><span class="kd-stolpe" style="width:{bredde:.1f}%;background:{fyll}"></span>'
                   f'<span class="kd-tall">{n_(r_["objekter"])} · {p_(100 * r_["objekter"] / total)}</span></div></div>')
@@ -2456,7 +2474,8 @@ def katalog_ark(modeller: list[dict]) -> list[tuple[str, list[str], list[list]]]
     for m in modeller:
         for kl in m.get("kodelister") or []:
             ark_.setdefault(kl["ark"], []).extend(
-                [m["label"], r_["kode"], r_["navn"], r_["objekter"], r_["typer"], E("ja") if r_["gyldig"] else E("nei")]
+                [m["label"], r_["kode"], r_["navn"], r_["objekter"], r_["typer"],
+                 E("ja") if r_["gyldig"] else E("reservert") if r_.get("reservert") else E("nei")]
                 for r_ in kl["rader"])
     for navn, rader in ark_.items():
         ut.append((navn, [E(k) for k in ("modell", "kode", "navn", "objekter_kolonne", "typer", "i_kodetabellen")],

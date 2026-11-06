@@ -49,7 +49,7 @@ skjema:
 etiketter:
   seksjon_nokkeltall: Nøkkeltall
   seksjon_merknader: Merknader
-  seksjon_hygiene: Hygiene
+  seksjon_hygiene: God modellpraksis
   seksjon_typegalleri: Typegalleri
   seksjon_materialgalleri: Materialgalleri
   seksjon_egenskapssett: Egenskapssett
@@ -66,6 +66,8 @@ etiketter:
   objekter_kolonne: Objekter
   gyldig: Gyldig
   ikke_i_tabellen: ikke i tabellen
+  reservert_i_standarden: reservert i standarden
+  reservert: reservert
   kodeliste_systemkode: Systemkoder NS 3451
   kodeliste_funksjonskode: Komponentkoder NS 3457-8
   kodeliste_mmi: MMI-koder

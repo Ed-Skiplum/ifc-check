@@ -13,7 +13,7 @@
 etiketter:
   seksjon_nokkeltall: Key figures
   seksjon_merknader: Comments
-  seksjon_hygiene: Hygiene
+  seksjon_hygiene: Good modelling practice
   seksjon_typegalleri: Type gallery
   seksjon_materialgalleri: Material gallery
   seksjon_egenskapssett: Property sets
@@ -30,6 +30,8 @@ etiketter:
   objekter_kolonne: Objects
   gyldig: Valid
   ikke_i_tabellen: not in the table
+  reservert_i_standarden: reserved in the standard
+  reservert: reserved
   kodeliste_systemkode: System codes NS 3451
   kodeliste_funksjonskode: Component codes NS 3457-8
   kodeliste_mmi: MMI codes

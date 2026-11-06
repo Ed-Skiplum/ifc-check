@@ -35,6 +35,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 PDF = Path(r"C:\workspace\resources\standards\ns3451\ns-3451_2022_no_001.pdf")
 OUT = Path(__file__).with_name("kodetabell_ns3451.yaml")
+OUT_RESERVERT = Path(__file__).with_name("kodetabell_ns3451_reservert.yaml")
 SYSFONT = {  # style -> system Cambria file (Windows)
     "regular": ("C:/Windows/Fonts/cambria.ttc", 0),
     "bold": ("C:/Windows/Fonts/cambriab.ttf", None),
@@ -305,6 +306,16 @@ def main():
         body.append(f'- kode: "{r["kode"]}"')
         body.append(f'  navn: "{r["navn"]}"')
     OUT.write_text("\n".join(head + body) + "\n", encoding="utf-8")
+    # The reserved codes as data too, so a report can call them reserved rather than unknown.
+    reserved = sorted(reserved, key=lambda c: (len(c), c))
+    OUT_RESERVERT.write_text("\n".join([
+        "# kodetabell_ns3451_reservert.yaml",
+        "#",
+        "# NS 3451:2022 codes marked «(Reservert)» in the standard (5.1: «skal ikke benyttes»). Left out of",
+        "# kodetabell_ns3451.yaml, so they are invalid; listed here so a report can call them reserved",
+        "# rather than unknown (bygg_mottakskontroll.last_reserverte).",
+        f"# {len(reserved)} codes. Written by gen_kodetabell_ns3451.py with the table; do not edit by hand.",
+    ] + [f'- "{c}"' for c in reserved]) + "\n", encoding="utf-8")
     print(f"{len(rows)} codes -> {OUT}  (levels {per_level}, reserved {len(reserved)}, "
           f"{n_glyphs} glyph outlines verified)")
 
