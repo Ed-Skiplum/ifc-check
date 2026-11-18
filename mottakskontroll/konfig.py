@@ -112,8 +112,8 @@ def _uten_mellomrom(navn: str) -> str:
     return navn.replace(" ", "").lower()
 
 
-def utelatt_verdi(e) -> str | None:
-    """The `ikke_telt_verdi` rule an object falls under, as «pset.egenskap», or None. Its property
+def utelatt_verdi(e) -> dict | None:
+    """The `ikke_telt_verdi` rule an object falls under, or None. Its property
     sets as ifcopenshell merges them (the type's, overridden by the object's own); set and property
     names matched without spaces and case, the value as text without case (a boolean TRUE is «true»)."""
     if not IKKE_TELT_VERDI:
@@ -124,7 +124,7 @@ def utelatt_verdi(e) -> str | None:
         pi = next((v for k, v in psets.items() if _uten_mellomrom(k) == _uten_mellomrom(r["pset"])), {})
         v = next((v for k, v in pi.items() if _uten_mellomrom(k) == _uten_mellomrom(r["egenskap"])), None)
         if v is not None and str(v).strip().casefold() in r["verdier"]:
-            return f"{r['pset']}.{r['egenskap']}"
+            return r
     return None
 
 

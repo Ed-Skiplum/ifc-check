@@ -189,6 +189,8 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     fys = df.entity.isin(subtypes_of(konfig.FYSISK, m.schema))
     del_av = rest & fys & df.step_id.astype(int).isin(set(eier_av))
     rest &= ~del_av
+    # Every object the project's own rules leave out, step id -> reason, so the reports can list them.
+    prosjekt_ute: dict[int, str] = {}
     # The project's excluded types (krav.yaml `ikke_telt_typer`), per type name.
     utelatt_type = {}
     if konfig.IKKE_TELT_TYPER:
@@ -200,19 +202,22 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
         for navn in konfig.IKKE_TELT_TYPER:
             treff = rest & fys & df.step_id.astype(int).isin(forek.get(navn, set()))
             utelatt_type[navn] = int(treff.sum())
+            for x in df[treff].step_id:
+                prosjekt_ute[int(x)] = f"{navn}: {konfig.IKKE_TELT_TYPER[navn]}"
             rest &= ~treff
     # The project's excluded property values (krav.yaml `ikke_telt_verdi`), per «pset.egenskap».
     utelatt_verdi: dict[str, int] = {}
     if konfig.IKKE_TELT_VERDI:
-        ute: dict[int, str] = {}
+        ute: set[int] = set()
         for x in df[rest & fys].step_id:
             r = konfig.utelatt_verdi(f.by_id(int(x)))
             if r:
-                ute[int(x)] = r
-        for r in ute.values():
-            utelatt_verdi[r] = utelatt_verdi.get(r, 0) + 1
-        rest &= ~df.step_id.astype(int).isin(set(ute))
-    ids =[int(x) for x in df[rest & fys & df.has_body].step_id]
+                ute.add(int(x))
+                nokkel = f"{r['pset']}.{r['egenskap']}"
+                utelatt_verdi[nokkel] = utelatt_verdi.get(nokkel, 0) + 1
+                prosjekt_ute[int(x)] = r["grunn"]
+        rest &= ~df.step_id.astype(int).isin(ute)
+    ids = [int(x) for x in df[rest & fys & df.has_body].step_id]
     body = {int(x) for x in df[df.has_body].step_id}
 
     def flate_3d(i: int) -> bool:
@@ -249,6 +254,7 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
             "del_av": int(del_av.sum()),
             "utelatt_type": utelatt_type,
             "utelatt_verdi": utelatt_verdi,
+            "prosjekt_ute": prosjekt_ute,
             "ikke_fysisk": int((rest & ~fys).sum()),
             "uten_3d": int((rest & fys & ~df.has_body).sum()) - len(flate) - len(sammensatt),
             "rad_ids": set(int(x) for x in df.step_id),

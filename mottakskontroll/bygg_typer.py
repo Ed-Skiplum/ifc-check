@@ -178,6 +178,8 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
     print(f"Typerapport {r.dato}: {len(labels)} modeller, {len(kol)} krav som kolonner")
 
     rader, forekomster, feil, sammendrag, deler_alle = [], [], [], [], []
+    # the objects the project's own rules left out (blokkdata `utelatt_objekter`), per model
+    ute_alle: list[tuple[str, dict]] = []
     for lab in labels:
         bd0 = json.loads((r.blokk_sti / "prosjekt" / f"{lab}.json").read_text(encoding="utf-8"))
         po = bd0.get("per_objekt")
@@ -234,6 +236,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
                 forekomster.append((x, o, {b["id"]: status(o, b) for b in kol}))
         for d in po.get("deler") or []:
             deler_alle.append((lab, d))
+        ute_alle += [(lab, o) for o in bd0.get("utelatt_objekter") or []]
         rader += mine
         sammendrag.append((lab, mine, len(po.get("deler") or [])))
     if feil:
@@ -289,7 +292,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
     st_ord = {k: E(f"ty_st_{k}") for k in BOTTER}
     fet = Font(bold=True)
     def skriv(sti: Path, labels: list[str], rader: list, forekomster: list, sammendrag: list,
-              deler_alle: list) -> int:
+              deler_alle: list, ute_alle: list) -> int:
         """The workbook over the given models: the project's, or one discipline group's."""
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
@@ -326,7 +329,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
 
         # Sammendrag
         hode = [E(k) for k in ("ty_modell", "ty_firma", "ty_versjon", "ty_objekter", "ty_typer", "ty_utypede",
-                               "ty_deler")]
+                               "ty_deler", "ty_holdt_utenfor")]
         if T["klar_paa"]:
             hode += [E("ty_klar"), E("ty_krever")]
         fast = len(hode)
@@ -335,7 +338,8 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
         for lab, mine, n_deler in sammendrag:
             m = r.cfg[lab]
             rad = [lab, m.get("firma") or None, m.get("versjon") or None, rm[lab]["n"], len(mine),
-                   sum(x["n"] for x in mine if not x["typet"]), n_deler]
+                   sum(x["n"] for x in mine if not x["typet"]), n_deler,
+                   sum(1 for l_, _ in ute_alle if l_ == lab)]
             if T["klar_paa"]:
                 k_ = sum(1 for x in mine if klar(x)[0])
                 rad += [k_, len(mine) - k_]
@@ -413,6 +417,16 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
             ws.append([lab, d["t"], d["k"], d["g"], d.get("tg") or None, None, d["eier"],
                        d["eier_t"] if d["eier_t"] is not None else d["eier_k"]] + [None] * len(blokk_hode_f))
         avslutt(ws, h, f"E{h + 1}")
+
+        # Holdt utenfor: every object the project's own rules took out of the check (krav.yaml
+        # `ikke_telt_typer`, `ikke_telt_verdi`), with the reason, so the smaller counted set is traceable
+        ws, h = ark(E("ark_ty_holdt_utenfor"), [E(k) for k in ("ty_modell", "ty_grunn", "ty_typenavn", "ty_ifc_klasse",
+                                                                "ty_globalid", "ty_type_globalid", "ty_etasje", "ty_navn")],
+                    bred={E("ty_modell"): 20, E("ty_grunn"): 40, E("ty_typenavn"): 36, E("ty_globalid"): 24,
+                          E("ty_type_globalid"): 24, E("ty_navn"): 40})
+        for lab, o in ute_alle:
+            ws.append([lab, o["grunn"], o["t"] or None, o["k"], o["g"], o["tg"] or None, o["s"] or None, o["n"] or None])
+        avslutt(ws, h, f"C{h + 1}")
 
         # Materialer: every material name the counted objects carry, before any join
         mat = collections.defaultdict(lambda: [set(), set(), 0])
@@ -493,7 +507,7 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
         return 0
 
     ut.mkdir(parents=True, exist_ok=True)
-    rc = skriv(ut / T["filnavn"], labels, rader, forekomster, sammendrag, deler_alle)
+    rc = skriv(ut / T["filnavn"], labels, rader, forekomster, sammendrag, deler_alle, ute_alle)
     if rc or not T["per_faggruppe"]:
         return rc
     # one workbook per discipline group (krav.yaml `faggrupper`, as the deviation workbooks)
@@ -505,7 +519,8 @@ def bygg(prosjekt: Path, runde: Path, cache: Path, ut: Path, ifc: Path | None = 
                    [x for x in rader if x["modell"] in mods],
                    [t for t in forekomster if t[0]["modell"] in mods],
                    [t for t in sammendrag if t[0] in mods],
-                   [t for t in deler_alle if t[0] in mods])
+                   [t for t in deler_alle if t[0] in mods],
+                   [t for t in ute_alle if t[0] in mods])
         if rc:
             return rc
     return 0

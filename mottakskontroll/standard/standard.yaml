@@ -263,6 +263,9 @@ etiketter:
   rolle_kopi: kopi
   rolle_eier: eier
   holdt_utenfor: holdt utenfor
+  holdt_utenfor_tittel: Holdt utenfor kontrollen
+  holdt_utenfor_tekst: >-
+    objekter er tatt ut av alle krav etter prosjektets regel, og er listet i typerapporten (arket Holdt utenfor)
   typer_smaa: typer
   alle_punkter: alle punkter
   uten: uten
@@ -281,6 +284,7 @@ etiketter:
   ark_ty_materialer: Materialer
   ark_ty_materiallag: Materiallag
   ark_ty_kilder: Kilder
+  ark_ty_holdt_utenfor: Holdt utenfor
   ty_modell: Modell
   ty_firma: Firma
   ty_versjon: Versjon
@@ -332,6 +336,9 @@ etiketter:
   ty_paritet: Paritet med modellrapporten
   ty_paritet_tekst: per modell og krav summerer typene til tallene i modellrapporten
   ty_utelatt_modell: Modell utenfor typerapporten
+  ty_grunn: Grunn
+  ty_navn: Navn
+  ty_holdt_utenfor: Holdt utenfor
 
 # Moved from krav.yaml 2026-09-25: generic, so a standard-only run has them. A project may
 # override each key in krav.yaml.

@@ -1619,6 +1619,15 @@ class Modellberegning:
             ut.append(el)
         return ut, True
 
+    def holdt_utenfor(self) -> list[dict]:
+        """The objects the project's own rules left out (blokkdata `utelatt_objekter`), per reason:
+        {grunn, n, typer: [(type name, objects)]}, the largest first."""
+        per: dict[str, collections.Counter] = {}
+        for o in self.bd.get("utelatt_objekter") or []:
+            per.setdefault(o["grunn"], collections.Counter())[o["t"] or E("ty_utypet")] += 1
+        return [{"grunn": g, "n": sum(c.values()), "typer": c.most_common()}
+                for g, c in sorted(per.items(), key=lambda kv: -sum(kv[1].values()))]
+
     def utenfor_omfang(self, bdef: dict) -> list[tuple[str, int]]:
         """The `ikke_telt_verdi` rules on this requirement's own property, as (text, objects left out)."""
         sted = bdef.get("sted") or {}
@@ -1879,6 +1888,7 @@ class Modellberegning:
                 "kpi": self.kpi_band(), "skjema": self.skjema_tile(), "blokker": blokker,
                 "hygiene": self.hygiene(), "etasjematrise": self.etasjematrise(),
                 "merknader_modell": self.modellmerknader(), "mock": mock,
+                "holdt_utenfor": self.holdt_utenfor(),
                 "typer": self.typer(blokker), "per_klasse": self.bd["per_klasse"],
                 "mengdeklasser": self.bd["mengdeklasser"], "psett": self.psett(),
                 "etasjer_fil": self.s["storeys"], "type_1til1": self.bd["type_1til1"]}
@@ -2269,6 +2279,17 @@ def html_merknader_modell(m: dict) -> str:
              f'{" · " + esc(x["kilde"]) if x.get("kilde") else ""}{" · " + esc(x["gjelder"]) if x.get("gjelder") else ""}'
              f'</span>{esc(x["tekst"].strip())}{'<span class="mock">' + esc(E("mock")) + '</span>' if x.get("mock") else ""}</div>'
              for x in m["merknader_modell"]]
+    # The objects the project's rules left out, first: a count per reason with its types, so the
+    # smaller counted set is traceable (the objects themselves are in the type report).
+    ute = []
+    for h in m.get("holdt_utenfor") or []:
+        typer = ", ".join(f"{t} ×{n_(n)}" for t, n in h["typer"][:8])
+        if len(h["typer"]) > 8:
+            typer += f", … (+{len(h['typer']) - 8})"
+        ute.append(f'<div class="merknad"><span class="nar">{esc(E("holdt_utenfor_tittel"))}</span>'
+                   f'{n_(h["n"])} {esc(E("holdt_utenfor_tekst"))}. {esc(h["grunn"])}. '
+                   f'{esc(E("typer"))}: {esc(typer)}</div>')
+    rader = ute + rader
     return f'<div class="modellmerknader">{"".join(rader)}<div class="linjert"></div></div>'
 
 

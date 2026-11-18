@@ -232,6 +232,9 @@ def registerhash(reg: dict) -> str:
     h.update(json.dumps(reg["y"].get("ikke_telt_typer") or {}, ensure_ascii=False, sort_keys=True).encode())
     if reg["y"].get("ikke_telt_verdi"):
         h.update(json.dumps(reg["y"]["ikke_telt_verdi"], ensure_ascii=False, sort_keys=True).encode())
+    if reg["y"].get("ikke_telt_typer") or reg["y"].get("ikke_telt_verdi"):
+        # the list of the objects the project leaves out (`utelatt_objekter`, 2026-11-18)
+        h.update(b"utelatt_objekter 1")
     tr = reg["y"].get("typerapport")
     if tr:
         # Only a project with the type report: its per-object log and the quantities it reads.
@@ -292,6 +295,20 @@ def materialer(e, skala_mm: float = 1.0) -> tuple[str, str, list[str], dict[str,
     elif m.is_a("IfcMaterial"):
         legg(m)
     return "material", entitet, navn, lag
+
+
+def utelatte_objekter(f, ute: dict[int, str]) -> list[dict]:
+    """The objects the project leaves out (bep_egenskapskontroll.telte `prosjekt_ute`), one record
+    each: «grunn», GlobalId «g», class «k», name «n», type name «t», type GlobalId «tg», storey «s»."""
+    ut = []
+    for i, grunn in sorted(ute.items()):
+        e = f.by_id(i)
+        t = ue.get_type(e)
+        st = etasje(e)
+        ut.append({"grunn": grunn, "g": e.GlobalId, "k": e.is_a(), "n": (getattr(e, "Name", None) or "").strip(),
+                   "t": (t.Name or "").strip() if t is not None else "", "tg": t.GlobalId if t is not None else "",
+                   "s": (st.Name or "").strip() if st is not None else ""})
+    return ut
 
 
 def etasje(e):
@@ -1149,6 +1166,9 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         "tellegrunnlag": info["grunnlag"], "ett_sted": True,
         # objects out of scope by property value (`ikke_telt_verdi`), per «pset.egenskap»
         "utelatt_verdi": info["utelatt_verdi"],
+        # every object the project's own rules leave out (`ikke_telt_typer`, `ikke_telt_verdi`), for
+        # the reports' «holdt utenfor» list: reason, GlobalId, class, name, type, type GlobalId, storey
+        "utelatt_objekter": utelatte_objekter(f, info["prosjekt_ute"]),
         "typer_alle": [[k, nn, c] for (k, nn), c in typer_alle.most_common()],
         "psett": [{"navn": pn, "objekter": pset_tall[pn]["n"],
                    "klasser": dict(pset_klasser[pn].most_common()),

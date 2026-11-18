@@ -222,6 +222,9 @@ etiketter:
   rolle_kopi: copy
   rolle_eier: owner
   holdt_utenfor: excluded
+  holdt_utenfor_tittel: Left out of the check
+  holdt_utenfor_tekst: >-
+    objects are taken out of every requirement by the project's rule, and are listed in the type report (sheet Excluded)
   typer_smaa: types
   alle_punkter: all points
   uten: without
@@ -240,6 +243,7 @@ etiketter:
   ark_ty_materialer: Materials
   ark_ty_materiallag: Material layers
   ark_ty_kilder: Sources
+  ark_ty_holdt_utenfor: Excluded
   ty_modell: Model
   ty_firma: Firm
   ty_versjon: Version
@@ -291,6 +295,9 @@ etiketter:
   ty_paritet: Parity with the model report
   ty_paritet_tekst: "per model and requirement, the types sum to the model report's counts"
   ty_utelatt_modell: Model outside the type report
+  ty_grunn: Reason
+  ty_navn: Name
+  ty_holdt_utenfor: Excluded
 
 verdiktord:
   oppfylt: Fulfilled
