@@ -230,6 +230,8 @@ def registerhash(reg: dict) -> str:
         h.update(json.dumps(reg["y"]["forventet"].get(k), ensure_ascii=False, sort_keys=True).encode())
     h.update(json.dumps(konfig.egenskapskontroll(reg["y"]), ensure_ascii=False, sort_keys=True).encode())
     h.update(json.dumps(reg["y"].get("ikke_telt_typer") or {}, ensure_ascii=False, sort_keys=True).encode())
+    if reg["y"].get("ikke_telt_verdi"):
+        h.update(json.dumps(reg["y"]["ikke_telt_verdi"], ensure_ascii=False, sort_keys=True).encode())
     tr = reg["y"].get("typerapport")
     if tr:
         # Only a project with the type report: its per-object log and the quantities it reads.
@@ -1145,6 +1147,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     return {
         "label": label, "fil": sti.name, "sha256": B.sha(sti), "n": n, "n_alle": len(typbare),
         "tellegrunnlag": info["grunnlag"], "ett_sted": True,
+        # objects out of scope by property value (`ikke_telt_verdi`), per «pset.egenskap»
+        "utelatt_verdi": info["utelatt_verdi"],
         "typer_alle": [[k, nn, c] for (k, nn), c in typer_alle.most_common()],
         "psett": [{"navn": pn, "objekter": pset_tall[pn]["n"],
                    "klasser": dict(pset_klasser[pn].most_common()),

@@ -221,6 +221,7 @@ etiketter:
   duplikat: duplicate
   rolle_kopi: copy
   rolle_eier: owner
+  holdt_utenfor: excluded
   typer_smaa: types
   alle_punkter: all points
   uten: without

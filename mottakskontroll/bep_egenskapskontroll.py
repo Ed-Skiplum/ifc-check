@@ -80,6 +80,8 @@ def konfig_nokkel(ps: dict | None, fagkoder: list[str], rot: Path | None = None)
     check, the fagkoder and the bytes of every code table it names."""
     h = hashlib.sha256(json.dumps([ps, fagkoder, konfig.IKKE_TELT_TYPER], ensure_ascii=False,
                                   sort_keys=True).encode())
+    if konfig.IKKE_TELT_VERDI:
+        h.update(json.dumps(konfig.IKKE_TELT_VERDI, ensure_ascii=False, sort_keys=True).encode())
     for e in (ps or {}).get("egenskaper") or []:
         if e.get("kodetabell"):
             h.update(stier.tabell_sti(e["kodetabell"], rot).read_bytes())
@@ -199,7 +201,18 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
             treff = rest & fys & df.step_id.astype(int).isin(forek.get(navn, set()))
             utelatt_type[navn] = int(treff.sum())
             rest &= ~treff
-    ids = [int(x) for x in df[rest & fys & df.has_body].step_id]
+    # The project's excluded property values (krav.yaml `ikke_telt_verdi`), per «pset.egenskap».
+    utelatt_verdi: dict[str, int] = {}
+    if konfig.IKKE_TELT_VERDI:
+        ute: dict[int, str] = {}
+        for x in df[rest & fys].step_id:
+            r = konfig.utelatt_verdi(f.by_id(int(x)))
+            if r:
+                ute[int(x)] = r
+        for r in ute.values():
+            utelatt_verdi[r] = utelatt_verdi.get(r, 0) + 1
+        rest &= ~df.step_id.astype(int).isin(set(ute))
+    ids =[int(x) for x in df[rest & fys & df.has_body].step_id]
     body = {int(x) for x in df[df.has_body].step_id}
 
     def flate_3d(i: int) -> bool:
@@ -225,6 +238,8 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
         grunnlag += f" og deler av {', '.join(konfig.DEL_AV)} (IfcRelAggregates)"
     if konfig.IKKE_TELT_TYPER:
         grunnlag += f", uten typene {', '.join(konfig.IKKE_TELT_TYPER)} (prosjektet)"
+    for r in konfig.IKKE_TELT_VERDI:
+        grunnlag += f", uten {r['pset']}.{r['egenskap']} = {'/'.join(r['verdier'])} (prosjektet)"
     if flate:
         grunnlag += f", pluss {len(flate)} uten Body med 3D 'Surface'"
     if sammensatt:
@@ -233,6 +248,7 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
             "rader": int(len(df)), "utelatt_klasse": utelatt_klasse,
             "del_av": int(del_av.sum()),
             "utelatt_type": utelatt_type,
+            "utelatt_verdi": utelatt_verdi,
             "ikke_fysisk": int((rest & ~fys).sum()),
             "uten_3d": int((rest & fys & ~df.has_body).sum()) - len(flate) - len(sammensatt),
             "rad_ids": set(int(x) for x in df.step_id),
@@ -289,6 +305,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
     ut["ikke_telt_grunn"] = {**{k: v for k, v in info["utelatt_klasse"].items() if v},
                              **({"del_av_element": info["del_av"]} if info["del_av"] else {}),
                              **{f"type:{k}": v for k, v in info["utelatt_type"].items() if v},
+                             **{f"verdi:{k}": v for k, v in info["utelatt_verdi"].items() if v},
                              "ikke_fysisk": info["ikke_fysisk"], "uten_3d": info["uten_3d"],
                              "romlig_struktur": len(produkter) - info["rader"]}
     ut["tellegrunnlag"] = info["grunnlag"]

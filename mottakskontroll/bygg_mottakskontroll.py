@@ -1292,6 +1292,9 @@ class Modellberegning:
         # Etasjespenn (Ed-Skiplum/ifc-check#2) is not measured in v1: no span reading is attached,
         # so Objekter i etasje carries Dekning only. `spenn_mock` stays for the template.
         rad["fordeling_alle"] = ford
+        # Objects the project leaves out on this property's value (krav.yaml `ikke_telt_verdi`, KNM's
+        # IsReference = TRUE): not in the counted set, so their number is printed beside the distribution.
+        rad["utenfor_omfang"] = self.utenfor_omfang(bdef)
         if bid == "typeobjekt":
             hale = next((e for e in ford if e.get("hale")), None)
             rad["fordeling"] = samle([e for e in ford if not e.get("hale")], False, hale)
@@ -1615,6 +1618,18 @@ class Modellberegning:
             el["raa"] = v
             ut.append(el)
         return ut, True
+
+    def utenfor_omfang(self, bdef: dict) -> list[tuple[str, int]]:
+        """The `ikke_telt_verdi` rules on this requirement's own property, as (text, objects left out)."""
+        sted = bdef.get("sted") or {}
+        ut = []
+        for r in konfig.IKKE_TELT_VERDI:
+            if r["egenskap"].replace(" ", "").lower() != str(sted.get("egenskap", "")).replace(" ", "").lower():
+                continue
+            n = int((self.bd.get("utelatt_verdi") or {}).get(f"{r['pset']}.{r['egenskap']}", 0))
+            if n:
+                ut.append((f"{E('holdt_utenfor')} ({r['egenskap']} = {'/'.join(x.upper() for x in r['verdier'])})", n))
+        return ut
 
     def ford_kopiobjekt(self, bb):
         godtatte = {f.upper() for f in self.reg.fagkoder}
@@ -2098,7 +2113,8 @@ def html_rad(r_: dict, terskler: dict) -> str:
         unike = antall_unike(r_)
         ut.append(f'<div class="rad-l"><span class="lab">{esc(E("fordeling"))}</span>'
                   f'<span class="fordeling">{n_(unike)} {esc(E("unike_verdier"))}'
-                  f'{"<span class=mock>" + esc(E("mock")) + "</span>" if mock else ""}</span></div>')
+                  + "".join(f' · {esc(t)} ×{n_(n)}' for t, n in r_.get("utenfor_omfang") or [])
+                  + f'{"<span class=mock>" + esc(E("mock")) + "</span>" if mock else ""}</span></div>')
         if r_.get("fase_fordeling") is not None:
             # The phase rollup of the MMI values (forventet.mmi.fase): a reading, no verdict.
             ut.append(f'<div class="rad-l"><span class="lab">{esc(r_["fase_tittel"])}</span>'

@@ -55,15 +55,28 @@ FYSISK, IKKE_TELT, DEL_AV = _omfang()
 # reason; edkjo 2026-11-02: KNM_ARK's Parking-Adaptive-HC). Set by `sett_omfang`, which `last()`
 # and bep_egenskapskontroll.kjør call before anything is measured.
 IKKE_TELT_TYPER: dict[str, str] = {}
+# The project's scope exclusion by property value (krav.yaml `ikke_telt_verdi`, a list of {pset,
+# egenskap, verdier, grunn}; edkjo 2026-11-18: KNM's reference objects, KNM_Project.IsReference =
+# TRUE). Only a listed value excludes: an object without the property, or with any other value, stays.
+IKKE_TELT_VERDI: list[dict] = []
 
 
 def sett_omfang(prj: dict) -> None:
-    """The project's type exclusions, checked: a mapping of type name to reason."""
+    """The project's type and value exclusions, checked: `ikke_telt_typer` a mapping of type name
+    to reason, `ikke_telt_verdi` a list of {pset, egenskap, verdier, grunn}."""
     t = prj.get("ikke_telt_typer") or {}
     if not isinstance(t, dict) or any(not str(v).strip() for v in t.values()):
         raise SystemExit("FEIL: ikke_telt_typer i krav.yaml skal være typenavn -> grunn")
     IKKE_TELT_TYPER.clear()
     IKKE_TELT_TYPER.update({str(k): str(v) for k, v in t.items()})
+    v = prj.get("ikke_telt_verdi") or []
+    if not isinstance(v, list) or any(
+            not isinstance(r, dict) or not all(str(r.get(k) or "").strip() for k in ("pset", "egenskap", "grunn"))
+            or not isinstance(r.get("verdier"), list) or not r["verdier"] for r in v):
+        raise SystemExit("FEIL: ikke_telt_verdi i krav.yaml skal være en liste av {pset, egenskap, verdier, grunn}")
+    IKKE_TELT_VERDI[:] = [{"pset": str(r["pset"]), "egenskap": str(r["egenskap"]),
+                           "verdier": sorted({str(x).strip().casefold() for x in r["verdier"]}),
+                           "grunn": str(r["grunn"])} for r in v]
 
 
 def utelatt(e) -> str | None:
@@ -95,11 +108,32 @@ def utelatt_type(e) -> str | None:
     return None
 
 
+def _uten_mellomrom(navn: str) -> str:
+    return navn.replace(" ", "").lower()
+
+
+def utelatt_verdi(e) -> str | None:
+    """The `ikke_telt_verdi` rule an object falls under, as «pset.egenskap», or None. Its property
+    sets as ifcopenshell merges them (the type's, overridden by the object's own); set and property
+    names matched without spaces and case, the value as text without case (a boolean TRUE is «true»)."""
+    if not IKKE_TELT_VERDI:
+        return None
+    import ifcopenshell.util.element as ue
+    psets = ue.get_psets(e) or {}
+    for r in IKKE_TELT_VERDI:
+        pi = next((v for k, v in psets.items() if _uten_mellomrom(k) == _uten_mellomrom(r["pset"])), {})
+        v = next((v for k, v in pi.items() if _uten_mellomrom(k) == _uten_mellomrom(r["egenskap"])), None)
+        if v is not None and str(v).strip().casefold() in r["verdier"]:
+            return f"{r['pset']}.{r['egenskap']}"
+    return None
+
+
 def i_omfang(e) -> bool:
     """A physical object in the check: an IfcElement of no `ikke_telt` class, not a part of
-    another element (`ikke_telt_del_av`): the owner is the object reported, and of no type the
-    project leaves out (`ikke_telt_typer`)."""
-    return e.is_a(FYSISK) and utelatt(e) is None and eier(e) is None and utelatt_type(e) is None
+    another element (`ikke_telt_del_av`): the owner is the object reported, of no type the
+    project leaves out (`ikke_telt_typer`) and with no property value it leaves out (`ikke_telt_verdi`)."""
+    return (e.is_a(FYSISK) and utelatt(e) is None and eier(e) is None and utelatt_type(e) is None
+            and utelatt_verdi(e) is None)
 
 
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
