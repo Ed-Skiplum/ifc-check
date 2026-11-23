@@ -446,10 +446,10 @@ def vurder_data(reg: Register, d: dict, krav: dict) -> Vurdering:
 # ---------------------------------------------------------------- file-level measurements
 def null_nivaa(regler: dict, s: dict) -> bool:
     """A model storey at z = 0 (within 1 mm) that the matrix shows but the verdict ignores (edkjo
-    2026-10-30): a tool's default level, not a floor. Only when no configured floor lies below 0;
-    with one, a z = 0 storey is an ordinary extra level."""
-    return (s["elevation_mm"] is not None and abs(s["elevation_mm"]) < 1
-            and not any(float(n["kote_mm"]) < 0 for n in regler.get("nivaaer") or []))
+    2026-10-30): a tool's default or sea level (Hav, Havnivå), not a floor. Never red (Edvard
+    2026-11-23): yellow when the BEP does not list it; a configured floor at 0 matches it normally.
+    `regler` is kept for the call sites."""
+    return s["elevation_mm"] is not None and abs(s["elevation_mm"]) < 1
 
 
 def match_etasjer(regler: dict, storeys: list[dict],
@@ -2244,6 +2244,9 @@ def html_etasjekomponent(em: dict, verdikt: str, tittel: str | None = None,
             continue
         if r_["k_navn"]:
             ref = celle(f'{esc(r_["k_navn"])} <span class="ekote">{m_(r_["k_kote"], 3)}</span>')
+        elif r_["kode"] == "null_nivaa":
+            # z = 0 reference level (Hav/Havnivå): yellow, not counted, as in the verdict
+            ref = celle("", "warn", E("etasje_null_nivaa"))
         else:
             ref = celle("", "bad", E("ingen_treff"))
         if not r_["m_navn"] and r_["m_kote"] is None:
