@@ -1582,7 +1582,8 @@ class Modellberegning:
         tab = self.kodetabeller.get(bid)
         if tab is None:
             return self.ford_verdier(bb), False
-        return self.ford_verdier(bb, lambda v: v.strip().upper() not in tab), False
+        navn = next((b.get("kodetabell") for b in self.reg.blokker if b["id"] == bid), None)
+        return self.ford_verdier(bb, lambda v: not konfig.i_kodetabell(v, tab, navn)), False
 
     def ford_systemkode(self, bb):
         return self.ford_kodetabell("systemkode", bb)

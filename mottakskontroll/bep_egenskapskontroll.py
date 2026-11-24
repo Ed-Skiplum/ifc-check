@@ -85,6 +85,8 @@ def konfig_nokkel(ps: dict | None, fagkoder: list[str], rot: Path | None = None)
     for e in (ps or {}).get("egenskaper") or []:
         if e.get("kodetabell"):
             h.update(stier.tabell_sti(e["kodetabell"], rot).read_bytes())
+            if "3451" in e["kodetabell"]:
+                h.update(b"ns3451 trailing zeros 1")  # konfig.i_kodetabell, 2026-11-24
     return h.hexdigest()[:16]
 
 
@@ -381,8 +383,9 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
             # lik_typenavn: same string as IfcTypeObject.Name (IfcRoot.Name), not merely non-empty.
             r = regel[navn]
             if r["monster"] is not None or r["godtatte"] is not None:
-                ok = (bool(s) and (r["monster"] is None or r["monster"].match(s) is not None)
-                      and (r["godtatte"] is None or s.upper() in r["godtatte"]))
+                ok = (bool(s) and (r["monster"] is None
+                                   or r["monster"].match(konfig.les_kode(s, r.get("kodetabell"))) is not None)
+                      and (r["godtatte"] is None or konfig.i_kodetabell(s, r["godtatte"], r.get("kodetabell"))))
             elif r["lik_typenavn"]:
                 egen_type = s
                 ok = bool(s) and bool(type_name) and s == type_name

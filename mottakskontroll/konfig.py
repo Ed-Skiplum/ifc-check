@@ -182,6 +182,25 @@ TRE_SIFRE = r"^\d{3}$"
 REGEL_TABELL = {"ns3451": "kodetabell_ns3451.yaml", "ns3457": "kodetabell_ns3457-8.yaml"}
 
 
+def les_kode(verdi: str, navn: str | None) -> str:
+    """The code a value is read as, upper case. NS 3451 (`navn` names its table), every project:
+    no code of three digits or more ends in 0, so trailing zeros are padding, often typed to fill a
+    fixed width, and are stripped before both the form check and the table lookup (Edvard
+    2026-11-24): 4110 reads as 411. Only while what remains is still a code of at least three
+    digits, so a group padded with zeros keeps its zeros and stays invalid (5200, 320)."""
+    k = str(verdi).strip().upper()
+    if navn and "3451" in navn and k.isdigit():
+        rest = k.rstrip("0")
+        if rest != k and len(rest) >= 3:
+            return rest
+    return k
+
+
+def i_kodetabell(verdi: str, tabell: set[str], navn: str | None) -> bool:
+    """`verdi`, read by `les_kode`, is one of `tabell`'s codes."""
+    return les_kode(verdi, navn) in tabell
+
+
 def egenskapskontroll(y: dict) -> dict | None:
     """The project property set check, normalised. None when the project declares none: only the
     generic checks run, and a requirement reading the set reports «ikke konfigurert».

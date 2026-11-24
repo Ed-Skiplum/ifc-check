@@ -247,6 +247,8 @@ def registerhash(reg: dict) -> str:
                 h.update(stier.tabell_sti(s["tabell"], rot).read_bytes())
         if b.get("kodetabell"):
             h.update(stier.tabell_sti(b["kodetabell"], rot).read_bytes())
+            if "3451" in b["kodetabell"]:
+                h.update(b"ns3451 trailing zeros 1")  # konfig.i_kodetabell, 2026-11-24
     return h.hexdigest()[:16]
 
 
@@ -872,8 +874,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
                 b["systemkode"].sett("gjelder_ikke")
                 if v:
                     rad["systemkode"] = v
-            elif v and (gyldig_3451 is None or gyldig_3451.match(v)) and \
-                    (sk_tab is None or v.strip().upper() in sk_tab):
+            elif v and (gyldig_3451 is None or gyldig_3451.match(konfig.les_kode(v, sk.get("kodetabell")))) and \
+                    (sk_tab is None or konfig.i_kodetabell(v, sk_tab, sk.get("kodetabell"))):
                 b["systemkode"].sett("oppfylt", o.navn, [v], tk)
                 per_klasse[kl]["systemkode"] += 1
                 rad["systemkode"] = v
