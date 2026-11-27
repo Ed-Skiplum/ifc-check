@@ -132,6 +132,15 @@ IDS rules (`IdsRule`, the six facets, `IdsValue`) are unchanged.
   with `requireAllNames` only when every level is matched by name and no file
   storey is outside the table. The row carries `referanseplan` and
   `toleranse_mm`.
+- **Copies are out of every count** (edkjo 2026-11-27, superseding «a copy
+  stays in every other requirement», 2026-09-29): «we need to have the "filter away reference/copy objects" in the dash and data checks overall. Anything that is a ref object is not subject to that model and therefore not valid data to check or use downstream for anything other than visualization in a vaccuum. So we need to strip those from the data extraction and only show them as their own layer for documentation». A copy leaves the
+  selection of every rule, fundamental, KPI, coverage figure, tally and
+  export; the `copy-object` row is the one place it shows, as a count per
+  model. The browser engine has done this since #7; the Python mottakskontroll
+  (`mottakskontroll/`, krav.yaml shape) does the same from the `kopiobjekt`
+  block's `sted`, `forventet.kopi_objekt` and `modeller.<label>.kopi_eier`
+  (`konfig.KOPI`, mottakskontroll/README.md «Copy objects»). No marker
+  configured: nothing is excluded.
 - `copy-object`: a model not in `models` (when `models` is declared) makes
   the filter `not_evaluable`, nothing excluded. Values outside `copy`, `own`
   and every model's `ownerNames` are tallied `deviating`, never a finding.

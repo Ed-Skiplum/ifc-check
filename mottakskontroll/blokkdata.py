@@ -6,7 +6,8 @@
 Every rule, location and table this reads is declared in the merged configuration (konfig.py:
 standard/standard.yaml with the project config on top) or in the two mengdetype tables; this module holds the procedures only, and no discipline name.
 The counted set is bep_egenskapskontroll's `telte()`: ifcfast's `has_body`, minus
-standard.yaml `standard.ikke_telt` (IfcElement only, plus 3D 'Surface' without Body), so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
+standard.yaml `standard.ikke_telt` (IfcElement only, plus 3D 'Surface' without Body), minus the
+project's copy/reference objects (konfig.KOPI, 2026-11-27: counted in `kopier` only), so `n` here and `n` in <cache>/bep/<dato>/data.json are one number, and
 the builder refuses to run when they differ. ifcopenshell reads properties, materials,
 classifications and containment only; no geometry is processed here.
 
@@ -232,6 +233,9 @@ def registerhash(reg: dict) -> str:
     h.update(json.dumps(reg["y"].get("ikke_telt_typer") or {}, ensure_ascii=False, sort_keys=True).encode())
     if reg["y"].get("ikke_telt_verdi"):
         h.update(json.dumps(reg["y"]["ikke_telt_verdi"], ensure_ascii=False, sort_keys=True).encode())
+    if konfig.KOPI:
+        # copies out of the counted set, their tally in `kopier` (2026-11-27)
+        h.update(json.dumps(konfig.KOPI, ensure_ascii=False, sort_keys=True).encode())
     if reg["y"].get("ikke_telt_typer") or reg["y"].get("ikke_telt_verdi"):
         # the list of the objects the project leaves out (`utelatt_objekter`, 2026-11-18)
         h.update(b"utelatt_objekter 1")
@@ -709,7 +713,7 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
 
     f = ifcopenshell.open(str(sti))
     skala_mm = uu.calculate_unit_scale(f) * 1000.0
-    ids, info = B.telte(sti, f)
+    ids, info = B.telte(sti, f, label)
     kun_flate = info["flate"]
     elementer = [f.by_id(i) for i in ids]
     n = len(elementer)
@@ -767,7 +771,8 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
     # (`standard.ikke_telt_del_av`; konfig.i_omfang, 2026-10-27, 2026-10-30). The spatial structure
     # has no type to miss, and a part is typed through its owner.
     # Everything below (pset gallery included) reads this set; the rest of the file is out of scope.
-    alle = [pr for pr in f.by_type("IfcProduct") if konfig.i_omfang(pr)]
+    # The project's copy/reference objects (konfig.KOPI, edkjo 2026-11-27) are out of it as well.
+    alle = [pr for pr in f.by_type("IfcProduct") if konfig.i_omfang(pr, label)]
     typbare = alle
     typer_alle = collections.Counter()
     utypet_klasse = collections.Counter()
@@ -1171,6 +1176,11 @@ def mål(label: str, sti: Path, reg: dict) -> dict:
         # every object the project's own rules leave out (`ikke_telt_typer`, `ikke_telt_verdi`), for
         # the reports' «holdt utenfor» list: reason, GlobalId, class, name, type, type GlobalId, storey
         "utelatt_objekter": utelatte_objekter(f, info["prosjekt_ute"]),
+        # the copy/reference objects (konfig.KOPI): out of every block above, reported only here, as
+        # their number and their marker values, for the Kopiobjekt requirement. Absent without a marker.
+        **({"kopier": {"n": len(info["kopier"]),
+                       "verdier": [[v, c] for v, c in collections.Counter(info["kopier"].values()).most_common()]}}
+           if konfig.KOPI else {}),
         "typer_alle": [[k, nn, c] for (k, nn), c in typer_alle.most_common()],
         "psett": [{"navn": pn, "objekter": pset_tall[pn]["n"],
                    "klasser": dict(pset_klasser[pn].most_common()),

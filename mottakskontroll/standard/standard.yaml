@@ -263,6 +263,8 @@ etiketter:
   rolle_kopi: kopi
   rolle_eier: eier
   holdt_utenfor: holdt utenfor
+  kopier_holdt_utenfor: kopiobjekter holdt utenfor
+  kopier_ugyldig: kopiobjekter med ugyldig verdi
   holdt_utenfor_tittel: Holdt utenfor kontrollen
   holdt_utenfor_tekst: >-
     objekter er tatt ut av alle krav etter prosjektets regel, og er listet i typerapporten (arket Holdt utenfor)
@@ -545,6 +547,14 @@ blokker:
     tittel: Kopiobjekt
     krav_tekst: feltet finnes, verdien er eierens fagkode
     # No home in the IFC standard: «ikke konfigurert» until a project declares where it lives.
+    # Its `sted` is the project's copy marker (konfig.KOPI, with forventet.kopi_objekt and
+    # modeller.<label>.kopi_eier). edkjo 2026-11-27, superseding «a copy stays in every other
+    # requirement» (2026-09-29): «Anything that is a ref object is not subject to that model and
+    # therefore not valid data to check or use downstream for anything other than visualization in
+    # a vaccuum. So we need to strip those from the data extraction and only show them as their own
+    # layer for documentation». A copy is out of the counted set of every requirement, KPI, tally and
+    # export; this block measures the model's own objects and prints the copies' number (and those
+    # with an invalid marker value) beside its distribution. Nothing else lists them.
     dekning: finnes
 
   - id: mmi
