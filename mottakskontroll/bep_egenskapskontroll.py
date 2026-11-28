@@ -82,6 +82,9 @@ def konfig_nokkel(ps: dict | None, fagkoder: list[str], rot: Path | None = None)
                                   sort_keys=True).encode())
     if konfig.IKKE_TELT_VERDI:
         h.update(json.dumps(konfig.IKKE_TELT_VERDI, ensure_ascii=False, sort_keys=True).encode())
+    if konfig.KOPI:
+        # copies out of the counted set (2026-11-27); absent when no marker is configured
+        h.update(json.dumps(konfig.KOPI, ensure_ascii=False, sort_keys=True).encode())
     for e in (ps or {}).get("egenskaper") or []:
         if e.get("kodetabell"):
             h.update(stier.tabell_sti(e["kodetabell"], rot).read_bytes())
@@ -154,7 +157,7 @@ def _rep_flate(sr) -> bool:
             and (sr.RepresentationType or "").strip() in SOLID_TYPE)
 
 
-def telte(sti: Path, f=None) -> tuple[list[int], dict]:
+def telte(sti: Path, f=None, label: str | None = None) -> tuple[list[int], dict]:
     """The counted set (2026-09-28, ifcfast #201-#203 resolved): every IfcProduct row in ifcfast's
     products table with `has_body` true, or with no body but a 3D 'Surface' representation, that is
     in scope: an IfcElement of none of the standard.yaml `standard.ikke_telt` classes (2026-10-27),
@@ -165,7 +168,9 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
     meshing. Returns the step ids, ascending, and the reasons the other rows were not counted: per
     left-out class first, then the parts, then not an IfcElement (IfcSpace, annotations, proxies),
     then no 3D body. IfcSite / IfcBuilding / IfcBuildingStorey have no row in that table. `har_3d`
-    above is the earlier ifcopenshell rule and is no longer the denominator."""
+    above is the earlier ifcopenshell rule and is no longer the denominator. The project's own rules
+    (`ikke_telt_typer`, `ikke_telt_verdi`) and its copy marker (konfig.KOPI, read against model
+    `label`'s owner names) leave objects out too; copies are returned in `info["kopier"]`."""
     import ifcfast
     from ifcfast.classify import subtypes_of
     if f is None:
@@ -219,6 +224,16 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
                 utelatt_verdi[nokkel] = utelatt_verdi.get(nokkel, 0) + 1
                 prosjekt_ute[int(x)] = r["grunn"]
         rest &= ~df.step_id.astype(int).isin(ute)
+    # The copy/reference objects of model `label` by the project's marker (konfig.KOPI, edkjo
+    # 2026-11-27): out of the counted set of every requirement, step id -> marker value. Not listed
+    # with the objects the project leaves out: the Kopiobjekt requirement reports their count.
+    kopier: dict[int, str] = {}
+    if konfig.KOPI:
+        for x in df[rest & fys].step_id:
+            v = konfig.kopi_verdi(f.by_id(int(x)))
+            if konfig.er_kopi(v, label):
+                kopier[int(x)] = v
+        rest &= ~df.step_id.astype(int).isin(set(kopier))
     ids = [int(x) for x in df[rest & fys & df.has_body].step_id]
     body = {int(x) for x in df[df.has_body].step_id}
 
@@ -247,6 +262,10 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
         grunnlag += f", uten typene {', '.join(konfig.IKKE_TELT_TYPER)} (prosjektet)"
     for r in konfig.IKKE_TELT_VERDI:
         grunnlag += f", uten {r['pset']}.{r['egenskap']} = {'/'.join(r['verdier'])} (prosjektet)"
+    if konfig.KOPI:
+        st = konfig.KOPI["sted"]
+        grunnlag += (f", uten kopiobjekter ({st.get('pset') or st.get('pset_monster')}."
+                     f"{st.get('egenskap') or st.get('egenskap_monster')}, prosjektet)")
     if flate:
         grunnlag += f", pluss {len(flate)} uten Body med 3D 'Surface'"
     if sammensatt:
@@ -257,6 +276,8 @@ def telte(sti: Path, f=None) -> tuple[list[int], dict]:
             "utelatt_type": utelatt_type,
             "utelatt_verdi": utelatt_verdi,
             "prosjekt_ute": prosjekt_ute,
+            # the copy/reference objects (konfig.KOPI), step id -> marker value
+            "kopier": kopier,
             "ikke_fysisk": int((rest & ~fys).sum()),
             "uten_3d": int((rest & fys & ~df.has_body).sum()) - len(flate) - len(sammensatt),
             "rad_ids": set(int(x) for x in df.step_id),
@@ -305,7 +326,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
                 "eksportert": h.file_name.time_stamp, "system": h.file_name.originating_system,
                 "klasser": {}, "sjekk": {}, "verdier": {}, "funn": []}
     produkter = f.by_type("IfcProduct")
-    ids, info = telte(sti, f)
+    ids, info = telte(sti, f, label)
     elementer: list = [f.by_id(i) for i in ids]
     n = len(elementer)
     ut["n"] = n
@@ -314,6 +335,7 @@ def kontroll(label: str, sti: Path, ps: dict | None, fagkoder: list[str], rot: P
                              **({"del_av_element": info["del_av"]} if info["del_av"] else {}),
                              **{f"type:{k}": v for k, v in info["utelatt_type"].items() if v},
                              **{f"verdi:{k}": v for k, v in info["utelatt_verdi"].items() if v},
+                             **({"kopiobjekt": len(info["kopier"])} if info["kopier"] else {}),
                              "ikke_fysisk": info["ikke_fysisk"], "uten_3d": info["uten_3d"],
                              "romlig_struktur": len(produkter) - info["rader"]}
     ut["tellegrunnlag"] = info["grunnlag"]

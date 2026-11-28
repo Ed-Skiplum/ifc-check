@@ -643,16 +643,11 @@ def vurder_georeferering(reg: Register, s: dict, fil: Path | None = None) -> Vur
 def er_kopi(reg: Register, verdi: str, fag: str, label: str) -> bool:
     """Copy when the value marks it outright, or when it is not one of the values configured as
     naming this model (krav.yaml `modeller.<label>.kopi_eier`). A value in `eier_verdier`
-    (forventet.kopi_objekt, a boolean marker's FALSE) marks the model's own object."""
-    v = (verdi or "").strip()
-    if not v:
-        return False
-    if v.lower() in {str(x).lower() for x in reg.forventet["kopi_objekt"]["sanne_verdier"]}:
-        return True
-    if v.lower() in {str(x).lower() for x in reg.forventet["kopi_objekt"].get("eier_verdier") or []}:
-        return False
-    norm = lambda x: str(x).replace(" ", "").upper()
-    return norm(v) not in {norm(x) for x in reg.modeller[label].get("kopi_eier") or []}
+    (forventet.kopi_objekt, a boolean marker's FALSE) marks the model's own object. The rule is
+    konfig.er_kopi_verdi, the same one that takes copies out of the counted set."""
+    ko = reg.forventet["kopi_objekt"]
+    return konfig.er_kopi_verdi(verdi, ko["sanne_verdier"], ko.get("eier_verdier"),
+                                reg.modeller[label].get("kopi_eier"))
 
 
 def guid_forekomster(data: dict[str, dict], labels: list[str]) -> dict[str, list[tuple[str, str]]]:
@@ -1212,6 +1207,11 @@ class Modellberegning:
               "mock": rad["mock"] or rad.get("mock_verdikt", False), "dekning": rad["dekning"],
               "fordeling_alle": rad["fordeling_alle"], "spenn": rad.get("spenn", {})}
         ut["flagget"] = sum(n for _, n in rad["gyldighet"]["utenfor"]) if rad.get("gyldighet") else 0
+        if bid == "kopiobjekt" and self.bd.get("kopier") is not None:
+            # The copies, as numbers (beregnet.json readers): out of every requirement, counted here.
+            k = self.bd["kopier"]
+            ut["kopier"] = {"n": int(k["n"]),
+                            "ugyldige": sum(int(c) for v, c in k["verdier"] if not self.kopi_gyldig(v))}
         return ut
 
     def lesing(self, bid: str, bdef: dict, sted: dict, gren: str = "", grunnlag: int | None = None) -> dict:
@@ -1292,8 +1292,9 @@ class Modellberegning:
         # Etasjespenn (Ed-Skiplum/ifc-check#2) is not measured in v1: no span reading is attached,
         # so Objekter i etasje carries Dekning only. `spenn_mock` stays for the template.
         rad["fordeling_alle"] = ford
-        # Objects the project leaves out on this property's value (krav.yaml `ikke_telt_verdi`, KNM's
-        # IsReference = TRUE): not in the counted set, so their number is printed beside the distribution.
+        # Objects the project leaves out on this property's value (krav.yaml `ikke_telt_verdi`), and on
+        # Kopiobjekt the copy/reference objects (konfig.KOPI): not in the counted set, so their
+        # number is printed beside the distribution.
         rad["utenfor_omfang"] = self.utenfor_omfang(bdef)
         if bid == "typeobjekt":
             hale = next((e for e in ford if e.get("hale")), None)
@@ -1630,9 +1631,17 @@ class Modellberegning:
                 for g, c in sorted(per.items(), key=lambda kv: -sum(kv[1].values()))]
 
     def utenfor_omfang(self, bdef: dict) -> list[tuple[str, int]]:
-        """The `ikke_telt_verdi` rules on this requirement's own property, as (text, objects left out)."""
+        """The `ikke_telt_verdi` rules on this requirement's own property, as (text, objects left out).
+        On Kopiobjekt also the copies (blokkdata `kopier`), and those whose marker value is not valid:
+        the one place the report shows them (edkjo 2026-11-27)."""
         sted = bdef.get("sted") or {}
         ut = []
+        k = self.bd.get("kopier")
+        if bdef.get("id") == "kopiobjekt" and k is not None:
+            ut.append((E("kopier_holdt_utenfor"), int(k["n"])))
+            ugyldige = sum(int(c) for v, c in k["verdier"] if not self.kopi_gyldig(v))
+            if ugyldige:
+                ut.append((E("kopier_ugyldig"), ugyldige))
         for r in konfig.IKKE_TELT_VERDI:
             if r["egenskap"].replace(" ", "").lower() != str(sted.get("egenskap", "")).replace(" ", "").lower():
                 continue
@@ -1641,18 +1650,25 @@ class Modellberegning:
                 ut.append((f"{E('holdt_utenfor')} ({r['egenskap']} = {'/'.join(x.upper() for x in r['verdier'])})", n))
         return ut
 
-    def ford_kopiobjekt(self, bb):
-        godtatte = {f.upper() for f in self.reg.fagkoder}
-        sanne = {str(x).lower() for x in self.reg.forventet["kopi_objekt"]["sanne_verdier"]}
+    def kopi_gyldig(self, v: str) -> bool:
+        """A copy-marker value is valid: one of the block's `gyldige` (a boolean marker), any case;
+        else a fagkode or a value in `sanne_verdier`."""
         # A block declaring `gyldige` (a boolean marker) is valid on those values alone, any case.
         liste = next((b.get("gyldige") for b in self.reg.blokker if b["id"] == "kopiobjekt"), None)
+        if liste:
+            return v.strip().casefold() in {str(x).casefold() for x in liste}
+        sanne = {str(x).lower() for x in self.reg.forventet["kopi_objekt"]["sanne_verdier"]}
+        return v.strip().upper() in {f.upper() for f in self.reg.fagkoder} or v.strip().lower() in sanne
+
+    def ford_kopiobjekt(self, bb):
+        # The counted objects only: the copies are out of the counted set (konfig.KOPI) and are
+        # printed beside the distribution as their number (utenfor_omfang).
         ut = []
         for v, n, _ in bb["verdier"]:
             if v == "(tom)":
                 ut.append(element(v, n, "avvik"))
                 continue
-            gyldig = (v.strip().casefold() in {str(x).casefold() for x in liste} if liste
-                      else v.strip().upper() in godtatte or v.strip().lower() in sanne)
+            gyldig = self.kopi_gyldig(v)
             rolle = E("rolle_kopi") if er_kopi(self.reg, v, self.fag, self.label) else E("rolle_eier")
             ut.append(element(f"{rolle} · {kutt(v, 20)}", n, "" if gyldig else "avvik"))
         return ut, False

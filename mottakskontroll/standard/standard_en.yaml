@@ -222,6 +222,8 @@ etiketter:
   rolle_kopi: copy
   rolle_eier: owner
   holdt_utenfor: excluded
+  kopier_holdt_utenfor: copy objects excluded
+  kopier_ugyldig: copy objects with an invalid value
   holdt_utenfor_tittel: Left out of the check
   holdt_utenfor_tekst: >-
     objects are taken out of every requirement by the project's rule, and are listed in the type report (sheet Excluded)

@@ -79,7 +79,7 @@ Must declare (the engine reads these unconditionally):
 | `modeller` | every model label a round can carry, with `fagkode` and `kopi_eier` |
 | `krav` | the requirement register the blocks and the matrix refer to by id |
 | `kpi`, `bruk` | workbook numbers and use cases; may be empty lists |
-| `forventet` | `filnavn`, `koordineringsobjekt`, `plassering`, `georeferering`, `mmi.koder`, `kopi_objekt.sanne_verdier` |
+| `forventet` | `filnavn`, `koordineringsobjekt`, `plassering`, `georeferering`, `mmi.koder`, `kopi_objekt.sanne_verdier` (optional `eier_verdier`) |
 
 May declare:
 
@@ -96,7 +96,8 @@ May declare:
 | `blokker[]` of an opt-in standard block (`valgfri` in standard.yaml) | the block is measured and reported only when listed; its title and text are the `tittel` and `maaler` of the krav it ties, else `[WRITE]` |
 | `seksjoner`, `blokker[].seksjon` | the project's own report sections, `[{id, tittel}]` in report order, REPLACING the standard's (`ifc_helse`, `standardkrav`). `tittel` may be left out for a standard id, which keeps the standard's title. Every block in the report names one in `seksjon` (a standard block keeps its own unless the project sets it), else the run stops. Blocks run section by section, in the order the project lists them in `blokker`, then in the standard's order. Without `seksjoner`, sections and order are the standard's |
 | `ikke_telt_typer` | `{typenavn: grunn}`: occurrences of an IfcTypeObject with that name are out of the check's scope, as a `standard.ikke_telt` class is: not counted, not in Typeobjekt or the type report, listed in `ikke_telt_grunn` as `type:<name>`. Exact name, every model (KNM: Parking-Adaptive-HC) |
-| `ikke_telt_verdi` | list of `{pset, egenskap, verdier, grunn}`: an object whose property has one of `verdier` (text, any case; a boolean TRUE is `true`) is out of the check's scope, like `ikke_telt_typer`, listed in `ikke_telt_grunn` as `verdi:<pset>.<egenskap>`. Only a listed value excludes: no property, an empty one or another value stays in. The requirement on that property prints the number left out beside its distribution (KNM: KNM_Project.IsReference = TRUE). Every object either rule leaves out is listed: per reason and type at the top of the model report's comments, one row each in the type report's «Holdt utenfor» sheet (blokkdata `utelatt_objekter`) |
+| `ikke_telt_verdi` | list of `{pset, egenskap, verdier, grunn}`: an object whose property has one of `verdier` (text, any case; a boolean TRUE is `true`) is out of the check's scope, like `ikke_telt_typer`, listed in `ikke_telt_grunn` as `verdi:<pset>.<egenskap>`. Only a listed value excludes: no property, an empty one or another value stays in. The requirement on that property prints the number left out beside its distribution. Copy/reference objects do not go here: the copy marker takes them out (see «Copy objects»), and they are counted, not listed. Every object either rule leaves out is listed: per reason and type at the top of the model report's comments, one row each in the type report's «Holdt utenfor» sheet (blokkdata `utelatt_objekter`) |
+| `blokker[kopiobjekt].sted` | the copy marker (a property location). With it, every copy/reference object is out of the counted set of every requirement, KPI, tally and workbook, and shows only as a number beside Kopiobjekt's distribution; see «Copy objects» below |
 | `uten_rapport`, `faggrupper` | fagkoder or model labels with no report; avvik workbook groups (unlisted model = own group) |
 | `skjema` | accepted/recommended schemas, replaces the standard's |
 | `merknader`, `merknader_modell` | the report's only sentences |
@@ -108,6 +109,32 @@ May declare:
 Table paths (`kodetabell`, `kodeliste.fil`, `mengdetype[].tabell`): absolute as given; a bare
 name that exists in `standard/` is the standard's table; any other relative path resolves against
 the project config's directory. A bare name present in both places is an error.
+
+## Copy objects
+
+edkjo 2026-11-27, superseding «a copy stays in every other requirement» (2026-09-29):
+«we need to have the "filter away reference/copy objects" in the dash and data checks overall. Anything that is a ref object is not subject to that model and therefore not valid data to check or use downstream for anything other than visualization in a vaccuum. So we need to strip those from the data extraction and only show them as their own layer for documentation».
+
+One place decides it: `konfig.KOPI`, set by `sett_omfang` from the `kopiobjekt` block's `sted`
+(the marker), `forventet.kopi_objekt` (`sanne_verdier`, `eier_verdier`) and
+`modeller.<label>.kopi_eier`. Per object, read against the model it is in (`konfig.er_kopi_verdi`):
+blank, an `eier_verdier` value or one of the model's `kopi_eier` = own; a `sanne_verdier` value, or
+any other value (it names another owner) = a copy. Boolean marker (KNM `IsReference`):
+`sanne_verdier: ['true']`, `eier_verdier: ['false']`. Owner marker (HI90 `HI90_Kopi objekt`, G55
+`G55_EIES`): owner names per model.
+
+`bep_egenskapskontroll.telte` takes copies out of the counted set, and `konfig.i_omfang` out of
+the Typeobjekt set, the pset gallery and the KPI band, so every block, tally (`data.json`), the
+avvik and type workbooks and GUID på tvers read the model's own objects only. They are not listed
+with the objects the project leaves out (`ikke_telt_*`). The Kopiobjekt block measures the own
+objects' marker and prints the copies beside its distribution: «kopiobjekter holdt utenfor ×N», and
+«kopiobjekter med ugyldig verdi ×N» when a copy's value is not a valid marker value; `beregnet.json`
+carries `kopier: {n, ugyldige}` on the block. Without a `sted` on Kopiobjekt (or with it
+`utelatt`), nothing is excluded. A Kopiobjekt `sted` without `forventet.kopi_objekt`, a model
+missing from `modeller` that carries an owner value, or an `egenskapskontroll`/`prosjektpsett` copy
+property other than the block's `sted` stops the run.
+
+Tests: `python -m pytest mottakskontroll/tests -q` (synthetic file, boolean and owner marker).
 
 ## Type report
 

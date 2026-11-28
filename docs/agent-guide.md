@@ -43,7 +43,7 @@ sheet each goes to, the conventions, and every column.
 | `storeys` | Etasjeoppsett, Etasjer | `storey-config` |
 | mapping `system-classification`, `component-classification` | Klassifikasjon | Systemkode, Komponentklasse |
 | mapping `progress-code` and its `codes` (code, name, phase) | MMI, MMI-koder | Prosesstatuskode (MMI) |
-| the `copy-object` check (copy, own) | Kopiobjekt | Duplikat objekt: a scope filter, never a finding |
+| the `copy-object` check (copy, own) | Kopiobjekt | Duplikat objekt: a scope filter, never a finding; copies are out of every other count and show only here, as a count |
 | `disciplines`, `models` | Fag, Modeller | `model.label`, `discipline`, `group`, `report`; exemptions |
 | `projectLayer` | Standardkrav, Kilder | `ifc-schema`, `phase`, `material-product` |
 | other extended rules | Andre regler (JSON) | one row each |
@@ -179,6 +179,10 @@ fordeling, funn, godtatte. Full contract: AGENTS.md "Report contract".
 - **Norwegian terms as the report and UI use them** (avvik, mangler, Ikke anvendt, Etasjeoppsett).
   Don't coin translations.
 - A model that passes because nothing applied has not passed. Say so.
+- **Copy/reference objects are not the model's data** (edkjo 2026-11-27, superseding
+  2026-09-29 «a copy stays in every other requirement»): «we need to have the "filter away reference/copy objects" in the dash and data checks overall. Anything that is a ref object is not subject to that model and therefore not valid data to check or use downstream for anything other than visualization in a vaccuum. So we need to strip those from the data extraction and only show them as their own layer for documentation». Every requirement, KPI and
+  tally is over the model's own objects; the Kopiobjekt row is the only place copies show,
+  as their number. Don't add copies back into a figure, and don't list them elsewhere.
 - Don't write the user's comments or deliverable prose for them.
 
 ## 7. Known engine limits a user will hit

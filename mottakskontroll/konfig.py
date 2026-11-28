@@ -56,14 +56,51 @@ FYSISK, IKKE_TELT, DEL_AV = _omfang()
 # and bep_egenskapskontroll.kjør call before anything is measured.
 IKKE_TELT_TYPER: dict[str, str] = {}
 # The project's scope exclusion by property value (krav.yaml `ikke_telt_verdi`, a list of {pset,
-# egenskap, verdier, grunn}; edkjo 2026-11-18: KNM's reference objects, KNM_Project.IsReference =
-# TRUE). Only a listed value excludes: an object without the property, or with any other value, stays.
+# egenskap, verdier, grunn}; edkjo 2026-11-18, first for KNM's reference objects; since 2026-11-27
+# copies go through the copy marker, `KOPI` below). Only a listed value excludes: an object without
+# the property, or with any other value, stays.
 IKKE_TELT_VERDI: list[dict] = []
+# The project's copy marker (edkjo 2026-11-27, superseding «a copy stays in every other
+# requirement», 2026-09-29): «Anything that is a ref object is not subject to that model and
+# therefore not valid data to check or use downstream for anything other than visualization in a
+# vaccuum. So we need to strip those from the data extraction and only show them as their own layer
+# for documentation». A copy leaves the counted set of every requirement, KPI, tally and export;
+# the Kopiobjekt requirement reports how many there are. Set by `sett_omfang` from the
+# `kopiobjekt` block's `sted` (krav.yaml `blokker`), `forventet.kopi_objekt` and
+# `modeller.<label>.kopi_eier`; empty when the project configures no marker (nothing excluded).
+KOPI: dict = {}
+
+
+def _kopi_oppsett(prj: dict) -> dict:
+    """The copy marker as `sett_omfang` keeps it: {sted, sanne, eier, eiere}, or {} when the
+    project's `kopiobjekt` block has no `sted` (or is `utelatt`)."""
+    kb = next((b for b in prj.get("blokker") or [] if b.get("id") == "kopiobjekt"), None) or {}
+    sted = kb.get("sted")
+    if not sted or kb.get("utelatt"):
+        return {}
+    if not (sted.get("pset") or sted.get("pset_monster")) or not (sted.get("egenskap") or sted.get("egenskap_monster")):
+        raise SystemExit(f"FEIL: kopiobjekt: sted skal være en egenskap {{pset, egenskap}}, ikke {sted}")
+    ko = (prj.get("forventet") or {}).get("kopi_objekt")
+    if not isinstance(ko, dict) or not isinstance(ko.get("sanne_verdier"), list):
+        raise SystemExit("FEIL: kopiobjekt har sted, men forventet.kopi_objekt.sanne_verdier mangler")
+    # One marker: the property set check's copy property, where there is one, is the same property.
+    ps = egenskapskontroll(prj)
+    kn = psett_egenskap(ps, "fagkode")
+    if kn and sted.get("egenskap") and (_uten_mellomrom(kn) != _uten_mellomrom(sted["egenskap"]) or (
+            sted.get("pset") and _uten_mellomrom(ps["navn"]) != _uten_mellomrom(sted["pset"]))):
+        raise SystemExit(f"FEIL: kopimarkøren er {sted.get('pset')}.{sted['egenskap']} i blokker.kopiobjekt, "
+                         f"men {ps['navn']}.{kn} i egenskapskontrollen")
+    return {"sted": {k: str(v) for k, v in sted.items() if k in ("pset", "egenskap", "pset_monster", "egenskap_monster")},
+            "sanne": sorted({str(x).strip().lower() for x in ko["sanne_verdier"]}),
+            "eier": sorted({str(x).strip().lower() for x in ko.get("eier_verdier") or []}),
+            "eiere": {str(lab): sorted({_eiernavn(x) for x in (m or {}).get("kopi_eier") or []})
+                      for lab, m in (prj.get("modeller") or {}).items()}}
 
 
 def sett_omfang(prj: dict) -> None:
     """The project's type and value exclusions, checked: `ikke_telt_typer` a mapping of type name
-    to reason, `ikke_telt_verdi` a list of {pset, egenskap, verdier, grunn}."""
+    to reason, `ikke_telt_verdi` a list of {pset, egenskap, verdier, grunn}; and its copy marker
+    (`KOPI`)."""
     t = prj.get("ikke_telt_typer") or {}
     if not isinstance(t, dict) or any(not str(v).strip() for v in t.values()):
         raise SystemExit("FEIL: ikke_telt_typer i krav.yaml skal være typenavn -> grunn")
@@ -77,6 +114,67 @@ def sett_omfang(prj: dict) -> None:
     IKKE_TELT_VERDI[:] = [{"pset": str(r["pset"]), "egenskap": str(r["egenskap"]),
                            "verdier": sorted({str(x).strip().casefold() for x in r["verdier"]}),
                            "grunn": str(r["grunn"])} for r in v]
+    KOPI.clear()
+    KOPI.update(_kopi_oppsett(prj))
+
+
+def _eiernavn(x) -> str:
+    return str(x).replace(" ", "").upper()
+
+
+def er_kopi_verdi(verdi: str, sanne, eier, kopi_eier) -> bool:
+    """How one copy-marker value reads, the one rule (every consumer calls it): blank = the model's
+    own object; a value in `sanne` (forventet.kopi_objekt.sanne_verdier) = a copy outright; a value
+    in `eier` (`eier_verdier`, a boolean marker's FALSE) = own; one of `kopi_eier` (the model's
+    `modeller.<label>.kopi_eier`, compared without spaces and case) = own; any other value names
+    another owner, so a copy."""
+    v = (verdi or "").strip()
+    if not v:
+        return False
+    if v.lower() in {str(x).strip().lower() for x in sanne}:
+        return True
+    if v.lower() in {str(x).strip().lower() for x in eier or []}:
+        return False
+    return _eiernavn(v) not in {_eiernavn(x) for x in kopi_eier or []}
+
+
+def kopi_verdi(e) -> str:
+    """The value of the project's copy marker (`KOPI` sted) on an object, its own value over its
+    type's (ifcopenshell merges them), set and property names matched without spaces and case, as
+    blokkdata's Oppslag reads them; '' when absent or blank."""
+    import ifcopenshell.util.element as ue
+    s = KOPI["sted"]
+    for pnavn, props in (ue.get_psets(e) or {}).items():
+        if "pset" in s and _uten_mellomrom(pnavn) != _uten_mellomrom(s["pset"]):
+            continue
+        if "pset_monster" in s and not re.search(s["pset_monster"], pnavn, re.I):
+            continue
+        for k, v in props.items():
+            if k == "id":
+                continue
+            if "egenskap" in s and _uten_mellomrom(k) != _uten_mellomrom(s["egenskap"]):
+                continue
+            if "egenskap_monster" in s and not re.search(s["egenskap_monster"], k.strip(), re.I):
+                continue
+            return "" if v is None else str(v).strip()
+    return ""
+
+
+def er_kopi(verdi: str, label: str | None) -> bool:
+    """A marker value on model `label` marks a copy (`er_kopi_verdi` with the project's `KOPI`).
+    Without a configured marker nothing is a copy."""
+    if not KOPI:
+        return False
+    v = (verdi or "").strip()
+    if v and v.lower() not in KOPI["sanne"] and v.lower() not in KOPI["eier"] and label not in KOPI["eiere"]:
+        # The value can only be read against this model's owner names: an unknown model cannot be read.
+        raise SystemExit(f"FEIL: {label}: modellen mangler i modeller, kopimarkøren «{v}» kan ikke leses")
+    return er_kopi_verdi(v, KOPI["sanne"], KOPI["eier"], KOPI["eiere"].get(label or "", []))
+
+
+def kopiobjekt(e, label: str | None) -> bool:
+    """The object is a copy/reference object of model `label` by the project's marker."""
+    return bool(KOPI) and er_kopi(kopi_verdi(e), label)
 
 
 def utelatt(e) -> str | None:
@@ -128,12 +226,13 @@ def utelatt_verdi(e) -> dict | None:
     return None
 
 
-def i_omfang(e) -> bool:
+def i_omfang(e, label: str | None = None) -> bool:
     """A physical object in the check: an IfcElement of no `ikke_telt` class, not a part of
     another element (`ikke_telt_del_av`): the owner is the object reported, of no type the
-    project leaves out (`ikke_telt_typer`) and with no property value it leaves out (`ikke_telt_verdi`)."""
+    project leaves out (`ikke_telt_typer`), with no property value it leaves out (`ikke_telt_verdi`),
+    and not a copy of model `label` by the project's marker (`KOPI`)."""
     return (e.is_a(FYSISK) and utelatt(e) is None and eier(e) is None and utelatt_type(e) is None
-            and utelatt_verdi(e) is None)
+            and utelatt_verdi(e) is None and not kopiobjekt(e, label))
 
 
 # The rules a `prosjektpsett` property can carry (bep_egenskapskontroll.py measures them).
